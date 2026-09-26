@@ -7,7 +7,7 @@ from django.contrib import messages
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
-from django.db import transaction
+from django.db import transaction, DatabaseError
 from django.db.models import Count, Sum, Q
 from django.http import JsonResponse
 from django.shortcuts import render, redirect, get_object_or_404
@@ -17,7 +17,7 @@ from django.views.decorators.csrf import csrf_exempt
 from .forms import RegisterForm, RouterForm, PlanForm
 from .models import (
     Business, Subscription, VoucherPlan, Router, VoucherBatch, Voucher, Activity,
-    SyncedIPBinding, RouterHotspotProfile, RouterDevice, RouterInterfaceRole,
+    SyncedIPBinding, RouterHotspotProfile, RouterHotspotUser, RouterNeighbor, RouterDevice, RouterInterfaceRole,
     RouterConfigSnapshot, RouterConfigChange, RouterSyncJob,
 )
 from .mikrotik import MikroTikService, MikroTikError, redact
@@ -153,14 +153,51 @@ def routers(request):
     business=b(request);form=RouterForm(request.POST or None)
     if request.method=='POST' and form.is_valid():
         obj=form.save(commit=False);obj.business=business;obj.save();messages.success(request,'Router added.');return redirect('routers')
-    router_rows=list(business.routers.annotate(hotspot_user_count=Count('hotspot_users',distinct=True),binding_count=Count('synced_ip_bindings',distinct=True),online_neighbor_count=Count('neighbors',filter=Q(neighbors__is_online=True),distinct=True),device_count=Count('devices',filter=Q(devices__is_online=True),distinct=True)))
+    # IMPORTANT: do not annotate all inventory relations in one SQL query.
+    # Joining hotspot users + IP bindings + neighbors + devices creates a
+    # multiplicative Cartesian result set on real routers and can make the
+    # /routers/ request run for minutes.  Use four small GROUP BY queries
+    # instead; each relation is counted independently and remains fast even
+    # when the synchronized MAC/device inventory is large.
+    router_rows=list(business.routers.all().order_by('name'))
+    router_ids=[router.id for router in router_rows]
+
+    def grouped_counts(queryset):
+        return {row['router_id']: row['total'] for row in queryset.values('router_id').annotate(total=Count('id'))}
+
+    hotspot_counts=grouped_counts(RouterHotspotUser.objects.filter(business=business,router_id__in=router_ids))
+    binding_counts=grouped_counts(SyncedIPBinding.objects.filter(business=business,router_id__in=router_ids))
+    neighbor_counts=grouped_counts(RouterNeighbor.objects.filter(router_id__in=router_ids,is_online=True))
+    device_counts=grouped_counts(RouterDevice.objects.filter(router_id__in=router_ids,is_online=True))
+
+    for router in router_rows:
+        router.hotspot_user_count=hotspot_counts.get(router.id,0)
+        router.binding_count=binding_counts.get(router.id,0)
+        router.online_neighbor_count=neighbor_counts.get(router.id,0)
+        router.device_count=device_counts.get(router.id,0)
+
+    # Keep the router page usable even if a newly deployed background-sync
+    # migration has not yet been applied.  Also never scan the full sync-job
+    # history just to draw this page; fetch only the latest job per router and
+    # the 12 rows shown by the monitor.
     latest_jobs={}
-    for job in business.router_sync_jobs.select_related('router').order_by('router_id','-created_at'):
-        latest_jobs.setdefault(job.router_id,job)
+    recent_jobs=[]
+    sync_schema_ready=True
+    try:
+        for router in router_rows:
+            job=business.router_sync_jobs.filter(router_id=router.id).order_by('-created_at').first()
+            if job:
+                latest_jobs[router.id]=job
+        recent_jobs=list(business.router_sync_jobs.select_related('router').order_by('-created_at')[:12])
+    except DatabaseError:
+        sync_schema_ready=False
+
     for router in router_rows:
         router.latest_sync_job=latest_jobs.get(router.id)
-    recent_jobs=business.router_sync_jobs.select_related('router').all()[:12]
-    return render(request,'core/routers.html',{'routers':router_rows,'form':form,'recent_sync_jobs':recent_jobs})
+    return render(request,'core/routers.html',{
+        'routers':router_rows,'form':form,'recent_sync_jobs':recent_jobs,
+        'sync_schema_ready':sync_schema_ready,
+    })
 
 
 @login_required
@@ -198,19 +235,26 @@ def routers_sync_all(request):
 @login_required
 def router_sync_status(request):
     business=b(request)
-    jobs=business.router_sync_jobs.select_related('router').all()[:30]
-    data=[]
-    for job in jobs:
-        summary=job.summary or {}
-        data.append({
-            'id':job.id,'router_id':job.router_id,'router_name':job.router.name,
-            'status':job.status,'progress':job.progress,'phase':job.phase,
-            'error':job.error,'summary':summary,
-            'created_at':job.created_at.isoformat(),
-            'started_at':job.started_at.isoformat() if job.started_at else None,
-            'finished_at':job.finished_at.isoformat() if job.finished_at else None,
-        })
-    return JsonResponse({'success':True,'active_count':sum(1 for x in data if x['status'] in ('queued','running')),'jobs':data})
+    try:
+        jobs=business.router_sync_jobs.select_related('router').all()[:30]
+        data=[]
+        for job in jobs:
+            summary=job.summary or {}
+            data.append({
+                'id':job.id,'router_id':job.router_id,'router_name':job.router.name,
+                'status':job.status,'progress':job.progress,'phase':job.phase,
+                'error':job.error,'summary':summary,
+                'created_at':job.created_at.isoformat(),
+                'started_at':job.started_at.isoformat() if job.started_at else None,
+                'finished_at':job.finished_at.isoformat() if job.finished_at else None,
+            })
+        return JsonResponse({'success':True,'active_count':sum(1 for x in data if x['status'] in ('queued','running')),'jobs':data})
+    except DatabaseError:
+        return JsonResponse({
+            'success':False,'active_count':0,'jobs':[],
+            'migration_required':True,
+            'message':'Background sync database migration is not applied yet. Run python manage.py migrate.'
+        },status=503)
 
 
 @login_required

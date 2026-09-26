@@ -4,8 +4,16 @@
 {% block content %}
 <div class="page-actions">
   <div><h2 class="section-title">Router control & synchronization</h2><p>Pull plans, vouchers, MAC inventory and RouterOS configuration; push TapTap records back safely.</p></div>
-  {% if routers %}<form method="post" action="{% url 'routers_sync_all' %}">{% csrf_token %}<button class="btn btn-primary sync-btn"><i class="bi bi-arrow-repeat"></i> Full sync all routers</button></form>{% endif %}
+  {% if routers %}<form method="post" action="{% url 'routers_sync_all' %}">{% csrf_token %}<button class="btn btn-primary sync-btn" {% if not sync_schema_ready %}disabled title="Run database migrations first"{% endif %}><i class="bi bi-arrow-repeat"></i> Full sync all routers</button></form>{% endif %}
 </div>
+
+{% if not sync_schema_ready %}
+<div class="alert alert-warning d-flex align-items-start gap-2 mb-4" role="alert">
+  <i class="bi bi-database-exclamation fs-4"></i>
+  <div><strong>Database migration required.</strong><br>
+  The router page is available, but background synchronization is temporarily disabled because migration <code>0004_router_sync_jobs</code> has not been applied. Run <code>docker compose exec web python manage.py migrate</code>, then restart the web and worker containers.</div>
+</div>
+{% endif %}
 
 <div class="sync-explainer mb-4">
   <div><i class="bi bi-cloud-arrow-down"></i><span><b>Pull everything useful</b><small>HotSpot profiles → plans, users → vouchers, IP bindings, MAC/device inventory, ports, neighbors and configuration snapshot.</small></span></div>
@@ -43,7 +51,7 @@
           <div class="router-mini-stats"><span><i class="bi bi-ticket-perforated"></i>{{ r.hotspot_user_count }} users</span><span><i class="bi bi-shield-lock"></i>{{ r.binding_count }} bindings</span><span><i class="bi bi-broadcast-pin"></i>{{ r.online_neighbor_count }} neighbors</span><span><i class="bi bi-laptop"></i>{{ r.device_count }} devices</span></div>
           {% if r.last_error %}<small class="router-error">{{ r.last_error|truncatechars:100 }}</small>{% endif %}
         </div>
-        <div class="router-actions"><a class="btn btn-sm btn-dark" href="{% url 'router_control' r.id %}"><i class="bi bi-sliders"></i> Control</a><form method="post" action="{% url 'router_sync' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary router-sync-button" data-router-id="{{ r.id }}" {% if r.latest_sync_job.is_active %}disabled{% endif %}><i class="bi bi-arrow-repeat"></i> <span>{% if r.latest_sync_job.is_active %}Syncing…{% else %}Sync{% endif %}</span></button></form><a class="btn btn-sm btn-outline-primary" href="{% url 'router_test' r.id %}"><i class="bi bi-activity"></i> Test</a><a class="btn btn-sm btn-outline-danger" href="{% url 'router_delete' r.id %}" onclick="return confirm('Delete this router from TapTap?')"><i class="bi bi-trash3"></i></a></div>
+        <div class="router-actions"><a class="btn btn-sm btn-dark" href="{% url 'router_control' r.id %}"><i class="bi bi-sliders"></i> Control</a><form method="post" action="{% url 'router_sync' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary router-sync-button" data-router-id="{{ r.id }}" {% if not sync_schema_ready or r.latest_sync_job.is_active %}disabled{% endif %}><i class="bi bi-arrow-repeat"></i> <span>{% if r.latest_sync_job.is_active %}Syncing…{% else %}Sync{% endif %}</span></button></form><a class="btn btn-sm btn-outline-primary" href="{% url 'router_test' r.id %}"><i class="bi bi-activity"></i> Test</a><a class="btn btn-sm btn-outline-danger" href="{% url 'router_delete' r.id %}" onclick="return confirm('Delete this router from TapTap?')"><i class="bi bi-trash3"></i></a></div>
       </div>
       {% empty %}<div class="empty-mini">No routers connected yet.</div>{% endfor %}
       </div>
