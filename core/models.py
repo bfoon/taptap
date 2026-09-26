@@ -1,0 +1,144 @@
+from django.db import models
+from django.contrib.auth.models import User
+from django.utils import timezone
+from datetime import timedelta
+
+class Business(models.Model):
+    SUBS=[('trial','Trial'),('active','Active'),('expired','Expired'),('pending','Pending')]
+    user=models.OneToOneField(User,on_delete=models.CASCADE,related_name='business')
+    business_name=models.CharField(max_length=180)
+    owner_name=models.CharField(max_length=180)
+    phone=models.CharField(max_length=60)
+    subscription_status=models.CharField(max_length=20,choices=SUBS,default='trial')
+    trial_ends_at=models.DateTimeField()
+    subscription_expires_at=models.DateTimeField(null=True,blank=True)
+    is_unlimited=models.BooleanField(default=False)
+    created_at=models.DateTimeField(auto_now_add=True)
+    def access_expires_at(self): return self.subscription_expires_at if self.subscription_status=='active' else self.trial_ends_at
+    @property
+    def has_access(self):
+        if self.is_unlimited:return True
+        exp=self.access_expires_at(); return bool(exp and exp>timezone.now())
+    @property
+    def days_left(self):
+        if self.is_unlimited:return 9999
+        exp=self.access_expires_at(); return max(0,(exp-timezone.now()).days+1) if exp else 0
+    def __str__(self): return self.business_name
+
+class Subscription(models.Model):
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='subscriptions')
+    plan=models.CharField(max_length=60); amount=models.DecimalField(max_digits=10,decimal_places=2)
+    payment_method=models.CharField(max_length=60,default='Manual'); payment_status=models.CharField(max_length=30,default='Pending')
+    transaction_id=models.CharField(max_length=120,blank=True); starts_at=models.DateTimeField(null=True,blank=True); expires_at=models.DateTimeField(null=True,blank=True); created_at=models.DateTimeField(auto_now_add=True)
+
+class VoucherPlan(models.Model):
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='plans',null=True,blank=True)
+    name=models.CharField(max_length=80); price=models.DecimalField(max_digits=10,decimal_places=2,default=0); duration_hours=models.PositiveIntegerField(default=24); max_devices=models.PositiveIntegerField(default=1); speed_limit=models.CharField(max_length=50,blank=True); data_limit_mb=models.PositiveIntegerField(null=True,blank=True); active=models.BooleanField(default=True)
+    class Meta: unique_together=('business','name')
+    def __str__(self): return self.name
+
+class Router(models.Model):
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='routers')
+    name=models.CharField(max_length=120); ip_address=models.CharField(max_length=120); username=models.CharField(max_length=120); password=models.CharField(max_length=255); api_port=models.PositiveIntegerField(default=8728); use_ssl=models.BooleanField(default=False); status=models.CharField(max_length=40,default='Not connected'); last_error=models.TextField(blank=True); last_tested_at=models.DateTimeField(null=True,blank=True); created_at=models.DateTimeField(auto_now_add=True)
+
+class VoucherBatch(models.Model):
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='batches'); name=models.CharField(max_length=120); plan=models.ForeignKey(VoucherPlan,on_delete=models.SET_NULL,null=True); quantity=models.PositiveIntegerField(default=1); created_at=models.DateTimeField(auto_now_add=True)
+
+class Voucher(models.Model):
+    STATUS=[('active','Active'),('disabled','Disabled'),('expired','Expired')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='vouchers'); batch=models.ForeignKey(VoucherBatch,on_delete=models.SET_NULL,null=True,blank=True,related_name='vouchers'); router=models.ForeignKey(Router,on_delete=models.SET_NULL,null=True,blank=True,related_name='vouchers'); code=models.CharField(max_length=32,unique=True); plan_name=models.CharField(max_length=80); price=models.DecimalField(max_digits=10,decimal_places=2,default=0); duration_hours=models.PositiveIntegerField(default=24); max_devices=models.PositiveIntegerField(default=1); status=models.CharField(max_length=20,choices=STATUS,default='active'); expires_at=models.DateTimeField(null=True,blank=True); used_at=models.DateTimeField(null=True,blank=True); mikrotik_sync_status=models.CharField(max_length=30,default='Pending'); mikrotik_sync_error=models.TextField(blank=True); created_at=models.DateTimeField(auto_now_add=True)
+
+class VoucherDeviceBinding(models.Model):
+    business=models.ForeignKey(Business,on_delete=models.CASCADE); voucher=models.ForeignKey(Voucher,on_delete=models.CASCADE,related_name='device_bindings'); slot_no=models.PositiveIntegerField(default=1); device_token_hash=models.CharField(max_length=128); current_mac=models.CharField(max_length=32); previous_mac=models.CharField(max_length=32,blank=True); first_bound_at=models.DateTimeField(auto_now_add=True); last_seen_at=models.DateTimeField(auto_now=True)
+    class Meta: unique_together=('voucher','slot_no')
+
+class IPBindingAccessExpiry(models.Model):
+    business=models.ForeignKey(Business,on_delete=models.CASCADE); router=models.ForeignKey(Router,on_delete=models.CASCADE); binding_id=models.CharField(max_length=120); mac_address=models.CharField(max_length=32,blank=True); enabled_at=models.DateTimeField(auto_now_add=True); expires_at=models.DateTimeField(); updated_at=models.DateTimeField(auto_now=True)
+    class Meta: unique_together=('business','router','binding_id')
+
+class Activity(models.Model):
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='activities'); type=models.CharField(max_length=80); details=models.CharField(max_length=255); status=models.CharField(max_length=40,default='Success'); created_at=models.DateTimeField(auto_now_add=True)
+
+class RouterHotspotUser(models.Model):
+    """Mirror of hotspot users discovered directly on a MikroTik router.
+
+    This is intentionally separate from Voucher: a manually-created RouterOS user
+    should not become a sold TapTap voucher just because a sync discovered it.
+    """
+    SOURCE=[('mikrotik','MikroTik'),('taptap','TapTap')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='router_hotspot_users')
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='hotspot_users')
+    username=models.CharField(max_length=120)
+    mikrotik_id=models.CharField(max_length=120,blank=True)
+    profile=models.CharField(max_length=120,blank=True)
+    mac_address=models.CharField(max_length=32,blank=True)
+    comment=models.CharField(max_length=255,blank=True)
+    limit_uptime=models.CharField(max_length=80,blank=True)
+    uptime=models.CharField(max_length=80,blank=True)
+    disabled=models.BooleanField(default=False)
+    source=models.CharField(max_length=20,choices=SOURCE,default='mikrotik')
+    is_present=models.BooleanField(default=True)
+    raw_data=models.JSONField(default=dict,blank=True)
+    last_seen_at=models.DateTimeField(default=timezone.now)
+    updated_at=models.DateTimeField(auto_now=True)
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['router','username'],name='uniq_router_hotspot_username')]
+    def __str__(self): return f'{self.router.name}: {self.username}'
+
+class SyncedIPBinding(models.Model):
+    SOURCE=[('mikrotik','MikroTik'),('taptap','TapTap')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='synced_ip_bindings')
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='synced_ip_bindings')
+    mikrotik_id=models.CharField(max_length=120,blank=True)
+    mac_address=models.CharField(max_length=32,blank=True)
+    address=models.CharField(max_length=120,blank=True)
+    server=models.CharField(max_length=120,blank=True)
+    binding_type=models.CharField(max_length=40,default='bypassed')
+    comment=models.CharField(max_length=255,blank=True)
+    disabled=models.BooleanField(default=False)
+    source=models.CharField(max_length=20,choices=SOURCE,default='mikrotik')
+    sync_status=models.CharField(max_length=30,default='Synced')
+    sync_error=models.TextField(blank=True)
+    is_present=models.BooleanField(default=True)
+    raw_data=models.JSONField(default=dict,blank=True)
+    last_seen_at=models.DateTimeField(default=timezone.now)
+    updated_at=models.DateTimeField(auto_now=True)
+    def __str__(self): return f'{self.router.name}: {self.mac_address or self.address or self.mikrotik_id}'
+
+class RouterInterface(models.Model):
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='interfaces')
+    name=models.CharField(max_length=120)
+    default_name=models.CharField(max_length=120,blank=True)
+    interface_type=models.CharField(max_length=80,blank=True)
+    mac_address=models.CharField(max_length=32,blank=True)
+    comment=models.CharField(max_length=255,blank=True)
+    running=models.BooleanField(default=False)
+    disabled=models.BooleanField(default=False)
+    mtu=models.CharField(max_length=40,blank=True)
+    rx_byte=models.BigIntegerField(default=0)
+    tx_byte=models.BigIntegerField(default=0)
+    is_present=models.BooleanField(default=True)
+    raw_data=models.JSONField(default=dict,blank=True)
+    last_seen_at=models.DateTimeField(default=timezone.now)
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['router','name'],name='uniq_router_interface_name')]
+    def __str__(self): return f'{self.router.name}: {self.name}'
+
+class RouterNeighbor(models.Model):
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='neighbors')
+    neighbor_key=models.CharField(max_length=255)
+    identity=models.CharField(max_length=180,blank=True)
+    address=models.CharField(max_length=120,blank=True)
+    mac_address=models.CharField(max_length=32,blank=True)
+    interface_name=models.CharField(max_length=120,blank=True)
+    platform=models.CharField(max_length=180,blank=True)
+    board=models.CharField(max_length=180,blank=True)
+    version=models.CharField(max_length=120,blank=True)
+    discovered_by=models.CharField(max_length=120,blank=True)
+    device_kind=models.CharField(max_length=40,default='network')
+    is_online=models.BooleanField(default=True)
+    raw_data=models.JSONField(default=dict,blank=True)
+    last_seen_at=models.DateTimeField(default=timezone.now)
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['router','neighbor_key'],name='uniq_router_neighbor_key')]
+    def __str__(self): return self.identity or self.mac_address or self.address or self.neighbor_key

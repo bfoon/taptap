@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-taptap}
+      POSTGRES_USER: ${POSTGRES_USER:-taptap}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taptap}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-taptap} -d ${POSTGRES_DB:-taptap}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - static_volume:/app/staticfiles
+volumes:
+  postgres_data:
+  static_volume:

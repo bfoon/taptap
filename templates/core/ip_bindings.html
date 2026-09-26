@@ -1,0 +1,20 @@
+{% extends 'core/base.html' %}
+{% block title %}IP Binding — TapTap{% endblock %}
+{% block heading %}IP Binding{% endblock %}
+{% block content %}
+{% for e in errors %}<div class="alert alert-warning">{{ e }}</div>{% endfor %}
+<div class="page-actions"><div><h2 class="section-title">Router IP bindings</h2><p>Live RouterOS bindings are shown below. TapTap-created bindings are kept in the database and pushed again during synchronization.</p></div><a href="{% url 'routers' %}" class="btn btn-outline-primary"><i class="bi bi-arrow-repeat"></i> Router Sync</a></div>
+<div class="row g-4">
+ <div class="col-xl-8">
+  <div class="panel">
+   <div class="table-responsive"><table class="table align-middle"><thead><tr><th>MAC</th><th>Address</th><th>Type</th><th>Comment</th><th>Router</th><th></th></tr></thead><tbody>
+   {% for x in rows %}<tr><td><code>{{ x.mac_address|default:'—' }}</code></td><td>{{ x.address|default:'—' }}</td><td>{{ x.type|default:'regular' }}</td><td>{{ x.comment|default:'—' }}</td><td>{{ x.router_name }}</td><td class="d-flex gap-1"><form method="post" action="{% url 'ip_binding_action' %}">{% csrf_token %}<input type="hidden" name="router_id" value="{{ x.router_id }}"><input type="hidden" name="item_id" value="{{ x.id }}"><input type="hidden" name="action" value="toggle"><input type="hidden" name="disabled" value="{{ x.disabled|default:'false' }}"><button class="btn btn-sm btn-outline-secondary">Toggle</button></form><form method="post" action="{% url 'ip_binding_action' %}">{% csrf_token %}<input type="hidden" name="router_id" value="{{ x.router_id }}"><input type="hidden" name="item_id" value="{{ x.id }}"><input type="hidden" name="action" value="delete"><button class="btn btn-sm btn-outline-danger">Delete</button></form></td></tr>
+   {% empty %}<tr><td colspan="6" class="empty-table">No live IP bindings returned.</td></tr>{% endfor %}</tbody></table></div>
+  </div>
+  {% if mirrored %}<div class="panel mt-4"><div class="panel-head"><div><h3>TapTap sync mirror</h3><p>Bindings remembered from previous syncs, including MikroTik-only records.</p></div></div><div class="table-responsive"><table class="table align-middle"><thead><tr><th>MAC / Address</th><th>Origin</th><th>Router</th><th>Sync</th><th>Last seen</th></tr></thead><tbody>{% for x in mirrored %}<tr><td><code>{{ x.mac_address|default:x.address|default:'—' }}</code></td><td><span class="badge {% if x.source == 'taptap' %}text-bg-primary{% else %}text-bg-secondary{% endif %}">{{ x.get_source_display }}</span></td><td>{{ x.router.name }}</td><td>{{ x.sync_status }}</td><td>{{ x.last_seen_at|date:'M j H:i' }}</td></tr>{% endfor %}</tbody></table></div></div>{% endif %}
+ </div>
+ <div class="col-xl-4">
+  <div class="panel form-panel"><h3>Add binding</h3><p>This is saved in TapTap first, then synchronized to the selected MikroTik.</p><form method="post">{% csrf_token %}<label>Router</label><select class="form-select" name="router_id" required>{% for r in routers %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select><label>MAC address</label><input class="form-control" name="mac_address" required placeholder="AA:BB:CC:DD:EE:FF"><label>IP address <span class="text-secondary">(optional)</span></label><input class="form-control" name="address" placeholder="172.16.0.25"><label>Hotspot server</label><input class="form-control" name="server" value="all"><label>Access type</label><select class="form-select" name="type"><option value="bypassed">bypassed</option><option value="blocked">blocked</option><option value="regular">regular</option></select><label>Comment</label><input class="form-control" name="comment" value="TapTap"><button class="btn btn-primary mt-3 w-100">Save & Sync Binding</button></form></div>
+ </div>
+</div>
+{% endblock %}
