@@ -1,0 +1,54 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}Voucher Designer — TapTap{% endblock %}{% block heading %}Voucher Designer{% endblock %}
+{% block extra_head %}<link href="{% static 'studio/studio.css' %}" rel="stylesheet">{% endblock %}
+{% block content %}
+<div class="studio-intro">
+  <div class="studio-hero" style="padding-right:1.6rem">
+    <h2>Printed vouchers that look like your business</h2>
+    <p>Design the card once. Every batch you print fills in the code, plan, price, Wi-Fi name and a QR code that logs the customer in.</p>
+    <div class="d-flex gap-2 flex-wrap"><button class="btn btn-light fw-bold" data-bs-toggle="modal" data-bs-target="#newDesign"><i class="bi bi-plus-lg"></i> New design</button>
+      <a class="btn btn-outline-light" href="{% url 'voucher_print' %}"><i class="bi bi-printer"></i> Print unsold stock</a></div>
+  </div>
+  <div class="how-card"><h3>Details filled in automatically</h3>
+    <dl><dt>From each voucher</dt><dd>Code, plan, price, duration, devices, serial number and batch.</dd>
+      <dt>From <a href="{% url 'settings' %}">Settings</a></dt><dd>Business name, logo, Wi-Fi name <b>{{ business_ctx.ssid }}</b>, login address {% if business_ctx.login_url %}<b>{{ business_ctx.login_url }}</b>{% else %}<a href="{% url 'settings' %}">(add one for scan-to-login QR codes)</a>{% endif %} and help phone.</dd></dl></div>
+</div>
+
+<div class="kind-head"><h3>Your designs</h3><p>The default design is used when you print from Batches and Vouchers.</p></div>
+<div class="voucher-grid">
+  {% for d in designs %}
+  <div class="vd-card"><a class="vd-thumb" href="{% url 'voucher_design_editor' d.id %}" data-design="d{{ d.id }}" aria-label="Edit {{ d.name }}"></a>
+    <div class="meta"><div class="d-flex align-items-center gap-2"><b class="flex-grow-1">{{ d.name }}</b>{% if d.is_default %}<span class="badge text-bg-primary">Default</span>{% endif %}</div>
+      <small data-size="d{{ d.id }}"></small>
+      <div class="d-flex gap-1"><a class="btn btn-sm btn-primary flex-grow-1" href="{% url 'voucher_design_editor' d.id %}">Edit</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'voucher_print' %}?sample=1&design={{ d.id }}" target="_blank" title="Print a test sheet" aria-label="Print a test sheet"><i class="bi bi-printer"></i></a>
+        <div class="dropdown"><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" aria-label="More actions"><i class="bi bi-three-dots"></i></button><ul class="dropdown-menu dropdown-menu-end">
+          {% if not d.is_default %}<li><form method="post" action="{% url 'voucher_design_action' d.id %}">{% csrf_token %}<button class="dropdown-item" name="action" value="default"><i class="bi bi-star"></i> Make default</button></form></li>{% endif %}
+          <li><form method="post" action="{% url 'voucher_design_action' d.id %}">{% csrf_token %}<button class="dropdown-item" name="action" value="duplicate"><i class="bi bi-copy"></i> Duplicate</button></form></li>
+          <li><form method="post" action="{% url 'voucher_design_action' d.id %}" onsubmit="return confirm('Delete {{ d.name|escapejs }}?')">{% csrf_token %}<button class="dropdown-item text-danger" name="action" value="delete"><i class="bi bi-trash"></i> Delete</button></form></li></ul></div></div></div></div>
+  {% endfor %}
+  <button class="new-card" style="min-height:280px" data-bs-toggle="modal" data-bs-target="#newDesign"><span><i class="bi bi-plus-circle fs-3 d-block mb-2"></i>New design</span></button>
+</div>
+
+<div class="modal fade" id="newDesign" tabindex="-1" aria-labelledby="ndTitle"><div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable"><form class="modal-content" method="post">{% csrf_token %}
+  <div class="modal-header border-0 pb-0"><div><h5 class="modal-title fw-bold" id="ndTitle">Pick a starting design</h5><p class="text-secondary small m-0">Shown with your business details and an example code.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body"><div class="gallery" style="grid-template-columns:repeat(auto-fill,minmax(220px,1fr))">{% for g in gallery %}<label><input type="radio" name="template" value="{{ g.key }}" {% if forloop.first %}checked{% endif %}><div class="vg-thumb" data-tpl="{{ g.key }}"></div><b>{{ g.label }}</b><small>{{ g.note }}</small></label>{% endfor %}</div></div>
+  <div class="modal-footer border-0"><input class="form-control" style="max-width:320px" name="name" placeholder="Design name (optional)" aria-label="Design name"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Create and edit</button></div></form></div></div>
+
+{{ gallery|json_script:"galleryData" }}{{ business_ctx|json_script:"bizData" }}
+<script id="designsData" type="application/json">{ {% for d in designs %}"d{{ d.id }}":{{ d.config_json|safe }}{% if not forloop.last %},{% endif %}{% endfor %} }</script>
+{% endblock %}
+{% block scripts %}
+<script src="{% static 'vendor/qrcode.js' %}"></script><script src="{% static 'studio/voucher-render.js' %}"></script>
+<script>
+(function(){
+  const J=id=>JSON.parse(document.getElementById(id).textContent), biz=J('bizData'), gal=J('galleryData'), des=J('designsData');
+  const data=TapVoucher.sample({business:biz.name,ssid:biz.ssid,phone:biz.phone,currency:biz.currency,login_url:biz.login_url,logo:biz.logo});
+  const MM=3.7795;
+  function put(box,cfg){box.innerHTML='';const c=TapVoucher.renderCard(cfg,data);const w=cfg.size.w*MM,h=cfg.size.h*MM,bw=box.clientWidth||220,bh=box.clientHeight||150,s=Math.min(1.4,(bw-28)/w,(bh-24)/h);
+    const wrap=document.createElement('div');wrap.style.cssText=`width:${w*s}px;height:${h*s}px`;c.style.transform=`scale(${s})`;c.style.transformOrigin='0 0';wrap.appendChild(c);box.appendChild(wrap);}
+  document.querySelectorAll('[data-design]').forEach(b=>{const cfg=des[b.dataset.design];put(b,cfg);const s=document.querySelector(`[data-size="${b.dataset.design}"]`);if(s)s.textContent=`${cfg.size.w} × ${cfg.size.h} mm · ${(cfg.elements||[]).length} elements · ${cfg.page?.paper||'A4'}`;});
+  const m=document.getElementById('newDesign');m.addEventListener('shown.bs.modal',()=>m.querySelectorAll('[data-tpl]').forEach(b=>put(b,gal.find(g=>g.key===b.dataset.tpl).config)));
+})();
+</script>
+{% endblock %}

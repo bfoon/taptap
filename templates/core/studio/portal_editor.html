@@ -1,0 +1,39 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}{{ page.name }} — Portal Studio{% endblock %}
+{% block extra_head %}<link href="{% static 'studio/studio.css' %}" rel="stylesheet">{% endblock %}
+{% block content %}
+<div class="ed" id="ed">
+  <div class="ed-bar">
+    <a class="back" href="{% url 'portal_studio' %}" aria-label="Back to Portal Studio"><i class="bi bi-arrow-left"></i></a>
+    <input class="ed-name" id="pgName" value="{{ page.name }}" aria-label="Page name">
+    <span class="ed-kind">{{ page.get_kind_display }}</span>
+    <span class="ed-status" id="status" role="status">All changes saved</span>
+    <span class="spacer"></span>
+    <div class="dev-toggle" role="group" aria-label="Preview size"><button data-dev="phone" class="on" title="Phone" aria-label="Phone preview"><i class="bi bi-phone"></i></button><button data-dev="tablet" title="Tablet" aria-label="Tablet preview"><i class="bi bi-tablet"></i></button><button data-dev="desktop" title="Desktop" aria-label="Desktop preview"><i class="bi bi-laptop"></i></button></div>
+    <div class="btn-group"><button class="btn btn-light btn-sm" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo"><i class="bi bi-arrow-counterclockwise"></i></button><button class="btn btn-light btn-sm" id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><i class="bi bi-arrow-clockwise"></i></button></div>
+    <a class="btn btn-light btn-sm" href="{{ public_url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open</a>
+    <div class="dropdown"><button class="btn btn-light btn-sm dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-router"></i> Export</button>
+      <ul class="dropdown-menu dropdown-menu-end" style="max-width:320px">
+        <li><a class="dropdown-item py-2" href="{% url 'portal_export' page.id %}?mode=offline"><b class="d-block">Router files (offline)</b><small class="text-secondary text-wrap d-block">Full page runs on the MikroTik. Re-export after price changes.</small></a></li>
+        <li><a class="dropdown-item py-2" href="{% url 'portal_export' page.id %}?mode=hosted"><b class="d-block">Hosted redirect</b><small class="text-secondary text-wrap d-block">Router forwards to this TapTap page. Edits go live instantly.</small></a></li></ul></div>
+    <button class="btn btn-outline-primary btn-sm" id="publishBtn"></button>
+    <button class="btn btn-primary btn-sm" id="saveBtn"><i class="bi bi-cloud-check"></i> Save</button>
+  </div>
+  <div class="ed-body">
+    <aside class="ed-side">
+      <div class="ed-tabs" role="tablist"><button class="on" data-lt="blocks">Blocks</button><button data-lt="templates">Templates</button></div>
+      <div class="ed-scroll" data-lp="blocks"><div class="side-h">On this page <small class="fw-normal">drag to reorder</small></div><div class="blk-list" id="blocks"></div>
+        <div class="side-h">Add a block</div><div class="add-grid" id="addGrid"></div></div>
+      <div class="ed-scroll" data-lp="templates" hidden><p class="small text-secondary">Switching template replaces the design. You can undo it.</p><div class="tpl-list" id="tplList"></div></div>
+    </aside>
+    <main class="ed-stage" id="stage"><div id="devWrap"><div class="device" id="device"><iframe id="pv" title="Page preview"></iframe></div></div></main>
+    <aside class="ed-side right">
+      <div class="ed-tabs" role="tablist"><button data-rt="block">Block</button><button class="on" data-rt="style">Style</button><button data-rt="page">Page</button></div>
+      <div class="ed-scroll" id="props"></div>
+    </aside>
+  </div>
+</div>
+{{ config|json_script:"cfgData" }}{{ gallery|json_script:"galleryData" }}{{ business_ctx|json_script:"bizData" }}{{ plans_ctx|json_script:"plansData" }}{{ fonts|json_script:"fontsData" }}
+<script id="pageData" type="application/json">{"id":{{ page.id }},"kind":"{{ page.kind }}","published":{{ page.is_published|yesno:"true,false" }},"is_default":{{ page.is_default|yesno:"true,false" }},"public_url":"{{ public_url|escapejs }}","renderer":"{% static 'studio/portal-render.js' %}"}</script>
+{% endblock %}
+{% block scripts %}<script>document.body.classList.add('studio-mode');</script><script src="{% static 'studio/portal-editor.js' %}"></script>{% endblock %}

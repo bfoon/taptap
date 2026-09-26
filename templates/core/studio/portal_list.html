@@ -1,0 +1,73 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}Portal Studio — TapTap{% endblock %}{% block heading %}Portal Studio{% endblock %}
+{% block extra_head %}<link href="{% static 'studio/studio.css' %}" rel="stylesheet">{% endblock %}
+{% block content %}
+<div class="studio-intro">
+  <div class="studio-hero">
+    <h2>Design what customers see when they join your Wi-Fi</h2>
+    <p>Build the login page, the “you’re connected” page and the status page. Pick a template, change anything, then publish it here or export it to your MikroTik.</p>
+    <button class="btn btn-light fw-bold" data-bs-toggle="modal" data-bs-target="#newPage"><i class="bi bi-plus-lg"></i> New page</button>
+    {% with pages|first as p %}{% if p %}<div class="phone-peek" aria-hidden="true"><iframe data-thumb="p{{ p.id }}" tabindex="-1" title=""></iframe></div>{% endif %}{% endwith %}
+  </div>
+  <div class="how-card">
+    <h3>Two ways to put a page on your router</h3>
+    <dl><dt><i class="bi bi-router"></i> Offline on the router</dt><dd>Export gives you <code>login.html</code> and <code>alogin.html</code>. Upload them to the router’s hotspot folder. Works even when the internet is down.</dd>
+      <dt><i class="bi bi-cloud"></i> Hosted by TapTap</dt><dd>The router forwards customers to your TapTap page. Edits go live instantly and codes are checked before login. Needs one walled-garden rule.</dd></dl>
+  </div>
+</div>
+
+{% for kind,label in kinds %}
+<div class="kind-head"><h3>{{ label }}s</h3><p>{% if kind == 'login' %}Where customers type their voucher code.{% elif kind == 'redirect' %}Shown straight after a successful login.{% else %}Session details a customer can come back to.{% endif %}</p></div>
+<div class="page-grid">
+  {% for p in pages %}{% if p.kind == kind %}
+  <div class="page-card">
+    <a class="page-thumb" href="{% url 'portal_editor' p.id %}" aria-label="Edit {{ p.name }}"><iframe data-thumb="p{{ p.id }}" loading="lazy" tabindex="-1" title=""></iframe>
+      <div class="badges">{% if p.is_default %}<span class="def">Default</span>{% endif %}{% if p.is_published %}<span>Live</span>{% else %}<span class="draft">Draft</span>{% endif %}</div></a>
+    <div class="meta"><b>{{ p.name }}</b><small>{{ p.views }} view{{ p.views|pluralize }} · {{ p.connects }} code check{{ p.connects|pluralize }} · edited {{ p.updated_at|timesince }} ago</small>
+      <div class="acts"><a class="btn btn-sm btn-primary flex-grow-1" href="{% url 'portal_editor' p.id %}">Edit</a>
+        <a class="btn btn-sm btn-outline-secondary" href="/p/{{ p.slug }}/" target="_blank" rel="noopener" title="Open live page" aria-label="Open live page"><i class="bi bi-box-arrow-up-right"></i></a>
+        <div class="dropdown"><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" aria-label="More actions"><i class="bi bi-three-dots"></i></button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="{% url 'portal_export' p.id %}?mode=offline"><i class="bi bi-router"></i> Export for router (offline)</a></li>
+            <li><a class="dropdown-item" href="{% url 'portal_export' p.id %}?mode=hosted"><i class="bi bi-cloud"></i> Export hosted redirect</a></li><li><hr class="dropdown-divider"></li>
+            {% if not p.is_default %}<li><form method="post" action="{% url 'portal_action' p.id %}">{% csrf_token %}<button class="dropdown-item" name="action" value="default"><i class="bi bi-star"></i> Make default</button></form></li>{% endif %}
+            <li><form method="post" action="{% url 'portal_action' p.id %}">{% csrf_token %}<button class="dropdown-item" name="action" value="toggle"><i class="bi bi-{% if p.is_published %}eye-slash{% else %}broadcast{% endif %}"></i> {% if p.is_published %}Unpublish{% else %}Publish{% endif %}</button></form></li>
+            <li><form method="post" action="{% url 'portal_action' p.id %}">{% csrf_token %}<button class="dropdown-item" name="action" value="duplicate"><i class="bi bi-copy"></i> Duplicate</button></form></li>
+            <li><form method="post" action="{% url 'portal_action' p.id %}" onsubmit="return confirm('Delete {{ p.name|escapejs }}? Routers using the hosted link will stop showing it.')">{% csrf_token %}<button class="dropdown-item text-danger" name="action" value="delete"><i class="bi bi-trash"></i> Delete</button></form></li>
+          </ul></div></div></div>
+  </div>
+  {% endif %}{% endfor %}
+  <button class="new-card" data-bs-toggle="modal" data-bs-target="#newPage" data-kind="{{ kind }}"><span><i class="bi bi-plus-circle fs-3 d-block mb-2"></i>New {{ label|lower }}</span></button>
+</div>
+{% endfor %}
+
+<div class="modal fade" id="newPage" tabindex="-1" aria-labelledby="npTitle"><div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable"><form class="modal-content" method="post">{% csrf_token %}<input type="hidden" name="kind" value="login">
+  <div class="modal-header border-0 pb-0"><div><h5 class="modal-title fw-bold" id="npTitle">Start from a template</h5><p class="text-secondary small m-0">Every template uses your business name, plans and prices. You can change everything afterwards.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body">
+    <div class="kind-tabs">{% for kind,label in kinds %}<button type="button" data-kind="{{ kind }}">{{ label }}</button>{% endfor %}</div>
+    <div class="gallery">{% for g in gallery %}<label data-kind="{{ g.kind }}"><input type="radio" name="template" value="{{ g.key }}" {% if forloop.first %}checked{% endif %}><div class="g-thumb"><iframe data-thumb="g{{ g.key }}" tabindex="-1" title=""></iframe></div><b>{{ g.label }}</b><small>{{ g.venue }}</small></label>{% endfor %}</div>
+  </div>
+  <div class="modal-footer border-0"><input class="form-control" style="max-width:320px" name="name" placeholder="Page name (optional)" aria-label="Page name"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Create and edit</button></div></form></div></div>
+
+{{ gallery|json_script:"galleryData" }}{{ business_ctx|json_script:"bizData" }}{{ plans_ctx|json_script:"plansData" }}
+<script id="pagesData" type="application/json">{ {% for p in pages %}"p{{ p.id }}":{{ p.config_json|safe }}{% if not forloop.last %},{% endif %}{% endfor %} }</script>
+{% endblock %}
+{% block scripts %}
+<script src="{% static 'studio/thumbs.js' %}" data-renderer="{% static 'studio/portal-render.js' %}"></script>
+<script>
+(function(){
+  const g=JSON.parse(document.getElementById('galleryData').textContent);
+  window.TP_CTX={business:JSON.parse(document.getElementById('bizData').textContent),plans:JSON.parse(document.getElementById('plansData').textContent)};
+  window.TP_THUMBS=JSON.parse(document.getElementById('pagesData').textContent);
+  g.forEach(x=>window.TP_THUMBS['g'+x.key]=x.config);
+  tpThumbs(document.querySelector('.page-grid')?.parentElement);document.querySelectorAll('.phone-peek').forEach(e=>tpThumbs(e));
+  const modal=document.getElementById('newPage'),form=modal.querySelector('form');
+  function kind(k){form.elements.kind.value=k;setTimeout(()=>tpThumbs(modal),30);modal.querySelectorAll('.kind-tabs button').forEach(b=>b.classList.toggle('on',b.dataset.kind===k));
+    let first=null;modal.querySelectorAll('.gallery label').forEach(l=>{const on=l.dataset.kind===k;l.hidden=!on;if(on&&!first)first=l;});
+    if(first&&!modal.querySelector('.gallery label:not([hidden]) input:checked'))first.querySelector('input').checked=true;
+    tpThumbs(modal);}
+  modal.querySelectorAll('.kind-tabs button').forEach(b=>b.onclick=()=>kind(b.dataset.kind));
+  modal.addEventListener('show.bs.modal',e=>kind(e.relatedTarget?.dataset.kind||'login'));modal.addEventListener('shown.bs.modal',()=>tpThumbs(modal));
+})();
+</script>
+{% endblock %}

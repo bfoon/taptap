@@ -14,6 +14,16 @@ class Business(models.Model):
     subscription_expires_at=models.DateTimeField(null=True,blank=True)
     is_unlimited=models.BooleanField(default=False)
     created_at=models.DateTimeField(auto_now_add=True)
+    # Branding + hotspot facts used by the Portal Studio and the Voucher Design Studio.
+    wifi_ssid=models.CharField(max_length=80,blank=True)
+    hotspot_url=models.CharField(max_length=200,blank=True,help_text='e.g. http://wifi.local/login')
+    support_phone=models.CharField(max_length=60,blank=True)
+    brand_color=models.CharField(max_length=20,default='#1769e0')
+    logo_data=models.TextField(blank=True,help_text='Small logo as a data: URL')
+    currency=models.CharField(max_length=8,default='D')
+    # Finance
+    monthly_revenue_target=models.DecimalField(max_digits=12,decimal_places=2,default=0)
+    auto_record_sales=models.BooleanField(default=True,help_text='Record a sale automatically when an unsold voucher is first used on the router')
     def access_expires_at(self): return self.subscription_expires_at if self.subscription_status=='active' else self.trial_ends_at
     @property
     def has_access(self):
@@ -89,6 +99,7 @@ class Voucher(models.Model):
     mikrotik_id=models.CharField(max_length=120,blank=True)
     expires_at=models.DateTimeField(null=True,blank=True)
     used_at=models.DateTimeField(null=True,blank=True)
+    sold_at=models.DateTimeField(null=True,blank=True)
     mikrotik_sync_status=models.CharField(max_length=30,default='Pending')
     mikrotik_sync_error=models.TextField(blank=True)
     created_at=models.DateTimeField(auto_now_add=True)
@@ -326,3 +337,111 @@ class SecurityAck(models.Model):
 
     def __str__(self):
         return f'{self.business}: {self.finding_key}'
+
+
+# ─────────────────────────────── Finance ───────────────────────────────
+PAYMENT_METHODS=[('cash','Cash'),('wave','Wave'),('qmoney','QMoney'),('afrimoney','Afrimoney'),('bank','Bank transfer'),('card','Card'),('auto','Auto (router activation)'),('other','Other')]
+
+
+class Agent(models.Model):
+    """A reseller / sales point that sells vouchers on commission and hands cash back."""
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='agents')
+    name=models.CharField(max_length=120)
+    phone=models.CharField(max_length=60,blank=True)
+    location=models.CharField(max_length=160,blank=True)
+    commission_percent=models.DecimalField(max_digits=5,decimal_places=2,default=10)
+    active=models.BooleanField(default=True)
+    created_at=models.DateTimeField(auto_now_add=True)
+    class Meta: ordering=['name']
+    def __str__(self): return self.name
+
+
+class VoucherSale(models.Model):
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='sales')
+    voucher=models.OneToOneField(Voucher,on_delete=models.SET_NULL,null=True,blank=True,related_name='sale')
+    router=models.ForeignKey(Router,on_delete=models.SET_NULL,null=True,blank=True,related_name='sales')
+    agent=models.ForeignKey(Agent,on_delete=models.SET_NULL,null=True,blank=True,related_name='sales')
+    plan_name=models.CharField(max_length=120)
+    voucher_code=models.CharField(max_length=120,blank=True)
+    amount=models.DecimalField(max_digits=10,decimal_places=2,default=0)
+    discount=models.DecimalField(max_digits=10,decimal_places=2,default=0)
+    commission=models.DecimalField(max_digits=10,decimal_places=2,default=0)
+    payment_method=models.CharField(max_length=20,choices=PAYMENT_METHODS,default='cash')
+    customer_name=models.CharField(max_length=120,blank=True)
+    customer_phone=models.CharField(max_length=60,blank=True)
+    reference=models.CharField(max_length=120,blank=True)
+    notes=models.CharField(max_length=255,blank=True)
+    sold_at=models.DateTimeField(default=timezone.now,db_index=True)
+    recorded_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)
+    created_at=models.DateTimeField(auto_now_add=True)
+    class Meta:
+        ordering=['-sold_at']
+        indexes=[models.Index(fields=['business','sold_at'],name='sale_business_date_idx')]
+    @property
+    def net(self): return self.amount-self.commission
+
+
+EXPENSE_CATEGORIES=[('bandwidth','Internet / bandwidth'),('power','Electricity (NAWEC)'),('fuel','Generator fuel'),('rent','Rent & site fees'),
+    ('equipment','Equipment'),('salaries','Staff & wages'),('maintenance','Repairs & maintenance'),('marketing','Marketing & printing'),
+    ('software','Software & licences'),('transport','Transport'),('tax','Tax & fees'),('other','Other')]
+
+
+class Expense(models.Model):
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='expenses')
+    category=models.CharField(max_length=20,choices=EXPENSE_CATEGORIES,default='other')
+    description=models.CharField(max_length=200)
+    vendor=models.CharField(max_length=120,blank=True)
+    amount=models.DecimalField(max_digits=12,decimal_places=2)
+    payment_method=models.CharField(max_length=20,choices=PAYMENT_METHODS,default='cash')
+    router=models.ForeignKey(Router,on_delete=models.SET_NULL,null=True,blank=True,related_name='expenses',help_text='Site this cost belongs to')
+    reference=models.CharField(max_length=120,blank=True)
+    recurring=models.BooleanField(default=False)
+    paid_at=models.DateTimeField(default=timezone.now,db_index=True)
+    recorded_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)
+    created_at=models.DateTimeField(auto_now_add=True)
+    class Meta: ordering=['-paid_at']
+
+
+class CashCollection(models.Model):
+    """Money an agent hands back to the business."""
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='collections')
+    agent=models.ForeignKey(Agent,on_delete=models.CASCADE,related_name='collections')
+    amount=models.DecimalField(max_digits=12,decimal_places=2)
+    payment_method=models.CharField(max_length=20,choices=PAYMENT_METHODS,default='cash')
+    reference=models.CharField(max_length=120,blank=True)
+    note=models.CharField(max_length=255,blank=True)
+    collected_at=models.DateTimeField(default=timezone.now)
+    recorded_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)
+    class Meta: ordering=['-collected_at']
+
+
+# ─────────────────────────────── Studios ───────────────────────────────
+class PortalPage(models.Model):
+    """A customer-facing page designed in the Portal Studio (hotspot login, post-login redirect, status)."""
+    KINDS=[('login','Login page'),('redirect','Redirect page'),('status','Status page')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='portal_pages')
+    name=models.CharField(max_length=120)
+    slug=models.SlugField(max_length=80,unique=True)
+    kind=models.CharField(max_length=20,choices=KINDS,default='login')
+    template_key=models.CharField(max_length=60,blank=True)
+    config=models.JSONField(default=dict,blank=True)
+    is_published=models.BooleanField(default=False)
+    is_default=models.BooleanField(default=False)
+    views=models.PositiveIntegerField(default=0)
+    connects=models.PositiveIntegerField(default=0)
+    created_at=models.DateTimeField(auto_now_add=True)
+    updated_at=models.DateTimeField(auto_now=True)
+    class Meta: ordering=['kind','-updated_at']
+    def __str__(self): return self.name
+
+
+class VoucherDesign(models.Model):
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='voucher_designs')
+    name=models.CharField(max_length=120)
+    template_key=models.CharField(max_length=60,blank=True)
+    config=models.JSONField(default=dict,blank=True)
+    is_default=models.BooleanField(default=False)
+    created_at=models.DateTimeField(auto_now_add=True)
+    updated_at=models.DateTimeField(auto_now=True)
+    class Meta: ordering=['-is_default','-updated_at']
+    def __str__(self): return self.name

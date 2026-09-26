@@ -47,3 +47,38 @@ class RouterSyncJobAdmin(admin.ModelAdmin):
     list_filter=('status','router')
     search_fields=('router__name','phase','error','celery_task_id')
     readonly_fields=('business','router','requested_by','celery_task_id','status','progress','phase','summary','error','created_at','started_at','finished_at','updated_at')
+
+
+# ── Finance & Studios ──
+from .models import Agent, VoucherSale, Expense, CashCollection, PortalPage, VoucherDesign
+
+
+@admin.register(Agent)
+class AgentAdmin(admin.ModelAdmin):
+    list_display = ('name', 'business', 'phone', 'commission_percent', 'active'); list_filter = ('active',); search_fields = ('name', 'phone', 'business__business_name')
+
+
+@admin.register(VoucherSale)
+class VoucherSaleAdmin(admin.ModelAdmin):
+    list_display = ('sold_at', 'business', 'voucher_code', 'plan_name', 'amount', 'payment_method', 'agent'); list_filter = ('payment_method',)
+    search_fields = ('voucher_code', 'reference', 'customer_phone', 'business__business_name'); date_hierarchy = 'sold_at'; raw_id_fields = ('voucher',)
+
+
+@admin.register(Expense)
+class ExpenseAdmin(admin.ModelAdmin):
+    list_display = ('paid_at', 'business', 'category', 'description', 'amount', 'recurring'); list_filter = ('category', 'recurring'); date_hierarchy = 'paid_at'
+
+
+@admin.register(CashCollection)
+class CashCollectionAdmin(admin.ModelAdmin):
+    list_display = ('collected_at', 'business', 'agent', 'amount', 'payment_method')
+
+
+@admin.register(PortalPage)
+class PortalPageAdmin(admin.ModelAdmin):
+    list_display = ('name', 'business', 'kind', 'slug', 'is_published', 'is_default', 'views', 'connects', 'updated_at'); list_filter = ('kind', 'is_published')
+
+
+@admin.register(VoucherDesign)
+class VoucherDesignAdmin(admin.ModelAdmin):
+    list_display = ('name', 'business', 'template_key', 'is_default', 'updated_at')

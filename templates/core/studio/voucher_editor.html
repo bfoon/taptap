@@ -1,0 +1,42 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}{{ design.name }} — Voucher Designer{% endblock %}
+{% block extra_head %}<link href="{% static 'studio/studio.css' %}" rel="stylesheet">{% endblock %}
+{% block content %}
+<div class="ed" id="ed">
+  <div class="ed-bar">
+    <a class="back" href="{% url 'voucher_designs' %}" aria-label="Back to Voucher Designer"><i class="bi bi-arrow-left"></i></a>
+    <input class="ed-name" id="dName" value="{{ design.name }}" aria-label="Design name">
+    <span class="ed-kind" id="sizeTag"></span>
+    <span class="ed-status" id="status" role="status">All changes saved</span>
+    <span class="spacer"></span>
+    <select class="form-select form-select-sm" id="samplePlan" style="width:auto;max-width:150px" title="Preview with this plan" aria-label="Preview with this plan"></select>
+    <div class="btn-group"><button class="btn btn-light btn-sm" id="zOut" aria-label="Zoom out"><i class="bi bi-zoom-out"></i></button><button class="btn btn-light btn-sm" id="zVal" style="min-width:58px">100%</button><button class="btn btn-light btn-sm" id="zIn" aria-label="Zoom in"><i class="bi bi-zoom-in"></i></button></div>
+    <div class="btn-group"><button class="btn btn-light btn-sm" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo"><i class="bi bi-arrow-counterclockwise"></i></button><button class="btn btn-light btn-sm" id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><i class="bi bi-arrow-clockwise"></i></button></div>
+    <a class="btn btn-light btn-sm" id="testPrint" href="{% url 'voucher_print' %}?sample=1&design={{ design.id }}" target="_blank"><i class="bi bi-printer"></i> Test</a>
+    <button class="btn btn-outline-primary btn-sm" id="defBtn"></button>
+    <button class="btn btn-primary btn-sm" id="saveBtn"><i class="bi bi-cloud-check"></i> Save</button>
+  </div>
+  <div class="ed-body">
+    <aside class="ed-side">
+      <div class="ed-tabs" role="tablist"><button class="on" data-lt="add">Add</button><button data-lt="layers">Layers</button><button data-lt="templates">Templates</button></div>
+      <div class="ed-scroll" data-lp="add">
+        <div class="side-h">Elements</div><div class="add-grid" id="addGrid"></div>
+        <div class="side-h">Ready-made text</div><div class="d-grid gap-1" id="quickText"></div>
+      </div>
+      <div class="ed-scroll" data-lp="layers" hidden><div class="side-h">Top to bottom <small class="fw-normal">click to select</small></div><div id="layers"></div></div>
+      <div class="ed-scroll" data-lp="templates" hidden><p class="small text-secondary">Switching replaces your design. You can undo it.</p><div class="d-grid gap-2" id="tplList"></div></div>
+    </aside>
+    <main class="ed-stage" id="stage" style="align-items:center">
+      <div class="vcanvas-wrap" id="wrap"><div class="vcanvas" id="canvas"></div></div>
+      <div class="v-stage-info"><kbd>←↑→↓</kbd> nudge · <kbd>Shift</kbd> bigger steps · <kbd>Ctrl D</kbd> duplicate · <kbd>Del</kbd> remove</div>
+    </main>
+    <aside class="ed-side right">
+      <div class="ed-tabs" role="tablist"><button data-rt="el">Element</button><button class="on" data-rt="card">Card</button><button data-rt="print">Printing</button></div>
+      <div class="ed-scroll" id="props"></div>
+    </aside>
+  </div>
+</div>
+{{ config|json_script:"cfgData" }}{{ gallery|json_script:"galleryData" }}{{ business_ctx|json_script:"bizData" }}{{ plans|json_script:"plansData" }}{{ fonts|json_script:"fontsData" }}{{ sizes|json_script:"sizesData" }}{{ papers|json_script:"papersData" }}{{ tokens|json_script:"tokensData" }}
+<script id="designData" type="application/json">{"id":{{ design.id }},"is_default":{{ design.is_default|yesno:"true,false" }}}</script>
+{% endblock %}
+{% block scripts %}<script src="{% static 'vendor/qrcode.js' %}"></script><script src="{% static 'studio/voucher-render.js' %}"></script><script src="{% static 'studio/voucher-editor.js' %}"></script>{% endblock %}

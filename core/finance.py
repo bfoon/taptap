@@ -1,0 +1,398 @@
+"""Finance & reporting services.
+
+Everything that turns vouchers, sales, expenses and agent remittances into
+numbers lives here so the Finance page, the Reports page, the JSON chart
+endpoints and the CSV exports all agree with each other.
+"""
+from collections import OrderedDict, defaultdict
+from datetime import datetime, time, timedelta
+from decimal import Decimal
+
+from django.db import transaction
+from django.db.models import Count, Sum, Q, F
+from django.db.models.functions import TruncDay, TruncHour, TruncMonth, ExtractWeekDay, ExtractHour
+from django.utils import timezone
+
+from .models import (
+    Voucher, VoucherSale, Expense, CashCollection, Agent, EXPENSE_CATEGORIES, PAYMENT_METHODS,
+)
+
+ZERO = Decimal('0')
+PRESETS = OrderedDict([
+    ('today', 'Today'), ('7d', 'Last 7 days'), ('30d', 'Last 30 days'), ('90d', 'Last 90 days'),
+    ('month', 'This month'), ('last_month', 'Last month'), ('year', 'This year'), ('custom', 'Custom'),
+])
+CATEGORY_LABELS = dict(EXPENSE_CATEGORIES)
+METHOD_LABELS = dict(PAYMENT_METHODS)
+
+
+def d(value):
+    return value if isinstance(value, Decimal) else Decimal(str(value or 0))
+
+
+# ───────────────────────────── periods ─────────────────────────────
+class Period:
+    def __init__(self, start, end, preset, label):
+        self.start, self.end, self.preset, self.label = start, end, preset, label
+        span = end - start
+        self.prev_end = start
+        self.prev_start = start - span
+        days = max(1, span.days + (1 if span.seconds else 0))
+        self.days = days
+        # Bucket size keeps charts readable: hours for a day, months for > ~4 months.
+        self.bucket = 'hour' if days <= 2 else ('month' if days > 124 else 'day')
+
+    def as_dict(self):
+        return {'start': timezone.localtime(self.start).date().isoformat(),
+                'end': (timezone.localtime(self.end) - timedelta(seconds=1)).date().isoformat(),
+                'preset': self.preset, 'label': self.label, 'bucket': self.bucket, 'days': self.days}
+
+
+def _day_start(day):
+    return timezone.make_aware(datetime.combine(day, time.min))
+
+
+def resolve_period(params, default='30d'):
+    preset = params.get('range') or default
+    today = timezone.localdate()
+    if preset == 'custom':
+        try:
+            s = datetime.strptime(params.get('start', ''), '%Y-%m-%d').date()
+            e = datetime.strptime(params.get('end', ''), '%Y-%m-%d').date()
+            if e < s: s, e = e, s
+            return Period(_day_start(s), _day_start(e + timedelta(days=1)), 'custom', f'{s:%d %b %Y} – {e:%d %b %Y}')
+        except ValueError:
+            preset = default
+    if preset == 'today':
+        return Period(_day_start(today), _day_start(today + timedelta(days=1)), preset, 'Today')
+    if preset in {'7d', '30d', '90d'}:
+        n = int(preset[:-1])
+        return Period(_day_start(today - timedelta(days=n - 1)), _day_start(today + timedelta(days=1)), preset, PRESETS[preset])
+    if preset == 'month':
+        s = today.replace(day=1)
+        return Period(_day_start(s), _day_start(today + timedelta(days=1)), preset, f'{s:%B %Y}')
+    if preset == 'last_month':
+        e = today.replace(day=1); s = (e - timedelta(days=1)).replace(day=1)
+        return Period(_day_start(s), _day_start(e), preset, f'{s:%B %Y}')
+    if preset == 'year':
+        s = today.replace(month=1, day=1)
+        return Period(_day_start(s), _day_start(today + timedelta(days=1)), preset, f'{s:%Y} to date')
+    return resolve_period({'range': default}, default)
+
+
+def _buckets(period):
+    """Ordered list of (key, label) for every bucket in the period, so gaps render as zero."""
+    out = []
+    tz = timezone.get_current_timezone()
+    cur = timezone.localtime(period.start)
+    end = timezone.localtime(period.end)
+    if period.bucket == 'hour':
+        cur = cur.replace(minute=0, second=0, microsecond=0)
+        while cur < end:
+            out.append((cur.strftime('%Y-%m-%d %H'), cur.strftime('%H:00') if period.days <= 1 else cur.strftime('%a %H:00')))
+            cur += timedelta(hours=1)
+    elif period.bucket == 'month':
+        cur = cur.replace(day=1)
+        while cur < end:
+            out.append((cur.strftime('%Y-%m'), cur.strftime('%b %Y')))
+            cur = (cur.replace(day=28) + timedelta(days=4)).replace(day=1)
+    else:
+        day = cur.date()
+        while _day_start(day) < period.end:
+            out.append((day.isoformat(), day.strftime('%d %b')))
+            day += timedelta(days=1)
+    return out
+
+
+def _bucket_key(dt, bucket):
+    dt = timezone.localtime(dt) if timezone.is_aware(dt) else dt
+    if bucket == 'hour': return dt.strftime('%Y-%m-%d %H')
+    if bucket == 'month': return dt.strftime('%Y-%m')
+    return dt.date().isoformat() if hasattr(dt, 'date') else dt.isoformat()
+
+
+def _trunc(bucket, field):
+    return {'hour': TruncHour, 'month': TruncMonth}.get(bucket, TruncDay)(field)
+
+
+def series(qs, date_field, period, value=None, bucket=None):
+    """Return a list aligned to _buckets(period) with Sum(value) or Count per bucket."""
+    bucket = bucket or period.bucket
+    agg = Sum(value) if value else Count('id')
+    rows = (qs.filter(**{f'{date_field}__gte': period.start, f'{date_field}__lt': period.end})
+              .annotate(_b=_trunc(bucket, date_field)).values('_b').annotate(v=agg).order_by('_b'))
+    got = defaultdict(lambda: ZERO)
+    for r in rows:
+        if r['_b'] is None: continue
+        got[_bucket_key(r['_b'], bucket)] += d(r['v'])
+    return [float(got.get(k, 0)) for k, _ in _buckets(period)]
+
+
+def pct_change(cur, prev):
+    cur, prev = float(cur or 0), float(prev or 0)
+    if prev == 0: return None if cur == 0 else 100.0
+    return round((cur - prev) / abs(prev) * 100, 1)
+
+
+# ───────────────────────────── recording ─────────────────────────────
+def commission_for(agent, amount):
+    if not agent: return ZERO
+    return (d(amount) * d(agent.commission_percent) / Decimal('100')).quantize(Decimal('0.01'))
+
+
+@transaction.atomic
+def record_sale(business, voucher=None, *, plan_name='', amount=None, method='cash', agent=None,
+                customer_name='', customer_phone='', reference='', notes='', discount=ZERO, user=None, when=None):
+    when = when or timezone.now()
+    if voucher is not None:
+        voucher = Voucher.objects.select_for_update().get(pk=voucher.pk)
+        if VoucherSale.objects.filter(voucher=voucher).exists():
+            return None
+        plan_name = plan_name or voucher.plan_name
+        amount = voucher.price if amount is None else amount
+    gross = max(ZERO, d(amount) - d(discount))
+    sale = VoucherSale.objects.create(
+        business=business, voucher=voucher, router=getattr(voucher, 'router', None), agent=agent,
+        plan_name=plan_name or 'Walk-in', voucher_code=getattr(voucher, 'code', ''), amount=gross, discount=d(discount),
+        commission=commission_for(agent, gross), payment_method=method, customer_name=customer_name,
+        customer_phone=customer_phone, reference=reference, notes=notes, sold_at=when, recorded_by=user,
+    )
+    if voucher is not None and not voucher.sold_at:
+        Voucher.objects.filter(pk=voucher.pk).update(sold_at=when)
+    return sale
+
+
+def sell_from_stock(business, plan_name, quantity, **kwargs):
+    """Pick the oldest unsold active vouchers of a plan and record a sale for each."""
+    stock = list(business.vouchers.filter(plan_name=plan_name, status='active', sold_at__isnull=True, used_at__isnull=True)
+                 .order_by('created_at')[:quantity])
+    sales = []
+    for v in stock:
+        s = record_sale(business, v, **kwargs)
+        if s: sales.append(s)
+    return sales
+
+
+def mark_activated(voucher, when=None):
+    """Called by router sync the first time a voucher shows uptime. Auto-books revenue if enabled."""
+    when = when or timezone.now()
+    if voucher.used_at:
+        return False
+    Voucher.objects.filter(pk=voucher.pk, used_at__isnull=True).update(used_at=when)
+    voucher.used_at = when
+    business = voucher.business
+    if business.auto_record_sales and not voucher.sold_at and d(voucher.price) > 0 \
+            and not VoucherSale.objects.filter(voucher=voucher).exists():
+        record_sale(business, voucher, method='auto', notes='Auto-recorded on first router activation', when=when)
+    return True
+
+
+# ───────────────────────────── agents ─────────────────────────────
+def agent_balances(business):
+    """Per agent: gross sold, commission earned, owed to business, collected, outstanding."""
+    sales = {r['agent']: r for r in business.sales.filter(agent__isnull=False).values('agent')
+             .annotate(gross=Sum('amount'), comm=Sum('commission'), n=Count('id'))}
+    cols = {r['agent']: r['v'] for r in business.collections.values('agent').annotate(v=Sum('amount'))}
+    last_col = {r['agent']: r['last'] for r in business.collections.values('agent').annotate(last=models_max('collected_at'))}
+    out = []
+    for a in business.agents.all():
+        s = sales.get(a.id, {})
+        gross, comm = d(s.get('gross')), d(s.get('comm'))
+        owed = gross - comm; collected = d(cols.get(a.id))
+        out.append({'agent': a, 'sold': s.get('n', 0), 'gross': gross, 'commission': comm, 'owed': owed,
+                    'collected': collected, 'outstanding': owed - collected, 'last_collection': last_col.get(a.id),
+                    'collection_rate': round(float(collected / owed * 100), 1) if owed > 0 else 100.0})
+    return sorted(out, key=lambda r: r['outstanding'], reverse=True)
+
+
+def models_max(field):
+    from django.db.models import Max
+    return Max(field)
+
+
+# ───────────────────────────── finance summary ─────────────────────────────
+def finance_summary(business, period):
+    sales = business.sales.filter(sold_at__gte=period.start, sold_at__lt=period.end)
+    prev_sales = business.sales.filter(sold_at__gte=period.prev_start, sold_at__lt=period.prev_end)
+    exps = business.expenses.filter(paid_at__gte=period.start, paid_at__lt=period.end)
+    prev_exps = business.expenses.filter(paid_at__gte=period.prev_start, paid_at__lt=period.prev_end)
+
+    rev = d(sales.aggregate(v=Sum('amount'))['v']); prev_rev = d(prev_sales.aggregate(v=Sum('amount'))['v'])
+    comm = d(sales.aggregate(v=Sum('commission'))['v']); prev_comm = d(prev_sales.aggregate(v=Sum('commission'))['v'])
+    disc = d(sales.aggregate(v=Sum('discount'))['v'])
+    exp = d(exps.aggregate(v=Sum('amount'))['v']); prev_exp = d(prev_exps.aggregate(v=Sum('amount'))['v'])
+    profit = rev - comm - exp; prev_profit = prev_rev - prev_comm - prev_exp
+    n = sales.count(); prev_n = prev_sales.count()
+
+    balances = agent_balances(business)
+    outstanding = sum((r['outstanding'] for r in balances if r['outstanding'] > 0), ZERO)
+
+    # Cash position: all direct (non-agent) takings + agent collections − expenses, all-time.
+    direct_all = d(business.sales.filter(agent__isnull=True).aggregate(v=Sum('amount'))['v'])
+    collected_all = d(business.collections.aggregate(v=Sum('amount'))['v'])
+    expenses_all = d(business.expenses.aggregate(v=Sum('amount'))['v'])
+
+    # Month target progress is always "this month", independent of the selected period.
+    today = timezone.localdate(); m_start = _day_start(today.replace(day=1))
+    month_rev = d(business.sales.filter(sold_at__gte=m_start).aggregate(v=Sum('amount'))['v'])
+    target = d(business.monthly_revenue_target)
+    import calendar
+    dim = calendar.monthrange(today.year, today.month)[1]
+    projected = month_rev / Decimal(today.day) * Decimal(dim) if today.day else month_rev
+
+    stock = business.vouchers.filter(status='active', sold_at__isnull=True, used_at__isnull=True)
+    return {
+        'revenue': rev, 'revenue_change': pct_change(rev, prev_rev),
+        'commission': comm, 'discounts': disc,
+        'expenses': exp, 'expenses_change': pct_change(exp, prev_exp),
+        'profit': profit, 'profit_change': pct_change(profit, prev_profit),
+        'margin': round(float(profit / rev * 100), 1) if rev > 0 else 0.0,
+        'sales_count': n, 'sales_change': pct_change(n, prev_n),
+        'avg_ticket': (rev / n).quantize(Decimal('0.01')) if n else ZERO,
+        'outstanding': outstanding, 'cash_position': direct_all + collected_all - expenses_all,
+        'month_revenue': month_rev, 'target': target, 'projected': projected.quantize(Decimal('1')),
+        'target_pct': min(999, round(float(month_rev / target * 100), 1)) if target > 0 else None,
+        'stock_count': stock.count(), 'stock_value': d(stock.aggregate(v=Sum('price'))['v']),
+        'agents': balances,
+    }
+
+
+def finance_charts(business, period):
+    sales = business.sales.all(); exps = business.expenses.all()
+    labels = [l for _, l in _buckets(period)]
+    rev = series(sales, 'sold_at', period, 'amount')
+    comm = series(sales, 'sold_at', period, 'commission')
+    exp = series(exps, 'paid_at', period, 'amount')
+    profit = [round(r - c - e, 2) for r, c, e in zip(rev, comm, exp)]
+    running, cum = 0.0, []
+    for p in profit:
+        running += p; cum.append(round(running, 2))
+
+    # 12-month P&L regardless of selected period — the "shape of the business".
+    today = timezone.localdate()
+    y_start = (today.replace(day=1) - timedelta(days=334)).replace(day=1)
+    year = Period(_day_start(y_start), _day_start(today + timedelta(days=1)), 'custom', '12 months'); year.bucket = 'month'
+    y_labels = [l for _, l in _buckets(year)]
+    y_rev = series(sales, 'sold_at', year, 'amount', 'month'); y_exp = series(exps, 'paid_at', year, 'amount', 'month')
+    y_comm = series(sales, 'sold_at', year, 'commission', 'month')
+
+    in_p = lambda qs, f: qs.filter(**{f'{f}__gte': period.start, f'{f}__lt': period.end})
+    by_cat = list(in_p(exps, 'paid_at').values('category').annotate(v=Sum('amount')).order_by('-v'))
+    by_method = list(in_p(sales, 'sold_at').values('payment_method').annotate(v=Sum('amount'), n=Count('id')).order_by('-v'))
+    by_site = list(in_p(sales, 'sold_at').values('router__name').annotate(v=Sum('amount')).order_by('-v')[:10])
+    exp_site = {r['router__name']: float(r['v']) for r in in_p(exps, 'paid_at').values('router__name').annotate(v=Sum('amount'))}
+
+    # This month vs last month, cumulative by day-of-month.
+    m0 = today.replace(day=1); lm = (m0 - timedelta(days=1)).replace(day=1)
+    def cum_month(start, days):
+        rows = sales.filter(sold_at__gte=_day_start(start), sold_at__lt=_day_start(start + timedelta(days=days))) \
+            .annotate(_b=TruncDay('sold_at')).values('_b').annotate(v=Sum('amount'))
+        per = defaultdict(float)
+        for r in rows: per[timezone.localtime(r['_b']).day if timezone.is_aware(r['_b']) else r['_b'].day] += float(r['v'])
+        acc, out = 0.0, []
+        for i in range(1, days + 1): acc += per.get(i, 0); out.append(round(acc, 2))
+        return out
+    import calendar
+    this_days = today.day; last_days = calendar.monthrange(lm.year, lm.month)[1]
+
+    return {
+        'labels': labels, 'revenue': rev, 'expenses': exp, 'commission': comm, 'profit': profit, 'cumulative': cum,
+        'year': {'labels': y_labels, 'revenue': y_rev, 'expenses': y_exp,
+                 'profit': [round(r - c - e, 2) for r, c, e in zip(y_rev, y_comm, y_exp)]},
+        'categories': {'labels': [CATEGORY_LABELS.get(r['category'], r['category']) for r in by_cat], 'values': [float(r['v']) for r in by_cat]},
+        'methods': {'labels': [METHOD_LABELS.get(r['payment_method'], r['payment_method']) for r in by_method],
+                    'values': [float(r['v']) for r in by_method], 'counts': [r['n'] for r in by_method]},
+        'sites': {'labels': [r['router__name'] or 'Unassigned' for r in by_site], 'revenue': [float(r['v']) for r in by_site],
+                  'expenses': [exp_site.get(r['router__name'], 0) for r in by_site]},
+        'mom': {'labels': [str(i) for i in range(1, last_days + 1)], 'this': cum_month(m0, this_days), 'last': cum_month(lm, last_days),
+                'this_label': f'{m0:%B}', 'last_label': f'{lm:%B}'},
+    }
+
+
+# ───────────────────────────── reports ─────────────────────────────
+def report_data(business, period, router_id=None, plan=None):
+    V = business.vouchers.all(); S = business.sales.all()
+    if router_id:
+        V = V.filter(router_id=router_id); S = S.filter(router_id=router_id)
+    if plan:
+        V = V.filter(plan_name=plan); S = S.filter(plan_name=plan)
+    within = lambda qs, f, p=period: qs.filter(**{f'{f}__gte': p.start, f'{f}__lt': p.end})
+    prev = type('P', (), {'start': period.prev_start, 'end': period.prev_end})
+
+    gen = within(V, 'created_at').count(); gen_p = within(V, 'created_at', prev).count()
+    sold = within(S, 'sold_at'); sold_p = within(S, 'sold_at', prev)
+    rev = d(sold.aggregate(v=Sum('amount'))['v']); rev_p = d(sold_p.aggregate(v=Sum('amount'))['v'])
+    n_sold = sold.count(); n_sold_p = sold_p.count()
+    act = within(V, 'used_at').count(); act_p = within(V, 'used_at', prev).count()
+
+    labels = [l for _, l in _buckets(period)]
+    trend = {'labels': labels, 'revenue': series(S, 'sold_at', period, 'amount'), 'sold': series(S, 'sold_at', period),
+             'generated': series(V, 'created_at', period), 'activated': series(V, 'used_at', period)}
+
+    plan_rows = list(sold.values('plan_name').annotate(n=Count('id'), v=Sum('amount')).order_by('-v'))
+    gen_by_plan = {r['plan_name']: r['n'] for r in within(V, 'created_at').values('plan_name').annotate(n=Count('id'))}
+    act_by_plan = {r['plan_name']: r['n'] for r in within(V, 'used_at').values('plan_name').annotate(n=Count('id'))}
+    plans_all = sorted(set(gen_by_plan) | {r['plan_name'] for r in plan_rows} | set(act_by_plan))
+    plan_table = []
+    for name in plans_all:
+        r = next((x for x in plan_rows if x['plan_name'] == name), {})
+        plan_table.append({'plan': name, 'generated': gen_by_plan.get(name, 0), 'sold': r.get('n', 0),
+                           'activated': act_by_plan.get(name, 0), 'revenue': float(r.get('v') or 0),
+                           'share': round(float(d(r.get('v')) / rev * 100), 1) if rev > 0 else 0})
+    plan_table.sort(key=lambda x: -x['revenue'])
+
+    # Weekday × hour heatmap of sales (Django week_day: 1=Sunday … 7=Saturday).
+    heat = [[0] * 24 for _ in range(7)]
+    for r in sold.annotate(wd=ExtractWeekDay('sold_at'), hr=ExtractHour('sold_at')).values('wd', 'hr').annotate(n=Count('id')):
+        heat[(r['wd'] + 5) % 7][r['hr']] += r['n']   # re-index so Monday = 0
+
+    routers = list(sold.values('router__name').annotate(n=Count('id'), v=Sum('amount')).order_by('-v')[:12])
+    agents = list(sold.filter(agent__isnull=False).values('agent__name').annotate(n=Count('id'), v=Sum('amount')).order_by('-v')[:8])
+
+    # Inventory health — unsold stock by age.
+    now = timezone.now(); stock = V.filter(status='active', sold_at__isnull=True, used_at__isnull=True)
+    aging = []
+    for lo, hi, label in [(0, 7, '< 1 week'), (7, 30, '1–4 weeks'), (30, 90, '1–3 months'), (90, 100000, '> 3 months')]:
+        q = stock.filter(created_at__lte=now - timedelta(days=lo), created_at__gt=now - timedelta(days=hi))
+        aging.append({'label': label, 'count': q.count(), 'value': float(d(q.aggregate(v=Sum('price'))['v']))})
+
+    funnel = [{'label': 'Generated', 'value': gen}, {'label': 'Sold', 'value': n_sold},
+              {'label': 'Activated', 'value': act},
+              {'label': 'Expired / disabled', 'value': within(V, 'created_at').filter(Q(status__in=['expired', 'disabled'])).count()}]
+
+    best_day = max(zip(trend['labels'], trend['revenue']), key=lambda x: x[1], default=('—', 0))
+    peak = max(((i, j, heat[i][j]) for i in range(7) for j in range(24)), key=lambda x: x[2], default=(0, 0, 0))
+    days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+    insights = []
+    if rev_p and rev:
+        ch = pct_change(rev, rev_p)
+        insights.append(f"Revenue is {'up' if ch >= 0 else 'down'} {abs(ch)}% on the previous {period.days} days.")
+    if plan_table and plan_table[0]['revenue']:
+        insights.append(f"{plan_table[0]['plan']} brings in {plan_table[0]['share']}% of revenue.")
+    if peak[2]:
+        insights.append(f"Busiest selling window: {days[peak[0]]}s around {peak[1]:02d}:00.")
+    if best_day[1]:
+        insights.append(f"Best {'hour' if period.bucket == 'hour' else ('month' if period.bucket == 'month' else 'day')}: {best_day[0]} with {business.currency}{best_day[1]:,.0f}.")
+    old = aging[2]['count'] + aging[3]['count']
+    if old:
+        insights.append(f"{old} unsold voucher{'s' if old != 1 else ''} are older than a month — consider a promotion or disabling them.")
+    sold_of_gen = within(V, 'created_at').filter(sold_at__isnull=False).count()
+    if gen >= 10 and sold_of_gen / gen < .5:
+        insights.append(f"Only {round(sold_of_gen / gen * 100)}% of vouchers generated this period have been sold so far.")
+
+    return {
+        'period': period.as_dict(), 'currency': business.currency,
+        'kpis': {
+            'revenue': {'value': float(rev), 'change': pct_change(rev, rev_p)},
+            'sold': {'value': n_sold, 'change': pct_change(n_sold, n_sold_p)},
+            'generated': {'value': gen, 'change': pct_change(gen, gen_p)},
+            'activated': {'value': act, 'change': pct_change(act, act_p)},
+            'avg_ticket': {'value': float(rev / n_sold) if n_sold else 0, 'change': pct_change(rev / n_sold if n_sold else 0, rev_p / n_sold_p if n_sold_p else 0)},
+            'sell_through': {'value': round(within(V, 'created_at').filter(sold_at__isnull=False).count() / gen * 100, 1) if gen else 0, 'change': None},
+        },
+        'trend': trend, 'plans': plan_table,
+        'plan_mix': {'labels': [p['plan'] for p in plan_table if p['revenue']], 'values': [p['revenue'] for p in plan_table if p['revenue']]},
+        'heatmap': heat, 'routers': {'labels': [r['router__name'] or 'Unassigned' for r in routers], 'values': [float(r['v']) for r in routers], 'counts': [r['n'] for r in routers]},
+        'agents': {'labels': [r['agent__name'] for r in agents], 'values': [float(r['v']) for r in agents], 'counts': [r['n'] for r in agents]},
+        'aging': aging, 'funnel': funnel, 'insights': insights,
+    }

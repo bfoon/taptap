@@ -1,1 +1,26 @@
-{% extends 'core/base.html' %}{% block title %}Settings — TapTap{% endblock %}{% block heading %}Settings{% endblock %}{% block content %}<div class="panel form-panel"><h3>Business profile</h3><div class="settings-grid"><div><small>Business</small><b>{{ current_business.business_name }}</b></div><div><small>Owner</small><b>{{ current_business.owner_name }}</b></div><div><small>Email</small><b>{{ request.user.email }}</b></div><div><small>Phone</small><b>{{ current_business.phone }}</b></div><div><small>Subscription</small><b>{{ current_business.get_subscription_status_display }}</b></div><div><small>Created</small><b>{{ current_business.created_at|date:'d M Y' }}</b></div></div><p class="text-secondary mt-4 mb-0">Use Django Admin for protected account-level changes until role-based business settings are added.</p></div>{% endblock %}
+{% extends 'core/base.html' %}{% block title %}Settings — TapTap{% endblock %}{% block heading %}Settings{% endblock %}{% block content %}
+<form method="post" class="row g-4">{% csrf_token %}
+<div class="col-xl-7"><div class="panel form-panel"><h3>Business profile</h3><p>Shown on your customer portal pages and printed vouchers.</p>
+  <div class="row g-3"><div class="col-md-6"><label>Business name</label><input class="form-control" name="business_name" value="{{ current_business.business_name }}" required></div>
+  <div class="col-md-6"><label>Owner</label><input class="form-control" name="owner_name" value="{{ current_business.owner_name }}" required></div>
+  <div class="col-md-6"><label>Phone</label><input class="form-control" name="phone" value="{{ current_business.phone }}"></div>
+  <div class="col-md-6"><label>Customer help line</label><input class="form-control" name="support_phone" value="{{ current_business.support_phone }}" placeholder="Shown to customers"></div></div>
+  <h3 class="mt-4">Hotspot</h3><p>Used for the “Join our Wi-Fi” text and scan-to-login QR codes.</p>
+  <div class="row g-3"><div class="col-md-6"><label>Wi-Fi name (SSID)</label><input class="form-control" name="wifi_ssid" value="{{ current_business.wifi_ssid }}" placeholder="e.g. Kairaba-WiFi"></div>
+  <div class="col-md-6"><label>Hotspot login address</label><input class="form-control" name="hotspot_url" value="{{ current_business.hotspot_url }}" placeholder="e.g. wifi.local or 10.5.50.1"><small class="text-secondary">The router’s hotspot DNS name. QR codes open <code>http://this-address/login</code> with the code filled in.</small></div>
+  <div class="col-md-3"><label>Currency symbol</label><input class="form-control" name="currency" value="{{ current_business.currency }}" maxlength="8"></div></div>
+  <div class="settings-grid mt-4"><div><small>Email</small><b>{{ request.user.email }}</b></div><div><small>Subscription</small><b>{{ current_business.get_subscription_status_display }}</b></div><div><small>Created</small><b>{{ current_business.created_at|date:'d M Y' }}</b></div></div>
+</div></div>
+<div class="col-xl-5"><div class="panel form-panel"><h3>Brand</h3><p>Your logo and colour are offered in both studios.</p>
+  <label>Logo</label>
+  <div class="d-flex gap-3 align-items-center"><div id="logoPrev" style="width:84px;height:84px;border-radius:18px;border:1px solid var(--border);display:grid;place-items:center;overflow:hidden;background:#f4f7fb;flex:none">{% if current_business.logo_data %}<img src="{{ current_business.logo_data }}" alt="Current logo" style="width:100%;height:100%;object-fit:contain">{% else %}<i class="bi bi-image text-secondary fs-3"></i>{% endif %}</div>
+    <div><input class="form-control form-control-sm" type="file" accept="image/*" id="logoFile" aria-label="Upload logo"><small class="text-secondary d-block mt-1">Square works best. Resized to 256 px automatically.</small>
+      {% if current_business.logo_data %}<label class="form-check mt-1 small"><input class="form-check-input" type="checkbox" name="remove_logo"> Remove logo</label>{% endif %}</div></div>
+  <input type="hidden" name="logo_data" id="logoData">
+  <label class="mt-3">Brand colour</label><div class="d-flex gap-2 align-items-center"><input type="color" class="form-control form-control-color" name="brand_color" value="{{ current_business.brand_color }}" aria-label="Brand colour"><small class="text-secondary">Used as a one-click palette in the Portal Studio.</small></div>
+  <button class="btn btn-primary mt-4 w-100">Save settings</button>
+</div></div></form>
+{% endblock %}
+{% block scripts %}<script>
+document.getElementById('logoFile').addEventListener('change',function(){const f=this.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{const img=new Image();img.onload=()=>{const s=Math.min(1,256/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);c.getContext('2d').drawImage(img,0,0,c.width,c.height);const d=c.toDataURL('image/png');document.getElementById('logoData').value=d;document.getElementById('logoPrev').innerHTML='<img src="'+d+'" alt="New logo" style="width:100%;height:100%;object-fit:contain">';};img.src=r.result;};r.readAsDataURL(f);});
+</script>{% endblock %}

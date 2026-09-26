@@ -1,1 +1,224 @@
-{% extends 'core/base.html' %}{% block title %}Finance — TapTap{% endblock %}{% block heading %}Finance & Cash Collection{% endblock %}{% block content %}<div class="metric-grid one-line"><div class="metric-card"><span class="metric-icon green"><i class="bi bi-cash-stack"></i></span><div><small>GENERATED VOUCHER VALUE</small><strong>D{{ total|floatformat:2 }}</strong><em>Based on voucher face value</em></div></div></div><div class="panel mt-4"><div class="panel-head"><div><h3>Subscription requests</h3><p>Payment and renewal history.</p></div></div><div class="table-responsive"><table class="table"><thead><tr><th>Plan</th><th>Amount</th><th>Method</th><th>Status</th><th>Date</th></tr></thead><tbody>{% for s in subs %}<tr><td>{{ s.plan }}</td><td>D{{ s.amount }}</td><td>{{ s.payment_method }}</td><td>{{ s.payment_status }}</td><td>{{ s.created_at|date:'d M Y' }}</td></tr>{% empty %}<tr><td colspan="5" class="empty-table">No subscription transactions yet.</td></tr>{% endfor %}</tbody></table></div></div>{% endblock %}
+{% extends 'core/base.html' %}{% load static taptap_extras %}
+{% block title %}Finance — TapTap{% endblock %}{% block heading %}Finance{% endblock %}
+{% block content %}
+{% with c=current_business.currency s=summary pq=period.as_dict %}
+<div class="filter-bar">
+  <div class="range-pills" role="group" aria-label="Period">
+    {% for key,label in presets.items %}{% if key != 'custom' %}<a href="?tab={{ tab }}&range={{ key }}" class="{% if period.preset == key %}on{% endif %}">{{ label }}</a>{% endif %}{% endfor %}
+    <form class="custom-range" method="get"><input type="hidden" name="tab" value="{{ tab }}"><input type="hidden" name="range" value="custom">
+      <input class="form-control form-control-sm" type="date" name="start" value="{{ pq.start }}" aria-label="From"><span class="text-secondary">–</span>
+      <input class="form-control form-control-sm" type="date" name="end" value="{{ pq.end }}" aria-label="To"><button class="btn btn-sm btn-outline-secondary {% if period.preset == 'custom' %}active{% endif %}">Apply</button></form>
+  </div>
+  <div class="bar-actions">
+    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#saleModal"><i class="bi bi-plus-lg"></i> Record sale</button>
+    <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#expenseModal"><i class="bi bi-receipt"></i> Add expense</button>
+    <div class="dropdown"><button class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-download"></i> Export</button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li><a class="dropdown-item" href="{% url 'finance_export' %}?type=sales&{{ query }}">Sales (CSV)</a></li>
+        <li><a class="dropdown-item" href="{% url 'finance_export' %}?type=expenses&{{ query }}">Expenses (CSV)</a></li>
+        <li><a class="dropdown-item" href="{% url 'finance_export' %}?type=pnl&{{ query }}">Profit &amp; loss (CSV)</a></li>
+        <li><a class="dropdown-item" href="{% url 'finance_export' %}?type=agents&{{ query }}">Agent balances (CSV)</a></li>
+        <li><hr class="dropdown-divider"></li><li><button class="dropdown-item" onclick="window.print()">Print this page</button></li>
+      </ul></div>
+  </div>
+</div>
+<p class="period-note">Showing <b>{{ period.label }}</b>, compared with the {{ period.days }} day{{ period.days|pluralize }} before.</p>
+
+<nav class="fin-tabs">
+  <a href="?tab=overview&range={{ period.preset }}&start={{ pq.start }}&end={{ pq.end }}" class="{% if tab == 'overview' %}on{% endif %}"><i class="bi bi-speedometer2"></i> Overview</a>
+  <a href="?tab=sales&range={{ period.preset }}&start={{ pq.start }}&end={{ pq.end }}" class="{% if tab == 'sales' %}on{% endif %}"><i class="bi bi-bag-check"></i> Sales <span class="count">{{ s.sales_count }}</span></a>
+  <a href="?tab=expenses&range={{ period.preset }}&start={{ pq.start }}&end={{ pq.end }}" class="{% if tab == 'expenses' %}on{% endif %}"><i class="bi bi-receipt"></i> Expenses</a>
+  <a href="?tab=agents&range={{ period.preset }}&start={{ pq.start }}&end={{ pq.end }}" class="{% if tab == 'agents' %}on{% endif %}"><i class="bi bi-people"></i> Agents &amp; cash {% if s.outstanding > 0 %}<span class="count">{{ s.outstanding|money:c }} due</span>{% endif %}</a>
+  <a href="?tab=subscription" class="{% if tab == 'subscription' %}on{% endif %}"><i class="bi bi-credit-card"></i> TapTap subscription</a>
+</nav>
+
+{% if tab == 'overview' %}
+<div class="kpi-row">
+  <div class="kpi hero"><small>Net sales</small><strong>{{ s.revenue|money:c }}</strong>{{ s.revenue_change|delta }} <em>{{ s.sales_count }} sale{{ s.sales_count|pluralize }} · avg {{ s.avg_ticket|money:c }}</em><canvas class="spark" id="sparkRev"></canvas></div>
+  <div class="kpi"><small>Expenses</small><strong>{{ s.expenses|money:c }}</strong>{{ s.expenses_change|delta:True }} <em>+ {{ s.commission|money:c }} commission</em></div>
+  <div class="kpi {% if s.profit < 0 %}neg{% endif %}"><small>Net profit</small><strong>{{ s.profit|money:c }}</strong>{{ s.profit_change|delta }} <em>{{ s.margin }}% margin</em></div>
+  <div class="kpi"><small>Cash position</small><strong>{{ s.cash_position|money:c }}</strong><em>Takings + agent hand-ins − expenses, all time</em></div>
+  <div class="kpi"><small>Stock on hand</small><strong>{{ s.stock_count }}</strong><em>unsold vouchers worth {{ s.stock_value|money:c }}</em></div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-xl-8"><div class="chart-panel h-100"><header><div><h3>Money in, money out</h3><p>Sales, costs and what’s left, per {{ period.bucket }}</p></div>
+    <div class="seg" id="flowSeg"><button class="on" data-v="flow">Flow</button><button data-v="cum">Running profit</button></div></header>
+    <div class="chart-box lg"><canvas id="flowChart"></canvas></div></div></div>
+  <div class="col-xl-4"><div class="chart-panel h-100"><header><div><h3>{% now 'F' %} target</h3><p>Month-to-date sales against your goal</p></div>
+    <button class="btn btn-sm btn-light" data-bs-toggle="modal" data-bs-target="#settingsModal" aria-label="Finance settings"><i class="bi bi-sliders"></i></button></header>
+    {% if s.target_pct is not None %}
+    <div class="target-card"><div class="ring {% if s.target_pct >= 100 %}done{% endif %}" style="--p:{% if s.target_pct > 100 %}100{% else %}{{ s.target_pct|floatformat:0 }}{% endif %}"><b>{{ s.target_pct|floatformat:0 }}%</b></div>
+      <dl><dt>Sold so far</dt><dd>{{ s.month_revenue|money:c }}</dd><dt>Target</dt><dd>{{ s.target|money:c }}</dd><dt>On pace for</dt><dd>{{ s.projected|money:c }}</dd>
+      <dt>Still needed</dt><dd id="stillNeeded">—</dd></dl></div>
+    {% else %}
+    <div class="text-center py-3"><div class="ring mx-auto mb-3" style="--p:0"><b>—</b></div><p class="mb-2 small text-secondary">Set a monthly sales goal to see your pace.</p><button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#settingsModal">Set a target</button></div>
+    {% endif %}
+    <div class="chart-box sm mt-3"><canvas id="momChart"></canvas></div></div></div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-lg-4"><div class="chart-panel h-100"><header><div><h3>Where the money goes</h3><p>Expenses by category</p></div></header><div class="chart-box sm"><canvas id="catChart"></canvas></div></div></div>
+  <div class="col-lg-4"><div class="chart-panel h-100"><header><div><h3>How customers pay</h3><p>Sales by payment method</p></div></header><div class="chart-box sm"><canvas id="methodChart"></canvas></div></div></div>
+  <div class="col-lg-4"><div class="chart-panel h-100"><header><div><h3>Profit by site</h3><p>Sales vs costs per router</p></div></header><div class="chart-box sm"><canvas id="siteChart"></canvas></div></div></div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-xl-7"><div class="chart-panel h-100"><header><div><h3>Last 12 months</h3><p>The shape of the business, month by month</p></div></header><div class="chart-box"><canvas id="yearChart"></canvas></div></div></div>
+  <div class="col-xl-5"><div class="chart-panel h-100"><header><div><h3>Profit &amp; loss</h3><p>{{ period.label }}</p></div><a class="btn btn-sm btn-light" href="{% url 'finance_export' %}?type=pnl&{{ query }}" aria-label="Download P&amp;L"><i class="bi bi-download"></i></a></header>
+    <table class="pl-table">{% for label,val,kind in pl_rows %}<tr class="{{ kind }}{% if kind == 'total' %}{% if val < 0 %} neg{% else %} pos{% endif %}{% endif %}"><td>{{ label }}</td><td>{{ val|money:c }}</td></tr>{% endfor %}</table></div></div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-lg-6"><div class="chart-panel h-100"><header><div><h3>Stock ready to sell</h3><p>Unsold, unused vouchers by plan</p></div><a class="btn btn-sm btn-outline-primary" href="{% url 'generate_vouchers' %}">Generate</a></header>
+    {% for p in stock %}<div class="stock-row"><div><b>{{ p.plan_name }}</b><div class="stock-bar"><i style="width:{{ p.n|pct_of:s.stock_count }}%"></i></div></div><span class="text-secondary">{{ p.n }} left</span><b>{{ p.price|money:c }}</b></div>
+    {% empty %}<div class="empty-mini py-4 text-center">No unsold vouchers. <a href="{% url 'generate_vouchers' %}">Generate a batch</a> to start selling.</div>{% endfor %}</div></div>
+  <div class="col-lg-6"><div class="chart-panel h-100"><header><div><h3>Agents owing</h3><p>Cash still to be handed in</p></div><a class="btn btn-sm btn-light" href="?tab=agents">All agents</a></header>
+    {% for r in s.agents|slice:':5' %}<div class="stock-row"><div><b>{{ r.agent.name }}</b><div class="collect-bar mt-1"><i style="width:{% if r.collection_rate > 100 %}100{% else %}{{ r.collection_rate }}{% endif %}%"></i></div></div><span class="text-secondary">{{ r.collection_rate }}% handed in</span><b class="{% if r.outstanding > 0 %}text-danger{% endif %}">{{ r.outstanding|money:c }}</b></div>
+    {% empty %}<div class="empty-mini py-4 text-center">No agents yet. Add resellers under <a href="?tab=agents">Agents &amp; cash</a> to track commission and hand-ins.</div>{% endfor %}</div></div>
+</div>
+
+{% elif tab == 'sales' %}
+<div class="panel">
+  <form class="d-flex flex-wrap gap-2 mb-3" method="get"><input type="hidden" name="tab" value="sales"><input type="hidden" name="range" value="{{ period.preset }}"><input type="hidden" name="start" value="{{ pq.start }}"><input type="hidden" name="end" value="{{ pq.end }}">
+    <input class="form-control form-control-sm" style="max-width:240px" name="q" value="{{ q }}" placeholder="Code, customer, phone, reference" aria-label="Search sales">
+    <select class="form-select form-select-sm" style="max-width:170px" name="method" aria-label="Payment method"><option value="">All methods</option>{% for k,l in all_methods %}<option value="{{ k }}" {% if filters.method == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select class="form-select form-select-sm" style="max-width:170px" name="agent" aria-label="Seller"><option value="">All sellers</option>{% for a in agents_all %}<option value="{{ a.id }}" {% if filters.agent == a.id|stringformat:'s' %}selected{% endif %}>{{ a.name }}</option>{% endfor %}</select>
+    <button class="btn btn-sm btn-outline-secondary">Filter</button></form>
+  <div class="table-responsive"><table class="table align-middle table-money"><thead><tr><th>When</th><th>Voucher</th><th>Plan</th><th>Seller</th><th>Customer</th><th>Method</th><th class="num">Commission</th><th class="num">Amount</th><th></th></tr></thead><tbody>
+  {% for x in sales_page %}<tr><td class="text-nowrap">{{ x.sold_at|date:'d M H:i' }}</td><td>{% if x.voucher_code %}<code class="voucher-code">{{ x.voucher_code }}</code>{% else %}<span class="text-secondary">—</span>{% endif %}</td><td>{{ x.plan_name }}</td>
+    <td>{{ x.agent.name|default:'Direct' }}</td><td>{{ x.customer_name }}{% if x.customer_phone %}<small class="d-block text-secondary">{{ x.customer_phone }}</small>{% endif %}</td>
+    <td><span class="method-pill {{ x.payment_method }}">{{ x.get_payment_method_display }}</span>{% if x.reference %}<small class="d-block text-secondary">{{ x.reference }}</small>{% endif %}</td>
+    <td class="num">{% if x.commission %}{{ x.commission|money:c }}{% endif %}</td><td class="num"><b>{{ x.amount|money:c }}</b>{% if x.discount %}<small class="d-block text-secondary">−{{ x.discount|money:c }} off</small>{% endif %}</td>
+    <td class="text-end"><form method="post" action="{% url 'finance_sale_delete' x.id %}" onsubmit="return confirm('Void this sale? The voucher goes back into stock.')">{% csrf_token %}<input type="hidden" name="return_query" value="{{ query }}"><button class="btn btn-sm btn-link text-danger p-0">Void</button></form></td></tr>
+  {% empty %}<tr><td colspan="9" class="empty-table">No sales in this period. Use <b>Record sale</b> when you sell vouchers, or turn on automatic recording in finance settings.</td></tr>{% endfor %}</tbody></table></div>
+  {% include 'core/partials/pager.html' with page=sales_page param='sp' %}
+</div>
+
+{% elif tab == 'expenses' %}
+<div class="row g-3">
+  <div class="col-xl-8"><div class="panel">
+    <form class="d-flex flex-wrap gap-2 mb-3" method="get"><input type="hidden" name="tab" value="expenses"><input type="hidden" name="range" value="{{ period.preset }}"><input type="hidden" name="start" value="{{ pq.start }}"><input type="hidden" name="end" value="{{ pq.end }}">
+      <input class="form-control form-control-sm" style="max-width:240px" name="q" value="{{ q }}" placeholder="Description, vendor, reference" aria-label="Search expenses">
+      <select class="form-select form-select-sm" style="max-width:220px" name="category" aria-label="Category"><option value="">All categories</option>{% for k,l in categories %}<option value="{{ k }}" {% if filters.category == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+      <button class="btn btn-sm btn-outline-secondary">Filter</button></form>
+    <div class="table-responsive"><table class="table align-middle table-money"><thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Site</th><th>Method</th><th class="num">Amount</th><th></th></tr></thead><tbody>
+    {% for e in expenses_page %}<tr><td class="text-nowrap">{{ e.paid_at|date:'d M Y' }}</td><td>{{ e.get_category_display }}{% if e.recurring %} <i class="bi bi-arrow-repeat text-primary" title="Repeats monthly"></i>{% endif %}</td><td>{{ e.description }}{% if e.vendor %}<small class="d-block text-secondary">{{ e.vendor }}</small>{% endif %}</td>
+      <td>{{ e.router.name|default:'—' }}</td><td><span class="method-pill {{ e.payment_method }}">{{ e.get_payment_method_display }}</span></td><td class="num"><b>{{ e.amount|money:c }}</b></td>
+      <td class="text-end"><form method="post" action="{% url 'finance_expense_delete' e.id %}" onsubmit="return confirm('Delete this expense?')">{% csrf_token %}<input type="hidden" name="return_query" value="{{ query }}"><button class="btn btn-sm btn-link text-danger p-0">Delete</button></form></td></tr>
+    {% empty %}<tr><td colspan="7" class="empty-table">No expenses in this period. Add bandwidth, NAWEC, fuel and rent so your profit is real.</td></tr>{% endfor %}</tbody></table></div>
+    {% include 'core/partials/pager.html' with page=expenses_page param='ep' %}
+  </div></div>
+  <div class="col-xl-4"><div class="chart-panel mb-3"><header><div><h3>By category</h3><p>{{ period.label }}</p></div></header><div class="chart-box sm"><canvas id="catChart"></canvas></div></div>
+    <div class="panel"><h3>Monthly bills</h3><p>Mark bills like bandwidth and rent as <b>repeats monthly</b>, then copy them into the new month in one click.</p>
+      <form method="post" action="{% url 'finance_expense_repeat' %}">{% csrf_token %}<input type="hidden" name="return_query" value="{{ query }}"><button class="btn btn-outline-primary btn-sm mt-2"><i class="bi bi-arrow-repeat"></i> Copy last month’s bills</button></form></div></div>
+</div>
+
+{% elif tab == 'agents' %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2"><p class="text-secondary m-0 small">Agents sell your vouchers for a commission. Still to hand in = their sales − their commission − cash already received.</p>
+  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#agentModal" data-agent='{}'><i class="bi bi-person-plus"></i> Add agent</button></div>
+<div class="agent-grid">
+{% for r in s.agents %}<div class="agent-card"><header><span class="av">{{ r.agent.name|slice:':1'|upper }}</span><div class="flex-grow-1"><h4>{{ r.agent.name }}{% if not r.agent.active %} <span class="badge text-bg-light">Inactive</span>{% endif %}</h4><small>{% if r.agent.location %}{{ r.agent.location }} · {% endif %}{% if r.agent.phone %}{{ r.agent.phone }} · {% endif %}{{ r.agent.commission_percent|floatformat:-2 }}% commission</small></div>
+  <button class="btn btn-sm btn-light" aria-label="Edit {{ r.agent.name }}" data-bs-toggle="modal" data-bs-target="#agentModal" data-agent='{"id":{{ r.agent.id }},"name":"{{ r.agent.name|escapejs }}","phone":"{{ r.agent.phone|escapejs }}","location":"{{ r.agent.location|escapejs }}","commission_percent":"{{ r.agent.commission_percent }}","active":{{ r.agent.active|yesno:"true,false" }}}'><i class="bi bi-pencil"></i></button></header>
+  <div class="nums"><div><b>{{ r.sold }}</b>sold</div><div><b>{{ r.gross|money:c }}</b>sales</div><div><b>{{ r.commission|money:c }}</b>earned</div></div>
+  <div class="owe {% if r.outstanding > 0 %}bad{% endif %}"><span class="text-secondary small">Still to hand in</span><strong>{{ r.outstanding|money:c }}</strong></div>
+  <div class="collect-bar"><i style="width:{% if r.collection_rate > 100 %}100{% else %}{{ r.collection_rate }}{% endif %}%"></i></div>
+  <div class="d-flex justify-content-between align-items-center mt-2"><small class="text-secondary">{{ r.collection_rate }}% collected{% if r.last_collection %} · last {{ r.last_collection|timesince }} ago{% endif %}</small>
+    <button class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#collectModal" data-agent-id="{{ r.agent.id }}" data-owed="{{ r.outstanding }}" data-name="{{ r.agent.name }}">Collect cash</button></div></div>
+{% empty %}<div class="panel text-center py-5" style="grid-column:1/-1"><i class="bi bi-people fs-1 text-primary"></i><h3 class="mt-2">No agents yet</h3><p>Add the shops and people who resell your vouchers to track commission and cash hand-ins.</p></div>{% endfor %}
+</div>
+<div class="panel mt-4"><div class="panel-head"><div><h3>Recent hand-ins</h3><p>Cash received from agents</p></div></div><div class="table-responsive"><table class="table table-money"><thead><tr><th>When</th><th>Agent</th><th>Method</th><th>Reference</th><th class="num">Amount</th></tr></thead><tbody>
+{% for x in collections %}<tr><td>{{ x.collected_at|date:'d M Y H:i' }}</td><td>{{ x.agent.name }}</td><td><span class="method-pill {{ x.payment_method }}">{{ x.get_payment_method_display }}</span></td><td>{{ x.reference }}{% if x.note %}<small class="d-block text-secondary">{{ x.note }}</small>{% endif %}</td><td class="num"><b>{{ x.amount|money:c }}</b></td></tr>
+{% empty %}<tr><td colspan="5" class="empty-table">No hand-ins recorded yet.</td></tr>{% endfor %}</tbody></table></div></div>
+
+{% else %}
+<div class="panel"><div class="panel-head"><div><h3>TapTap subscription payments</h3><p>What you pay for TapTap itself.</p></div><a class="btn btn-sm btn-outline-primary" href="{% url 'subscription' %}">Renew</a></div><div class="table-responsive"><table class="table"><thead><tr><th>Plan</th><th>Amount</th><th>Method</th><th>Status</th><th>Date</th></tr></thead><tbody>{% for x in subs %}<tr><td>{{ x.plan }}</td><td>D{{ x.amount }}</td><td>{{ x.payment_method }}</td><td>{{ x.payment_status }}</td><td>{{ x.created_at|date:'d M Y' }}</td></tr>{% empty %}<tr><td colspan="5" class="empty-table">No subscription payments yet.</td></tr>{% endfor %}</tbody></table></div></div>
+{% endif %}
+
+<div class="modal fade" id="saleModal" tabindex="-1" aria-labelledby="saleTitle"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post" action="{% url 'finance_sale_add' %}">{% csrf_token %}<input type="hidden" name="return_query" value="{{ query }}">
+  <div class="modal-header border-0"><h5 class="modal-title fw-bold" id="saleTitle">Record a sale</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body pt-0">
+    <div class="sale-modes"><label><input type="radio" name="mode" value="stock" checked>From stock<small>Pick unsold vouchers</small></label><label><input type="radio" name="mode" value="code">By code<small>Codes already handed out</small></label><label><input type="radio" name="mode" value="manual">Amount only<small>No voucher</small></label></div>
+    <div data-mode="stock"><div class="row g-2"><div class="col-8"><label class="form-label">Plan</label><select class="form-select" name="plan">{% for p in plans %}<option value="{{ p.id }}" {% if not p.stock %}disabled{% endif %}>{{ p.name }} — {{ p.price|money:c }} · {{ p.stock }} in stock</option>{% empty %}<option value="">Create a plan first</option>{% endfor %}</select></div>
+      <div class="col-4"><label class="form-label">Quantity</label><input class="form-control" type="number" name="quantity" min="1" max="500" value="1"></div></div>
+      <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="print" value="1" id="salePrint"><label class="form-check-label small" for="salePrint">Open the print sheet for these vouchers</label></div></div>
+    <div data-mode="code" hidden><label class="form-label">Voucher codes</label><textarea class="form-control font-monospace" name="codes" rows="3" placeholder="One per line or comma-separated"></textarea></div>
+    <div data-mode="manual" hidden><div class="row g-2"><div class="col-7"><label class="form-label">What was sold</label><input class="form-control" name="plan_name" placeholder="e.g. Walk-in, printing"></div><div class="col-5"><label class="form-label">Amount ({{ c }})</label><input class="form-control" type="number" step="0.01" min="0" name="amount"></div></div></div>
+    <div class="row g-2 mt-1"><div class="col-6"><label class="form-label">Paid with</label><select class="form-select" name="method">{% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-6"><label class="form-label">Sold by</label><select class="form-select" name="agent"><option value="">Me (direct)</option>{% for a in agents_all %}{% if a.active %}<option value="{{ a.id }}">{{ a.name }} · {{ a.commission_percent|floatformat:-2 }}%</option>{% endif %}{% endfor %}</select></div>
+      <div class="col-6"><label class="form-label">Customer <span class="fw-normal text-secondary">(optional)</span></label><input class="form-control" name="customer_name"></div>
+      <div class="col-6"><label class="form-label">Phone <span class="fw-normal text-secondary">(optional)</span></label><input class="form-control" name="customer_phone"></div>
+      <div class="col-6"><label class="form-label">Transaction ref</label><input class="form-control" name="reference" placeholder="Wave / QMoney ID"></div>
+      <div class="col-3"><label class="form-label">Discount</label><input class="form-control" type="number" step="0.01" min="0" name="discount" value="0"></div>
+      <div class="col-3"><label class="form-label">Date</label><input class="form-control" type="date" name="sold_at" value="{{ today }}"></div></div>
+  </div>
+  <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Record sale</button></div></form></div></div>
+
+<div class="modal fade" id="expenseModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post" action="{% url 'finance_expense_add' %}">{% csrf_token %}<input type="hidden" name="return_query" value="{{ query }}">
+  <div class="modal-header border-0"><h5 class="modal-title fw-bold">Add an expense</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body pt-0"><div class="row g-2">
+    <div class="col-6"><label class="form-label">Category</label><select class="form-select" name="category">{% for k,l in categories %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-6"><label class="form-label">Amount ({{ c }})</label><input class="form-control" type="number" step="0.01" min="0" name="amount" required></div>
+    <div class="col-12"><label class="form-label">Description</label><input class="form-control" name="description" required placeholder="e.g. Fibre internet — September"></div>
+    <div class="col-6"><label class="form-label">Paid to</label><input class="form-control" name="vendor" placeholder="Vendor"></div>
+    <div class="col-6"><label class="form-label">Site</label><select class="form-select" name="router"><option value="">Whole business</option>{% for r in routers %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select></div>
+    <div class="col-4"><label class="form-label">Paid with</label><select class="form-select" name="method">{% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-4"><label class="form-label">Reference</label><input class="form-control" name="reference"></div>
+    <div class="col-4"><label class="form-label">Date</label><input class="form-control" type="date" name="paid_at" value="{{ today }}"></div>
+    <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" name="recurring" id="expRec"><label class="form-check-label small" for="expRec">Repeats monthly</label></div></div></div></div>
+  <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Add expense</button></div></form></div></div>
+
+<div class="modal fade" id="agentModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post" action="{% url 'finance_agent_save' %}">{% csrf_token %}<input type="hidden" name="return_query" value="{{ query }}"><input type="hidden" name="id">
+  <div class="modal-header border-0"><h5 class="modal-title fw-bold">Agent</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body pt-0"><div class="row g-2"><div class="col-12"><label class="form-label">Name</label><input class="form-control" name="name" required></div>
+    <div class="col-6"><label class="form-label">Phone</label><input class="form-control" name="phone"></div><div class="col-6"><label class="form-label">Location</label><input class="form-control" name="location" placeholder="e.g. Westfield junction"></div>
+    <div class="col-6"><label class="form-label">Commission %</label><input class="form-control" type="number" step="0.5" min="0" max="100" name="commission_percent" value="10"></div>
+    <div class="col-6"><label class="form-label">Status</label><select class="form-select" name="active"><option value="1">Active</option><option value="0">Inactive</option></select></div></div></div>
+  <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save agent</button></div></form></div></div>
+
+<div class="modal fade" id="collectModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post" action="{% url 'finance_collection_add' %}">{% csrf_token %}<input type="hidden" name="return_query" value="{{ query }}"><input type="hidden" name="agent">
+  <div class="modal-header border-0"><h5 class="modal-title fw-bold">Collect cash from <span data-name></span></h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body pt-0"><div class="row g-2"><div class="col-6"><label class="form-label">Amount ({{ c }})</label><input class="form-control" type="number" step="0.01" min="0" name="amount" required><small class="text-secondary">Owes <span data-owed></span></small></div>
+    <div class="col-6"><label class="form-label">Received by</label><select class="form-select" name="method">{% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-6"><label class="form-label">Reference</label><input class="form-control" name="reference"></div><div class="col-6"><label class="form-label">Date</label><input class="form-control" type="date" name="collected_at" value="{{ today }}"></div>
+    <div class="col-12"><label class="form-label">Note</label><input class="form-control" name="note"></div></div></div>
+  <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success">Record hand-in</button></div></form></div></div>
+
+<div class="modal fade" id="settingsModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post" action="{% url 'finance_settings' %}">{% csrf_token %}<input type="hidden" name="return_query" value="{{ query }}">
+  <div class="modal-header border-0"><h5 class="modal-title fw-bold">Finance settings</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body pt-0"><label class="form-label">Monthly sales target ({{ c }})</label><input class="form-control" type="number" step="1" min="0" name="monthly_revenue_target" value="{{ current_business.monthly_revenue_target|floatformat:0 }}">
+    <div class="form-check form-switch mt-3"><input class="form-check-input" type="checkbox" name="auto_record_sales" id="autoRec" {% if current_business.auto_record_sales %}checked{% endif %}><label class="form-check-label" for="autoRec"><b>Record sales automatically</b><br><small class="text-secondary">When router sync sees an unsold voucher used for the first time, book it as a sale at its plan price. Sales you record by hand are never duplicated.</small></label></div></div>
+  <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save settings</button></div></form></div></div>
+
+{{ charts|json_script:"finData" }}
+<script>window.TT_TARGET={target:{{ s.target|default:0|stringformat:'s' }},month:{{ s.month_revenue|default:0|stringformat:'s' }}};</script>
+{% endwith %}
+{% endblock %}
+{% block scripts %}
+<script>window.TT_CURRENCY="{{ current_business.currency|escapejs }}";</script>
+<script src="{% static 'vendor/chart.umd.min.js' %}"></script><script src="{% static 'js/taptap-charts.js' %}"></script>
+<script>
+(function(){
+  const D=JSON.parse(document.getElementById('finData').textContent), C=TT.C, $=id=>document.getElementById(id);
+  document.querySelectorAll('#saleModal input[name=mode]').forEach(r=>r.addEventListener('change',()=>{document.querySelectorAll('#saleModal [data-mode]').forEach(p=>p.hidden=p.dataset.mode!==r.value)}));
+  $('agentModal').addEventListener('show.bs.modal',e=>{const a=JSON.parse((e.relatedTarget&&e.relatedTarget.dataset.agent)||'{}'),f=e.target.querySelector('form');f.elements.id.value=a.id||'';f.elements.name.value=a.name||'';f.elements.phone.value=a.phone||'';f.elements.location.value=a.location||'';f.elements.commission_percent.value=a.commission_percent||10;f.elements.active.value=a.active===false?'0':'1';});
+  $('collectModal').addEventListener('show.bs.modal',e=>{const b=e.relatedTarget,f=e.target.querySelector('form');f.elements.agent.value=b.dataset.agentId;e.target.querySelector('[data-name]').textContent=b.dataset.name;e.target.querySelector('[data-owed]').textContent=TT.money(b.dataset.owed,2);f.elements.amount.value=Math.max(0,+b.dataset.owed).toFixed(2);});
+  const need=$('stillNeeded'), T=window.TT_TARGET; if(need) need.textContent=T.target>T.month?TT.money(T.target-T.month):'Target reached';
+  if($('sparkRev')) TT.make('sparkRev',{type:'line',data:{labels:D.labels,datasets:[{data:D.revenue,borderColor:'#6fb6ff',borderWidth:2,fill:true,backgroundColor:'rgba(111,182,255,.18)'}]},options:{animation:false,plugins:{legend:{display:false},tooltip:{enabled:false}},scales:{x:{display:false},y:{display:false}}}});
+  function flow(mode){
+    if(!$('flowChart'))return;
+    TT.showEmpty('flowChart','No sales or expenses in this period yet. Record a sale to start.',TT.empty(D.revenue)&&TT.empty(D.expenses));
+    const ds = mode==='cum' ? [{type:'line',label:'Running profit',data:D.cumulative,borderColor:C.green,borderWidth:2.5,fill:true,backgroundColor:TT.alpha(C.green,.12)}]
+      : [{type:'bar',label:'Sales',data:D.revenue,backgroundColor:C.blue,stack:'a',order:2},{type:'bar',label:'Expenses',data:D.expenses.map(v=>-v),backgroundColor:TT.alpha(C.red,.8),stack:'a',order:2},
+         {type:'bar',label:'Commission',data:D.commission.map(v=>-v),backgroundColor:TT.alpha(C.orange,.85),stack:'a',order:2},{type:'line',label:'Profit',data:D.profit,borderColor:C.ink,borderWidth:2,pointRadius:D.labels.length<40?3:0,pointBackgroundColor:'#fff',order:1}];
+    TT.make('flowChart',{data:{labels:D.labels,datasets:ds},options:{interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+TT.money(c.dataset.label==='Profit'||c.dataset.label==='Running profit'?c.parsed.y:Math.abs(c.parsed.y))}}},scales:{x:{...TT.plainAxis(),stacked:true},y:{...TT.moneyAxis(),stacked:true}}}});
+  }
+  flow('flow');document.querySelectorAll('#flowSeg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#flowSeg button').forEach(x=>x.classList.toggle('on',x===b));flow(b.dataset.v);});
+  if($('momChart')) TT.make('momChart',{type:'line',data:{labels:D.mom.labels,datasets:[{label:D.mom.this_label,data:D.mom.this,borderColor:C.blue,borderWidth:2.5},{label:D.mom.last_label,data:D.mom.last,borderColor:C.slate,borderDash:[5,4],borderWidth:1.6}]},options:{interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom'},tooltip:TT.moneyTip()},scales:{x:{...TT.plainAxis(),title:{display:true,text:'Day of month'}},y:TT.moneyAxis()}}});
+  if($('catChart')) TT.doughnut('catChart',D.categories.labels,D.categories.values,{empty:'No expenses recorded for this period.'});
+  if($('methodChart')) TT.doughnut('methodChart',D.methods.labels,D.methods.values,{empty:'No sales recorded for this period.'});
+  if($('siteChart')){TT.showEmpty('siteChart','Assign vouchers and expenses to routers to compare sites.',TT.empty(D.sites.revenue));TT.make('siteChart',{type:'bar',data:{labels:D.sites.labels,datasets:[{label:'Sales',data:D.sites.revenue,backgroundColor:C.blue},{label:'Costs',data:D.sites.expenses,backgroundColor:TT.alpha(C.red,.75)}]},options:{indexAxis:'y',plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+TT.money(c.parsed.x)}}},scales:{x:TT.moneyAxis(),y:{grid:{display:false},border:{display:false}}}}});}
+  if($('yearChart')) TT.make('yearChart',{data:{labels:D.year.labels,datasets:[{type:'bar',label:'Sales',data:D.year.revenue,backgroundColor:TT.alpha(C.blue,.85)},{type:'bar',label:'Expenses',data:D.year.expenses,backgroundColor:TT.alpha(C.red,.6)},{type:'line',label:'Profit',data:D.year.profit,borderColor:C.green,borderWidth:2.5,pointRadius:3,pointBackgroundColor:'#fff'}]},options:{interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom'},tooltip:TT.moneyTip()},scales:{x:TT.plainAxis(),y:TT.moneyAxis()}}});
+})();
+</script>
+{% endblock %}

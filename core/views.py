@@ -77,8 +77,10 @@ def b(request): return request.user.business
 
 @login_required
 def dashboard(request):
-    business=b(request); vouchers=business.vouchers.all(); routers=business.routers.all(); revenue=vouchers.aggregate(v=Sum('price'))['v'] or 0
-    stats={'vouchers':vouchers.count(),'available':vouchers.filter(status='active',used_at__isnull=True).count(),'active':vouchers.filter(status='active',used_at__isnull=False).count(),'routers':routers.count(),'online':routers.filter(status='Online').count(),'revenue':revenue}
+    business=b(request); vouchers=business.vouchers.all(); routers=business.routers.all()
+    month_start=timezone.localtime().replace(day=1,hour=0,minute=0,second=0,microsecond=0)
+    revenue=business.sales.filter(sold_at__gte=month_start).aggregate(v=Sum('amount'))['v'] or 0
+    stats={'vouchers':vouchers.count(),'available':vouchers.filter(status='active',used_at__isnull=True,sold_at__isnull=True).count(),'active':vouchers.filter(status='active',used_at__isnull=False).count(),'routers':routers.count(),'online':routers.filter(status='Online').count(),'revenue':revenue}
     return render(request,'core/dashboard.html',{'stats':stats,'activities':business.activities.order_by('-created_at')[:8],'routers':routers[:5],'top_plans':vouchers.values('plan_name').annotate(total=Count('id')).order_by('-total')[:5]})
 
 
@@ -97,7 +99,22 @@ def subscription_select(request,code):
 
 @login_required
 def vouchers(request):
-    return render(request,'core/vouchers.html',{'vouchers':b(request).vouchers.select_related('router','batch').order_by('-created_at')})
+    from django.core.paginator import Paginator
+    business=b(request);qs=business.vouchers.select_related('router','batch').order_by('-created_at')
+    state=request.GET.get('state','');plan=request.GET.get('plan','');q=request.GET.get('q','').strip()
+    if state=='unsold': qs=qs.filter(status='active',sold_at__isnull=True,used_at__isnull=True)
+    elif state=='sold': qs=qs.filter(sold_at__isnull=False,used_at__isnull=True)
+    elif state=='used': qs=qs.filter(used_at__isnull=False)
+    elif state=='disabled': qs=qs.exclude(status='active')
+    if plan: qs=qs.filter(plan_name=plan)
+    if q: qs=qs.filter(Q(code__icontains=q)|Q(batch__name__icontains=q))
+    counts=business.vouchers.aggregate(all=Count('id'),unsold=Count('id',filter=Q(status='active',sold_at__isnull=True,used_at__isnull=True)),
+        sold=Count('id',filter=Q(sold_at__isnull=False,used_at__isnull=True)),used=Count('id',filter=Q(used_at__isnull=False)),disabled=Count('id',filter=~Q(status='active')))
+    params=request.GET.copy();params.pop('page',None)
+    state_tabs=[('','All',counts['all']),('unsold','In stock',counts['unsold']),('sold','Sold, not used',counts['sold']),('used','Used',counts['used']),('disabled','Disabled / expired',counts['disabled'])]
+    return render(request,'core/vouchers.html',{'page_obj':Paginator(qs,100).get_page(request.GET.get('page')),'counts':counts,'state_tabs':state_tabs,'state':state,'plan':plan,'q':q,
+        'plans':business.vouchers.values_list('plan_name',flat=True).distinct().order_by('plan_name'),'agents':business.agents.filter(active=True),
+        'designs':business.voucher_designs.all(),'params':params.urlencode()})
 
 
 @login_required
@@ -119,8 +136,12 @@ def generate_vouchers(request):
                     messages.info(request,f'{router.name} already has a background sync running; the new vouchers will be picked up by that sync or the next one.')
             except Exception as e:
                 messages.warning(request,f'Vouchers were created in TapTap, but the router background sync could not be queued: {e}')
-        messages.success(request,f'{qty} voucher(s) created successfully.'); return redirect('vouchers')
-    return render(request,'core/generate_vouchers.html',{'plans':plans,'routers':routers})
+        messages.success(request,f'{qty} voucher(s) created successfully.')
+        if request.POST.get('print_after'):
+            design=request.POST.get('design','')
+            return redirect(f"/studio/vouchers/print/?batch={batch.pk}"+(f"&design={design}" if design else ''))
+        return redirect('vouchers')
+    return render(request,'core/generate_vouchers.html',{'plans':plans,'routers':routers,'designs':business.voucher_designs.all()})
 
 
 @login_required
@@ -147,7 +168,10 @@ def delete_expired(request):
 
 
 @login_required
-def batches(request): return render(request,'core/batches.html',{'batches':b(request).batches.select_related('plan').annotate(actual=Count('vouchers')).order_by('-created_at')})
+def batches(request):
+    return render(request,'core/batches.html',{'batches':b(request).batches.select_related('plan').annotate(actual=Count('vouchers'),
+        sold=Count('vouchers',filter=Q(vouchers__sold_at__isnull=False)),used=Count('vouchers',filter=Q(vouchers__used_at__isnull=False))).order_by('-created_at'),
+        'designs':b(request).voucher_designs.all()})
 
 
 @login_required
@@ -574,16 +598,6 @@ def topology_live(request):
 
 
 @login_required
-def reports(request):
-    business=b(request);rows=business.vouchers.values('plan_name').annotate(count=Count('id'),revenue=Sum('price')).order_by('-revenue');return render(request,'core/reports.html',{'rows':rows})
-
-
-@login_required
-def finance(request):
-    business=b(request);total=business.vouchers.aggregate(v=Sum('price'))['v'] or 0;return render(request,'core/finance.html',{'total':total,'subs':business.subscriptions.order_by('-created_at')})
-
-
-@login_required
 def security(request):
     business=b(request)
     findings=audit_business(business)
@@ -661,7 +675,26 @@ def security_ack(request):
 
 
 @login_required
-def settings_view(request): return render(request,'core/settings.html')
+def settings_view(request):
+    business=b(request)
+    if request.method=='POST':
+        f=request.POST
+        business.business_name=f.get('business_name',business.business_name).strip()[:180] or business.business_name
+        business.owner_name=f.get('owner_name',business.owner_name).strip()[:180] or business.owner_name
+        business.phone=f.get('phone',business.phone).strip()[:60]
+        business.wifi_ssid=f.get('wifi_ssid','').strip()[:80]
+        business.hotspot_url=f.get('hotspot_url','').strip()[:200]
+        business.support_phone=f.get('support_phone','').strip()[:60]
+        business.currency=(f.get('currency','D').strip() or 'D')[:8]
+        color=f.get('brand_color','#1769e0').strip()
+        if re.fullmatch(r'#[0-9a-fA-F]{6}',color): business.brand_color=color
+        logo=f.get('logo_data','')
+        if f.get('remove_logo'): business.logo_data=''
+        elif logo.startswith('data:image/') and len(logo)<400_000: business.logo_data=logo
+        business.save()
+        messages.success(request,'Settings saved. Portal pages and voucher designs use the new details straight away.')
+        return redirect('settings')
+    return render(request,'core/settings.html')
 @login_required
 def support(request): return render(request,'core/support.html')
 

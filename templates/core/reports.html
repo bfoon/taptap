@@ -1,1 +1,100 @@
-{% extends 'core/base.html' %}{% block title %}Reports — TapTap{% endblock %}{% block heading %}Reports & Insights{% endblock %}{% block content %}<div class="panel"><div class="panel-head"><div><h3>Plan performance</h3><p>Generated voucher count and inventory value by plan.</p></div></div><div class="table-responsive"><table class="table"><thead><tr><th>Plan</th><th>Vouchers</th><th>Value</th></tr></thead><tbody>{% for x in rows %}<tr><td><b>{{ x.plan_name }}</b></td><td>{{ x.count }}</td><td>D{{ x.revenue|default:0 }}</td></tr>{% empty %}<tr><td colspan="3" class="empty-table">No report data yet.</td></tr>{% endfor %}</tbody></table></div></div>{% endblock %}
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}Reports — TapTap{% endblock %}{% block heading %}Reports{% endblock %}
+{% block content %}
+<form class="filter-bar" id="rf">
+  <div class="range-pills" role="group" aria-label="Period">
+    {% for key,label in presets.items %}{% if key != 'custom' %}<button type="button" data-range="{{ key }}">{{ label }}</button>{% endif %}{% endfor %}
+    <div class="custom-range"><input class="form-control form-control-sm" type="date" name="start" aria-label="From"><span class="text-secondary">–</span><input class="form-control form-control-sm" type="date" name="end" aria-label="To"><button type="button" class="btn btn-sm btn-outline-secondary" data-range="custom">Apply</button></div>
+  </div>
+  <div class="bar-actions">
+    <select class="form-select form-select-sm" name="router" aria-label="Site" style="width:auto"><option value="">All sites</option>{% for r in routers %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select>
+    <select class="form-select form-select-sm" name="plan" aria-label="Plan" style="width:auto"><option value="">All plans</option>{% for p in plans %}<option value="{{ p }}">{{ p }}</option>{% endfor %}</select>
+    <a class="btn btn-sm btn-outline-secondary" id="csvBtn" href="#"><i class="bi bi-filetype-csv"></i> CSV</a>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="window.print()"><i class="bi bi-printer"></i> Print</button>
+  </div>
+</form>
+<p class="period-note" id="periodNote">Loading…</p>
+
+<div id="rep">
+<div class="insights" id="insights"></div>
+<div class="kpi-row" id="kpis"></div>
+
+<div class="row g-3 mt-1">
+  <div class="col-xl-8"><div class="chart-panel h-100"><header><div><h3>Trend</h3><p id="trendSub">Per day</p></div>
+    <div class="seg" id="trendSeg"><button class="on" data-v="revenue">Revenue</button><button data-v="volume">Vouchers</button></div></header><div class="chart-box lg"><canvas id="trendChart"></canvas></div></div></div>
+  <div class="col-xl-4"><div class="chart-panel h-100"><header><div><h3>Voucher journey</h3><p>From printed to switched on</p></div></header><div class="funnel" id="funnel"></div>
+    <hr class="my-3"><h3 class="fs-6 fw-bold mb-2">Unsold stock by age</h3><div class="chart-box sm" style="height:170px"><canvas id="agingChart"></canvas></div></div></div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-xl-4"><div class="chart-panel h-100"><header><div><h3>Plan mix</h3><p>Share of revenue</p></div></header><div class="chart-box"><canvas id="mixChart"></canvas></div></div></div>
+  <div class="col-xl-8"><div class="chart-panel h-100"><header><div><h3>Plans in detail</h3><p>Generated, sold and activated in this period</p></div></header>
+    <div class="table-responsive"><table class="table plan-table align-middle table-money mb-0"><thead><tr><th>Plan</th><th class="num">Generated</th><th class="num">Sold</th><th class="num">Activated</th><th class="num">Revenue</th><th style="width:22%">Share</th></tr></thead><tbody id="planRows"></tbody></table></div></div></div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-xl-7"><div class="chart-panel h-100"><header><div><h3>When people buy</h3><p>Sales by weekday and hour — plan staffing and promos around the dark squares</p></div></header><div class="heat" id="heat"></div>
+    <div class="heat-legend">Fewer <i style="background:#eef3fa"></i><i style="background:#b9d4f7"></i><i style="background:#6fa6ee"></i><i style="background:#2d74dc"></i><i style="background:#0b3f8c"></i> More</div></div></div>
+  <div class="col-xl-5"><div class="chart-panel h-100"><header><div><h3>Top sites</h3><p>Revenue by router</p></div></header><div class="chart-box sm"><canvas id="siteChart"></canvas></div>
+    <hr class="my-3"><header><div><h3>Top sellers</h3><p>Revenue by agent</p></div></header><div class="chart-box sm" style="height:180px"><canvas id="agentChart"></canvas></div></div></div>
+</div>
+</div>
+{{ initial|json_script:"repInit" }}
+{% endblock %}
+{% block scripts %}
+<script>window.TT_CURRENCY="{{ current_business.currency|escapejs }}";</script>
+<script src="{% static 'vendor/chart.umd.min.js' %}"></script><script src="{% static 'js/taptap-charts.js' %}"></script>
+<script>
+(function(){
+  const $=id=>document.getElementById(id), form=$('rf'), C=TT.C, init=JSON.parse($('repInit').textContent);
+  let state={range:init.range||'30d',start:init.start,end:init.end,router:init.router,plan:init.plan}, data=null, trendMode='revenue';
+  form.router.value=state.router||'';form.plan.value=state.plan||'';
+  const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  function qs(){const p=new URLSearchParams();Object.entries(state).forEach(([k,v])=>{if(v)p.set(k,v)});return p.toString();}
+  function pills(){form.querySelectorAll('[data-range]').forEach(b=>b.classList.toggle('on',b.dataset.range===state.range&&state.range!=='custom'));}
+  function delta(ch,inv){if(ch===null||ch===undefined)return '<span class="delta flat">—</span>';const c=ch>0?'up':(ch<0?'down':'flat');return `<span class="delta ${c}${inv?' inv':''}">${ch>0?'▲':(ch<0?'▼':'•')} ${Math.abs(ch)}%</span>`;}
+  async function load(){
+    $('rep').classList.add('loading-veil');pills();history.replaceState(null,'','?'+qs());$('csvBtn').href='{% url "reports_export" %}?'+qs();
+    try{const r=await fetch('{% url "reports_data" %}?'+qs(),{headers:{'Accept':'application/json'}});data=await r.json();draw();}
+    catch(e){$('periodNote').textContent='Could not load the report. Check your connection and try again.';}
+    $('rep').classList.remove('loading-veil');
+  }
+  function draw(){
+    const d=data,k=d.kpis,p=d.period;
+    form.start.value=p.start;form.end.value=p.end;
+    $('periodNote').innerHTML=`Showing <b>${esc(p.label)}</b> (${esc(p.start)} to ${esc(p.end)}), compared with the ${p.days} day${p.days>1?'s':''} before.`;
+    $('insights').innerHTML=d.insights.length?d.insights.map(t=>`<div class="insight">${esc(t)}</div>`).join(''):'<div class="insight">Not enough activity in this period for highlights yet.</div>';
+    const cards=[['Revenue',TT.money(k.revenue.value),k.revenue.change,'hero','sparkR'],['Vouchers sold',TT.num(k.sold.value),k.sold.change],['Average sale',TT.money(k.avg_ticket.value,2),k.avg_ticket.change],['Activated',TT.num(k.activated.value),k.activated.change],['Sell-through',k.sell_through.value+'%',null,'','',`of ${TT.num(k.generated.value)} generated this period`]];
+    $('kpis').innerHTML=cards.map(c=>`<div class="kpi ${c[3]||''}"><small>${c[0]}</small><strong>${c[1]}</strong>${c[5]?`<em>${c[5]}</em>`:delta(c[2])}${c[4]?`<canvas class="spark" id="${c[4]}"></canvas>`:''}</div>`).join('');
+    TT.make('sparkR',{type:'line',data:{labels:d.trend.labels,datasets:[{data:d.trend.revenue,borderColor:'#6fb6ff',borderWidth:2,fill:true,backgroundColor:'rgba(111,182,255,.18)'}]},options:{animation:false,plugins:{legend:{display:false},tooltip:{enabled:false}},scales:{x:{display:false},y:{display:false}}}});
+    $('trendSub').textContent='Per '+p.bucket;trend();
+    const max=Math.max(1,...d.funnel.map(f=>f.value)),cols=[C.blue,C.sky,C.green,C.slate];
+    $('funnel').innerHTML=d.funnel.map((f,i)=>{const prev=i?d.funnel[i-1].value:0,conv=i&&i<3&&prev?Math.round(f.value/prev*100)+'% of previous':'';return `<div class="funnel-row"><span>${f.label}${conv?`<small>${conv}</small>`:''}</span><div class="track"><i style="width:${Math.max(2,f.value/max*100)}%;background:${cols[i]}"></i></div><b>${TT.num(f.value)}</b></div>`}).join('');
+    TT.showEmpty('agingChart','No unsold stock. Nice.',!d.aging.some(a=>a.count));
+    TT.make('agingChart',{type:'bar',data:{labels:d.aging.map(a=>a.label),datasets:[{label:'Vouchers',data:d.aging.map(a=>a.count),backgroundColor:[C.green,C.sky,C.orange,C.red]}]},options:{plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.parsed.y} vouchers · ${TT.money(d.aging[c.dataIndex].value)}`}}},scales:{x:TT.plainAxis(),y:{grid:{color:'#eef2f7'},border:{display:false},ticks:{precision:0}}}}});
+    TT.doughnut('mixChart',d.plan_mix.labels,d.plan_mix.values,{legend:'bottom',empty:'No sales in this period.'});
+    $('planRows').innerHTML=d.plans.length?d.plans.map(r=>`<tr><td><b>${esc(r.plan)}</b></td><td class="num">${TT.num(r.generated)}</td><td class="num">${TT.num(r.sold)}</td><td class="num">${TT.num(r.activated)}</td><td class="num"><b>${TT.money(r.revenue)}</b></td><td><div class="d-flex align-items-center gap-2"><div class="share-bar flex-grow-1"><i style="width:${r.share}%"></i></div><small>${r.share}%</small></div></td></tr>`).join(''):'<tr><td colspan="6" class="empty-table">No voucher activity in this period.</td></tr>';
+    const H=d.heatmap,hmax=Math.max(1,...H.flat()),days=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],ramp=['#eef3fa','#b9d4f7','#6fa6ee','#2d74dc','#0b3f8c'];
+    let h='<span></span>'+Array.from({length:24},(_,i)=>`<span class="hh">${i%3===0?String(i).padStart(2,'0'):''}</span>`).join('');
+    H.forEach((row,i)=>{h+=`<span>${days[i]}</span>`+row.map((v,j)=>`<i title="${days[i]} ${String(j).padStart(2,'0')}:00 — ${v} sale${v===1?'':'s'}" style="background:${v?ramp[Math.min(4,1+Math.floor(v/hmax*3.999))]:ramp[0]}"></i>`).join('')});
+    $('heat').innerHTML=h;
+    TT.showEmpty('siteChart','No sales linked to a router yet.',TT.empty(d.routers.values));
+    TT.make('siteChart',{type:'bar',data:{labels:d.routers.labels,datasets:[{label:'Revenue',data:d.routers.values,backgroundColor:C.blue}]},options:{indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${TT.money(c.parsed.x)} · ${d.routers.counts[c.dataIndex]} sold`}}},scales:{x:TT.moneyAxis(),y:{grid:{display:false},border:{display:false}}}}});
+    TT.showEmpty('agentChart','No agent sales in this period.',TT.empty(d.agents.values));
+    TT.make('agentChart',{type:'bar',data:{labels:d.agents.labels,datasets:[{label:'Revenue',data:d.agents.values,backgroundColor:C.purple}]},options:{indexAxis:'y',plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${TT.money(c.parsed.x)} · ${d.agents.counts[c.dataIndex]} sold`}}},scales:{x:TT.moneyAxis(),y:{grid:{display:false},border:{display:false}}}}});
+  }
+  function trend(){
+    const t=data.trend,rev=trendMode==='revenue';
+    TT.showEmpty('trendChart','No activity in this period. Try a longer range.',TT.empty(t.revenue)&&TT.empty(t.generated)&&TT.empty(t.sold));
+    const ds=rev?[{type:'bar',label:'Revenue',data:t.revenue,backgroundColor:TT.alpha(C.blue,.9),yAxisID:'y'},{type:'line',label:'Vouchers sold',data:t.sold,borderColor:C.orange,borderWidth:2,yAxisID:'y1',pointRadius:t.labels.length<40?2.5:0}]
+      :[{type:'line',label:'Generated',data:t.generated,borderColor:C.slate,borderDash:[5,4],borderWidth:1.8},{type:'line',label:'Sold',data:t.sold,borderColor:C.blue,borderWidth:2.5,fill:true,backgroundColor:TT.alpha(C.blue,.08)},{type:'line',label:'Activated',data:t.activated,borderColor:C.green,borderWidth:2.5}];
+    const scales=rev?{x:TT.plainAxis(),y:TT.moneyAxis(),y1:{position:'right',grid:{display:false},border:{display:false},ticks:{precision:0}}}:{x:TT.plainAxis(),y:{grid:{color:'#eef2f7'},border:{display:false},ticks:{precision:0}}};
+    TT.make('trendChart',{data:{labels:t.labels,datasets:ds},options:{interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+(c.dataset.label==='Revenue'?TT.money(c.parsed.y):TT.num(c.parsed.y))}}},scales}});
+  }
+  form.querySelectorAll('[data-range]').forEach(b=>b.addEventListener('click',()=>{state.range=b.dataset.range;if(state.range==='custom'){state.start=form.start.value;state.end=form.end.value;}else{state.start='';state.end='';}load();}));
+  form.router.onchange=()=>{state.router=form.router.value;load();};form.plan.onchange=()=>{state.plan=form.plan.value;load();};
+  document.querySelectorAll('#trendSeg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#trendSeg button').forEach(x=>x.classList.toggle('on',x===b));trendMode=b.dataset.v;trend();});
+  load();
+})();
+</script>
+{% endblock %}

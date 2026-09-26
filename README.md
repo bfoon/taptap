@@ -145,3 +145,33 @@ docker compose up -d --build
 docker compose exec web python manage.py migrate
 docker compose exec web python manage.py showmigrations core   # 0005_security_ack and 0006_voucher_plan_name_length [X]
 ```
+
+## Finance, Reports and the Studios
+
+Run `python manage.py migrate` after updating — migration `0007_finance_and_studios` adds the new tables and fields.
+
+### Finance (`/finance/`)
+- **Sales ledger.** Record sales from stock (oldest unsold vouchers of a plan), by voucher code, or as a plain amount. Payment methods include cash, Wave, QMoney, Afrimoney, bank and card. Voiding a sale puts the voucher back in stock.
+- **Automatic sales.** When router sync first sees uptime on an unsold voucher, it marks it used and (if *Record sales automatically* is on) books a sale at the plan price. A voucher is never booked twice.
+- **Expenses** by category and site, with monthly bills copied forward in one click.
+- **Agents / resellers** with commission %, cash hand-ins and a running balance still to be handed in.
+- Overview charts, monthly target with pace projection, 12-month P&L, CSV exports (sales, expenses, P&L, agents).
+
+### Reports (`/reports/`)
+Date presets or custom range, filter by router and plan. Revenue/volume trend, voucher journey (generated → sold → activated), plan mix, weekday × hour heatmap, top sites and sellers, unsold stock by age, automatic highlights, CSV and print.
+
+### Portal Studio (`/studio/portal/`)
+Design the hotspot **login**, post-login **redirect** and **status** pages from 19 templates and 17 block types, with live phone/tablet/desktop preview, undo, autosave and publishing.
+
+Two ways to use a page on a MikroTik:
+1. **Offline** — *Export → Router files* gives `login.html` (+ `alogin.html`, `status.html` from your default pages). Upload to the router's hotspot folder. Supports HTTP-CHAP. Prices are baked in: re-export after changing plans.
+2. **Hosted** — *Export → Hosted redirect* gives a small `login.html` that forwards customers to `https://<your-taptap>/p/<slug>/`, plus `taptap-walled-garden.rsc`. The hosted page checks the code first (rate-limited to 20 tries/min per IP) and logs in with HTTP-PAP, so enable `http-pap` on the hotspot profile.
+
+Custom fonts load from Google Fonts before login only if the walled-garden entries are added; otherwise the page falls back to system fonts.
+
+### Voucher Designer (`/studio/vouchers/`)
+Drag-and-drop card designer in millimetres: text with tokens (`{code}`, `{plan}`, `{price}`, `{ssid}`, `{serial}`…), voucher code, QR code (scan to log in / show code / join Wi-Fi), logo, shapes, lines and icons. 12 templates including 58 mm thermal receipts and a 40-per-A4 pocket slip. Print sheets (`/studio/vouchers/print/`) lay cards out on A4, Letter, A5 or receipt rolls with cutting lines; open them from Batches, Vouchers (selected or unsold), after generating, or after recording a sale.
+
+Set the Wi-Fi name, hotspot login address, help phone, logo and brand colour in **Settings** — both studios use them.
+
+Chart.js 4.4.4 and qrcode-generator 1.4.4 are vendored under `static/vendor/` so everything works on offline LAN installs.

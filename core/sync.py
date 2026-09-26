@@ -9,6 +9,12 @@ from .models import (
     RouterInterfaceRole, RouterConfigSnapshot,
 )
 from .utils import duration_to_routeros, log
+from .finance import mark_activated
+
+
+def _has_uptime(value):
+    text = str(value or '').strip().lower()
+    return bool(text) and text not in {'0', '0s', '00:00:00', 'none'} and any(ch.isdigit() and ch != '0' for ch in text)
 
 
 def _clean(row):
@@ -168,15 +174,23 @@ def sync_router(router, progress=None):
                     existing_voucher.status='disabled' if disabled else 'active'
                     fields += ['mikrotik_id','plan_name','duration_hours','max_devices','status']
                 existing_voucher.save(update_fields=list(dict.fromkeys(fields)))
+                if _has_uptime(row.get('uptime')) and not existing_voucher.used_at:
+                    try:
+                        if mark_activated(existing_voucher, now): summary['activated_vouchers'] = summary.get('activated_vouchers', 0) + 1
+                    except Exception as exc:
+                        summary['errors'].append(f'Activation tracking for {username}: {exc}')
             else:
                 try:
-                    Voucher.objects.create(
+                    new_voucher = Voucher.objects.create(
                         business=router.business, router=router, code=username, plan_name=profile_name,
                         price=plan.price if plan else 0, duration_hours=duration_hours, max_devices=max_devices,
                         status='disabled' if disabled else 'active', source='mikrotik', mikrotik_id=str(row.get('id','')),
                         mikrotik_sync_status='Synced', mikrotik_sync_error='',
                     )
                     summary['pulled_vouchers'] += 1
+                    if _has_uptime(row.get('uptime')):
+                        # Imported users that were already used before TapTap saw them: mark used, never back-book revenue.
+                        Voucher.objects.filter(pk=new_voucher.pk).update(used_at=now)
                 except Exception as exc:
                     summary['errors'].append(f'Could not import RouterOS voucher {username}: {exc}')
 

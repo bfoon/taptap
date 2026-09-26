@@ -1,5 +1,5 @@
 from django.urls import path
-from . import views
+from . import views, views_business as vb, views_studio as vs
 
 urlpatterns = [
     path('',views.home,name='home'), path('register/',views.register,name='register'), path('login/',views.login_view,name='login'), path('logout/',views.logout_view,name='logout'),
@@ -13,6 +13,21 @@ urlpatterns = [
     path('routers/<int:pk>/control/interface-role/',views.router_interface_role,name='router_interface_role'), path('routers/<int:pk>/control/recipe/',views.router_quick_recipe,name='router_quick_recipe'),
     path('routers/<int:pk>/telemetry/',views.router_telemetry,name='router_telemetry'),
     path('active-users/',views.active_users,name='active_users'), path('active-users/disconnect/',views.disconnect_user,name='disconnect_user'), path('ip-bindings/',views.ip_bindings,name='ip_bindings'), path('ip-bindings/action/',views.ip_binding_action,name='ip_binding_action'),
-    path('topology/',views.topology,name='topology'), path('topology/graph/',views.topology_graph,name='topology_graph'), path('topology/live/',views.topology_live,name='topology_live'), path('topology/refresh/<int:pk>/',views.topology_refresh,name='topology_refresh'), path('reports/',views.reports,name='reports'), path('finance/',views.finance,name='finance'), path('security/',views.security,name='security'), path('security/ack/',views.security_ack,name='security_ack'), path('security/rescan/<int:pk>/',views.security_rescan,name='security_rescan'), path('security/fix/<int:pk>/',views.security_fix,name='security_fix'), path('settings/',views.settings_view,name='settings'), path('support/',views.support,name='support'),
+    path('topology/',views.topology,name='topology'), path('topology/graph/',views.topology_graph,name='topology_graph'), path('topology/live/',views.topology_live,name='topology_live'), path('topology/refresh/<int:pk>/',views.topology_refresh,name='topology_refresh'), path('security/',views.security,name='security'), path('security/ack/',views.security_ack,name='security_ack'), path('security/rescan/<int:pk>/',views.security_rescan,name='security_rescan'), path('security/fix/<int:pk>/',views.security_fix,name='security_fix'), path('settings/',views.settings_view,name='settings'), path('support/',views.support,name='support'),
+    # Finance
+    path('finance/',vb.finance,name='finance'), path('finance/sale/',vb.finance_sale_add,name='finance_sale_add'), path('finance/sale/<int:pk>/void/',vb.finance_sale_delete,name='finance_sale_delete'),
+    path('finance/expense/',vb.finance_expense_add,name='finance_expense_add'), path('finance/expense/<int:pk>/delete/',vb.finance_expense_delete,name='finance_expense_delete'),
+    path('finance/expense/repeat/',vb.finance_expense_repeat,name='finance_expense_repeat'), path('finance/agent/',vb.finance_agent_save,name='finance_agent_save'),
+    path('finance/collection/',vb.finance_collection_add,name='finance_collection_add'), path('finance/settings/',vb.finance_settings,name='finance_settings'),
+    path('finance/export/',vb.finance_export,name='finance_export'),
+    # Reports
+    path('reports/',vb.reports,name='reports'), path('reports/data/',vb.reports_data,name='reports_data'), path('reports/export/',vb.reports_export,name='reports_export'),
+    # Studios
+    path('studio/portal/',vs.portal_studio,name='portal_studio'), path('studio/portal/<int:pk>/',vs.portal_editor,name='portal_editor'),
+    path('studio/portal/<int:pk>/action/',vs.portal_action,name='portal_action'), path('studio/portal/<int:pk>/export/',vs.portal_export,name='portal_export'),
+    path('studio/vouchers/',vs.voucher_designs,name='voucher_designs'), path('studio/vouchers/<int:pk>/',vs.voucher_design_editor,name='voucher_design_editor'),
+    path('studio/vouchers/<int:pk>/action/',vs.voucher_design_action,name='voucher_design_action'), path('studio/vouchers/print/',vs.voucher_print,name='voucher_print'),
+    # Public customer portal
+    path('p/<slug:slug>/',vs.portal_public,name='portal_public'), path('p/<slug:slug>/check/',vs.portal_check,name='portal_check'),
     path('api/business/<int:business_id>/subscription-warning/',views.api_subscription_warning,name='api_subscription_warning'), path('api/voucher/login/',views.api_voucher_login,name='api_voucher_login'),
 ]
