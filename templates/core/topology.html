@@ -2,111 +2,35 @@
 {% block title %}Live Topology — TapTap{% endblock %}
 {% block heading %}Live Network Topology{% endblock %}
 {% block content %}
-<div class="page-actions topology-actions">
-  <div><h2 class="section-title">What is connected, where, and whether it is alive</h2><p>Live RouterOS discovery using interfaces, Ethernet link state, MNDP/CDP/LLDP neighbors and bridge learning.</p></div>
-  <a href="{% url 'topology' %}" class="btn btn-primary"><i class="bi bi-arrow-clockwise"></i> Refresh discovery</a>
-</div>
+<div class="page-actions topology-actions"><div><h2 class="section-title">Live network design from RouterOS</h2><p>Ports, connected routers/APs, learned MACs, device paths, Neighbor Discovery and multi-WAN state in one view.</p></div><div class="d-flex gap-2"><form method="post" action="{% url 'routers_sync_all' %}">{% csrf_token %}<button class="btn btn-outline-primary"><i class="bi bi-arrow-repeat"></i> Full Sync</button></form><a href="{% url 'topology' %}" class="btn btn-primary"><i class="bi bi-arrow-clockwise"></i> Refresh topology</a></div></div>
 
-{% if managed_links %}
-<div class="panel mb-4">
-  <div class="panel-head"><div><h3>Managed-router links</h3><p>Direct links detected between MikroTik routers already registered in TapTap.</p></div></div>
-  <div class="managed-link-grid">
-  {% for link in managed_links %}
-    <div class="managed-link-card">
-      <span class="node-chip"><i class="bi bi-router"></i>{{ link.source.name }}</span>
-      <span class="link-wire {% if link.online %}live{% endif %}"><small>{{ link.interface }}</small><i class="bi bi-arrow-left-right"></i></span>
-      <span class="node-chip"><i class="bi bi-router"></i>{{ link.target.name }}</span>
-    </div>
-  {% endfor %}
-  </div>
-</div>
-{% endif %}
+{% if managed_links %}<div class="panel mb-4"><div class="panel-head"><div><h3>Managed-router links</h3><p>Direct Layer-2 relationships detected between MikroTik routers registered in TapTap.</p></div></div><div class="managed-link-grid">{% for link in managed_links %}<div class="managed-link-card"><span class="node-chip"><i class="bi bi-router"></i>{{ link.source.name }}</span><span class="link-wire {% if link.online %}live{% endif %}"><small>{{ link.interface }}</small><i class="bi bi-arrow-left-right"></i></span><span class="node-chip"><i class="bi bi-router"></i>{{ link.target.name }}</span></div>{% endfor %}</div></div>{% endif %}
 
 {% for snap in snapshots %}
 <section class="panel topology-router-panel mb-4">
-  <div class="router-topology-head">
-    <div class="router-identity">
-      <div class="router-symbol xl"><i class="bi bi-router"></i></div>
-      <div><span class="eyebrow">MIKROTIK</span><h3>{{ snap.identity.name|default:snap.router.name }}</h3><p>{{ snap.router.ip_address }} {% if snap.routerboard.model %}• {{ snap.routerboard.model }}{% endif %}</p></div>
-    </div>
-    <div class="topology-health">
-      <span class="status-dot {% if snap.router.status == 'Online' %}online{% endif %}"><i class="bi bi-circle-fill"></i> {{ snap.router.status }}</span>
-      {% if snap.captured_at %}<small>Checked {{ snap.captured_at|date:'M j, H:i:s' }}</small>{% endif %}
-    </div>
-  </div>
-  {% if snap.error %}<div class="alert alert-warning py-2"><i class="bi bi-exclamation-triangle"></i> {{ snap.error }} — showing the last saved discovery where available.</div>{% endif %}
+  <div class="router-topology-head"><div class="router-identity"><div class="router-symbol xl"><i class="bi bi-router"></i></div><div><span class="eyebrow">MIKROTIK</span><h3>{{ snap.identity.name|default:snap.router.name }}</h3><p>{{ snap.router.ip_address }} {% if snap.routerboard.model %}• {{ snap.routerboard.model }}{% endif %}</p></div></div><div class="topology-health"><span class="status-dot {% if snap.router.status == 'Online' %}online{% endif %}"><i class="bi bi-circle-fill"></i> {{ snap.router.status }}</span>{% if snap.captured_at %}<small>Checked {{ snap.captured_at|date:'M j, H:i:s' }}</small>{% endif %}<a class="btn btn-sm btn-dark mt-2" href="{% url 'router_control' snap.router.id %}"><i class="bi bi-sliders"></i> Control Center</a></div></div>
+  {% if snap.error %}<div class="alert alert-warning py-2"><i class="bi bi-exclamation-triangle"></i> {{ snap.error }} — showing saved discovery where available.</div>{% endif %}
 
-  <div class="network-flow">
-    <div class="flow-node internet-node"><i class="bi bi-globe2"></i><b>Internet / WAN</b></div>
-    <div class="flow-line"><span></span></div>
-    <div class="flow-node router-node"><i class="bi bi-router"></i><b>{{ snap.router.name }}</b><small>{{ snap.router.ip_address }}</small></div>
-    <div class="flow-line fan"><span></span></div>
-    <div class="neighbor-flow">
-      {% for n in snap.neighbors %}
-        {% if n.is_online %}
-        <div class="flow-node neighbor-node {{ n.device_kind }}">
-          <i class="bi {% if n.device_kind == 'wifi' %}bi-wifi{% elif n.device_kind == 'switch' %}bi-hdd-network{% else %}bi-router{% endif %}"></i>
-          <b>{{ n.identity|default:n.board|default:'Network device' }}</b>
-          <small>{{ n.address|default:n.mac_address }}</small>
-          <em>via {{ n.interface_name|default:'Layer 2' }}</em>
-        </div>
-        {% endif %}
-      {% empty %}<div class="text-secondary small">No live neighbors discovered.</div>{% endfor %}
-    </div>
+  <div class="network-blueprint">
+    <div class="blueprint-lane"><span class="blueprint-label">UPSTREAM</span><div class="blueprint-node internet"><i class="bi bi-globe2"></i><b>Internet / WAN</b><small>{% if snap.load_balancing.method %}{{ snap.load_balancing.method }}{% else %}Default route{% endif %}</small></div></div>
+    <div class="blueprint-arrow"><i class="bi bi-chevron-double-right"></i></div>
+    <div class="blueprint-lane"><span class="blueprint-label">CORE</span><div class="blueprint-node core"><i class="bi bi-router-fill"></i><b>{{ snap.router.name }}</b><small>{{ snap.router.ip_address }}</small></div></div>
+    <div class="blueprint-arrow"><i class="bi bi-chevron-double-right"></i></div>
+    <div class="blueprint-lane wide"><span class="blueprint-label">DISTRIBUTION / WI‑FI</span><div class="blueprint-children">{% for n in snap.neighbors %}{% if n.is_online %}<div class="blueprint-node child {{ n.device_kind }}"><i class="bi {% if n.device_kind == 'wifi' %}bi-wifi{% elif n.device_kind == 'switch' %}bi-hdd-network{% else %}bi-router{% endif %}"></i><b>{{ n.identity|default:n.board|default:'Network device' }}</b><small>{{ n.interface_name|default:'Layer 2' }} • {{ n.address|default:n.mac_address }}</small></div>{% endif %}{% empty %}<div class="empty-mini">No live neighbor advertised.</div>{% endfor %}</div></div>
   </div>
 
-  <div class="section-divider"><span>Physical router ports</span></div>
-  <div class="mikrotik-chassis">
-    <div class="chassis-brand"><span class="brand-mark small"><i class="bi bi-wifi"></i></span><div><b>MikroTik</b><small>{{ snap.routerboard.model|default:snap.router.name }}</small></div></div>
-    <div class="chassis-leds"><span class="led power on"></span><small>PWR</small><span class="led {% if snap.router.status == 'Online' %}on{% endif %}"></span><small>USR</small></div>
-    <div class="port-bank">
-      {% for port in snap.ports %}
-      <div class="router-port {% if port.running and not port.disabled %}active{% elif port.disabled %}disabled{% endif %}">
-        <div class="port-label">{{ port.name }}</div>
-        <div class="rj45"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
-        <div class="port-leds"><i></i><i></i></div>
-        <div class="port-state">{% if port.disabled %}Disabled{% elif port.running %}Link up{% else %}No link{% endif %}</div>
-        <div class="port-connected">
-          {% if port.neighbors %}
-            {% for n in port.neighbors %}<span class="device-pill network"><i class="bi bi-diagram-3"></i>{{ n.identity|default:n.address|default:n.mac_address }}</span>{% endfor %}
-          {% elif port.client_count %}
-            {% for c in port.clients|slice:':3' %}<span class="device-pill"><i class="bi bi-pc-display"></i>{{ c.name|default:c.ip|default:c.mac }}</span>{% endfor %}
-            {% if port.client_count > 3 %}<small>+{{ port.client_count|add:'-3' }} more learned MACs</small>{% endif %}
-          {% else %}<small>No learned device</small>{% endif %}
-        </div>
-      </div>
-      {% empty %}<div class="text-secondary small p-3">No physical Ethernet/SFP interfaces were returned by RouterOS.</div>{% endfor %}
-    </div>
-  </div>
+  {% if snap.load_balancing.wan_links %}<div class="topology-wans"><b><i class="bi bi-shuffle"></i> {{ snap.load_balancing.method }}</b>{% for wan in snap.load_balancing.wan_links %}<span class="{% if wan.active %}active{% endif %}"><i></i>{{ wan.interface|default:wan.gateway|default:'WAN path' }} <small>{{ wan.table }}</small></span>{% endfor %}</div>{% endif %}
 
-  <div class="row g-3 mt-1">
-    <div class="col-xl-7">
-      <div class="topology-subpanel">
-        <div class="subpanel-title"><h4>Discovered routers & access points</h4><span>{{ snap.neighbors|length }} remembered</span></div>
-        <div class="neighbor-list">
-          {% for n in snap.neighbors %}
-          <div class="neighbor-row {% if not n.is_online %}offline{% endif %}">
-            <div class="neighbor-icon"><i class="bi {% if n.device_kind == 'wifi' %}bi-wifi{% elif n.device_kind == 'switch' %}bi-hdd-network{% else %}bi-router{% endif %}"></i></div>
-            <div class="flex-grow-1"><b>{{ n.identity|default:n.board|default:'Unnamed device' }}</b><span>{{ n.address|default:'No IP' }} • {{ n.mac_address|default:'No MAC' }}</span><small>{{ n.board|default:n.platform }} {% if n.version %}• RouterOS {{ n.version }}{% endif %}</small></div>
-            <div class="neighbor-connection"><span class="status-dot {% if n.is_online %}online{% endif %}">{% if n.is_online %}Online{% else %}Offline{% endif %}</span><small><i class="bi bi-plug"></i> {{ n.interface_name|default:'unknown port' }}</small>{% if n.managed_peer %}<em>Managed in TapTap</em>{% endif %}</div>
-          </div>
-          {% empty %}<div class="empty-mini">No Layer-2 neighbors have been discovered yet.</div>{% endfor %}
-        </div>
-      </div>
-    </div>
-    <div class="col-xl-5">
-      <div class="topology-subpanel h-100">
-        <div class="subpanel-title"><h4>Wi‑Fi clients</h4><span>{{ snap.wifi_clients|length }} associated</span></div>
-        {% for client in snap.wifi_clients|slice:':8' %}
-        <div class="wifi-client-row"><i class="bi bi-phone"></i><div><b>{{ client.mac_address|default:'Wireless client' }}</b><small>{{ client.interface|default:'Wi‑Fi' }} {% if client.signal %}• {{ client.signal }} dBm{% endif %}</small></div><span>{{ client.uptime|default:'' }}</span></div>
-        {% empty %}<div class="good-state compact"><i class="bi bi-wifi"></i><b>No registered wireless clients returned</b><span>This can be normal when Wi‑Fi is handled by separate APs rather than this MikroTik.</span></div>{% endfor %}
-      </div>
-    </div>
-  </div>
+  <div class="section-divider"><span>Physical MikroTik front panel</span></div>
+  <div class="mikrotik-chassis"><div class="chassis-brand"><span class="brand-mark small"><i class="bi bi-wifi"></i></span><div><b>MikroTik</b><small>{{ snap.routerboard.model|default:snap.router.name }}</small></div></div><div class="chassis-leds"><span class="led power on"></span><small>PWR</small><span class="led {% if snap.router.status == 'Online' %}on{% endif %}"></span><small>USR</small></div><div class="port-bank">
+  {% for port in snap.ports %}<div class="router-port {% if port.running and not port.disabled %}active{% elif port.disabled %}disabled{% endif %}"><div class="port-label">{{ port.name }} <span class="port-role role-{{ port.role }}">{{ port.role_label }}</span></div><div class="rj45"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="port-leds"><i></i><i></i></div><div class="port-state">{% if port.disabled %}Disabled{% elif port.running %}Link up{% else %}No link{% endif %}{% if port.bridge %} • {{ port.bridge }}{% endif %}</div><div class="port-connected">{% if port.neighbors %}{% for n in port.neighbors %}<span class="device-pill network"><i class="bi bi-diagram-3"></i>{{ n.identity|default:n.address|default:n.mac_address }}</span>{% endfor %}{% elif port.client_count %}{% for c in port.clients|slice:':3' %}<span class="device-pill"><i class="bi bi-pc-display"></i>{{ c.name|default:c.ip|default:c.mac }}</span>{% if c.parent %}<small>via {{ c.parent }}</small>{% endif %}{% endfor %}{% if port.client_count > 3 %}<small>+{{ port.client_count|add:'-3' }} more device(s)</small>{% endif %}{% else %}<small>No learned device</small>{% endif %}</div></div>{% empty %}<div class="text-secondary small p-3">No physical Ethernet/SFP interfaces returned.</div>{% endfor %}
+  </div></div>
+
+  <div class="row g-3 mt-1"><div class="col-xl-7"><div class="topology-subpanel"><div class="subpanel-title"><h4>Routers, switches & access points</h4><span>{{ snap.neighbors|length }} remembered</span></div><div class="neighbor-list">{% for n in snap.neighbors %}<div class="neighbor-row {% if not n.is_online %}offline{% endif %}"><div class="neighbor-icon"><i class="bi {% if n.device_kind == 'wifi' %}bi-wifi{% elif n.device_kind == 'switch' %}bi-hdd-network{% else %}bi-router{% endif %}"></i></div><div class="flex-grow-1"><b>{{ n.identity|default:n.board|default:'Unnamed device' }}</b><span>{{ n.address|default:'No IP' }} • {{ n.mac_address|default:'No MAC' }}</span><small>{{ n.board|default:n.platform }} {% if n.version %}• RouterOS {{ n.version }}{% endif %}</small></div><div class="neighbor-connection"><span class="status-dot {% if n.is_online %}online{% endif %}">{% if n.is_online %}Online{% else %}Offline{% endif %}</span><small><i class="bi bi-plug"></i> {{ n.interface_name|default:'unknown port' }}</small>{% if n.managed_peer %}<em>Managed in TapTap</em>{% endif %}</div></div>{% empty %}<div class="empty-mini">No Layer-2 neighbors discovered yet.</div>{% endfor %}</div></div></div><div class="col-xl-5"><div class="topology-subpanel h-100"><div class="subpanel-title"><h4>Wi‑Fi clients</h4><span>{{ snap.wifi_clients|length }} associated</span></div>{% for client in snap.wifi_clients|slice:':8' %}<div class="wifi-client-row"><i class="bi bi-phone"></i><div><b>{{ client.mac_address|default:'Wireless client' }}</b><small>{{ client.interface|default:'Wi‑Fi' }} {% if client.signal %}• {{ client.signal }} dBm{% endif %}</small></div><span>{{ client.uptime|default:'' }}</span></div>{% empty %}<div class="good-state compact"><i class="bi bi-wifi"></i><b>No registered wireless clients returned</b><span>Wi‑Fi may be handled by separate APs.</span></div>{% endfor %}</div></div></div>
+
+  <div class="section-divider"><span>All discovered devices and connection path</span></div>
+  <div class="table-responsive"><table class="table align-middle device-path-table"><thead><tr><th>Device</th><th>MAC</th><th>IP</th><th>Type</th><th>Connected to port</th><th>Via router/AP/switch</th><th>Discovery sources</th><th>State</th></tr></thead><tbody>{% for d in snap.devices %}<tr><td><b>{{ d.hostname|default:'Unnamed device' }}</b></td><td><code>{{ d.mac_address|default:'—' }}</code></td><td>{{ d.ip_address|default:'—' }}</td><td>{{ d.connection_type }}</td><td><span class="path-port"><i class="bi bi-ethernet"></i>{{ d.interface_name|default:'Unknown' }}</span></td><td>{{ d.parent_identity|default:'Direct / not advertised' }}</td><td><small>{{ d.sources }}</small></td><td>{% if d.is_online %}<span class="badge text-bg-success">Seen now</span>{% else %}<span class="badge text-bg-secondary">Not seen</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="8" class="empty-table">No device inventory available. Run Full Sync.</td></tr>{% endfor %}</tbody></table></div>
 </section>
-{% empty %}
-<div class="panel"><div class="good-state"><i class="bi bi-router"></i><b>No routers configured</b><span>Add your MikroTik on the Routers page first.</span><a class="btn btn-primary mt-3" href="{% url 'routers' %}">Add Router</a></div></div>
-{% endfor %}
-
-<div class="alert alert-info mt-3"><i class="bi bi-info-circle"></i> For the clearest router-to-router map, keep MikroTik Neighbor Discovery (MNDP/LLDP/CDP) enabled on the relevant LAN/bridge interfaces. Devices that do not advertise discovery information may appear only as learned MAC addresses on a port.</div>
+{% empty %}<div class="panel"><div class="good-state"><i class="bi bi-router"></i><b>No routers configured</b><span>Add a MikroTik first.</span><a class="btn btn-primary mt-3" href="{% url 'routers' %}">Add Router</a></div></div>{% endfor %}
+<div class="alert alert-info mt-3"><i class="bi bi-info-circle"></i> Neighbor relationships are strongest when MNDP/LLDP/CDP is enabled on the relevant RouterOS LAN/bridge interfaces. Devices that do not advertise discovery information can still appear from learned MAC/ARP/DHCP data, but their upstream AP/switch may remain “unknown”.</div>
 {% endblock %}

@@ -1,0 +1,177 @@
+{% extends 'core/base.html' %}
+{% block title %}{{ router.name }} Control Center — TapTap{% endblock %}
+{% block heading %}MikroTik Control Center{% endblock %}
+{% block content %}
+<form class="d-none" id="csrf-holder">{% csrf_token %}</form>
+<div class="page-actions control-page-head">
+  <div>
+    <span class="control-kicker"><i class="bi bi-router"></i> {{ router.name }} • {{ router.ip_address }}:{{ router.api_port }}</span>
+    <h2 class="section-title mt-2">Visual + Advanced RouterOS Management</h2>
+    <p>Design the network visually, inspect RouterOS configuration, and apply controlled advanced changes.</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <form method="post" action="{% url 'router_sync' router.id %}">{% csrf_token %}<button class="btn btn-primary"><i class="bi bi-arrow-repeat"></i> Full Sync</button></form>
+    <form method="post" action="{% url 'router_config_refresh' router.id %}">{% csrf_token %}<button class="btn btn-outline-primary"><i class="bi bi-download"></i> Refresh Config</button></form>
+    <a class="btn btn-outline-secondary" href="{% url 'topology' %}"><i class="bi bi-diagram-3"></i> Topology</a>
+  </div>
+</div>
+
+<div class="control-metrics mb-4">
+  <div><span class="metric-icon"><i class="bi bi-activity"></i></span><b>{{ router.status }}</b><small>Router status</small></div>
+  <div><span class="metric-icon"><i class="bi bi-ethernet"></i></span><b>{{ interfaces|length }}</b><small>Interfaces discovered</small></div>
+  <div><span class="metric-icon"><i class="bi bi-hdd-network"></i></span><b>{{ router.devices.count }}</b><small>Known devices</small></div>
+  <div><span class="metric-icon"><i class="bi bi-clock-history"></i></span><b>{% if snapshot %}{{ snapshot.captured_at|date:'H:i:s' }}{% else %}—{% endif %}</b><small>Config snapshot</small></div>
+</div>
+
+<section class="panel lb-panel mb-4" id="load-balancer" data-telemetry-url="{% url 'router_telemetry' router.id %}">
+  <div class="panel-head">
+    <div><h3><i class="bi bi-shuffle"></i> Live Load Balancing Engine</h3><p>Detected from routes, routing tables/rules, firewall mangle and bonding. Live traffic uses interface counter deltas.</p></div>
+    {% if snapshot %}<span class="lb-method {% if snapshot.load_balancing.configured %}active{% endif %}">{{ snapshot.load_balancing.method|default:'Unknown' }}</span>{% endif %}
+  </div>
+  {% if snapshot %}
+  <div class="lb-summary">
+    <div class="lb-core"><i class="bi bi-router-fill"></i><b>{{ router.name }}</b><small>{{ snapshot.load_balancing.description }}</small></div>
+    <div class="lb-paths" id="lbPaths">
+      {% for wan in snapshot.load_balancing.wan_links %}
+      <div class="wan-link {% if wan.active %}online{% endif %}" data-interface="{{ wan.interface }}">
+        <div class="traffic-wire"><span class="traffic-pulse p1"></span><span class="traffic-pulse p2"></span><span class="traffic-pulse p3"></span></div>
+        <div class="wan-card"><div><i class="bi bi-globe2"></i><b>{{ wan.interface|default:'Gateway path' }}</b></div><span class="wan-percent">0%</span><small>{{ wan.gateway|default:'Dynamic gateway' }} • table {{ wan.table }} • distance {{ wan.distance }}</small><em>{% if wan.active %}Active{% else %}Standby / inactive{% endif %}</em></div>
+      </div>
+      {% empty %}<div class="empty-mini">No default WAN path was detected in the latest snapshot.</div>{% endfor %}
+    </div>
+  </div>
+  <div class="lb-facts"><span>PCC rules <b>{{ snapshot.load_balancing.pcc_rule_count|default:0 }}</b></span><span>Marked rules <b>{{ snapshot.load_balancing.marked_rule_count|default:0 }}</b></span><span>Routing tables <b>{{ snapshot.load_balancing.routing_table_count|default:0 }}</b></span><span>Routing rules <b>{{ snapshot.load_balancing.routing_rule_count|default:0 }}</b></span><span>Bonds <b>{{ snapshot.load_balancing.bond_count|default:0 }}</b></span></div>
+  {% if snapshot.load_balancing.method == 'PCC' %}<div class="alert alert-warning mt-3 mb-0"><i class="bi bi-exclamation-triangle"></i> PCC was detected. If this router also terminates a HotSpot, review the design carefully because RouterOS HotSpot traffic uses the default routing table.</div>{% endif %}
+  {% else %}<div class="empty-mini">Refresh configuration to analyze the WAN/load-balancing setup.</div>{% endif %}
+</section>
+
+<section class="panel mb-4">
+  <div class="panel-head visual-studio-head">
+    <div><h3><i class="bi bi-bezier2"></i> Visual Network Studio</h3><p>Drag ports into a role. TapTap can save the design only, or apply safe port/bridge changes to RouterOS.</p></div>
+    <div class="studio-options">
+      <label class="form-check form-switch"><input id="applyRouterOS" class="form-check-input" type="checkbox" checked><span class="form-check-label">Apply to RouterOS</span></label>
+      <select id="studioBridge" class="form-select form-select-sm"><option value="">No bridge change</option>{% for bridge in bridges %}<option value="{{ bridge.name }}">Bridge: {{ bridge.name }}</option>{% endfor %}</select>
+    </div>
+  </div>
+  <div class="role-board">
+    {% for code,label in role_choices %}
+    <div class="role-zone role-{{ code }}" data-role="{{ code }}">
+      <div class="role-zone-head"><span><i class="bi {% if code == 'wan' %}bi-globe2{% elif code == 'hotspot' %}bi-wifi{% elif code == 'disabled' %}bi-slash-circle{% elif code == 'trunk' %}bi-diagram-2{% else %}bi-ethernet{% endif %}"></i> {{ label }}</span><small>Drop port here</small></div>
+      <div class="role-port-list">
+        {% for iface in interfaces %}{% if iface.ui_role == code %}
+        <div class="studio-port {% if iface.running and not iface.disabled %}running{% endif %}" draggable="true" data-interface="{{ iface.name }}">
+          <i class="bi bi-ethernet"></i><div><b>{{ iface.name }}</b><small>{% if iface.running %}Link up{% else %}No link{% endif %}{% if iface.raw_data.bridge_port.bridge %} • {{ iface.raw_data.bridge_port.bridge }}{% endif %}</small></div><span></span>
+        </div>
+        {% endif %}{% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="quick-recipes mt-3">
+    <form method="post" action="{% url 'router_quick_recipe' router.id %}" onsubmit="return confirm('Configure this port as WAN using DHCP client + masquerade NAT? This makes real RouterOS changes.');">{% csrf_token %}
+      <input type="hidden" name="recipe" value="wan_dhcp_nat">
+      <select class="form-select" name="interface_name" required><option value="">Choose port for Quick WAN…</option>{% for iface in interfaces %}<option value="{{ iface.name }}">{{ iface.name }}</option>{% endfor %}</select>
+      <button class="btn btn-dark"><i class="bi bi-lightning-charge"></i> Quick WAN: DHCP + NAT</button>
+    </form>
+    <span>For complex VLAN, firewall, routing, queue or multi-WAN designs, use Advanced RouterOS Explorer below.</span>
+  </div>
+</section>
+
+<section class="panel mb-4">
+  <div class="panel-head"><div><h3><i class="bi bi-terminal"></i> Advanced RouterOS Explorer</h3><p>Read common configuration sections or any valid RouterOS API resource path. Sensitive fields are redacted.</p></div><span class="advanced-badge">Advanced</span></div>
+  <div class="resource-toolbar">
+    <select class="form-select" id="resourceSelect">{% for label,path in catalog %}<option value="{{ path }}">{{ label }} — {{ path }}</option>{% endfor %}</select>
+    <input class="form-control" id="customResource" placeholder="Or type resource path, e.g. /ip/firewall/mangle">
+    <button class="btn btn-outline-primary" id="loadResource" type="button"><i class="bi bi-search"></i> Load</button>
+  </div>
+  <div id="resourceStatus" class="resource-status">Choose a resource and press Load.</div>
+  <div id="resourceTable" class="resource-table-wrap"></div>
+
+  <div class="advanced-change mt-4">
+    <div class="advanced-warning"><i class="bi bi-shield-exclamation"></i><div><b>Advanced change review</b><span>Only add/set/remove on configuration resources is allowed. TapTap logs every attempt. A bad route/firewall/interface change can disconnect the router, so review before Apply.</span></div></div>
+    <form method="post" action="{% url 'router_config_apply' router.id %}" id="advancedForm">{% csrf_token %}
+      <div class="row g-3">
+        <div class="col-lg-4"><label>Resource path</label><input class="form-control" name="resource_path" id="changePath" placeholder="/ip/firewall/nat" required></div>
+        <div class="col-lg-2"><label>Operation</label><select class="form-select" name="operation"><option value="add">Add</option><option value="set">Set</option><option value="remove">Remove</option></select></div>
+        <div class="col-lg-3"><label>RouterOS item ID</label><input class="form-control" name="target_id" placeholder="*A (for set/remove)"></div>
+        <div class="col-lg-3"><label>Confirm</label><input class="form-control" name="confirm" placeholder="Type APPLY" autocomplete="off" required></div>
+        <div class="col-12"><label>Fields JSON</label><textarea class="form-control code-editor" name="fields_json" rows="5" spellcheck="false">{
+  "disabled": "no"
+}</textarea></div>
+      </div>
+      <button class="btn btn-danger mt-3" onclick="return confirm('Apply this advanced RouterOS configuration change now?');"><i class="bi bi-send-check"></i> Review complete — Apply to RouterOS</button>
+    </form>
+  </div>
+</section>
+
+<div class="row g-4">
+  <div class="col-xl-7">
+    <section class="panel h-100">
+      <div class="panel-head"><div><h3>Configuration snapshot</h3><p>Broad RouterOS configuration inventory captured from the router.</p></div>{% if snapshot %}<small>{{ snapshot.captured_at|date:'d M Y H:i:s' }}</small>{% endif %}</div>
+      <div class="config-section-grid">
+        {% if snapshot %}{% for label,section in snapshot.sections.items %}<button class="config-section-card snapshot-load" type="button" data-path="{{ section.path }}"><span>{{ section.count }}</span><b>{{ label }}</b><small>{{ section.path }}</small></button>{% endfor %}{% else %}<div class="empty-mini">No configuration snapshot yet.</div>{% endif %}
+      </div>
+    </section>
+  </div>
+  <div class="col-xl-5">
+    <section class="panel h-100">
+      <div class="panel-head"><div><h3>Change audit</h3><p>Recent visual and advanced changes.</p></div></div>
+      <div class="change-log">{% for change in changes %}<div><span class="change-status {% if change.status == 'success' %}ok{% endif %}"><i class="bi {% if change.status == 'success' %}bi-check-circle{% else %}bi-x-circle{% endif %}"></i></span><div><b>{{ change.operation|upper }} {{ change.resource_path }}</b><small>{{ change.target_id|default:'new item' }} • {{ change.created_at|date:'M j H:i:s' }}</small>{% if change.error %}<em>{{ change.error|truncatechars:100 }}</em>{% endif %}</div></div>{% empty %}<div class="empty-mini">No configuration changes recorded yet.</div>{% endfor %}</div>
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const csrf=document.querySelector('#csrf-holder [name=csrfmiddlewaretoken]').value;
+  const roleUrl="{% url 'router_interface_role' router.id %}";
+  const resourceUrl="{% url 'router_resource_api' router.id %}";
+
+  // Drag/drop visual port assignment.
+  document.querySelectorAll('.studio-port').forEach(port=>{
+    port.addEventListener('dragstart',e=>{e.dataTransfer.setData('text/plain',port.dataset.interface);port.classList.add('dragging');});
+    port.addEventListener('dragend',()=>port.classList.remove('dragging'));
+  });
+  document.querySelectorAll('.role-zone').forEach(zone=>{
+    zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('drag-over');});
+    zone.addEventListener('dragleave',()=>zone.classList.remove('drag-over'));
+    zone.addEventListener('drop',async e=>{
+      e.preventDefault();zone.classList.remove('drag-over');const iface=e.dataTransfer.getData('text/plain');if(!iface)return;
+      const fd=new FormData();fd.append('csrfmiddlewaretoken',csrf);fd.append('interface_name',iface);fd.append('role',zone.dataset.role);
+      fd.append('apply',document.getElementById('applyRouterOS').checked?'yes':'no');fd.append('bridge_name',document.getElementById('studioBridge').value);
+      if(zone.dataset.role==='wan')fd.append('remove_from_bridge','yes');
+      zone.classList.add('saving');
+      try{await fetch(roleUrl,{method:'POST',body:fd,credentials:'same-origin'});location.reload();}catch(err){zone.classList.remove('saving');alert('Could not apply port role: '+err);}
+    });
+  });
+
+  // Dynamic configuration reader.
+  async function loadResource(path){
+    if(!path)return;document.getElementById('changePath').value=path;const status=document.getElementById('resourceStatus');const host=document.getElementById('resourceTable');status.textContent='Loading '+path+'…';host.innerHTML='';
+    try{
+      const res=await fetch(resourceUrl+'?path='+encodeURIComponent(path),{credentials:'same-origin'});const data=await res.json();if(!data.success)throw new Error(data.message||'Load failed');
+      status.textContent=data.count+' row(s) from '+data.path;if(!data.rows.length){host.innerHTML='<div class="empty-mini">No records returned.</div>';return;}
+      const keys=[];data.rows.forEach(r=>Object.keys(r).forEach(k=>{if(!keys.includes(k)&&keys.length<14)keys.push(k);}));
+      let html='<div class="table-responsive"><table class="table table-sm config-table"><thead><tr>'+keys.map(k=>'<th>'+escapeHtml(k)+'</th>').join('')+'</tr></thead><tbody>';
+      data.rows.forEach(r=>{html+='<tr>'+keys.map(k=>'<td title="'+escapeHtml(String(r[k]??''))+'">'+escapeHtml(formatValue(r[k]))+'</td>').join('')+'</tr>';});html+='</tbody></table></div>';host.innerHTML=html;
+    }catch(err){status.textContent='Error: '+err.message;host.innerHTML='<div class="alert alert-warning">'+escapeHtml(err.message)+'</div>';}
+  }
+  function formatValue(v){if(v===null||v===undefined)return '';if(typeof v==='object')return JSON.stringify(v);const s=String(v);return s.length>70?s.slice(0,67)+'…':s;}
+  function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
+  document.getElementById('loadResource').addEventListener('click',()=>loadResource(document.getElementById('customResource').value.trim()||document.getElementById('resourceSelect').value));
+  document.querySelectorAll('.snapshot-load').forEach(btn=>btn.addEventListener('click',()=>{document.getElementById('resourceSelect').value=btn.dataset.path;loadResource(btn.dataset.path);document.getElementById('resourceTable').scrollIntoView({behavior:'smooth',block:'center'});}));
+
+  // Live load-balancer telemetry. Percentages are based on byte counter DELTAS, not lifetime totals.
+  const lb=document.getElementById('load-balancer');let previous={};
+  async function pollTraffic(){
+    try{const res=await fetch(lb.dataset.telemetryUrl,{credentials:'same-origin',cache:'no-store'});const data=await res.json();if(!data.success)return;const now={};data.interfaces.forEach(i=>now[i.name]=(Number(i.rx_byte)||0)+(Number(i.tx_byte)||0));
+      let deltas={},total=0;document.querySelectorAll('.wan-link').forEach(card=>{const name=card.dataset.interface;if(!name)return;const d=Math.max(0,(now[name]||0)-(previous[name]||now[name]||0));deltas[name]=d;total+=d;});
+      document.querySelectorAll('.wan-link').forEach(card=>{const name=card.dataset.interface;const pct=total?Math.round((deltas[name]||0)*100/total):0;card.querySelector('.wan-percent').textContent=pct+'%';card.style.setProperty('--traffic-scale',Math.max(.35,pct/35));card.classList.toggle('busy',pct>0);});previous=now;
+    }catch(e){}
+  }
+  pollTraffic();setInterval(pollTraffic,4000);
+})();
+</script>
+{% endblock %}

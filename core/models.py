@@ -1,7 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
-from datetime import timedelta
+
 
 class Business(models.Model):
     SUBS=[('trial','Trial'),('active','Active'),('expired','Expired'),('pending','Pending')]
@@ -25,46 +25,128 @@ class Business(models.Model):
         exp=self.access_expires_at(); return max(0,(exp-timezone.now()).days+1) if exp else 0
     def __str__(self): return self.business_name
 
+
 class Subscription(models.Model):
     business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='subscriptions')
     plan=models.CharField(max_length=60); amount=models.DecimalField(max_digits=10,decimal_places=2)
     payment_method=models.CharField(max_length=60,default='Manual'); payment_status=models.CharField(max_length=30,default='Pending')
     transaction_id=models.CharField(max_length=120,blank=True); starts_at=models.DateTimeField(null=True,blank=True); expires_at=models.DateTimeField(null=True,blank=True); created_at=models.DateTimeField(auto_now_add=True)
 
+
 class VoucherPlan(models.Model):
+    SOURCE=[('taptap','TapTap'),('mikrotik','MikroTik')]
     business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='plans',null=True,blank=True)
-    name=models.CharField(max_length=80); price=models.DecimalField(max_digits=10,decimal_places=2,default=0); duration_hours=models.PositiveIntegerField(default=24); max_devices=models.PositiveIntegerField(default=1); speed_limit=models.CharField(max_length=50,blank=True); data_limit_mb=models.PositiveIntegerField(null=True,blank=True); active=models.BooleanField(default=True)
+    name=models.CharField(max_length=80)
+    price=models.DecimalField(max_digits=10,decimal_places=2,default=0)
+    duration_hours=models.PositiveIntegerField(default=24)
+    max_devices=models.PositiveIntegerField(default=1)
+    speed_limit=models.CharField(max_length=50,blank=True)
+    data_limit_mb=models.PositiveIntegerField(null=True,blank=True)
+    active=models.BooleanField(default=True)
+    source=models.CharField(max_length=20,choices=SOURCE,default='taptap')
+    imported_from_router=models.ForeignKey('Router',on_delete=models.SET_NULL,null=True,blank=True,related_name='imported_plans')
+    mikrotik_profile_name=models.CharField(max_length=120,blank=True)
     class Meta: unique_together=('business','name')
     def __str__(self): return self.name
 
+
 class Router(models.Model):
     business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='routers')
-    name=models.CharField(max_length=120); ip_address=models.CharField(max_length=120); username=models.CharField(max_length=120); password=models.CharField(max_length=255); api_port=models.PositiveIntegerField(default=8728); use_ssl=models.BooleanField(default=False); status=models.CharField(max_length=40,default='Not connected'); last_error=models.TextField(blank=True); last_tested_at=models.DateTimeField(null=True,blank=True); created_at=models.DateTimeField(auto_now_add=True)
+    name=models.CharField(max_length=120)
+    ip_address=models.CharField(max_length=120)
+    username=models.CharField(max_length=120)
+    password=models.CharField(max_length=255)
+    api_port=models.PositiveIntegerField(default=8728)
+    use_ssl=models.BooleanField(default=False)
+    status=models.CharField(max_length=40,default='Not connected')
+    last_error=models.TextField(blank=True)
+    last_tested_at=models.DateTimeField(null=True,blank=True)
+    created_at=models.DateTimeField(auto_now_add=True)
+    def __str__(self): return self.name
+
 
 class VoucherBatch(models.Model):
-    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='batches'); name=models.CharField(max_length=120); plan=models.ForeignKey(VoucherPlan,on_delete=models.SET_NULL,null=True); quantity=models.PositiveIntegerField(default=1); created_at=models.DateTimeField(auto_now_add=True)
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='batches')
+    name=models.CharField(max_length=120)
+    plan=models.ForeignKey(VoucherPlan,on_delete=models.SET_NULL,null=True)
+    quantity=models.PositiveIntegerField(default=1)
+    created_at=models.DateTimeField(auto_now_add=True)
+
 
 class Voucher(models.Model):
     STATUS=[('active','Active'),('disabled','Disabled'),('expired','Expired')]
-    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='vouchers'); batch=models.ForeignKey(VoucherBatch,on_delete=models.SET_NULL,null=True,blank=True,related_name='vouchers'); router=models.ForeignKey(Router,on_delete=models.SET_NULL,null=True,blank=True,related_name='vouchers'); code=models.CharField(max_length=32,unique=True); plan_name=models.CharField(max_length=80); price=models.DecimalField(max_digits=10,decimal_places=2,default=0); duration_hours=models.PositiveIntegerField(default=24); max_devices=models.PositiveIntegerField(default=1); status=models.CharField(max_length=20,choices=STATUS,default='active'); expires_at=models.DateTimeField(null=True,blank=True); used_at=models.DateTimeField(null=True,blank=True); mikrotik_sync_status=models.CharField(max_length=30,default='Pending'); mikrotik_sync_error=models.TextField(blank=True); created_at=models.DateTimeField(auto_now_add=True)
+    SOURCE=[('taptap','TapTap'),('mikrotik','MikroTik')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='vouchers')
+    batch=models.ForeignKey(VoucherBatch,on_delete=models.SET_NULL,null=True,blank=True,related_name='vouchers')
+    router=models.ForeignKey(Router,on_delete=models.SET_NULL,null=True,blank=True,related_name='vouchers')
+    code=models.CharField(max_length=120,unique=True)
+    plan_name=models.CharField(max_length=120)
+    price=models.DecimalField(max_digits=10,decimal_places=2,default=0)
+    duration_hours=models.PositiveIntegerField(default=24)
+    max_devices=models.PositiveIntegerField(default=1)
+    status=models.CharField(max_length=20,choices=STATUS,default='active')
+    source=models.CharField(max_length=20,choices=SOURCE,default='taptap')
+    mikrotik_id=models.CharField(max_length=120,blank=True)
+    expires_at=models.DateTimeField(null=True,blank=True)
+    used_at=models.DateTimeField(null=True,blank=True)
+    mikrotik_sync_status=models.CharField(max_length=30,default='Pending')
+    mikrotik_sync_error=models.TextField(blank=True)
+    created_at=models.DateTimeField(auto_now_add=True)
+
 
 class VoucherDeviceBinding(models.Model):
-    business=models.ForeignKey(Business,on_delete=models.CASCADE); voucher=models.ForeignKey(Voucher,on_delete=models.CASCADE,related_name='device_bindings'); slot_no=models.PositiveIntegerField(default=1); device_token_hash=models.CharField(max_length=128); current_mac=models.CharField(max_length=32); previous_mac=models.CharField(max_length=32,blank=True); first_bound_at=models.DateTimeField(auto_now_add=True); last_seen_at=models.DateTimeField(auto_now=True)
+    business=models.ForeignKey(Business,on_delete=models.CASCADE)
+    voucher=models.ForeignKey(Voucher,on_delete=models.CASCADE,related_name='device_bindings')
+    slot_no=models.PositiveIntegerField(default=1)
+    device_token_hash=models.CharField(max_length=128)
+    current_mac=models.CharField(max_length=32)
+    previous_mac=models.CharField(max_length=32,blank=True)
+    first_bound_at=models.DateTimeField(auto_now_add=True)
+    last_seen_at=models.DateTimeField(auto_now=True)
     class Meta: unique_together=('voucher','slot_no')
 
+
 class IPBindingAccessExpiry(models.Model):
-    business=models.ForeignKey(Business,on_delete=models.CASCADE); router=models.ForeignKey(Router,on_delete=models.CASCADE); binding_id=models.CharField(max_length=120); mac_address=models.CharField(max_length=32,blank=True); enabled_at=models.DateTimeField(auto_now_add=True); expires_at=models.DateTimeField(); updated_at=models.DateTimeField(auto_now=True)
+    business=models.ForeignKey(Business,on_delete=models.CASCADE)
+    router=models.ForeignKey(Router,on_delete=models.CASCADE)
+    binding_id=models.CharField(max_length=120)
+    mac_address=models.CharField(max_length=32,blank=True)
+    enabled_at=models.DateTimeField(auto_now_add=True)
+    expires_at=models.DateTimeField()
+    updated_at=models.DateTimeField(auto_now=True)
     class Meta: unique_together=('business','router','binding_id')
 
+
 class Activity(models.Model):
-    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='activities'); type=models.CharField(max_length=80); details=models.CharField(max_length=255); status=models.CharField(max_length=40,default='Success'); created_at=models.DateTimeField(auto_now_add=True)
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='activities')
+    type=models.CharField(max_length=80)
+    details=models.CharField(max_length=255)
+    status=models.CharField(max_length=40,default='Success')
+    created_at=models.DateTimeField(auto_now_add=True)
+
+
+class RouterHotspotProfile(models.Model):
+    """A direct mirror of /ip/hotspot/user/profile."""
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='router_hotspot_profiles')
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='hotspot_profiles')
+    name=models.CharField(max_length=120)
+    mikrotik_id=models.CharField(max_length=120,blank=True)
+    rate_limit=models.CharField(max_length=120,blank=True)
+    shared_users=models.PositiveIntegerField(default=1)
+    session_timeout=models.CharField(max_length=80,blank=True)
+    idle_timeout=models.CharField(max_length=80,blank=True)
+    keepalive_timeout=models.CharField(max_length=80,blank=True)
+    address_pool=models.CharField(max_length=120,blank=True)
+    is_present=models.BooleanField(default=True)
+    raw_data=models.JSONField(default=dict,blank=True)
+    last_seen_at=models.DateTimeField(default=timezone.now)
+    updated_at=models.DateTimeField(auto_now=True)
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['router','name'],name='uniq_router_hotspot_profile')]
+    def __str__(self): return f'{self.router.name}: {self.name}'
+
 
 class RouterHotspotUser(models.Model):
-    """Mirror of hotspot users discovered directly on a MikroTik router.
-
-    This is intentionally separate from Voucher: a manually-created RouterOS user
-    should not become a sold TapTap voucher just because a sync discovered it.
-    """
     SOURCE=[('mikrotik','MikroTik'),('taptap','TapTap')]
     business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='router_hotspot_users')
     router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='hotspot_users')
@@ -84,6 +166,7 @@ class RouterHotspotUser(models.Model):
     class Meta:
         constraints=[models.UniqueConstraint(fields=['router','username'],name='uniq_router_hotspot_username')]
     def __str__(self): return f'{self.router.name}: {self.username}'
+
 
 class SyncedIPBinding(models.Model):
     SOURCE=[('mikrotik','MikroTik'),('taptap','TapTap')]
@@ -105,6 +188,7 @@ class SyncedIPBinding(models.Model):
     updated_at=models.DateTimeField(auto_now=True)
     def __str__(self): return f'{self.router.name}: {self.mac_address or self.address or self.mikrotik_id}'
 
+
 class RouterInterface(models.Model):
     router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='interfaces')
     name=models.CharField(max_length=120)
@@ -124,6 +208,7 @@ class RouterInterface(models.Model):
         constraints=[models.UniqueConstraint(fields=['router','name'],name='uniq_router_interface_name')]
     def __str__(self): return f'{self.router.name}: {self.name}'
 
+
 class RouterNeighbor(models.Model):
     router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='neighbors')
     neighbor_key=models.CharField(max_length=255)
@@ -142,3 +227,57 @@ class RouterNeighbor(models.Model):
     class Meta:
         constraints=[models.UniqueConstraint(fields=['router','neighbor_key'],name='uniq_router_neighbor_key')]
     def __str__(self): return self.identity or self.mac_address or self.address or self.neighbor_key
+
+
+class RouterDevice(models.Model):
+    """Unified MAC/IP device inventory built from multiple RouterOS tables."""
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='devices')
+    device_key=models.CharField(max_length=255)
+    mac_address=models.CharField(max_length=32,blank=True)
+    ip_address=models.CharField(max_length=120,blank=True)
+    hostname=models.CharField(max_length=180,blank=True)
+    interface_name=models.CharField(max_length=120,blank=True)
+    parent_identity=models.CharField(max_length=180,blank=True)
+    connection_type=models.CharField(max_length=40,default='wired')
+    sources=models.CharField(max_length=255,blank=True)
+    is_online=models.BooleanField(default=True)
+    raw_data=models.JSONField(default=dict,blank=True)
+    first_seen_at=models.DateTimeField(default=timezone.now)
+    last_seen_at=models.DateTimeField(default=timezone.now)
+    updated_at=models.DateTimeField(auto_now=True)
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['router','device_key'],name='uniq_router_device_key')]
+    def __str__(self): return self.hostname or self.mac_address or self.ip_address or self.device_key
+
+
+class RouterInterfaceRole(models.Model):
+    ROLES=[('wan','WAN / Internet'),('lan','LAN'),('hotspot','HotSpot'),('trunk','Trunk'),('management','Management'),('unused','Unused'),('disabled','Disabled')]
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='interface_roles')
+    interface_name=models.CharField(max_length=120)
+    role=models.CharField(max_length=30,choices=ROLES,default='unused')
+    label=models.CharField(max_length=120,blank=True)
+    updated_at=models.DateTimeField(auto_now=True)
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['router','interface_name'],name='uniq_router_interface_role')]
+
+
+class RouterConfigSnapshot(models.Model):
+    router=models.OneToOneField(Router,on_delete=models.CASCADE,related_name='config_snapshot')
+    sections=models.JSONField(default=dict,blank=True)
+    load_balancing=models.JSONField(default=dict,blank=True)
+    captured_at=models.DateTimeField(default=timezone.now)
+    updated_at=models.DateTimeField(auto_now=True)
+
+
+class RouterConfigChange(models.Model):
+    STATUS=[('success','Success'),('failed','Failed')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='router_config_changes')
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='config_changes')
+    actor=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)
+    resource_path=models.CharField(max_length=255)
+    operation=models.CharField(max_length=20)
+    target_id=models.CharField(max_length=120,blank=True)
+    fields=models.JSONField(default=dict,blank=True)
+    status=models.CharField(max_length=20,choices=STATUS,default='success')
+    error=models.TextField(blank=True)
+    created_at=models.DateTimeField(auto_now_add=True)

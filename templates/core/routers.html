@@ -2,63 +2,13 @@
 {% block title %}Routers — TapTap{% endblock %}
 {% block heading %}MikroTik Routers{% endblock %}
 {% block content %}
-<div class="page-actions">
-  <div>
-    <h2 class="section-title">Router control & synchronization</h2>
-    <p>Keep TapTap and RouterOS aligned without losing MikroTik-only users or bindings.</p>
-  </div>
-  {% if routers %}
-  <form method="post" action="{% url 'routers_sync_all' %}">{% csrf_token %}
-    <button class="btn btn-primary sync-btn"><i class="bi bi-arrow-repeat"></i> Sync all routers</button>
-  </form>
-  {% endif %}
-</div>
-
+<div class="page-actions"><div><h2 class="section-title">Router control & synchronization</h2><p>Pull plans, vouchers, MAC inventory and RouterOS configuration; push TapTap records back safely.</p></div>{% if routers %}<form method="post" action="{% url 'routers_sync_all' %}">{% csrf_token %}<button class="btn btn-primary sync-btn"><i class="bi bi-arrow-repeat"></i> Full sync all routers</button></form>{% endif %}</div>
 <div class="sync-explainer mb-4">
-  <div><i class="bi bi-cloud-arrow-down"></i><span><b>Pull from MikroTik</b><small>Hotspot users, IP bindings and router state are mirrored into TapTap.</small></span></div>
-  <div><i class="bi bi-cloud-arrow-up"></i><span><b>Push from TapTap</b><small>Assigned TapTap vouchers and TapTap-created bindings are created or updated on RouterOS.</small></span></div>
-  <div><i class="bi bi-shield-check"></i><span><b>Safe ownership</b><small>Manual RouterOS users remain MikroTik records; they are not counted as sold vouchers.</small></span></div>
+  <div><i class="bi bi-cloud-arrow-down"></i><span><b>Pull everything useful</b><small>HotSpot profiles → plans, users → vouchers, IP bindings, MAC/device inventory, ports, neighbors and configuration snapshot.</small></span></div>
+  <div><i class="bi bi-copy"></i><span><b>De-duplicate</b><small>Existing plan names and voucher codes are matched and updated rather than recreated.</small></span></div>
+  <div><i class="bi bi-sliders"></i><span><b>Control Center</b><small>Visual port design, live load balancing, configuration explorer and audited advanced RouterOS changes.</small></span></div>
 </div>
-
-<div class="row g-4">
-  <div class="col-xl-8">
-    <div class="panel">
-      <div class="panel-head">
-        <div><h3>Connected infrastructure</h3><p>Test, synchronize and discover RouterOS devices.</p></div>
-        <div class="d-flex gap-2"><a href="{% url 'router_inventory' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-database-check"></i> Synced inventory</a><a href="{% url 'topology' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-diagram-3"></i> Live topology</a></div>
-      </div>
-      {% for r in routers %}
-      <div class="router-card router-card-rich">
-        <div class="router-symbol"><i class="bi bi-router"></i></div>
-        <div class="router-main">
-          <div class="router-title-line">
-            <b>{{ r.name }}</b>
-            <span class="status-dot {% if r.status == 'Online' %}online{% endif %}">{{ r.status }}</span>
-          </div>
-          <span>{{ r.ip_address }}:{{ r.api_port }} • {{ r.username }}</span>
-          <div class="router-mini-stats">
-            <span><i class="bi bi-person-badge"></i>{{ r.hotspot_user_count }} mirrored users</span>
-            <span><i class="bi bi-shield-lock"></i>{{ r.binding_count }} bindings</span>
-            <span><i class="bi bi-broadcast-pin"></i>{{ r.online_neighbor_count }} live neighbors</span>
-          </div>
-          {% if r.last_error %}<small class="router-error">{{ r.last_error|truncatechars:100 }}</small>{% endif %}
-        </div>
-        <div class="router-actions">
-          <form method="post" action="{% url 'router_sync' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary"><i class="bi bi-arrow-repeat"></i> Sync</button></form>
-          <a class="btn btn-sm btn-outline-primary" href="{% url 'router_test' r.id %}"><i class="bi bi-activity"></i> Test</a>
-          <a class="btn btn-sm btn-outline-danger" href="{% url 'router_delete' r.id %}" onclick="return confirm('Delete this router from TapTap?')"><i class="bi bi-trash3"></i></a>
-        </div>
-      </div>
-      {% empty %}<div class="empty-mini">No routers connected yet.</div>{% endfor %}
-    </div>
-  </div>
-  <div class="col-xl-4">
-    <div class="panel form-panel sticky-xl-top" style="top:1rem">
-      <div class="big-icon"><i class="bi bi-router"></i></div>
-      <h3>Add MikroTik</h3>
-      <p>RouterOS API must be enabled and reachable from the TapTap server.</p>
-      <form method="post">{% csrf_token %}{% for f in form %}<label>{{ f.label }}</label>{{ f }}{% endfor %}<button class="btn btn-primary w-100 mt-3">Add Router</button></form>
-    </div>
-  </div>
-</div>
+<div class="row g-4"><div class="col-xl-8"><div class="panel"><div class="panel-head"><div><h3>Connected infrastructure</h3><p>Test, synchronize, design and configure RouterOS devices.</p></div><div class="d-flex gap-2"><a href="{% url 'router_inventory' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-database-check"></i> Inventory</a><a href="{% url 'topology' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-diagram-3"></i> Topology</a></div></div>
+{% for r in routers %}<div class="router-card router-card-rich"><div class="router-symbol"><i class="bi bi-router"></i></div><div class="router-main"><div class="router-title-line"><b>{{ r.name }}</b><span class="status-dot {% if r.status == 'Online' %}online{% endif %}">{{ r.status }}</span></div><span>{{ r.ip_address }}:{{ r.api_port }} • {{ r.username }}</span><div class="router-mini-stats"><span><i class="bi bi-ticket-perforated"></i>{{ r.hotspot_user_count }} users</span><span><i class="bi bi-shield-lock"></i>{{ r.binding_count }} bindings</span><span><i class="bi bi-broadcast-pin"></i>{{ r.online_neighbor_count }} neighbors</span><span><i class="bi bi-laptop"></i>{{ r.device_count }} devices</span></div>{% if r.last_error %}<small class="router-error">{{ r.last_error|truncatechars:100 }}</small>{% endif %}</div><div class="router-actions"><a class="btn btn-sm btn-dark" href="{% url 'router_control' r.id %}"><i class="bi bi-sliders"></i> Control</a><form method="post" action="{% url 'router_sync' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary"><i class="bi bi-arrow-repeat"></i> Sync</button></form><a class="btn btn-sm btn-outline-primary" href="{% url 'router_test' r.id %}"><i class="bi bi-activity"></i> Test</a><a class="btn btn-sm btn-outline-danger" href="{% url 'router_delete' r.id %}" onclick="return confirm('Delete this router from TapTap?')"><i class="bi bi-trash3"></i></a></div></div>{% empty %}<div class="empty-mini">No routers connected yet.</div>{% endfor %}
+</div></div><div class="col-xl-4"><div class="panel form-panel sticky-xl-top" style="top:1rem"><div class="big-icon"><i class="bi bi-router"></i></div><h3>Add MikroTik</h3><p>RouterOS API must be enabled and reachable from the TapTap server.</p><form method="post">{% csrf_token %}{% for f in form %}<label>{{ f.label }}</label>{{ f }}{% endfor %}<button class="btn btn-primary w-100 mt-3">Add Router</button></form></div></div></div>
 {% endblock %}
