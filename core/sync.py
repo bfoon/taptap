@@ -91,8 +91,21 @@ def _profile_to_plan(router, row, summary, now):
     return plan
 
 
-def sync_router(router):
-    """Two-way RouterOS sync with de-duplication and full MikroTik inventory import."""
+def sync_router(router, progress=None):
+    """Two-way RouterOS sync with de-duplication and full MikroTik inventory import.
+
+    ``progress`` is an optional callback accepting ``(percent, phase)``. It is
+    deliberately best-effort so UI/job progress can never break the sync itself.
+    """
+    def notify(percent, phase):
+        if not progress:
+            return
+        try:
+            progress(max(0, min(100, int(percent))), str(phase))
+        except Exception:
+            pass
+
+    notify(2, 'Opening RouterOS connection')
     summary = {
         'pulled_plans': 0, 'duplicate_plans_skipped': 0,
         'pulled_vouchers': 0, 'duplicate_vouchers_skipped': 0, 'pulled_users': 0,
@@ -103,6 +116,7 @@ def sync_router(router):
     }
     svc = MikroTikService(router).connect()
     now = timezone.now()
+    notify(8, 'Connected — reading HotSpot plans')
     try:
         # 1) Pull RouterOS HotSpot user profiles -> TapTap plans, with business/name de-duplication.
         RouterHotspotProfile.objects.filter(router=router).update(is_present=False)
@@ -111,6 +125,8 @@ def sync_router(router):
             row = _clean(raw)
             plan = _profile_to_plan(router, row, summary, now)
             if plan: profile_map[plan.name.lower()] = plan
+
+        notify(22, 'Plans imported — reading vouchers and HotSpot users')
 
         # 2) Pull every RouterOS HotSpot user into both the mirror and the main Voucher app.
         RouterHotspotUser.objects.filter(router=router).update(is_present=False)
@@ -164,6 +180,8 @@ def sync_router(router):
                 except Exception as exc:
                     summary['errors'].append(f'Could not import RouterOS voucher {username}: {exc}')
 
+        notify(40, 'Router vouchers imported — pushing TapTap vouchers')
+
         # 3) Push only TapTap-authored vouchers. MikroTik imports are already authoritative on the router.
         for voucher in router.vouchers.filter(source='taptap'):
             try:
@@ -183,6 +201,8 @@ def sync_router(router):
                 voucher.mikrotik_sync_status='Error'; voucher.mikrotik_sync_error=str(exc)
                 voucher.save(update_fields=['mikrotik_sync_status','mikrotik_sync_error'])
                 summary['errors'].append(f'Voucher {voucher.code}: {exc}')
+
+        notify(55, 'TapTap vouchers pushed — importing RouterOS IP bindings')
 
         # 4) Pull IP bindings without duplicates.
         SyncedIPBinding.objects.filter(router=router).update(is_present=False)
@@ -213,10 +233,14 @@ def sync_router(router):
                 binding.sync_status='Error';binding.sync_error=str(exc);binding.save(update_fields=['sync_status','sync_error','updated_at'])
                 summary['errors'].append(f'IP binding {binding.mac_address or binding.address}: {exc}')
 
+        notify(70, 'Bindings synchronized — scanning MACs, ports and neighbors')
+
         # 6) Pull ports, neighbors, MAC/IP inventory and topology in the same sync.
         topo_data = svc.topology_data()
         topology = _persist_topology(router, topo_data, now)
         summary['devices_discovered'] = router.devices.filter(is_online=True).count()
+
+        notify(86, 'Topology discovered — reading RouterOS configuration')
 
         # 7) Save a broad, redacted RouterOS configuration snapshot and LB analysis.
         try:
@@ -229,9 +253,11 @@ def sync_router(router):
         except Exception as exc:
             summary['errors'].append(f'Configuration snapshot: {exc}')
 
+        notify(96, 'Finalizing database inventory')
         router.status='Online';router.last_error='';router.last_tested_at=now
         router.save(update_fields=['status','last_error','last_tested_at'])
         log(router.business,'Router Sync',f'{router.name}: {summary["pulled_plans"]} new plans, {summary["pulled_vouchers"]} new vouchers, {summary["devices_discovered"]} devices; de-duplicated existing records')
+        notify(100, 'Synchronization complete')
         return summary
     finally:
         svc.close()

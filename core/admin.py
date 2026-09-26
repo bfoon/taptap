@@ -4,7 +4,7 @@ from django.utils import timezone
 from .models import (
     Business,Subscription,VoucherPlan,Router,VoucherBatch,Voucher,VoucherDeviceBinding,
     IPBindingAccessExpiry,Activity,RouterHotspotProfile,RouterHotspotUser,SyncedIPBinding,
-    RouterInterface,RouterNeighbor,RouterDevice,RouterInterfaceRole,RouterConfigSnapshot,RouterConfigChange,
+    RouterInterface,RouterNeighbor,RouterDevice,RouterInterfaceRole,RouterConfigSnapshot,RouterConfigChange,RouterSyncJob,
 )
 
 PLAN_DAYS={'1 Month':30,'2 Months':60,'3 Months':90,'6 Months':180,'1 Year':365}
@@ -39,3 +39,11 @@ class RouterConfigChangeAdmin(admin.ModelAdmin):
 
 for model in [Business,VoucherPlan,Router,VoucherBatch,Voucher,VoucherDeviceBinding,IPBindingAccessExpiry,Activity,RouterHotspotProfile,RouterHotspotUser,SyncedIPBinding,RouterInterface,RouterNeighbor,RouterInterfaceRole,RouterConfigSnapshot]:
     admin.site.register(model)
+
+
+@admin.register(RouterSyncJob)
+class RouterSyncJobAdmin(admin.ModelAdmin):
+    list_display=('router','status','progress','phase','requested_by','created_at','finished_at')
+    list_filter=('status','router')
+    search_fields=('router__name','phase','error','celery_task_id')
+    readonly_fields=('business','router','requested_by','celery_task_id','status','progress','phase','summary','error','created_at','started_at','finished_at','updated_at')

@@ -281,3 +281,33 @@ class RouterConfigChange(models.Model):
     status=models.CharField(max_length=20,choices=STATUS,default='success')
     error=models.TextField(blank=True)
     created_at=models.DateTimeField(auto_now_add=True)
+
+class RouterSyncJob(models.Model):
+    STATUS=[('queued','Queued'),('running','Running'),('success','Success'),('failed','Failed')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='router_sync_jobs')
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='sync_jobs')
+    requested_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='router_sync_jobs')
+    celery_task_id=models.CharField(max_length=255,blank=True)
+    status=models.CharField(max_length=20,choices=STATUS,default='queued')
+    progress=models.PositiveSmallIntegerField(default=0)
+    phase=models.CharField(max_length=180,default='Waiting for background worker')
+    summary=models.JSONField(default=dict,blank=True)
+    error=models.TextField(blank=True)
+    created_at=models.DateTimeField(auto_now_add=True)
+    started_at=models.DateTimeField(null=True,blank=True)
+    finished_at=models.DateTimeField(null=True,blank=True)
+    updated_at=models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering=['-created_at']
+        indexes=[
+            models.Index(fields=['business','status','-created_at'],name='syncjob_business_status_idx'),
+            models.Index(fields=['router','status','-created_at'],name='syncjob_router_status_idx'),
+        ]
+
+    @property
+    def is_active(self):
+        return self.status in {'queued','running'}
+
+    def __str__(self):
+        return f'{self.router.name} sync {self.status}'

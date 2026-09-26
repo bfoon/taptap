@@ -40,7 +40,7 @@ Create an admin account:
 docker compose exec web python manage.py createsuperuser
 ```
 
-The Docker entrypoint runs Django migrations automatically, including the topology/sync tables in migration `0002_router_sync_topology`.
+The Docker entrypoint runs Django migrations automatically, including the topology, control-center and background-sync tables through migration `0004_router_sync_jobs`.
 
 ## MikroTik discovery requirements
 RouterOS API must be enabled and reachable from the Docker host. For the clearest topology, keep Neighbor Discovery enabled on the LAN/bridge interfaces that should participate in MNDP/LLDP/CDP. Bridge learning is used to associate learned MAC addresses with physical interfaces. Wi-Fi registration and CAPsMAN data are read when those RouterOS menus are available.
@@ -74,3 +74,25 @@ You should see `0003_mikrotik_control_center` marked `[X]`.
 ### Important RouterOS notes
 
 The TapTap server must be able to reach the RouterOS API port configured for each router. For best topology results, enable Neighbor Discovery (MNDP/LLDP/CDP) on the LAN/bridge interfaces you want to map. Advanced changes can affect connectivity; TapTap requires an explicit `APPLY` confirmation and records every advanced change in the audit table.
+
+
+## v4 — Background sync + scrollable data panels
+
+- Router synchronization now runs in a dedicated Celery worker backed by Redis. The web request only queues the job, so you can continue using TapTap or leave the Routers page while a scan runs.
+- Sync All queues one job per router and prevents a second queued/running job for the same router.
+- The Routers page polls persistent job records and shows queued/running/completed/failed state, percentage and current phase.
+- Sync progress covers RouterOS connection, plan import, voucher reconciliation, IP bindings, MAC/port/neighbor discovery, topology and configuration snapshot.
+- Long tables and operational lists are vertically scrollable with sticky table headers. This applies to voucher, plan, user, IP-binding, topology/device, report, finance and inventory tables, plus router lists and change logs.
+- Docker Compose now includes a persistent Redis service and a separate `worker` service.
+
+After upgrading, rebuild and apply migration `0004_router_sync_jobs`:
+
+```bash
+docker compose down
+docker compose up -d --build
+docker compose exec web python manage.py migrate
+docker compose exec web python manage.py showmigrations core
+docker compose ps
+```
+
+`docker compose ps` should show `web`, `worker`, `db` and `redis` running.

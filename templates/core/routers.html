@@ -2,13 +2,75 @@
 {% block title %}Routers — TapTap{% endblock %}
 {% block heading %}MikroTik Routers{% endblock %}
 {% block content %}
-<div class="page-actions"><div><h2 class="section-title">Router control & synchronization</h2><p>Pull plans, vouchers, MAC inventory and RouterOS configuration; push TapTap records back safely.</p></div>{% if routers %}<form method="post" action="{% url 'routers_sync_all' %}">{% csrf_token %}<button class="btn btn-primary sync-btn"><i class="bi bi-arrow-repeat"></i> Full sync all routers</button></form>{% endif %}</div>
+<div class="page-actions">
+  <div><h2 class="section-title">Router control & synchronization</h2><p>Pull plans, vouchers, MAC inventory and RouterOS configuration; push TapTap records back safely.</p></div>
+  {% if routers %}<form method="post" action="{% url 'routers_sync_all' %}">{% csrf_token %}<button class="btn btn-primary sync-btn"><i class="bi bi-arrow-repeat"></i> Full sync all routers</button></form>{% endif %}
+</div>
+
 <div class="sync-explainer mb-4">
   <div><i class="bi bi-cloud-arrow-down"></i><span><b>Pull everything useful</b><small>HotSpot profiles → plans, users → vouchers, IP bindings, MAC/device inventory, ports, neighbors and configuration snapshot.</small></span></div>
   <div><i class="bi bi-copy"></i><span><b>De-duplicate</b><small>Existing plan names and voucher codes are matched and updated rather than recreated.</small></span></div>
-  <div><i class="bi bi-sliders"></i><span><b>Control Center</b><small>Visual port design, live load balancing, configuration explorer and audited advanced RouterOS changes.</small></span></div>
+  <div><i class="bi bi-cpu"></i><span><b>Background worker</b><small>Synchronization runs in Redis/Celery so TapTap stays responsive while RouterOS is scanned.</small></span></div>
 </div>
-<div class="row g-4"><div class="col-xl-8"><div class="panel"><div class="panel-head"><div><h3>Connected infrastructure</h3><p>Test, synchronize, design and configure RouterOS devices.</p></div><div class="d-flex gap-2"><a href="{% url 'router_inventory' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-database-check"></i> Inventory</a><a href="{% url 'topology' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-diagram-3"></i> Topology</a></div></div>
-{% for r in routers %}<div class="router-card router-card-rich"><div class="router-symbol"><i class="bi bi-router"></i></div><div class="router-main"><div class="router-title-line"><b>{{ r.name }}</b><span class="status-dot {% if r.status == 'Online' %}online{% endif %}">{{ r.status }}</span></div><span>{{ r.ip_address }}:{{ r.api_port }} • {{ r.username }}</span><div class="router-mini-stats"><span><i class="bi bi-ticket-perforated"></i>{{ r.hotspot_user_count }} users</span><span><i class="bi bi-shield-lock"></i>{{ r.binding_count }} bindings</span><span><i class="bi bi-broadcast-pin"></i>{{ r.online_neighbor_count }} neighbors</span><span><i class="bi bi-laptop"></i>{{ r.device_count }} devices</span></div>{% if r.last_error %}<small class="router-error">{{ r.last_error|truncatechars:100 }}</small>{% endif %}</div><div class="router-actions"><a class="btn btn-sm btn-dark" href="{% url 'router_control' r.id %}"><i class="bi bi-sliders"></i> Control</a><form method="post" action="{% url 'router_sync' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary"><i class="bi bi-arrow-repeat"></i> Sync</button></form><a class="btn btn-sm btn-outline-primary" href="{% url 'router_test' r.id %}"><i class="bi bi-activity"></i> Test</a><a class="btn btn-sm btn-outline-danger" href="{% url 'router_delete' r.id %}" onclick="return confirm('Delete this router from TapTap?')"><i class="bi bi-trash3"></i></a></div></div>{% empty %}<div class="empty-mini">No routers connected yet.</div>{% endfor %}
-</div></div><div class="col-xl-4"><div class="panel form-panel sticky-xl-top" style="top:1rem"><div class="big-icon"><i class="bi bi-router"></i></div><h3>Add MikroTik</h3><p>RouterOS API must be enabled and reachable from the TapTap server.</p><form method="post">{% csrf_token %}{% for f in form %}<label>{{ f.label }}</label>{{ f }}{% endfor %}<button class="btn btn-primary w-100 mt-3">Add Router</button></form></div></div></div>
+
+<section class="panel sync-monitor mb-4" id="syncMonitor" data-status-url="{% url 'router_sync_status' %}">
+  <div class="panel-head">
+    <div><h3><i class="bi bi-arrow-repeat"></i> Background synchronization</h3><p>Jobs continue even if you leave this page. TapTap stores the result and final import counts.</p></div>
+    <span class="sync-monitor-count" id="activeSyncCount">0 active</span>
+  </div>
+  <div class="sync-job-list scroll-list" id="syncJobList">
+    {% for job in recent_sync_jobs %}
+    <div class="sync-job-row status-{{ job.status }}" data-job-id="{{ job.id }}" data-router-id="{{ job.router_id }}">
+      <div class="sync-job-icon"><i class="bi {% if job.status == 'success' %}bi-check-circle-fill{% elif job.status == 'failed' %}bi-x-circle-fill{% else %}bi-arrow-repeat{% endif %}"></i></div>
+      <div class="sync-job-main"><div><b>{{ job.router.name }}</b><span class="sync-job-status">{{ job.get_status_display }}</span></div><small class="sync-job-phase">{{ job.phase }}</small><div class="progress sync-progress"><div class="progress-bar" style="width:{{ job.progress }}%"></div></div></div>
+      <strong class="sync-job-percent">{{ job.progress }}%</strong>
+    </div>
+    {% empty %}<div class="empty-mini" id="syncEmpty">No synchronization jobs yet.</div>{% endfor %}
+  </div>
+</section>
+
+<div class="row g-4">
+  <div class="col-xl-8">
+    <div class="panel">
+      <div class="panel-head"><div><h3>Connected infrastructure</h3><p>Test, synchronize, design and configure RouterOS devices.</p></div><div class="d-flex gap-2"><a href="{% url 'router_inventory' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-database-check"></i> Inventory</a><a href="{% url 'topology' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-diagram-3"></i> Topology</a></div></div>
+      <div class="router-list-scroll scroll-list">
+      {% for r in routers %}
+      <div class="router-card router-card-rich" data-router-card="{{ r.id }}">
+        <div class="router-symbol"><i class="bi bi-router"></i></div>
+        <div class="router-main">
+          <div class="router-title-line"><b>{{ r.name }}</b><span class="status-dot {% if r.status == 'Online' %}online{% endif %}">{{ r.status }}</span><span class="router-sync-pill {% if r.latest_sync_job.is_active %}active{% endif %}" id="routerSyncPill{{ r.id }}">{% if r.latest_sync_job %}{{ r.latest_sync_job.get_status_display }} {{ r.latest_sync_job.progress }}%{% else %}Ready{% endif %}</span></div>
+          <span>{{ r.ip_address }}:{{ r.api_port }} • {{ r.username }}</span>
+          <div class="router-mini-stats"><span><i class="bi bi-ticket-perforated"></i>{{ r.hotspot_user_count }} users</span><span><i class="bi bi-shield-lock"></i>{{ r.binding_count }} bindings</span><span><i class="bi bi-broadcast-pin"></i>{{ r.online_neighbor_count }} neighbors</span><span><i class="bi bi-laptop"></i>{{ r.device_count }} devices</span></div>
+          {% if r.last_error %}<small class="router-error">{{ r.last_error|truncatechars:100 }}</small>{% endif %}
+        </div>
+        <div class="router-actions"><a class="btn btn-sm btn-dark" href="{% url 'router_control' r.id %}"><i class="bi bi-sliders"></i> Control</a><form method="post" action="{% url 'router_sync' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary router-sync-button" data-router-id="{{ r.id }}" {% if r.latest_sync_job.is_active %}disabled{% endif %}><i class="bi bi-arrow-repeat"></i> <span>{% if r.latest_sync_job.is_active %}Syncing…{% else %}Sync{% endif %}</span></button></form><a class="btn btn-sm btn-outline-primary" href="{% url 'router_test' r.id %}"><i class="bi bi-activity"></i> Test</a><a class="btn btn-sm btn-outline-danger" href="{% url 'router_delete' r.id %}" onclick="return confirm('Delete this router from TapTap?')"><i class="bi bi-trash3"></i></a></div>
+      </div>
+      {% empty %}<div class="empty-mini">No routers connected yet.</div>{% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-4"><div class="panel form-panel sticky-xl-top" style="top:1rem"><div class="big-icon"><i class="bi bi-router"></i></div><h3>Add MikroTik</h3><p>RouterOS API must be enabled and reachable from the TapTap server.</p><form method="post">{% csrf_token %}{% for f in form %}<label>{{ f.label }}</label>{{ f }}{% endfor %}<button class="btn btn-primary w-100 mt-3">Add Router</button></form></div></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const monitor=document.getElementById('syncMonitor');
+  if(!monitor)return;
+  const url=monitor.dataset.statusUrl, list=document.getElementById('syncJobList'), count=document.getElementById('activeSyncCount');
+  const esc=s=>String(s??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
+  function statusIcon(status){return status==='success'?'bi-check-circle-fill':status==='failed'?'bi-x-circle-fill':'bi-arrow-repeat';}
+  function summaryText(j){const s=j.summary||{};if(j.status==='success')return `${s.pulled_plans||0} plans • ${s.pulled_vouchers||0} vouchers • ${s.devices_discovered||0} devices`;if(j.status==='failed')return j.error||j.phase;return j.phase||'Working…';}
+  function render(data){
+    count.textContent=(data.active_count||0)+' active';
+    if(!data.jobs.length){list.innerHTML='<div class="empty-mini">No synchronization jobs yet.</div>';return;}
+    list.innerHTML=data.jobs.slice(0,12).map(j=>`<div class="sync-job-row status-${esc(j.status)}" data-job-id="${j.id}" data-router-id="${j.router_id}"><div class="sync-job-icon"><i class="bi ${statusIcon(j.status)}"></i></div><div class="sync-job-main"><div><b>${esc(j.router_name)}</b><span class="sync-job-status">${esc(j.status.charAt(0).toUpperCase()+j.status.slice(1))}</span></div><small class="sync-job-phase">${esc(summaryText(j))}</small><div class="progress sync-progress"><div class="progress-bar" style="width:${Number(j.progress)||0}%"></div></div></div><strong class="sync-job-percent">${Number(j.progress)||0}%</strong></div>`).join('');
+    const latest={};data.jobs.forEach(j=>{if(!(j.router_id in latest))latest[j.router_id]=j;});
+    document.querySelectorAll('.router-sync-button').forEach(btn=>{const j=latest[Number(btn.dataset.routerId)];const active=j&&(j.status==='queued'||j.status==='running');btn.disabled=!!active;const span=btn.querySelector('span');if(span)span.textContent=active?'Syncing…':'Sync';const pill=document.getElementById('routerSyncPill'+btn.dataset.routerId);if(pill){pill.classList.toggle('active',!!active);pill.classList.toggle('failed',!!j&&j.status==='failed');pill.classList.toggle('success',!!j&&j.status==='success');pill.textContent=j?`${j.status.charAt(0).toUpperCase()+j.status.slice(1)} ${j.progress}%`:'Ready';}});
+  }
+  async function poll(){try{const r=await fetch(url,{credentials:'same-origin',cache:'no-store'});const d=await r.json();if(d.success)render(d);}catch(e){}}
+  poll();setInterval(poll,2500);
+})();
+</script>
 {% endblock %}

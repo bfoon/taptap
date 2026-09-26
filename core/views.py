@@ -18,10 +18,11 @@ from .forms import RegisterForm, RouterForm, PlanForm
 from .models import (
     Business, Subscription, VoucherPlan, Router, VoucherBatch, Voucher, Activity,
     SyncedIPBinding, RouterHotspotProfile, RouterDevice, RouterInterfaceRole,
-    RouterConfigSnapshot, RouterConfigChange,
+    RouterConfigSnapshot, RouterConfigChange, RouterSyncJob,
 )
 from .mikrotik import MikroTikService, MikroTikError, redact
 from .sync import sync_router, refresh_router_topology, snapshot_from_database
+from .tasks import enqueue_router_sync
 from .utils import generate_code, duration_to_routeros, log
 
 SUBSCRIPTION_PACKAGES = {
@@ -101,15 +102,13 @@ def generate_vouchers(request):
             log(business,'Voucher Generated',f'Batch {batch.name}: {qty} voucher(s)')
         if router:
             try:
-                svc=MikroTikService(router).connect(); profile=plan.mikrotik_profile_name or plan.name
-                svc.ensure_hotspot_profile(profile,plan.max_devices,plan.speed_limit)
-                for v in made:
-                    try:
-                        action,item_id=svc.upsert_voucher(v.code,profile=profile,limit_uptime=duration_to_routeros(plan.duration_hours)); v.mikrotik_id=str(item_id or '');v.mikrotik_sync_status='Synced';v.save(update_fields=['mikrotik_id','mikrotik_sync_status'])
-                    except Exception as e:
-                        v.mikrotik_sync_status='Error';v.mikrotik_sync_error=str(e);v.save(update_fields=['mikrotik_sync_status','mikrotik_sync_error'])
-                svc.close()
-            except Exception as e: messages.warning(request,f'Vouchers were created, but router sync failed: {e}')
+                _,created=enqueue_router_sync(router,request.user)
+                if created:
+                    messages.info(request,f'{router.name} background sync was queued to publish the new vouchers to RouterOS.')
+                else:
+                    messages.info(request,f'{router.name} already has a background sync running; the new vouchers will be picked up by that sync or the next one.')
+            except Exception as e:
+                messages.warning(request,f'Vouchers were created in TapTap, but the router background sync could not be queued: {e}')
         messages.success(request,f'{qty} voucher(s) created successfully.'); return redirect('vouchers')
     return render(request,'core/generate_vouchers.html',{'plans':plans,'routers':routers})
 
@@ -154,8 +153,14 @@ def routers(request):
     business=b(request);form=RouterForm(request.POST or None)
     if request.method=='POST' and form.is_valid():
         obj=form.save(commit=False);obj.business=business;obj.save();messages.success(request,'Router added.');return redirect('routers')
-    router_rows=business.routers.annotate(hotspot_user_count=Count('hotspot_users',distinct=True),binding_count=Count('synced_ip_bindings',distinct=True),online_neighbor_count=Count('neighbors',filter=Q(neighbors__is_online=True),distinct=True),device_count=Count('devices',filter=Q(devices__is_online=True),distinct=True))
-    return render(request,'core/routers.html',{'routers':router_rows,'form':form})
+    router_rows=list(business.routers.annotate(hotspot_user_count=Count('hotspot_users',distinct=True),binding_count=Count('synced_ip_bindings',distinct=True),online_neighbor_count=Count('neighbors',filter=Q(neighbors__is_online=True),distinct=True),device_count=Count('devices',filter=Q(devices__is_online=True),distinct=True)))
+    latest_jobs={}
+    for job in business.router_sync_jobs.select_related('router').order_by('router_id','-created_at'):
+        latest_jobs.setdefault(job.router_id,job)
+    for router in router_rows:
+        router.latest_sync_job=latest_jobs.get(router.id)
+    recent_jobs=business.router_sync_jobs.select_related('router').all()[:12]
+    return render(request,'core/routers.html',{'routers':router_rows,'form':form,'recent_sync_jobs':recent_jobs})
 
 
 @login_required
@@ -163,27 +168,49 @@ def router_sync(request,pk):
     r=get_object_or_404(b(request).routers,pk=pk)
     if request.method!='POST': return redirect('routers')
     try:
-        s=sync_router(r)
-        messages.success(request,f"{r.name}: imported {s['pulled_plans']} new plan(s), {s['pulled_vouchers']} new MikroTik voucher(s), mirrored {s['pulled_users']} users and found {s['devices_discovered']} devices. Existing records were de-duplicated ({s['duplicate_plans_skipped']} plans / {s['duplicate_vouchers_skipped']} vouchers already existed).")
-        if s['unassigned_vouchers']: messages.info(request,f"{s['unassigned_vouchers']} TapTap voucher(s) are not assigned to a router, so they were not pushed.")
-        if s['errors']: messages.warning(request,'Some items could not sync: '+' | '.join(s['errors'][:3]))
+        job,created=enqueue_router_sync(r,request.user)
+        if created:
+            messages.success(request,f'{r.name} synchronization is running in the background. You can continue using TapTap.')
+        else:
+            messages.info(request,f'{r.name} already has a synchronization job in progress ({job.progress}%).')
     except Exception as e:
-        r.status='Offline';r.last_error=str(e);r.last_tested_at=timezone.now();r.save(update_fields=['status','last_error','last_tested_at']);messages.error(request,f'{r.name} sync failed: {e}')
+        messages.error(request,f'Could not queue {r.name} synchronization: {e}')
     return redirect('routers')
 
 
 @login_required
 def routers_sync_all(request):
     if request.method!='POST': return redirect('routers')
-    business=b(request);ok=0;failed=[];new_plans=0;new_vouchers=0;devices=0
+    business=b(request);queued=0;already=0;failed=[]
     for r in business.routers.all():
         try:
-            s=sync_router(r);ok+=1;new_plans+=s['pulled_plans'];new_vouchers+=s['pulled_vouchers'];devices+=s['devices_discovered']
+            _,created=enqueue_router_sync(r,request.user)
+            if created: queued+=1
+            else: already+=1
         except Exception as e:
-            r.status='Offline';r.last_error=str(e);r.last_tested_at=timezone.now();r.save(update_fields=['status','last_error','last_tested_at']);failed.append(r.name)
-    if ok: messages.success(request,f'{ok} router(s) synchronized: {new_plans} new plan(s), {new_vouchers} new MikroTik voucher(s), {devices} live devices discovered.')
-    if failed: messages.warning(request,'Could not synchronize: '+', '.join(failed))
+            failed.append(f'{r.name}: {e}')
+    if queued: messages.success(request,f'{queued} router synchronization job(s) queued in the background. You can leave this page while they run.')
+    if already: messages.info(request,f'{already} router(s) already had a sync running, so duplicate jobs were not created.')
+    if failed: messages.warning(request,'Could not queue: '+' | '.join(failed[:3]))
     return redirect('routers')
+
+
+@login_required
+def router_sync_status(request):
+    business=b(request)
+    jobs=business.router_sync_jobs.select_related('router').all()[:30]
+    data=[]
+    for job in jobs:
+        summary=job.summary or {}
+        data.append({
+            'id':job.id,'router_id':job.router_id,'router_name':job.router.name,
+            'status':job.status,'progress':job.progress,'phase':job.phase,
+            'error':job.error,'summary':summary,
+            'created_at':job.created_at.isoformat(),
+            'started_at':job.started_at.isoformat() if job.started_at else None,
+            'finished_at':job.finished_at.isoformat() if job.finished_at else None,
+        })
+    return JsonResponse({'success':True,'active_count':sum(1 for x in data if x['status'] in ('queued','running')),'jobs':data})
 
 
 @login_required
