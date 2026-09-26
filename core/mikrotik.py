@@ -1,6 +1,11 @@
 import re
+import time
+
+from django.conf import settings
 from django.utils import timezone
 import routeros_api
+
+from .routeros_analysis import analyze_wan, parse_version
 
 
 class MikroTikError(Exception):
@@ -73,7 +78,20 @@ class MikroTikService:
         ('PPP secrets', '/ppp/secret'),
         ('IP services', '/ip/service'),
         ('SNMP', '/snmp'),
+        ('SNMP communities', '/snmp/community'),
         ('Neighbors', '/ip/neighbor'),
+        ('Neighbor discovery settings', '/ip/neighbor/discovery-settings'),
+        ('Users', '/user'),
+        ('MAC server', '/tool/mac-server'),
+        ('MAC Winbox', '/tool/mac-server/mac-winbox'),
+        ('Bandwidth server', '/tool/bandwidth-server'),
+        ('SOCKS', '/ip/socks'),
+        ('Web proxy', '/ip/proxy'),
+        ('UPnP', '/ip/upnp'),
+        ('Cloud', '/ip/cloud'),
+        ('SSH', '/ip/ssh'),
+        ('RouterBOARD', '/system/routerboard'),
+        ('PPPoE clients', '/interface/pppoe-client'),
     ]
 
     WRITE_PREFIXES = (
@@ -82,29 +100,88 @@ class MikroTikService:
         '/ip/firewall', '/queue', '/ppp/profile', '/ppp/secret', '/ip/service', '/snmp',
     )
 
-    def __init__(self, router):
+    def __init__(self, router, timeout=None):
         self.router = router
         self.pool = None
         self.api = None
+        self.timeout = float(timeout or getattr(settings, 'MIKROTIK_TIMEOUT', 10))
+        self.version = (0, 0, 0)
+
+    def _pool(self, plaintext):
+        host = str(self.router.ip_address or '').strip()
+        # Accept "host:port" typed into the IP field (common with port-forwards / DDNS).
+        port = self.router.api_port
+        if host.count(':') == 1 and not host.startswith('['):
+            host, _, maybe_port = host.partition(':')
+            if maybe_port.isdigit():
+                port = int(maybe_port)
+        pool = routeros_api.RouterOsApiPool(
+            host,
+            username=self.router.username,
+            password=self.router.password,
+            port=port,
+            use_ssl=self.router.use_ssl,
+            # RouterOS api-ssl ships with a self-signed certificate on almost every
+            # router; verification is opt-in so api-ssl works out of the box.
+            ssl_verify=getattr(settings, 'MIKROTIK_SSL_VERIFY', False),
+            ssl_verify_hostname=getattr(settings, 'MIKROTIK_SSL_VERIFY', False),
+            plaintext_login=plaintext,
+        )
+        pool.socket_timeout = self.timeout  # per-instance; library default is 15s
+        return pool
 
     def connect(self):
-        try:
-            self.pool = routeros_api.RouterOsApiPool(
-                self.router.ip_address,
-                username=self.router.username,
-                password=self.router.password,
-                port=self.router.api_port,
-                use_ssl=self.router.use_ssl,
-                plaintext_login=True,
-            )
-            self.api = self.pool.get_api()
-            return self
-        except Exception as exc:
-            raise MikroTikError(str(exc)) from exc
+        """Connect with bounded timeouts; fall back to the legacy MD5 login (< 6.43)."""
+        last = None
+        for plaintext in (True, False):
+            try:
+                self.pool = self._pool(plaintext)
+                self.api = self.pool.get_api()
+                return self
+            except Exception as exc:  # noqa: BLE001 - routeros_api raises many types
+                last = exc
+                try:
+                    if self.pool:
+                        self.pool.disconnect()
+                except Exception:
+                    pass
+                text = str(exc).lower()
+                # Only retry the legacy login on an authentication-style failure.
+                if not any(w in text for w in ('login', 'password', 'cannot log', 'invalid user', 'failure')):
+                    break
+        raise MikroTikError(self.friendly_error(last)) from last
+
+    def friendly_error(self, exc):
+        """Explain *why* a router is unreachable from wherever TapTap is hosted."""
+        text = str(exc or 'Unknown error')
+        low = text.lower()
+        host = str(self.router.ip_address or '')
+        private = bool(re.match(r'^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)', host))
+        if any(w in low for w in ('timed out', 'timeout', 'no route', 'unreachable', 'refused', 'errno 111', 'errno 113')):
+            hint = (f' {host} is a private address — it is only reachable if the TapTap server is on the same LAN or '
+                    'connected by VPN (WireGuard/SSTP/OVPN).') if private else (
+                    ' Check that the API service port is open to the TapTap server (IP > Services > api/api-ssl, '
+                    'the "Available From" list, and the input firewall).')
+            return f'{text}.{hint}'
+        if 'ssl' in low or 'certificate' in low or 'wrong version' in low:
+            return f'{text}. The port does not match the SSL setting (api = 8728 plain, api-ssl = 8729).'
+        if any(w in low for w in ('login', 'password', 'invalid user', 'cannot log')):
+            return f'{text}. Check the username/password and that the user group has the "api" policy.'
+        return text
 
     def close(self):
         if self.pool:
-            self.pool.disconnect()
+            try:
+                self.pool.disconnect()
+            except Exception:
+                pass
+
+    def __enter__(self):
+        return self.connect()
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
 
     def resource(self, path):
         return self.api.get_resource(path)
@@ -152,7 +229,16 @@ class MikroTikService:
         return item_id
 
     def test(self):
-        return self.resource('/system/resource').get()[0]
+        row = self.resource('/system/resource').get()[0]
+        self.version = parse_version(row.get('version', ''))
+        return row
+
+    def ros_version(self):
+        if self.version == (0, 0, 0):
+            rows = self.safe_get('/system/resource')
+            if rows:
+                self.version = parse_version(rows[0].get('version', ''))
+        return self.version
 
     def identity(self):
         rows = self.safe_get('/system/identity')
@@ -263,6 +349,15 @@ class MikroTikService:
     def nat(self): return self.safe_get('/ip/firewall/nat')
     def firewall_filter(self): return self.safe_get('/ip/firewall/filter')
     def dhcp_clients(self): return self.safe_get('/ip/dhcp-client')
+    def addresses(self): return self.safe_get('/ip/address')
+    def hotspot_servers(self): return self.safe_get('/ip/hotspot')
+
+    def default_routes(self):
+        rows = self.safe_get('/ip/route', dst_address='0.0.0.0/0')
+        if rows:
+            return rows
+        # Some builds reject the query form; filter client-side instead.
+        return [r for r in self.routes() if str(r.get('dst-address', '')) == '0.0.0.0/0']
 
     def wifi_registrations(self):
         rows = self.safe_get('/interface/wifi/registration-table')
@@ -323,78 +418,132 @@ class MikroTikService:
 
     @staticmethod
     def _route_interface(row):
-        immediate = str(row.get('immediate-gw', row.get('immediate_gw', '')) or '')
-        match = re.search(r'%([^,\s]+)', immediate)
-        if match:
-            return match.group(1)
-        gateway = str(row.get('gateway', '') or '')
-        # Gateway may itself be an interface name.
-        if gateway and not re.match(r'^\d{1,3}(?:\.\d{1,3}){3}', gateway) and ':' not in gateway:
-            return gateway.split(',')[0].strip()
-        return ''
+        """Kept for backwards compatibility; the analysis module does the real work."""
+        from .routeros_analysis import resolve_gateways
+        hops = resolve_gateways(row)
+        return hops[0]['interface'] if hops else ''
 
-    def analyze_load_balancing(self, routes=None, mangle=None, bonding=None, routing_tables=None, routing_rules=None):
-        routes = [dict(x) for x in (routes if routes is not None else self.routes())]
-        mangle = [dict(x) for x in (mangle if mangle is not None else self.mangle())]
-        bonding = [dict(x) for x in (bonding if bonding is not None else self.bonding())]
-        routing_tables = [dict(x) for x in (routing_tables if routing_tables is not None else self.routing_tables())]
-        routing_rules = [dict(x) for x in (routing_rules if routing_rules is not None else self.routing_rules())]
-        default_routes = [r for r in routes if str(r.get('dst-address', r.get('dst_address', ''))) in {'0.0.0.0/0', '::/0'}]
-        active_defaults = [r for r in default_routes if not ros_bool(r.get('disabled', False)) and (ros_bool(r.get('active', True)) or 'active' not in r)]
-        pcc_rules = [r for r in mangle if str(r.get('per-connection-classifier', r.get('per_connection_classifier', ''))).strip()]
-        marked_rules = [r for r in mangle if r.get('new-routing-mark') or r.get('new_routing_mark') or r.get('new-connection-mark') or r.get('new_connection_mark')]
-        bonds = [b for b in bonding if not ros_bool(b.get('disabled', False))]
-        distances = sorted({str(r.get('distance', '1')) for r in default_routes})
-        same_distance = len({str(r.get('distance', '1')) for r in active_defaults}) <= 1 if active_defaults else False
-        if pcc_rules:
-            method = 'PCC'
-            description = 'Per-connection-classifier rules detected in firewall mangle.'
-        elif any(',' in str(r.get('gateway', '')) for r in active_defaults) or (len(active_defaults) > 1 and same_distance):
-            method = 'ECMP'
-            description = 'Multiple equal-cost default paths detected.'
-        elif bonds:
-            method = 'Bonding'
-            description = 'One or more active bonding interfaces detected.'
-        elif len(default_routes) > 1 and len(distances) > 1:
-            method = 'Failover'
-            description = 'Multiple default routes with different distances detected.'
+    def analyze_load_balancing(self, routes=None, mangle=None, bonding=None, routing_tables=None,
+                               routing_rules=None, addresses=None, dhcp_clients=None, interfaces=None,
+                               hotspot_servers=None):
+        declared = list(self.router.interface_roles.filter(role='wan').values_list('interface_name', flat=True)) if getattr(self.router, 'pk', None) else []
+        return redact(analyze_wan(
+            routes=routes if routes is not None else self.routes(),
+            mangle=mangle if mangle is not None else self.mangle(),
+            bonding=bonding if bonding is not None else self.bonding(),
+            routing_tables=routing_tables if routing_tables is not None else self.routing_tables(),
+            routing_rules=routing_rules if routing_rules is not None else self.routing_rules(),
+            addresses=addresses if addresses is not None else self.addresses(),
+            dhcp_clients=dhcp_clients if dhcp_clients is not None else self.dhcp_clients(),
+            interfaces=interfaces if interfaces is not None else self.interfaces(),
+            hotspot_servers=hotspot_servers if hotspot_servers is not None else self.hotspot_servers(),
+            declared_wans=declared,
+        ))
+
+    # --------------------------- Live traffic ----------------------------
+    def live_traffic(self, names):
+        """Real bits-per-second straight from RouterOS (monitor-traffic once).
+
+        Falls back to counter deltas between two quick reads when the monitor
+        command is not permitted for this API user.
+        """
+        names = [n for n in dict.fromkeys(str(x) for x in names if x)][:32]
+        if not names:
+            return {}
+        out = {}
+        try:
+            rows = self.resource('/interface').call('monitor-traffic', {'interface': ','.join(names), 'once': ''})
+            for row in rows:
+                name = str(row.get('name', ''))
+                if name:
+                    out[name] = {
+                        'rx_bps': int(row.get('rx-bits-per-second', 0) or 0),
+                        'tx_bps': int(row.get('tx-bits-per-second', 0) or 0),
+                        'rx_pps': int(row.get('rx-packets-per-second', 0) or 0),
+                        'tx_pps': int(row.get('tx-packets-per-second', 0) or 0),
+                    }
+            if out:
+                return out
+        except Exception:
+            pass
+        wanted = set(names)
+        def counters():
+            return {str(r.get('name')): (int(r.get('rx-byte', 0) or 0), int(r.get('tx-byte', 0) or 0))
+                    for r in self.interfaces() if str(r.get('name')) in wanted}
+        first, t0 = counters(), time.monotonic()
+        time.sleep(1.0)
+        second, t1 = counters(), time.monotonic()
+        span = max(0.2, t1 - t0)
+        for name, (rx, tx) in second.items():
+            prx, ptx = first.get(name, (rx, tx))
+            out[name] = {'rx_bps': int(max(0, rx - prx) * 8 / span), 'tx_bps': int(max(0, tx - ptx) * 8 / span), 'rx_pps': 0, 'tx_pps': 0}
+        return out
+
+    def wan_telemetry(self, stored_sections=None):
+        """Cheap poll for the live load-balancing view.
+
+        Only default routes, interfaces and the WAN monitor are read live; the
+        slow-changing inputs (mangle, addresses, routing rules) come from the
+        stored configuration snapshot when available.
+        """
+        stored = stored_sections or {}
+        def rows(label, loader):
+            sec = stored.get(label)
+            if sec and isinstance(sec.get('rows'), list):
+                return sec['rows']
+            return loader()
+        interfaces = self.interfaces()
+        analysis = self.analyze_load_balancing(
+            routes=self.default_routes(),
+            mangle=rows('Firewall mangle', self.mangle),
+            bonding=rows('Bonding', self.bonding),
+            routing_tables=rows('Routing tables', self.routing_tables),
+            routing_rules=rows('Routing rules', self.routing_rules),
+            addresses=rows('IP addresses', self.addresses),
+            dhcp_clients=self.dhcp_clients(),
+            interfaces=interfaces,
+            hotspot_servers=rows('HotSpot servers', self.hotspot_servers),
+        )
+        names = [l['interface'] for l in analysis['wan_links'] if l['interface']]
+        for bond in analysis.get('bonds', []):
+            names.extend(bond['slaves'])
+        traffic = self.live_traffic(names)
+        compact = [{'name': str(r.get('name', '')), 'running': str(r.get('running', '')).lower() == 'true',
+                    'disabled': str(r.get('disabled', '')).lower() == 'true',
+                    'rx_byte': int(r.get('rx-byte', 0) or 0), 'tx_byte': int(r.get('tx-byte', 0) or 0)}
+                   for r in interfaces if str(r.get('name', '')) in set(names)]
+        return {'load_balancing': analysis, 'traffic': traffic, 'interfaces': compact,
+                'captured_at': timezone.now().isoformat()}
+
+    # ------------------------- Security remediation ------------------------
+    SECURITY_FIXES = {
+        # key: (resource path, lookup filter or None for singleton, fields, description)
+        'svc-telnet': ('/ip/service', {'name': 'telnet'}, {'disabled': 'yes'}, 'Disable the Telnet service'),
+        'svc-ftp': ('/ip/service', {'name': 'ftp'}, {'disabled': 'yes'}, 'Disable the FTP service'),
+        'ip-socks': ('/ip/socks', None, {'enabled': 'no'}, 'Disable the SOCKS proxy'),
+        'ip-upnp': ('/ip/upnp', None, {'enabled': 'no'}, 'Disable UPnP'),
+        'bw-server': ('/tool/bandwidth-server', None, {'enabled': 'no'}, 'Disable the bandwidth-test server'),
+        'ip-proxy-open': ('/ip/proxy', None, {'enabled': 'no'}, 'Disable the open web proxy'),
+    }
+
+    def apply_security_fix(self, key):
+        """Apply one whitelisted fix. None of these can cut off TapTap's API access."""
+        if key not in self.SECURITY_FIXES:
+            raise MikroTikError('This finding has no automatic fix; follow the manual steps.')
+        path, lookup, fields, _label = self.SECURITY_FIXES[key]
+        resource = self.resource(path)
+        clean = {k.replace('-', '_'): v for k, v in fields.items()}
+        if lookup is None:
+            resource.call('set', clean)
         else:
-            method = 'Single WAN'
-            description = 'No multi-WAN load-balancing policy was detected.'
-
-        wans = []
-        seen = set()
-        for row in default_routes:
-            iface = self._route_interface(row)
-            gateway = str(row.get('gateway', '') or '')
-            table = str(row.get('routing-table', row.get('routing_table', 'main')) or 'main')
-            key = (iface, gateway, table)
-            if key in seen: continue
-            seen.add(key)
-            wans.append({
-                'interface': iface,
-                'gateway': gateway,
-                'distance': str(row.get('distance', '1')),
-                'table': table,
-                'active': ros_bool(row.get('active', True)) and not ros_bool(row.get('disabled', False)),
-                'check_gateway': str(row.get('check-gateway', row.get('check_gateway', '')) or ''),
-            })
-        for bond in bonds:
-            name = str(bond.get('name', ''))
-            if name and not any(x['interface'] == name for x in wans):
-                wans.append({'interface': name, 'gateway': '', 'distance': '', 'table': 'bonding', 'active': ros_bool(bond.get('running', True)), 'check_gateway': ''})
-
-        return redact({
-            'method': method,
-            'description': description,
-            'configured': method != 'Single WAN',
-            'wan_links': wans,
-            'pcc_rule_count': len(pcc_rules),
-            'marked_rule_count': len(marked_rules),
-            'routing_table_count': len(routing_tables),
-            'routing_rule_count': len(routing_rules),
-            'bond_count': len(bonds),
-        })
+            rows = resource.get(**lookup)
+            if not rows:
+                raise MikroTikError(f'{path} item was not found on this router.')
+            item_id = rows[0].get('id') or rows[0].get('.id')
+            if not item_id:
+                raise MikroTikError(f'RouterOS did not return an item id for {path}.')
+            resource.set(id=item_id, **clean)
+        return path
 
     def configuration_snapshot(self):
         sections = {}
@@ -407,21 +556,15 @@ class MikroTikService:
             bonding=sections['Bonding']['rows'],
             routing_tables=sections['Routing tables']['rows'],
             routing_rules=sections['Routing rules']['rows'],
+            addresses=sections['IP addresses']['rows'],
+            dhcp_clients=sections['DHCP clients']['rows'],
+            interfaces=sections['Interfaces']['rows'],
+            hotspot_servers=sections['HotSpot servers']['rows'],
         )
         return {'sections': sections, 'load_balancing': lb, 'captured_at': timezone.now()}
 
-    def telemetry(self):
-        interfaces = []
-        for raw in self.interfaces():
-            row = dict(raw)
-            interfaces.append({
-                'name': str(row.get('name', '')),
-                'running': ros_bool(row.get('running', False)),
-                'disabled': ros_bool(row.get('disabled', False)),
-                'rx_byte': int(row.get('rx-byte', row.get('rx_byte', 0)) or 0),
-                'tx_byte': int(row.get('tx-byte', row.get('tx_byte', 0)) or 0),
-            })
-        return {'interfaces': interfaces, 'load_balancing': self.analyze_load_balancing(), 'captured_at': timezone.now().isoformat()}
+    def telemetry(self, stored_sections=None):
+        return self.wan_telemetry(stored_sections)
 
     def topology_data(self):
         return {
@@ -431,5 +574,6 @@ class MikroTikService:
             'arp': self.arp(), 'hotspot_hosts': self.hotspot_hosts(), 'active_users': self.safe_get('/ip/hotspot/active'),
             'wifi_registrations': self.wifi_registrations(), 'remote_caps': self.remote_caps(), 'routes': self.routes(),
             'mangle': self.mangle(), 'routing_tables': self.routing_tables(), 'routing_rules': self.routing_rules(),
-            'bonding': self.bonding(), 'captured_at': timezone.now(),
+            'bonding': self.bonding(), 'addresses': self.addresses(), 'hotspot_servers': self.hotspot_servers(),
+            'captured_at': timezone.now(),
         }

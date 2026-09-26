@@ -2,7 +2,7 @@ import re
 from collections import defaultdict
 from django.utils import timezone
 
-from .mikrotik import MikroTikService, ros_bool
+from .mikrotik import MikroTikService, ros_bool, redact
 from .models import (
     Voucher, VoucherPlan, RouterHotspotProfile, RouterHotspotUser,
     SyncedIPBinding, RouterInterface, RouterNeighbor, RouterDevice,
@@ -360,21 +360,31 @@ def _persist_topology(router, data, now=None):
         ports.append({'name':name,'running':bool(obj.running) if obj else False,'disabled':bool(obj.disabled) if obj else False,'mac_address':obj.mac_address if obj else '', 'comment':obj.comment if obj else '', 'rx_byte':obj.rx_byte if obj else 0,'tx_byte':obj.tx_byte if obj else 0,'neighbors':list(router.neighbors.filter(is_online=True,interface_name=name)),'clients':clients_by_interface.get(name,[])[:8],'client_count':len(clients_by_interface.get(name,[])),'bridge':bridge_ports.get(name,{}).get('bridge',''),'pvid':bridge_ports.get(name,{}).get('pvid',''),'role':role.role if role else 'unused','role_label':role.get_role_display() if role else 'Unused'})
 
     wifi_clients_view=[{**x,'mac_address':x.get('mac-address',x.get('mac_address','')),'last_activity':x.get('last-activity',x.get('last_activity',''))} for x in wifi_regs]
-    # Load balancing analysis uses the already-pulled config tables.
-    svc_analysis = None
-    try:
-        # Static method-like behavior via short-lived object is not needed; caller service owns live connection.
-        pass
-    except Exception:
-        pass
     return {'router':router,'identity':_clean(data.get('identity',{})),'routerboard':_clean(data.get('routerboard',{})),'ports':ports,'neighbors':list(router.neighbors.all().order_by('-is_online','identity')),'wifi_clients':wifi_clients_view,'devices':list(router.devices.filter(is_online=True).order_by('interface_name','hostname','mac_address')),'captured_at':now,'error':''}
 
 
-def refresh_router_topology(router):
-    svc=MikroTikService(router).connect();now=timezone.now()
+def refresh_router_topology(router, timeout=None):
+    """Live discovery for one router. Persists ports/neighbors/devices and the WAN analysis."""
+    svc=MikroTikService(router,timeout=timeout).connect();now=timezone.now()
     try:
         data=svc.topology_data();snap=_persist_topology(router,data,now)
-        snap['load_balancing']=svc.analyze_load_balancing(routes=data.get('routes',[]),mangle=data.get('mangle',[]),bonding=data.get('bonding',[]),routing_tables=data.get('routing_tables',[]),routing_rules=data.get('routing_rules',[]))
+        lb=svc.analyze_load_balancing(
+            routes=data.get('routes',[]),mangle=data.get('mangle',[]),bonding=data.get('bonding',[]),
+            routing_tables=data.get('routing_tables',[]),routing_rules=data.get('routing_rules',[]),
+            addresses=data.get('addresses',[]),dhcp_clients=data.get('dhcp_clients',[]),
+            interfaces=data.get('interfaces',[]),hotspot_servers=data.get('hotspot_servers',[]),
+        )
+        snap['load_balancing']=lb
+        identity=_clean(data.get('identity',{}));board=_clean(data.get('routerboard',{}))
+        cfg,created=RouterConfigSnapshot.objects.get_or_create(router=router,defaults={'sections':{},'load_balancing':lb,'captured_at':now})
+        if not created:
+            cfg.load_balancing=lb
+        # Keep a small identity block so the graph can label and match routers without a full config snapshot.
+        sections=dict(cfg.sections or {})
+        sections['_identity']={'path':'/system/identity','count':1,'rows':[{'name':identity.get('name',''),'model':board.get('model',''),'serial':board.get('serial-number','')}]}
+        sections['IP addresses']={'path':'/ip/address','count':len(data.get('addresses',[])),'rows':redact([dict(x) for x in data.get('addresses',[])[:500]])}
+        cfg.sections=sections
+        cfg.save(update_fields=['load_balancing','sections','updated_at'])
         router.status='Online';router.last_error='';router.last_tested_at=now;router.save(update_fields=['status','last_error','last_tested_at'])
         return snap
     finally: svc.close()

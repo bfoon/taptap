@@ -4,7 +4,7 @@ from django.utils import timezone
 from .models import (
     Business,Subscription,VoucherPlan,Router,VoucherBatch,Voucher,VoucherDeviceBinding,
     IPBindingAccessExpiry,Activity,RouterHotspotProfile,RouterHotspotUser,SyncedIPBinding,
-    RouterInterface,RouterNeighbor,RouterDevice,RouterInterfaceRole,RouterConfigSnapshot,RouterConfigChange,RouterSyncJob,
+    RouterInterface,RouterNeighbor,RouterDevice,RouterInterfaceRole,RouterConfigSnapshot,RouterConfigChange,RouterSyncJob,SecurityAck,
 )
 
 PLAN_DAYS={'1 Month':30,'2 Months':60,'3 Months':90,'6 Months':180,'1 Year':365}
@@ -37,7 +37,7 @@ class RouterConfigChangeAdmin(admin.ModelAdmin):
     list_filter=('status','operation','router')
     readonly_fields=('created_at',)
 
-for model in [Business,VoucherPlan,Router,VoucherBatch,Voucher,VoucherDeviceBinding,IPBindingAccessExpiry,Activity,RouterHotspotProfile,RouterHotspotUser,SyncedIPBinding,RouterInterface,RouterNeighbor,RouterInterfaceRole,RouterConfigSnapshot]:
+for model in [Business,VoucherPlan,Router,VoucherBatch,Voucher,VoucherDeviceBinding,IPBindingAccessExpiry,Activity,RouterHotspotProfile,RouterHotspotUser,SyncedIPBinding,RouterInterface,RouterNeighbor,RouterInterfaceRole,RouterConfigSnapshot,SecurityAck]:
     admin.site.register(model)
 
 

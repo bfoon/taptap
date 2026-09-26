@@ -31,7 +31,8 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "8000:8000"
+      # WEB_BIND examples: 8000 (all interfaces) | 127.0.0.1:8001 (behind host nginx)
+      - "${WEB_BIND:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -44,7 +45,7 @@ services:
     build: .
     restart: unless-stopped
     env_file: .env
-    entrypoint: ["celery", "-A", "config", "worker", "--loglevel=INFO", "--concurrency=2"]
+    entrypoint: ["sh", "-c", "celery -A config worker --loglevel=INFO --concurrency=${WORKER_CONCURRENCY:-2}"]
     depends_on:
       db:
         condition: service_healthy

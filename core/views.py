@@ -1,6 +1,9 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
 from decimal import Decimal
+import hashlib
 import json
+import re
 
 from django.conf import settings
 from django.contrib import messages
@@ -9,7 +12,9 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.db import transaction, DatabaseError
 from django.db.models import Count, Sum, Q
+from django.core.cache import cache
 from django.http import JsonResponse
+from django.views.decorators.http import require_POST
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -18,12 +23,17 @@ from .forms import RegisterForm, RouterForm, PlanForm
 from .models import (
     Business, Subscription, VoucherPlan, Router, VoucherBatch, Voucher, Activity,
     SyncedIPBinding, RouterHotspotProfile, RouterHotspotUser, RouterNeighbor, RouterDevice, RouterInterfaceRole,
-    RouterConfigSnapshot, RouterConfigChange, RouterSyncJob,
+    RouterConfigSnapshot, RouterConfigChange, RouterSyncJob, SecurityAck,
 )
+from .netgraph import build_graph
+from .security import audit_business, summarize
 from .mikrotik import MikroTikService, MikroTikError, redact
 from .sync import sync_router, refresh_router_topology, snapshot_from_database
 from .tasks import enqueue_router_sync
 from .utils import generate_code, duration_to_routeros, log
+
+import logging
+logger=logging.getLogger('taptap')
 
 SUBSCRIPTION_PACKAGES = {
     '1m': ('1 Month', Decimal('700'), 30), '2m': ('2 Months', Decimal('1350'), 60),
@@ -297,7 +307,8 @@ def router_control(request,pk):
     bridges=[]
     if snapshot and snapshot.sections.get('Bridges'): bridges=snapshot.sections['Bridges'].get('rows',[])
     changes=router.config_changes.select_related('actor').order_by('-created_at')[:20]
-    return render(request,'core/router_control.html',{'router':router,'snapshot':snapshot,'interfaces':interfaces,'bridges':bridges,'changes':changes,'role_choices':RouterInterfaceRole.ROLES,'catalog':MikroTikService.CONFIG_CATALOG})
+    sections=[(label,sec) for label,sec in (snapshot.sections.items() if snapshot and snapshot.sections else []) if not str(label).startswith('_')]
+    return render(request,'core/router_control.html',{'router':router,'snapshot':snapshot,'sections':sections,'interfaces':interfaces,'bridges':bridges,'changes':changes,'role_choices':RouterInterfaceRole.ROLES,'catalog':MikroTikService.CONFIG_CATALOG,'lb_config':_lb_config(router,snapshot)})
 
 
 @login_required
@@ -380,12 +391,56 @@ def router_quick_recipe(request,pk):
     return redirect('router_control',pk=pk)
 
 
+def _safe_cache_get(key):
+    try: return cache.get(key)
+    except Exception: return None
+
+
+def _safe_cache_set(key,value,ttl):
+    try: cache.set(key,value,ttl)
+    except Exception: pass
+
+
+def _lb_config(router,snapshot=None):
+    """Everything the load-balancing engine needs to draw instantly, before the first poll."""
+    if snapshot is None:
+        snapshot=RouterConfigSnapshot.objects.filter(router=router).first()
+    lb=(snapshot.load_balancing if snapshot else None) or {}
+    from django.urls import reverse
+    return {'router_id':router.id,'router_name':router.name,'router_ip':router.ip_address,'status':router.status,
+            'dom_id':f'lb-cfg-{router.id}','telemetry_url':reverse('router_telemetry',args=[router.id]),'load_balancing':lb}
+
+
+def _lb_signature(lb):
+    return json.dumps([lb.get('method')]+[(l.get('id'),l.get('state'),l.get('expected_share')) for l in lb.get('wan_links',[])],sort_keys=True)
+
+
 @login_required
 def router_telemetry(request,pk):
+    """Live WAN telemetry. Cached briefly so many open tabs cost one RouterOS read."""
     router=get_object_or_404(b(request).routers,pk=pk)
+    key=f'tt:lb:{router.id}'
+    cached=_safe_cache_get(key)
+    if cached:
+        return JsonResponse(cached)
+    snapshot=RouterConfigSnapshot.objects.filter(router=router).first()
     try:
-        svc=MikroTikService(router).connect();data=svc.telemetry();svc.close();return JsonResponse({'success':True,**data})
-    except Exception as e: return JsonResponse({'success':False,'message':str(e)},status=503)
+        with MikroTikService(router,timeout=settings.MIKROTIK_LIVE_TIMEOUT) as svc:
+            data=svc.telemetry(snapshot.sections if snapshot else None)
+        lb=data['load_balancing']
+        if snapshot is None:
+            RouterConfigSnapshot.objects.create(router=router,sections={},load_balancing=lb)
+        elif _lb_signature(snapshot.load_balancing or {})!=_lb_signature(lb):
+            snapshot.load_balancing=lb;snapshot.save(update_fields=['load_balancing','updated_at'])
+        if router.status!='Online':
+            Router.objects.filter(pk=router.pk).update(status='Online',last_error='',last_tested_at=timezone.now())
+        payload={'success':True,**data}
+        _safe_cache_set(key,payload,settings.LIVE_CACHE_SECONDS)
+        return JsonResponse(payload)
+    except Exception as e:
+        payload={'success':False,'message':str(e)}
+        _safe_cache_set(key,payload,max(5,settings.LIVE_CACHE_SECONDS))
+        return JsonResponse(payload)
 
 
 def _router_rows(business,method):
@@ -441,17 +496,81 @@ def ip_binding_action(request):
 
 @login_required
 def topology(request):
-    business=b(request);snapshots=[]
-    for r in business.routers.all():
-        try: snapshots.append(refresh_router_topology(r))
-        except Exception as e:
-            r.status='Offline';r.last_error=str(e);r.last_tested_at=timezone.now();r.save(update_fields=['status','last_error','last_tested_at']);snap=snapshot_from_database(r);snap['error']=str(e);snapshots.append(snap)
-    managed_by_ip={r.ip_address:r for r in business.routers.all()};managed_links=[]
+    """Renders instantly from the database; the browser runs live discovery per router."""
+    business=b(request);routers=list(business.routers.all().order_by('name'))
+    snapshots=[snapshot_from_database(r) for r in routers]
     for snap in snapshots:
-        for neighbor in snap['neighbors']:
-            peer=managed_by_ip.get(neighbor.address);neighbor.managed_peer=peer
-            if peer and peer.id!=snap['router'].id: managed_links.append({'source':snap['router'],'target':peer,'interface':neighbor.interface_name,'online':neighbor.is_online})
-    return render(request,'core/topology.html',{'snapshots':snapshots,'routers':business.routers.all(),'managed_links':managed_links})
+        snap['lb_config']=_lb_config(snap['router'])
+        snap['wifi_clients']=[d for d in snap['devices'] if d.connection_type=='wifi']
+        if snap['router'].status=='Online': snap['error']=''
+    stale_after=timezone.now()-timedelta(seconds=settings.TOPOLOGY_STALE_SECONDS)
+    auto=[r.id for r in routers if not r.last_tested_at or r.last_tested_at<stale_after]
+    from django.urls import reverse
+    graph=build_graph(business)
+    netmap_config={'graph':graph,'graphUrl':reverse('topology_graph'),'liveUrl':reverse('topology_live'),
+        'refreshUrl':reverse('topology_refresh',args=[0]),'controlUrl':reverse('router_control',args=[0]),
+        'routers':[{'id':r.id,'name':r.name} for r in routers],'autoRefreshIds':auto}
+    return render(request,'core/topology.html',{'snapshots':snapshots,'routers':routers,'graph':graph,'netmap_config':netmap_config})
+
+
+@login_required
+def topology_graph(request):
+    return JsonResponse(build_graph(b(request),include_clients=request.GET.get('clients','1')!='0'))
+
+
+@login_required
+@require_POST
+def topology_refresh(request,pk):
+    """Live discovery for ONE router, bounded by MIKROTIK_TIMEOUT. The page calls these in parallel."""
+    router=get_object_or_404(b(request).routers,pk=pk)
+    started=timezone.now()
+    try:
+        snap=refresh_router_topology(router)
+        return JsonResponse({'success':True,'router_id':router.id,'name':router.name,
+            'devices':len(snap.get('devices',[])),'neighbors':len([n for n in snap.get('neighbors',[]) if n.is_online]),
+            'ports':len(snap.get('ports',[])),'lb_method':(snap.get('load_balancing') or {}).get('method',''),
+            'seconds':round((timezone.now()-started).total_seconds(),1)})
+    except Exception as e:
+        logger.warning('Topology refresh failed for %s: %s',router.name,e)
+        Router.objects.filter(pk=router.pk).update(status='Offline',last_error=str(e)[:2000],last_tested_at=timezone.now())
+        return JsonResponse({'success':False,'router_id':router.id,'name':router.name,'message':str(e)},status=200)
+
+
+IFACE_NAME_RE=re.compile(r'^[\w.@<>/:+-]{1,64}$')
+
+
+def _live_for_router(router,names):
+    key='tt:live:%s:%s'%(router.id,hashlib.md5(','.join(names).encode()).hexdigest()[:10])
+    cached=_safe_cache_get(key)
+    if cached is not None:
+        return cached
+    try:
+        with MikroTikService(router,timeout=settings.MIKROTIK_LIVE_TIMEOUT) as svc:
+            result={'ok':True,'interfaces':svc.live_traffic(names)}
+    except Exception as e:
+        result={'ok':False,'error':str(e)[:300],'interfaces':{}}
+    _safe_cache_set(key,result,settings.LIVE_CACHE_SECONDS)
+    return result
+
+
+@login_required
+def topology_live(request):
+    """Live bps for the interfaces drawn on the map. ?r=<router_id>:<iface,iface>&r=..."""
+    business=b(request);wanted={}
+    for item in request.GET.getlist('r')[:25]:
+        rid,_,names=item.partition(':')
+        if not rid.isdigit(): continue
+        clean=[n for n in names.split(',') if IFACE_NAME_RE.match(n)][:32]
+        if clean: wanted[int(rid)]=clean
+    routers={r.id:r for r in business.routers.filter(id__in=list(wanted.keys()))}
+    out={}
+    if routers:
+        with ThreadPoolExecutor(max_workers=min(8,len(routers))) as pool:
+            futures={pool.submit(_live_for_router,r,wanted[rid]):rid for rid,r in routers.items()}
+            for fut in as_completed(futures):
+                try: out[str(futures[fut])]=fut.result()
+                except Exception as e: out[str(futures[fut])]={'ok':False,'error':str(e),'interfaces':{}}
+    return JsonResponse({'success':True,'routers':out,'ts':timezone.now().isoformat()})
 
 
 @login_required
@@ -466,7 +585,79 @@ def finance(request):
 
 @login_required
 def security(request):
-    business=b(request);shared=business.vouchers.annotate(devices=Count('device_bindings')).filter(devices__gt=1);return render(request,'core/security.html',{'shared':shared,'offline':business.routers.exclude(status='Online')})
+    business=b(request)
+    findings=audit_business(business)
+    acks={a.finding_key:a for a in business.security_acks.select_related('acknowledged_by')}
+    summary=summarize(findings,set(acks))
+    for f in summary['acked']:
+        f['ack']=acks.get(f['key'])
+    routers=list(business.routers.all().order_by('name'))
+    for r in routers:
+        pr=summary['per_router'].get(r.id,{'score':100,'grade':'A','counts':{}})
+        r.sec_score=pr['score'];r.sec_grade=pr['grade'];r.sec_counts=pr['counts']
+        try: r.sec_scanned=r.config_snapshot.captured_at if r.config_snapshot.sections.get('IP services') else None
+        except Exception: r.sec_scanned=None
+    return render(request,'core/security.html',{'summary':summary,'routers':routers,
+        'fix_labels':{k:v[3] for k,v in MikroTikService.SECURITY_FIXES.items()}})
+
+
+@login_required
+@require_POST
+def security_rescan(request,pk):
+    router=get_object_or_404(b(request).routers,pk=pk)
+    try:
+        with MikroTikService(router) as svc:
+            cfg=svc.configuration_snapshot()
+        existing=RouterConfigSnapshot.objects.filter(router=router).first()
+        sections=cfg['sections']
+        if existing and existing.sections.get('_identity'):
+            sections['_identity']=existing.sections['_identity']
+        RouterConfigSnapshot.objects.update_or_create(router=router,defaults={'sections':sections,'load_balancing':cfg['load_balancing'],'captured_at':cfg['captured_at']})
+        Router.objects.filter(pk=router.pk).update(status='Online',last_error='',last_tested_at=timezone.now())
+        return JsonResponse({'success':True,'router_id':router.id,'sections':len(sections)})
+    except Exception as e:
+        Router.objects.filter(pk=router.pk).update(status='Offline',last_error=str(e)[:2000],last_tested_at=timezone.now())
+        return JsonResponse({'success':False,'router_id':router.id,'message':str(e)})
+
+
+@login_required
+@require_POST
+def security_fix(request,pk):
+    router=get_object_or_404(b(request).routers,pk=pk)
+    key=request.POST.get('fix','').strip()
+    if key not in MikroTikService.SECURITY_FIXES:
+        return JsonResponse({'success':False,'message':'Unknown fix.'},status=400)
+    path,lookup,fields,label=MikroTikService.SECURITY_FIXES[key]
+    change=RouterConfigChange.objects.create(business=router.business,router=router,actor=request.user,resource_path=path,
+        operation='security-fix',target_id=key,fields=fields,status='success')
+    try:
+        with MikroTikService(router) as svc:
+            svc.apply_security_fix(key)
+            cfg=svc.configuration_snapshot()
+        existing=RouterConfigSnapshot.objects.filter(router=router).first()
+        if existing and existing.sections.get('_identity'):
+            cfg['sections']['_identity']=existing.sections['_identity']
+        RouterConfigSnapshot.objects.update_or_create(router=router,defaults={'sections':cfg['sections'],'load_balancing':cfg['load_balancing'],'captured_at':cfg['captured_at']})
+        log(router.business,'Security Fix',f'{router.name}: {label}')
+        return JsonResponse({'success':True,'message':f'{label} — applied on {router.name}.'})
+    except Exception as e:
+        change.status='failed';change.error=str(e);change.save(update_fields=['status','error'])
+        return JsonResponse({'success':False,'message':str(e)})
+
+
+@login_required
+@require_POST
+def security_ack(request):
+    business=b(request);key=request.POST.get('finding_key','').strip()[:160]
+    if not key:
+        return JsonResponse({'success':False},status=400)
+    if request.POST.get('action')=='unack':
+        business.security_acks.filter(finding_key=key).delete()
+    else:
+        SecurityAck.objects.update_or_create(business=business,finding_key=key,defaults={'note':request.POST.get('note','').strip()[:255],'acknowledged_by':request.user})
+    if request.headers.get('x-requested-with')=='fetch':
+        return JsonResponse({'success':True})
+    return redirect('security')
 
 
 @login_required

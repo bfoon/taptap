@@ -1,1 +1,109 @@
-{% extends 'core/base.html' %}{% block title %}Security — TapTap{% endblock %}{% block heading %}Security Center{% endblock %}{% block content %}<div class="row g-4"><div class="col-lg-6"><div class="panel h-100"><div class="panel-head"><div><h3>Voucher device review</h3><p>Vouchers currently associated with multiple bindings.</p></div></div>{% for v in shared %}<div class="security-row"><i class="bi bi-exclamation-triangle"></i><div><b>{{ v.code }}</b><span>{{ v.plan_name }} • {{ v.devices }} bindings</span></div><a href="{% url 'reset_mac' v.id %}" class="btn btn-sm btn-outline-warning">Reset</a></div>{% empty %}<div class="good-state"><i class="bi bi-shield-check"></i><b>No sharing alerts</b><span>Nothing unusual was detected in stored voucher bindings.</span></div>{% endfor %}</div></div><div class="col-lg-6"><div class="panel h-100"><div class="panel-head"><div><h3>Router health</h3><p>Routers not currently marked online.</p></div></div>{% for r in offline %}<div class="security-row"><i class="bi bi-router"></i><div><b>{{ r.name }}</b><span>{{ r.ip_address }} • {{ r.status }}</span></div><a href="{% url 'router_test' r.id %}" class="btn btn-sm btn-outline-primary">Retest</a></div>{% empty %}<div class="good-state"><i class="bi bi-check-circle"></i><b>All routers online</b><span>No router health issues recorded.</span></div>{% endfor %}</div></div></div>{% endblock %}
+{% extends 'core/base.html' %}
+{% load static %}
+{% block title %}Security — TapTap{% endblock %}
+{% block heading %}Security Center{% endblock %}
+{% block extra_head %}<link href="{% static 'css/netviz.css' %}?v=5" rel="stylesheet">{% endblock %}
+{% block content %}
+<form class="d-none">{% csrf_token %}</form>
+<section class="sec-hero g-{{ summary.grade }}">
+  <div class="sec-ring" data-score="{{ summary.score }}">
+    <svg width="132" height="132" viewBox="0 0 132 132" aria-hidden="true"><circle class="bg" cx="66" cy="66" r="56"/><circle class="fg" cx="66" cy="66" r="56" stroke-dasharray="351.9" stroke-dashoffset="351.9"/></svg>
+    <div class="grade"><b>{{ summary.grade }}</b><small>{{ summary.score }} / 100</small></div>
+  </div>
+  <div>
+    <h2>{% if summary.counts.critical %}Fix the critical items first{% elif summary.counts.high %}A few important items need attention{% elif summary.active %}Your network is in good shape{% else %}Nothing to fix right now{% endif %}</h2>
+    <p>TapTap checks each router's configuration, your hotspot for free-access leaks, and whether vouchers you sold or disabled match what the routers enforce.</p>
+    <div class="sec-counts">
+      {% for sev,count in summary.counts.items %}{% if count %}<span class="sec-count sev-{{ sev }}"><b>{{ count }}</b>{{ sev|capfirst }}</span>{% endif %}{% endfor %}
+      {% if not summary.active %}<span class="sec-count sev-info"><b>0</b>open findings</span>{% endif %}
+    </div>
+  </div>
+  <div class="sec-actions">
+    <button type="button" class="btn btn-primary" id="rescanAll" {% if not routers %}disabled{% endif %}><i class="bi bi-shield-check"></i> Rescan all routers</button>
+    <small class="text-secondary" id="rescanNote">Reads each router's configuration (10–20 s each).</small>
+  </div>
+</section>
+
+{% if routers %}
+<div class="sec-routers">
+  {% for r in routers %}
+  <div class="sec-router {% if r.sec_scanned %}g-{{ r.sec_grade }}{% else %}g-none{% endif %}" data-router="{{ r.id }}" data-rescan-url="{% url 'security_rescan' r.id %}" data-name="{{ r.name }}">
+    <span class="rg" title="{% if r.sec_scanned %}Score {{ r.sec_score }} / 100{% else %}Not scanned — grade unknown{% endif %}">{% if r.sec_scanned %}{{ r.sec_grade }}{% else %}?{% endif %}</span>
+    <b>{{ r.name }}</b>
+    <small>{{ r.ip_address }} · {% if r.status == 'Online' %}online{% else %}unreachable{% endif %}</small>
+    <span class="rs">{% if r.sec_scanned %}Scanned {{ r.sec_scanned|timesince }} ago{% else %}Not scanned yet{% endif %}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="sec-filters" role="group" aria-label="Filter findings">
+  <button type="button" class="sec-filter on" data-filter="all">All ({{ summary.active|length }})</button>
+  {% for sev,count in summary.counts.items %}{% if count %}<button type="button" class="sec-filter" data-filter="sev:{{ sev }}">{{ sev|capfirst }} ({{ count }})</button>{% endif %}{% endfor %}
+  {% for cat in summary.categories %}<button type="button" class="sec-filter" data-filter="cat:{{ cat }}">{{ cat }}</button>{% endfor %}
+</div>
+
+<div class="sec-list" id="secList">
+  {% for f in summary.active %}
+  <details class="sec-item sev-{{ f.severity }}" data-sev="{{ f.severity }}" data-cat="{{ f.category }}"{% if f.severity == 'critical' %} open{% endif %}>
+    <summary><span class="sec-sev">{{ f.severity }}</span><span class="sec-title"><b>{{ f.title }}</b><small>{{ f.router_name }} · {{ f.category }}</small></span><i class="bi bi-chevron-down"></i></summary>
+    <div class="sec-body">
+      <p>{{ f.impact }}</p>
+      {% if f.evidence %}<div class="sec-evidence">{% for e in f.evidence %}<code>{{ e }}</code>{% endfor %}{% if f.evidence_more %}<code>+{{ f.evidence_more }} more</code>{% endif %}</div>{% endif %}
+      {% if f.cli %}<pre class="sec-cli"><button type="button" class="sec-copy" title="Copy command" aria-label="Copy command"><i class="bi bi-clipboard"></i></button>{{ f.cli }}</pre>{% endif %}
+      <div class="sec-ops">
+        {% if f.fix and f.router_id %}<button type="button" class="btn btn-sm btn-danger" data-fix="{{ f.fix }}" data-fix-url="{% url 'security_fix' f.router_id %}"><i class="bi bi-magic"></i> Fix on router</button>{% endif %}
+        {% if f.link %}<a class="btn btn-sm btn-outline-secondary" href="{% if f.link == 'router_control' and f.router_id %}{% url 'router_control' f.router_id %}{% else %}{% url f.link %}{% endif %}">Open</a>{% endif %}
+        <form method="post" action="{% url 'security_ack' %}" class="d-flex gap-2 sec-ack-form">{% csrf_token %}<input type="hidden" name="finding_key" value="{{ f.key }}"><input class="form-control form-control-sm" name="note" placeholder="Why this is fine (optional)"><button class="btn btn-sm btn-outline-secondary">Mark as reviewed</button></form>
+      </div>
+    </div>
+  </details>
+  {% empty %}
+  <div class="sec-empty"><i class="bi bi-shield-check"></i><p class="mt-2 mb-0"><b>No open findings.</b> Rescan after changing router settings to keep this current.</p></div>
+  {% endfor %}
+</div>
+
+{% if summary.acked %}
+<details class="sec-acked"><summary>{{ summary.acked|length }} reviewed finding{{ summary.acked|length|pluralize }} (not counted in the score)</summary>
+  <div class="sec-list">
+  {% for f in summary.acked %}
+  <div class="sec-item sev-{{ f.severity }}"><div class="sec-body pt-3"><p><b>{{ f.title }}</b> — {{ f.router_name }}{% if f.ack.note %}<br><small class="text-secondary">“{{ f.ack.note }}” · {{ f.ack.acknowledged_by.email|default:'' }} {{ f.ack.created_at|date:'d M Y' }}</small>{% endif %}</p>
+    <form method="post" action="{% url 'security_ack' %}">{% csrf_token %}<input type="hidden" name="finding_key" value="{{ f.key }}"><input type="hidden" name="action" value="unack"><button class="btn btn-sm btn-link p-0">Reopen</button></form></div></div>
+  {% endfor %}
+  </div>
+</details>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  const token=document.querySelector('[name=csrfmiddlewaretoken]').value;
+  // Score ring (one orchestrated moment on load)
+  const ring=document.querySelector('.sec-ring');if(ring){const fg=ring.querySelector('.fg');const score=Number(ring.dataset.score)||0;requestAnimationFrame(()=>{fg.style.strokeDashoffset=(351.9*(1-score/100)).toFixed(1);});}
+  // Filters
+  document.querySelectorAll('.sec-filter').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.sec-filter').forEach(x=>x.classList.toggle('on',x===b));const f=b.dataset.filter;document.querySelectorAll('#secList .sec-item').forEach(it=>{it.hidden=!(f==='all'||(f.startsWith('sev:')&&it.dataset.sev===f.slice(4))||(f.startsWith('cat:')&&it.dataset.cat===f.slice(4)));});}));
+  // Copy CLI
+  document.querySelectorAll('.sec-copy').forEach(b=>b.addEventListener('click',async e=>{e.preventDefault();const pre=b.parentElement;const text=[...pre.childNodes].filter(n=>n!==b).map(n=>n.textContent).join('').trim();try{await navigator.clipboard.writeText(text);b.innerHTML='<i class="bi bi-check2"></i>';setTimeout(()=>b.innerHTML='<i class="bi bi-clipboard"></i>',1500);}catch(err){}}));
+  // One-click fixes
+  document.querySelectorAll('[data-fix]').forEach(b=>b.addEventListener('click',async()=>{
+    if(!confirm('Apply this change on the router now? It is logged in the Control Center change audit.'))return;
+    b.disabled=true;const old=b.innerHTML;b.innerHTML='<span class="spinner-border spinner-border-sm"></span> Applying…';
+    const fd=new FormData();fd.append('fix',b.dataset.fix);
+    try{const r=await fetch(b.dataset.fixUrl,{method:'POST',body:fd,credentials:'same-origin',headers:{'X-CSRFToken':token}});const d=await r.json();
+      if(d.success){b.className='btn btn-sm btn-success';b.innerHTML='<i class="bi bi-check2"></i> Fixed';setTimeout(()=>location.reload(),900);}else{b.disabled=false;b.innerHTML=old;alert(d.message||'The router rejected the change.');}}
+    catch(err){b.disabled=false;b.innerHTML=old;alert(err.message);}
+  }));
+  // Rescan all routers in parallel (each request is bounded server-side)
+  document.getElementById('rescanAll')?.addEventListener('click',async e=>{
+    const btn=e.currentTarget;btn.disabled=true;btn.innerHTML='<span class="spinner-border spinner-border-sm"></span> Scanning…';
+    const cards=[...document.querySelectorAll('.sec-router')];let ok=0;
+    await Promise.all(cards.map(async c=>{const st=c.querySelector('.rs');st.className='rs run';st.textContent='Scanning…';
+      try{const r=await fetch(c.dataset.rescanUrl,{method:'POST',credentials:'same-origin',headers:{'X-CSRFToken':token}});const d=await r.json();
+        if(d.success){ok++;st.className='rs';st.textContent='Scanned just now';}else{st.className='rs bad';st.textContent='Unreachable: '+(d.message||'').slice(0,80);}}
+      catch(err){st.className='rs bad';st.textContent=err.message;}}));
+    document.getElementById('rescanNote').textContent=ok+' of '+cards.length+' router(s) scanned. Reloading results…';
+    setTimeout(()=>location.reload(),900);
+  });
+})();
+</script>
+{% endblock %}

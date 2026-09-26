@@ -1,0 +1,3 @@
+{# Live load-balancing engine. Needs `lb_config` from views._lb_config(); set `compact` for a smaller card. #}
+<div data-lb-engine data-config-id="{{ lb_config.dom_id }}"{% if compact %} data-compact{% endif %}></div>
+{{ lb_config|json_script:lb_config.dom_id }}

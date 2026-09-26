@@ -311,3 +311,18 @@ class RouterSyncJob(models.Model):
 
     def __str__(self):
         return f'{self.router.name} sync {self.status}'
+
+
+class SecurityAck(models.Model):
+    """A Security Center finding the operator reviewed and accepted (e.g. an intentional bypass)."""
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='security_acks')
+    finding_key=models.CharField(max_length=160)
+    note=models.CharField(max_length=255,blank=True)
+    acknowledged_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)
+    created_at=models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['business','finding_key'],name='uniq_security_ack')]
+
+    def __str__(self):
+        return f'{self.business}: {self.finding_key}'

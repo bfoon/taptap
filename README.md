@@ -96,3 +96,52 @@ docker compose ps
 ```
 
 `docker compose ps` should show `web`, `worker`, `db` and `redis` running.
+
+
+## v5 — Live topology map, load-balancing engine, Security Center, deploy anywhere
+
+### Live network topology
+- One map for the whole business: Internet → ISP modem → WAN links → managed MikroTiks → switches / access points → device groups.
+- Managed routers are linked by MAC, IP **or** identity, so a router added by its public or VPN address still connects to its neighbours. A router whose WAN is fed by another managed router hangs under it instead of showing a second Internet path.
+- Traffic particles move along every link in real time (download cyan, upload violet); speed and density follow real bits/second from RouterOS `monitor-traffic`.
+- Pan, zoom, fit, full screen, search by name / MAC / IP (including devices inside groups), device drawer with details, "Discover now" per router.
+- The page opens instantly from the database. Discovery runs per router in parallel, each bounded by `MIKROTIK_TIMEOUT`, so one dead router never blocks the page — it shows why it is unreachable (for example a private IP without a VPN).
+
+### Load-balancing engine
+- WAN detection rewritten for RouterOS v6 and v7: gateways as IP, interface or `ip%interface`, `gateway-status`, `immediate-gw`, DHCP-client and PPPoE routes, recursive/ECMP routes, PCC → connection-mark → routing-mark → table chains, routing rules, bonding and operator-declared WAN ports.
+- Methods: PCC, policy routing, ECMP, failover, bonding, single WAN — with planned share per link, active/standby/down state and warnings (HotSpot + policy routing, failover without check-gateway, PCC marks into tables without a default route).
+- Live view: animated lanes, per-link down/up rates, share-of-traffic vs plan, sparkline, balance meter, and a failover event log ("ether1 went down — traffic moved to ether2").
+- Telemetry polls are cheap (default routes + WAN counters only) and cached in Redis, so many open tabs cost one router read.
+
+### Security Center
+- Grade and score per business and per router, filters by severity and category, and "Mark as reviewed" with a note (migration `0005_security_ack`).
+- Router hardening: missing WAN input firewall, Telnet/FTP, services open to any address, open DNS resolver, SOCKS / web proxy / UPnP / bandwidth server, SNMP `public`, MAC-Winbox on all interfaces, discovery on all interfaces, default `admin` user, TapTap using `admin`, plain API over the Internet, outdated RouterOS (including CVE-2018-14847).
+- Revenue and abuse: vouchers disabled in TapTap but still working on the router, vouchers that failed to publish, codes logged in on more devices than the plan allows, bypassed IP bindings, MikroTik users that never expire, unmanaged routers on customer ports.
+- Every finding shows the RouterOS command to fix it; safe items (Telnet, FTP, SOCKS, UPnP, bandwidth server, open proxy) have a one-click fix that is logged in the change audit.
+
+### Deploy anywhere
+Everything is set from `.env` (see `.env.example`):
+
+| Setting | Purpose |
+|---|---|
+| `ALLOWED_HOSTS` | Every hostname/IP people use. CSRF trusted origins are derived automatically (http + https). |
+| `CSRF_TRUSTED_ORIGINS` | Only needed for non-standard ports, e.g. `http://192.168.88.10:8000`. |
+| `SECURE_COOKIES` | `1` behind HTTPS, `0` for plain-http LAN installs (otherwise login fails). |
+| `WEB_BIND` | `8000` for all interfaces, `127.0.0.1:8001` behind a host nginx/Caddy. |
+| `DB_ENGINE=sqlite` | Single small box without PostgreSQL (WAL mode, safe for parallel discovery). |
+| `CELERY_EAGER=1` | No Redis/worker available: syncs run inside the request. |
+| `MIKROTIK_TIMEOUT` / `MIKROTIK_LIVE_TIMEOUT` | Upper bound for discovery / live polls per router. |
+| `MIKROTIK_SSL_VERIFY` | `0` (default) accepts RouterOS self-signed api-ssl certificates. |
+| `GUNICORN_WORKERS` / `GUNICORN_THREADS` | gthread workers keep the site responsive while routers answer. |
+
+TapTap connects **out** to each router's API port. A router with a private address (10.x, 192.168.x, 172.16–31.x, 100.64.x) is only reachable when TapTap runs on the same network or over a VPN (WireGuard, SSTP, OpenVPN). The connection also accepts `host:port` in the address field and falls back to the legacy login for RouterOS older than 6.43.
+
+### Why the Django build polls instead of streaming
+The Node.js build kept long-lived connections open to push updates. Django behind gunicorn serves short request/response cycles, so this build uses short, bounded requests (`/topology/graph/`, `/topology/refresh/<id>/`, `/topology/live/`, `/routers/<id>/telemetry/`) plus a shared cache. That keeps every worker free, survives proxies and load balancers, and behaves the same on any host.
+
+### Upgrade
+```bash
+docker compose up -d --build
+docker compose exec web python manage.py migrate
+docker compose exec web python manage.py showmigrations core   # 0005_security_ack and 0006_voucher_plan_name_length [X]
+```
