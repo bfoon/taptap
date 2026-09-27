@@ -265,6 +265,13 @@ def watch_router(router, force=False):
         except Exception as exc:  # reporting must never break voucher sync
             logger.info('traffic collection %s: %s', router, exc)
 
+        # ---------------- port guards, timed actions, nightly backup ----------------
+        try:
+            from .portctl import tick as port_tick
+            summary['ports'] = port_tick(router, svc, now)
+        except Exception as exc:
+            logger.info('port control %s: %s', router, exc)
+
         # ---------------- IP bindings ----------------
         bmirror = {b.mikrotik_id: b for b in SyncedIPBinding.objects.filter(router=router) if b.mikrotik_id}
         bseen = set()

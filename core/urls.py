@@ -1,7 +1,7 @@
 from django.urls import path
 from . import views, views_business as vb, views_studio as vs, views_wan as vw, views_agents as va
 
-from . import views_ads, views_ports, views_live, views_traffic
+from . import views_ads, views_ports, views_live, views_traffic, views_missing
 
 urlpatterns = [
     path('',views.home,name='home'), path('register/',views.register,name='register'), path('login/',views.login_view,name='login'), path('logout/',views.logout_view,name='logout'),
@@ -44,7 +44,7 @@ urlpatterns = [
     path('p/ad/<int:pk>/seen/',views_ads.ad_seen,name='ad_seen'), path('p/ad/<int:pk>/go/',views_ads.ad_go,name='ad_go'),
     path('p/device/<slug:slug>/',views_ads.device_beacon,name='device_beacon'),
     path('devices/',views_ads.devices,name='devices'), path('devices/<int:pk>/action/',views_ads.device_action,name='device_action'),
-    path('routers/<int:pk>/port/',views_ports.router_port,name='router_port'),
+    path('routers/<int:pk>/port/',views_ports.router_port,name='router_port'), path('routers/<int:pk>/port/action/',views_ports.port_action,name='port_action'), path('routers/<int:pk>/reboot/',views_ports.router_reboot,name='router_reboot'), path('routers/<int:pk>/backups/',views_ports.router_backups,name='router_backups'), path('routers/<int:pk>/backups/<int:bid>/download/',views_ports.router_backup_download,name='router_backup_download'),
     path('live/tick/',views_live.live_tick,name='live_tick'), path('live/now/',views_live.live_now,name='live_now'), path('live/settings/',views_live.live_settings,name='live_settings'),
     path('security/incident/<int:pk>/fix/',views_live.incident_fix,name='incident_fix'), path('security/incident/<int:pk>/ignore/',views_live.incident_ignore,name='incident_ignore'),
     path('security/incidents/fix-all/',views_live.incident_fix_all,name='incident_fix_all'),
@@ -53,4 +53,8 @@ urlpatterns = [
     path('topology/node-devices/',views_traffic.node_devices,name='node_devices'), path('alerts/device/',views_traffic.device_alert_toggle,name='device_alert_toggle'),
     path('alerts/',views_traffic.alerts,name='alerts'), path('alerts/rule/',views_traffic.alert_rule_save,name='alert_rule_save'),
     path('alerts/rule/<int:pk>/',views_traffic.alert_rule_action,name='alert_rule_action'), path('alerts/read/',views_traffic.alerts_read,name='alerts_read'),
+    path('vouchers/missing/',views_missing.missing_vouchers,name='missing_vouchers'),
+    path('vouchers/missing/report/',views_missing.report_missing_vouchers,name='report_missing_vouchers'),
+    path('vouchers/missing/<int:pk>/resolve/',views_missing.resolve_missing_report,name='resolve_missing_report'),
+    path('batches/<int:pk>/missing/report/',views_missing.report_missing_batch,name='report_missing_batch'),
 ]

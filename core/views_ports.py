@@ -104,6 +104,7 @@ def router_port(request, pk):
         'sections': [s for s in [{'title': 'Interface', 'rows': [iface]}, {'title': 'Ethernet', 'rows': [eth] if eth else []},
                                  {'title': 'Bridge port', 'rows': [bport] if bport else []}] if s['rows']] + _related_config(snap, name, bport.get('bridge', '')),
         'devices': devices, 'neighbors': neighbors, 'live': None,
+        'control': _control_state(router, name),
     }
 
     if request.GET.get('live') and router.status == 'Online':
@@ -129,3 +130,181 @@ def router_port(request, pk):
             live = {'error': str(exc)[:300]}
         data['live'] = redact(live)
     return JsonResponse(data)
+
+
+
+# ─────────────────────────── port control, reboot, backups ───────────────────────────
+import json
+from django.http import HttpResponse
+from django.views.decorators.http import require_POST
+from .models import PortRule, RouterBackup
+from .portctl import (RISK_TEXT, backup as do_backup, clear_limit, port_risk, reboot as do_reboot, restart_port,
+                      set_limit, set_port, turn_off_for)
+from .utils import log
+
+
+def _control_state(router, name):
+    risk = port_risk(router, name)
+    rules = []
+    for r in router.port_rules.filter(interface=name):
+        rules.append({'id': r.id, 'kind': r.kind, 'active': r.active, 'enabled': r.enabled,
+                      'limit_down': r.limit_down_mbps, 'limit_up': r.limit_up_mbps, 'threshold': r.threshold_mbps,
+                      'direction': r.direction, 'sustain': r.sustain_seconds, 'action': r.action, 'throttle': r.throttle_mbps,
+                      'hold': r.hold_minutes, 'times': r.times_triggered, 'error': r.last_error,
+                      'triggered_at': r.triggered_at.isoformat() if r.triggered_at else None,
+                      'restore_at': r.restore_at.isoformat() if r.restore_at else None})
+    last = router.backups.first()
+    return {'risk': risk, 'risk_text': RISK_TEXT.get(risk, ''), 'rules': rules, 'auto_backup': router.auto_backup,
+            'last_backup': last.created_at.isoformat() if last else None, 'backups': router.backups.count()}
+
+
+def _num(v, lo, hi, default):
+    try:
+        return max(lo, min(hi, float(str(v).replace(',', '.'))))
+    except (TypeError, ValueError):
+        return default
+
+
+@login_required
+@require_POST
+def port_action(request, pk):
+    router = get_object_or_404(request.user.business.routers, pk=pk)
+    name = request.POST.get('name', '').strip()
+    action = request.POST.get('action', '')
+    if not NAME_RE.match(name) or '..' in name or not router.interfaces.filter(name=name).exists():
+        return JsonResponse({'ok': False, 'message': 'Unknown port.'}, status=400)
+    risk = port_risk(router, name)
+    if action in ('disable', 'restart', 'off_for') and request.POST.get('confirm') != name:
+        try:
+            with MikroTikService(router, timeout=getattr(settings, 'MIKROTIK_LIVE_TIMEOUT', 5)) as svc:
+                risk = port_risk(router, name, svc)   # exact: which port TapTap is connected through right now
+        except Exception:
+            pass
+        if risk:
+            return JsonResponse({'ok': False, 'needs_confirm': True, 'message': RISK_TEXT[risk] + f' Type {name} to confirm.'}, status=409)
+    if action == 'guard_save' and request.POST.get('guard_action') == 'shutdown' and risk:
+        return JsonResponse({'ok': False, 'message': 'This port carries the Internet or TapTap’s own connection, so the guard can only slow it down, not switch it off.'}, status=400)
+    msg = ''
+    try:
+        if action == 'guard_delete':
+            rule = router.port_rules.filter(interface=name, kind='guard').first()
+            if rule and rule.active:
+                with MikroTikService(router, timeout=getattr(settings, 'MIKROTIK_LIVE_TIMEOUT', 5)) as svc:
+                    from .portctl import remove_queue, queue_name, cancel_on_router
+                    remove_queue(svc, queue_name(name, 'guard'))
+                    if rule.action == 'shutdown':
+                        set_port(svc, name, True)
+                    cancel_on_router(svc, rule.scheduler_name)
+            router.port_rules.filter(interface=name, kind='guard').delete()
+            msg = 'Traffic guard removed.'
+        elif action == 'guard_save':
+            PortRule.objects.update_or_create(router=router, interface=name, kind='guard', defaults={
+                'threshold_mbps': _num(request.POST.get('threshold'), 0.1, 100000, 20), 'direction': request.POST.get('direction') if request.POST.get('direction') in ('down', 'up', 'any') else 'down',
+                'sustain_seconds': int(_num(request.POST.get('sustain'), 15, 3600, 60)), 'action': 'shutdown' if request.POST.get('guard_action') == 'shutdown' else 'throttle',
+                'throttle_mbps': _num(request.POST.get('throttle'), 0.1, 100000, 2), 'hold_minutes': int(_num(request.POST.get('hold'), 1, 1440, 10)),
+                'enabled': request.POST.get('enabled', 'on') == 'on', 'created_by': request.user, 'last_error': ''})
+            msg = 'Traffic guard saved. It is checked every live-sync pass.'
+        else:
+            with MikroTikService(router, timeout=getattr(settings, 'MIKROTIK_TIMEOUT', 10)) as svc:
+                if action == 'enable':
+                    set_port(svc, name, True)
+                    from .portctl import cancel_on_router
+                    cancel_on_router(svc, f'taptap-on-{name}')
+                    router.port_rules.filter(interface=name, kind='timed_off').delete()
+                    msg = f'{name} is on.'
+                elif action == 'disable':
+                    # A manual "off" must not be undone by a pending timed-shutdown job on the router.
+                    from .portctl import cancel_on_router
+                    cancel_on_router(svc, f'taptap-on-{name}')
+                    router.port_rules.filter(interface=name, kind='timed_off').delete()
+                    set_port(svc, name, False); msg = f'{name} is off. It stays off until you turn it on.'
+                elif action == 'restart':
+                    from .portctl import cancel_on_router
+                    cancel_on_router(svc, f'taptap-on-{name}')
+                    router.port_rules.filter(interface=name, kind='timed_off').delete()
+                    secs = int(_num(request.POST.get('seconds'), 2, 30, 5))
+                    restart_port(svc, name, secs); msg = f'{name} restarted ({secs} s off).'
+                elif action == 'off_for':
+                    mins = int(_num(request.POST.get('minutes'), 1, 10080, 15))
+                    turn_off_for(svc, router, name, mins, request.user)
+                    msg = f'{name} is off and will come back on by itself in {mins} min — the router does this even if TapTap is disconnected.'
+                elif action == 'limit':
+                    down, up = _num(request.POST.get('down'), 0, 100000, 0), _num(request.POST.get('up'), 0, 100000, 0)
+                    if not down and not up:
+                        return JsonResponse({'ok': False, 'message': 'Enter a download or upload limit.'}, status=400)
+                    mins = int(_num(request.POST.get('minutes'), 0, 10080, 0))
+                    set_limit(svc, router, name, down, up, mins, request.user)
+                    msg = f'Limit set on {name}: {down:g} Mb/s down, {up:g} Mb/s up' + (f' for {mins} min.' if mins else '.')
+                elif action == 'unlimit':
+                    clear_limit(svc, router, name); msg = f'Limit removed from {name}.'
+                else:
+                    return JsonResponse({'ok': False, 'message': 'Unknown action.'}, status=400)
+                if action in ('enable', 'disable', 'restart', 'off_for'):
+                    row = svc.resource('/interface').get(name=name)
+                    if row:
+                        router.interfaces.filter(name=name).update(disabled=str(row[0].get('disabled', '')).lower() == 'true',
+                                                                   running=str(row[0].get('running', '')).lower() == 'true')
+        log(router.business, 'Port Control', f'{router.name} {name}: {action} — {msg}')
+        return JsonResponse({'ok': True, 'message': msg, 'control': _control_state(router, name)})
+    except Exception as exc:
+        return JsonResponse({'ok': False, 'message': str(exc)[:300]}, status=502)
+
+
+@login_required
+@require_POST
+def router_reboot(request, pk):
+    router = get_object_or_404(request.user.business.routers, pk=pk)
+    if request.POST.get('confirm', '').strip() != router.name:
+        return JsonResponse({'ok': False, 'message': f'Type the router name “{router.name}” to confirm.'}, status=400)
+    try:
+        with MikroTikService(router, timeout=getattr(settings, 'MIKROTIK_TIMEOUT', 10)) as svc:
+            do_reboot(svc)
+    except Exception as exc:
+        if 'closed' not in str(exc).lower():
+            return JsonResponse({'ok': False, 'message': str(exc)[:300]}, status=502)
+    type(router).objects.filter(pk=router.pk).update(status='Rebooting', last_tested_at=timezone.now())
+    log(router.business, 'Router Reboot', f'{router.name} rebooted by {request.user.email}')
+    return JsonResponse({'ok': True, 'message': f'{router.name} is rebooting. It is usually back within 1–2 minutes; live sync will mark it online again.'})
+
+
+@login_required
+def router_backups(request, pk):
+    router = get_object_or_404(request.user.business.routers, pk=pk)
+    if request.method == 'POST':
+        if request.POST.get('action') == 'auto':
+            router.auto_backup = request.POST.get('on') == '1'; router.save(update_fields=['auto_backup'])
+            return JsonResponse({'ok': True, 'message': 'Nightly backups are ' + ('on (between 02:00 and 05:00).' if router.auto_backup else 'off.'), 'auto_backup': router.auto_backup})
+        try:
+            with MikroTikService(router, timeout=getattr(settings, 'MIKROTIK_TIMEOUT', 10)) as svc:
+                rec = do_backup(svc, router, user=request.user)
+        except Exception as exc:
+            return JsonResponse({'ok': False, 'message': str(exc)[:300]}, status=502)
+        log(router.business, 'Router Backup', f'{router.name}: {rec.name}')
+        parts = []
+        if rec.backup_file: parts.append(f'{rec.backup_file} saved on the router')
+        if rec.content: parts.append('export downloaded into TapTap')
+        elif rec.export_file: parts.append(f'{rec.export_file} saved on the router (this RouterOS version does not allow downloading it through the API — copy it from Files in WinBox)')
+        return JsonResponse({'ok': not rec.error or bool(rec.backup_file or rec.export_file), 'message': ('; '.join(parts) or 'Backup failed') + (f'. Problems: {rec.error}' if rec.error else '.')})
+    items = [{'id': b.id, 'name': b.name, 'at': b.created_at.isoformat(), 'backup_file': b.backup_file, 'export_file': b.export_file,
+              'size': b.export_size, 'downloadable': bool(b.content), 'automatic': b.automatic, 'error': b.error, 'version': b.ros_version}
+             for b in router.backups.all()[:30]]
+    return JsonResponse({'ok': True, 'items': items, 'auto_backup': router.auto_backup})
+
+
+@login_required
+def router_backup_download(request, pk, bid):
+    router = get_object_or_404(request.user.business.routers, pk=pk)
+    b = get_object_or_404(router.backups, pk=bid)
+    if b.content:
+        resp = HttpResponse(b.content, content_type='text/plain; charset=utf-8')
+        resp['Content-Disposition'] = f'attachment; filename="{b.name}.rsc"'
+        return resp
+    # Fall back to TapTap's own configuration snapshot (readable, but not an importable export).
+    try:
+        snap = router.config_snapshot
+        body = json.dumps({'router': router.name, 'captured_at': snap.captured_at.isoformat(), 'sections': snap.sections}, indent=2, default=str)
+    except Exception:
+        return HttpResponse('No downloadable copy. The backup files are on the router under Files.', status=404, content_type='text/plain')
+    resp = HttpResponse(body, content_type='application/json')
+    resp['Content-Disposition'] = f'attachment; filename="{b.name}-taptap-snapshot.json"'
+    return resp

@@ -81,6 +81,8 @@ class Router(models.Model):
     # moment were sold while TapTap was watching, so their sales are booked; older history is not.
     sales_baseline_at=models.DateTimeField(null=True,blank=True)
     last_watch_at=models.DateTimeField(null=True,blank=True)
+    auto_backup=models.BooleanField(default=False,help_text='Back up the configuration automatically every night')
+    last_backup_at=models.DateTimeField(null=True,blank=True)
     created_at=models.DateTimeField(auto_now_add=True)
     def __str__(self): return self.name
 
@@ -689,3 +691,56 @@ class DeviceAlert(models.Model):
     created_at=models.DateTimeField(auto_now_add=True,db_index=True)
     read_at=models.DateTimeField(null=True,blank=True)
     class Meta: ordering=['-created_at']
+
+# ─────────────────────────────── Port control & backups ───────────────────────────────
+class PortRule(models.Model):
+    """A speed limit, traffic guard or timed shutdown on one router port."""
+    KINDS=[('limit','Speed limit'),('guard','Traffic guard'),('timed_off','Turned off for a while')]
+    DIRECTIONS=[('down','Download'),('up','Upload'),('any','Either direction')]
+    ACTIONS=[('throttle','Slow it down'),('shutdown','Turn the port off')]
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='port_rules')
+    interface=models.CharField(max_length=120)
+    kind=models.CharField(max_length=20,choices=KINDS)
+    enabled=models.BooleanField(default=True)
+    # limit
+    limit_down_mbps=models.FloatField(default=0)
+    limit_up_mbps=models.FloatField(default=0)
+    # guard
+    threshold_mbps=models.FloatField(default=0)
+    direction=models.CharField(max_length=10,choices=DIRECTIONS,default='down')
+    sustain_seconds=models.PositiveIntegerField(default=60)
+    action=models.CharField(max_length=20,choices=ACTIONS,default='throttle')
+    throttle_mbps=models.FloatField(default=2)
+    hold_minutes=models.PositiveIntegerField(default=10)
+    # state
+    active=models.BooleanField(default=False,help_text='Limit applied / guard currently triggered / port currently off')
+    triggered_at=models.DateTimeField(null=True,blank=True)
+    restore_at=models.DateTimeField(null=True,blank=True)
+    times_triggered=models.PositiveIntegerField(default=0)
+    queue_name=models.CharField(max_length=120,blank=True)
+    scheduler_name=models.CharField(max_length=120,blank=True)
+    last_error=models.CharField(max_length=255,blank=True)
+    created_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)
+    created_at=models.DateTimeField(auto_now_add=True)
+    class Meta:
+        ordering=['interface','kind']
+        indexes=[models.Index(fields=['router','interface'],name='portrule_router_iface_idx')]
+
+
+class RouterBackup(models.Model):
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='backups')
+    name=models.CharField(max_length=120)
+    backup_file=models.CharField(max_length=160,blank=True,help_text='Binary .backup kept on the router')
+    export_file=models.CharField(max_length=160,blank=True,help_text='Text .rsc export kept on the router')
+    export_size=models.PositiveIntegerField(default=0)
+    content=models.TextField(blank=True,help_text='The .rsc export downloaded into TapTap (when RouterOS allows reading it)')
+    ros_version=models.CharField(max_length=60,blank=True)
+    automatic=models.BooleanField(default=False)
+    error=models.CharField(max_length=255,blank=True)
+    created_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)
+    created_at=models.DateTimeField(auto_now_add=True)
+    class Meta: ordering=['-created_at']
+
+
+# Registered here so Django loads it with the rest of the app's models.
+from .models_missing import MissingVoucherReport  # noqa: E402,F401

@@ -245,9 +245,12 @@ def _dns_map(router, svc):
 def _connections(svc):
     res = svc.resource('/ip/firewall/connection')
     try:
-        return res.call('print', {'.proplist': '.id,src-address,dst-address,reply-src-address,protocol,orig-bytes,repl-bytes'})
+        rows = res.call('print', {'.proplist': '.id,src-address,dst-address,reply-src-address,protocol,orig-bytes,repl-bytes'})
+        if rows is not None:
+            return rows
     except Exception:
-        return res.get()
+        pass
+    return res.get() or []
 
 
 def collect_apps(router, svc, now):

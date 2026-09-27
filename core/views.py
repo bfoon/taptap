@@ -181,9 +181,17 @@ def delete_expired(request):
 
 @login_required
 def batches(request):
+    batch_list=list(b(request).batches.select_related('plan','agent').annotate(actual=Count('vouchers'),left=Count('vouchers',filter=Q(vouchers__sold_at__isnull=True,vouchers__used_at__isnull=True,vouchers__status='active')),
+        sold=Count('vouchers',filter=Q(vouchers__sold_at__isnull=False)),used=Count('vouchers',filter=Q(vouchers__used_at__isnull=False))).order_by('-created_at'))
+    # Open missing-voucher reports per batch (the template shows "N reported missing").
+    open_reports={}
+    for r in b(request).missing_voucher_reports.filter(batch__isnull=False).exclude(status='resolved').order_by('-reported_at'):
+        open_reports.setdefault(r.batch_id,r)
+    for x in batch_list:
+        x.missing_report=open_reports.get(x.id)
+        x.missing_count=x.missing_report.voucher_count if x.missing_report else 0
     return render(request,'core/batches.html',{'agents':b(request).agents.filter(active=True),'methods':[m for m in PAYMENT_METHODS if m[0]!='auto'],
-        'batches':b(request).batches.select_related('plan','agent').annotate(actual=Count('vouchers'),left=Count('vouchers',filter=Q(vouchers__sold_at__isnull=True,vouchers__used_at__isnull=True,vouchers__status='active')),
-        sold=Count('vouchers',filter=Q(vouchers__sold_at__isnull=False)),used=Count('vouchers',filter=Q(vouchers__used_at__isnull=False))).order_by('-created_at'),
+        'batches':batch_list,
         'designs':b(request).voucher_designs.all()})
 
 

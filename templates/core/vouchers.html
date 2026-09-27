@@ -1,78 +1,181 @@
 {% extends 'core/base.html' %}{% load taptap_extras %}
 {% block title %}Vouchers — TapTap{% endblock %}
 {% block heading %}Vouchers{% endblock %}
+
 {% block content %}
 {% with c=current_business.currency %}
+
 <div class="page-actions">
   <div>
     <h2 class="section-title">Unified voucher inventory</h2>
-    <p>TapTap vouchers and RouterOS HotSpot users appear together. Sync matches existing codes first to prevent duplicates.</p>
+    <p>
+      TapTap vouchers and RouterOS HotSpot users appear together.
+      Sync matches existing codes first to prevent duplicates.
+    </p>
   </div>
+
   <div class="d-flex gap-2 flex-wrap">
-    <a class="btn btn-outline-danger" href="{% url 'missing_vouchers' %}">
-      <i class="bi bi-exclamation-triangle"></i> Missing reports
-      {% if open_missing_count %}<span class="badge text-bg-danger ms-1">{{ open_missing_count }}</span>{% endif %}
-    </a>
-    <form method="post" action="{% url 'routers_sync_all' %}">{% csrf_token %}
-      <button class="btn btn-outline-primary"><i class="bi bi-arrow-repeat"></i> Full MikroTik Sync</button>
+    <form method="post" action="{% url 'routers_sync_all' %}">
+      {% csrf_token %}
+      <button class="btn btn-outline-primary">
+        <i class="bi bi-arrow-repeat"></i>
+        Full MikroTik Sync
+      </button>
     </form>
-    <a class="btn btn-outline-danger" href="{% url 'delete_expired' %}">Delete Expired</a>
-    <a class="btn btn-primary" href="{% url 'generate_vouchers' %}"><i class="bi bi-plus-circle"></i> Generate</a>
+
+    <a class="btn btn-outline-danger"
+       href="{% url 'delete_expired' %}">
+      Delete Expired
+    </a>
+
+    <a class="btn btn-primary"
+       href="{% url 'generate_vouchers' %}">
+      <i class="bi bi-plus-circle"></i>
+      Generate
+    </a>
   </div>
 </div>
 
+
 <nav class="fin-tabs">
   {% for key,label,n in state_tabs %}
-    <a href="?state={{ key }}{% if plan %}&plan={{ plan|urlencode }}{% endif %}{% if holder %}&holder={{ holder }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}" class="{% if state == key %}on{% endif %}">
-      {{ label }} <span class="count">{{ n }}</span>
+    <a
+      href="?state={{ key }}{% if plan %}&plan={{ plan|urlencode }}{% endif %}{% if holder %}&holder={{ holder }}{% endif %}{% if q %}&q={{ q|urlencode }}{% endif %}"
+      class="{% if state == key %}on{% endif %}"
+    >
+      {{ label }}
+      <span class="count">{{ n }}</span>
     </a>
   {% endfor %}
 </nav>
 
+
 <div class="panel">
-  <form class="d-flex flex-wrap gap-2 mb-3 align-items-center" method="get">
+
+  <form
+    class="d-flex flex-wrap gap-2 mb-3 align-items-center"
+    method="get"
+  >
+
     <input type="hidden" name="state" value="{{ state }}">
-    <input class="form-control form-control-sm" style="max-width:220px" name="q" value="{{ q }}" placeholder="Code or batch" aria-label="Search vouchers">
 
-    <select class="form-select form-select-sm" style="max-width:200px" name="plan" aria-label="Plan">
+    <input
+      class="form-control form-control-sm"
+      style="max-width:220px"
+      name="q"
+      value="{{ q }}"
+      placeholder="Code or batch"
+      aria-label="Search vouchers"
+    >
+
+    <select
+      class="form-select form-select-sm"
+      style="max-width:200px"
+      name="plan"
+      aria-label="Plan"
+    >
       <option value="">All plans</option>
-      {% for p in plans %}<option {% if plan == p %}selected{% endif %}>{{ p }}</option>{% endfor %}
-    </select>
 
-    <select class="form-select form-select-sm" style="max-width:200px" name="holder" aria-label="Held by">
-      <option value="">Anyone</option>
-      <option value="shop" {% if holder == 'shop' %}selected{% endif %}>Shop stock</option>
-      <option value="individual" {% if holder == 'individual' %}selected{% endif %}>One-off vouchers</option>
-      {% for a in all_agents %}
-        <option value="{{ a.id }}" {% if holder == a.id|stringformat:'s' %}selected{% endif %}>{{ a.name }}</option>
+      {% for p in plans %}
+        <option
+          value="{{ p }}"
+          {% if plan == p %}selected{% endif %}
+        >
+          {{ p }}
+        </option>
       {% endfor %}
     </select>
 
-    <button class="btn btn-sm btn-outline-secondary">Filter</button>
+
+    <select
+      class="form-select form-select-sm"
+      style="max-width:200px"
+      name="holder"
+      aria-label="Held by"
+    >
+
+      <option value="">Anyone</option>
+
+      <option
+        value="shop"
+        {% if holder == 'shop' %}selected{% endif %}
+      >
+        Shop stock
+      </option>
+
+      <option
+        value="individual"
+        {% if holder == 'individual' %}selected{% endif %}
+      >
+        One-off vouchers
+      </option>
+
+      {% for a in all_agents %}
+        <option
+          value="{{ a.id }}"
+          {% if holder == a.id|stringformat:'s' %}selected{% endif %}
+        >
+          {{ a.name }}
+        </option>
+      {% endfor %}
+
+    </select>
+
+
+    <button class="btn btn-sm btn-outline-secondary">
+      Filter
+    </button>
+
     <span class="flex-grow-1"></span>
 
-    <a class="btn btn-sm btn-outline-dark" href="{% url 'single_voucher' %}">
-      <i class="bi bi-person-plus"></i> One voucher
+
+    <a
+      class="btn btn-sm btn-outline-dark"
+      href="{% url 'single_voucher' %}"
+    >
+      <i class="bi bi-person-plus"></i>
+      One voucher
     </a>
 
-    <a class="btn btn-sm btn-outline-primary" href="{% url 'voucher_print' %}{% if holder and holder != 'shop' and holder != 'individual' %}?agent={{ holder }}{% elif plan %}?plan={{ plan|urlencode }}{% endif %}">
-      <i class="bi bi-printer"></i> Print unsold{% if plan %} {{ plan }}{% endif %}
+
+    <a
+      class="btn btn-sm btn-outline-primary"
+      href="{% url 'voucher_print' %}{% if holder and holder != 'shop' and holder != 'individual' %}?agent={{ holder }}{% elif plan %}?plan={{ plan|urlencode }}{% endif %}"
+    >
+      <i class="bi bi-printer"></i>
+      Print unsold{% if plan %} {{ plan }}{% endif %}
     </a>
 
-    <button type="button" class="btn btn-sm btn-outline-danger" id="missingSel" disabled>
-      <i class="bi bi-exclamation-triangle"></i> Report selected missing
+
+    <button
+      type="button"
+      class="btn btn-sm btn-primary"
+      id="printSel"
+      disabled
+    >
+      <i class="bi bi-printer"></i>
+      Print selected
     </button>
 
-    <button type="button" class="btn btn-sm btn-primary" id="printSel" disabled>
-      <i class="bi bi-printer"></i> Print selected
-    </button>
   </form>
 
+
   <div class="table-responsive">
+
     <table class="table align-middle">
+
       <thead>
         <tr>
-          <th style="width:28px"><input type="checkbox" class="form-check-input" id="allSel" aria-label="Select all on this page"></th>
+
+          <th style="width:28px">
+            <input
+              type="checkbox"
+              class="form-check-input"
+              id="allSel"
+              aria-label="Select all on this page"
+            >
+          </th>
+
           <th>Code</th>
           <th>Batch</th>
           <th>Origin</th>
@@ -85,19 +188,33 @@
           <th>Sync</th>
           <th>Created</th>
           <th></th>
+
         </tr>
       </thead>
+
+
       <tbody>
+
       {% for v in page_obj %}
+
         <tr>
-          <td><input type="checkbox" class="form-check-input vsel" value="{{ v.id }}" aria-label="Select {{ v.code }}"></td>
 
           <td>
-            <code class="voucher-code">{{ v.code }}</code>
-            {% if v.missing_open %}
-              <span class="badge text-bg-danger d-block mt-1">Reported missing</span>
-            {% endif %}
+            <input
+              type="checkbox"
+              class="form-check-input vsel"
+              value="{{ v.id }}"
+              aria-label="Select {{ v.code }}"
+            >
           </td>
+
+
+          <td>
+            <code class="voucher-code">
+              {{ v.code }}
+            </code>
+          </td>
+
 
           <td>
             {% if v.batch %}
@@ -107,264 +224,630 @@
             {% endif %}
           </td>
 
+
           <td>
-            <span class="badge {% if v.source == 'mikrotik' %}text-bg-dark{% else %}text-bg-primary{% endif %}">
+
+            <span
+              class="badge {% if v.source == 'mikrotik' %}text-bg-dark{% else %}text-bg-primary{% endif %}"
+            >
               {{ v.get_source_display }}
             </span>
+
           </td>
 
+
           <td>
+
             {% if v.customer_name or v.customer_phone %}
+
               <a href="{% url 'voucher_card' v.id %}">
-                <i class="bi bi-person"></i> {{ v.customer_name|default:v.customer_phone }}
+                <i class="bi bi-person"></i>
+                {{ v.customer_name|default:v.customer_phone }}
               </a>
+
             {% endif %}
+
+
             {% if v.agent %}
-              <a class="d-block small" href="{% url 'agent_detail' v.agent_id %}">
-                <i class="bi bi-person-badge"></i> {{ v.agent.name }}
+
+              <a
+                class="d-block small"
+                href="{% url 'agent_detail' v.agent_id %}"
+              >
+                <i class="bi bi-person-badge"></i>
+                {{ v.agent.name }}
               </a>
+
             {% elif not v.customer_name and not v.customer_phone %}
-              <span class="text-secondary small">Shop</span>
+
+              <span class="text-secondary small">
+                Shop
+              </span>
+
             {% endif %}
+
           </td>
 
-          <td>{{ v.plan_name }}</td>
-          <td>{{ v.price|money:c }}</td>
-          <td>{{ v.max_devices }}</td>
 
           <td>
-            {% if v.status != 'active' %}
-              <span class="badge text-bg-secondary">{{ v.get_status_display }}</span>
-            {% elif v.used_at %}
-              <span class="badge text-bg-info" title="First used {{ v.used_at|date:'d M Y H:i' }}">Used</span>
-            {% elif v.sold_at %}
-              <span class="badge text-bg-warning" title="Sold {{ v.sold_at|date:'d M Y H:i' }}">Sold</span>
-            {% else %}
-              <span class="badge text-bg-success">In stock</span>
-            {% endif %}
+            {{ v.plan_name }}
           </td>
 
-          <td>{{ v.router.name|default:'—' }}</td>
-          <td>{{ v.mikrotik_sync_status }}</td>
-          <td>{{ v.created_at|date:'d M Y H:i' }}</td>
+
+          <td>
+            {{ v.price|money:c }}
+          </td>
+
+
+          <td>
+            {{ v.max_devices }}
+          </td>
+
+
+          <td>
+
+            {% if v.status != 'active' %}
+
+              <span class="badge text-bg-secondary">
+                {{ v.get_status_display }}
+              </span>
+
+            {% elif v.used_at %}
+
+              <span
+                class="badge text-bg-info"
+                title="First used {{ v.used_at|date:'d M Y H:i' }}"
+              >
+                Used
+              </span>
+
+            {% elif v.sold_at %}
+
+              <span
+                class="badge text-bg-warning"
+                title="Sold {{ v.sold_at|date:'d M Y H:i' }}"
+              >
+                Sold
+              </span>
+
+            {% else %}
+
+              <span class="badge text-bg-success">
+                In stock
+              </span>
+
+            {% endif %}
+
+          </td>
+
+
+          <td>
+            {{ v.router.name|default:'—' }}
+          </td>
+
+
+          <td>
+            {{ v.mikrotik_sync_status }}
+          </td>
+
+
+          <td>
+            {{ v.created_at|date:'d M Y H:i' }}
+          </td>
+
 
           <td class="text-end text-nowrap">
+
             {% if v.status == 'active' and not v.sold_at and not v.used_at %}
-              <button class="btn btn-sm btn-outline-success"
-                      data-bs-toggle="modal"
-                      data-bs-target="#sellModal"
-                      data-code="{{ v.code }}"
-                      data-plan="{{ v.plan_name }}"
-                      data-price="{{ v.price }}"
-                      data-holder="{{ v.agent.name|default:'' }}">
+
+              <button
+                type="button"
+                class="btn btn-sm btn-outline-success"
+                data-bs-toggle="modal"
+                data-bs-target="#sellModal"
+                data-code="{{ v.code }}"
+                data-plan="{{ v.plan_name }}"
+                data-price="{{ v.price }}"
+                data-holder="{{ v.agent.name|default:'' }}"
+              >
                 Sell
               </button>
+
             {% endif %}
 
-            {% if not v.missing_open %}
-              <button type="button"
-                      class="btn btn-sm btn-outline-danger missing-one"
-                      data-bs-toggle="modal"
-                      data-bs-target="#missingModal"
-                      data-id="{{ v.id }}"
-                      data-code="{{ v.code }}">
-                Missing
-              </button>
-            {% endif %}
 
-            <a class="btn btn-sm btn-outline-secondary" href="{% url 'reset_mac' v.id %}">Reset MAC</a>
+            <a
+              class="btn btn-sm btn-outline-secondary"
+              href="{% url 'reset_mac' v.id %}"
+            >
+              Reset MAC
+            </a>
+
 
             {% if v.status == 'active' %}
-              <a class="btn btn-sm btn-outline-danger" href="{% url 'disable_voucher' v.id %}">Disable</a>
+
+              <a
+                class="btn btn-sm btn-outline-danger"
+                href="{% url 'disable_voucher' v.id %}"
+              >
+                Disable
+              </a>
+
             {% endif %}
+
           </td>
+
         </tr>
+
+
       {% empty %}
+
         <tr>
-          <td colspan="13" class="empty-table">
+
+          <td
+            colspan="13"
+            class="empty-table"
+          >
+
             No vouchers match.
+
             {% if state or plan or q or holder %}
-              <a href="?">Clear filters</a>
+
+              <a href="?">
+                Clear filters
+              </a>
+
             {% else %}
-              <a href="{% url 'generate_vouchers' %}">Generate your first batch</a>.
+
+              <a href="{% url 'generate_vouchers' %}">
+                Generate your first batch
+              </a>.
+
             {% endif %}
+
           </td>
+
         </tr>
+
       {% endfor %}
+
       </tbody>
+
     </table>
+
   </div>
+
 
   {% include 'core/partials/pager.html' with page=page_obj param='page' %}
+
 </div>
 
-<div class="modal fade" id="sellModal" tabindex="-1">
+
+
+<!-- SELL VOUCHER MODAL -->
+
+<div
+  class="modal fade"
+  id="sellModal"
+  tabindex="-1"
+>
+
   <div class="modal-dialog modal-dialog-centered">
-    <form class="modal-content" method="post" action="{% url 'finance_sale_add' %}">
+
+    <form
+      class="modal-content"
+      method="post"
+      action="{% url 'finance_sale_add' %}"
+    >
+
       {% csrf_token %}
-      <input type="hidden" name="mode" value="code">
-      <input type="hidden" name="codes">
-      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+
+      <input
+        type="hidden"
+        name="mode"
+        value="code"
+      >
+
+      <input
+        type="hidden"
+        name="codes"
+      >
+
+      <input
+        type="hidden"
+        name="next"
+        value="{{ request.get_full_path }}"
+      >
+
 
       <div class="modal-header border-0">
-        <h5 class="modal-title fw-bold">Sell <code data-code></code></h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+
+        <h5 class="modal-title fw-bold">
+          Sell
+          <code data-code></code>
+        </h5>
+
+        <button
+          type="button"
+          class="btn-close"
+          data-bs-dismiss="modal"
+          aria-label="Close"
+        ></button>
+
       </div>
 
+
       <div class="modal-body pt-0">
-        <p class="text-secondary small" data-info></p>
+
+        <p
+          class="text-secondary small"
+          data-info
+        ></p>
+
+
         <div class="row g-2">
+
+
           <div class="col-6">
-            <label class="form-label small fw-bold">Paid with</label>
-            <select class="form-select" name="method">
-              <option value="cash">Cash</option>
-              <option value="wave">Wave</option>
-              <option value="qmoney">QMoney</option>
-              <option value="afrimoney">Afrimoney</option>
-              <option value="bank">Bank transfer</option>
-              <option value="card">Card</option>
-              <option value="other">Other</option>
+
+            <label class="form-label small fw-bold">
+              Paid with
+            </label>
+
+            <select
+              class="form-select"
+              name="method"
+            >
+
+              <option value="cash">
+                Cash
+              </option>
+
+              <option value="wave">
+                Wave
+              </option>
+
+              <option value="qmoney">
+                QMoney
+              </option>
+
+              <option value="afrimoney">
+                Afrimoney
+              </option>
+
+              <option value="bank">
+                Bank transfer
+              </option>
+
+              <option value="card">
+                Card
+              </option>
+
+              <option value="other">
+                Other
+              </option>
+
             </select>
+
           </div>
 
+
           <div class="col-6">
-            <label class="form-label small fw-bold">Sold by</label>
-            <select class="form-select" name="agent">
-              <option value="">Whoever holds it</option>
-              <option value="shop">Me (the shop)</option>
-              {% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}
+
+            <label class="form-label small fw-bold">
+              Sold by
+            </label>
+
+            <select
+              class="form-select"
+              name="agent"
+            >
+
+              <option value="">
+                Whoever holds it
+              </option>
+
+              <option value="shop">
+                Me (the shop)
+              </option>
+
+              {% for a in agents %}
+
+                <option value="{{ a.id }}">
+                  {{ a.name }}
+                </option>
+
+              {% endfor %}
+
             </select>
+
           </div>
 
-          <div class="col-6">
-            <label class="form-label small fw-bold">Customer phone</label>
-            <input class="form-control" name="customer_phone">
-          </div>
 
           <div class="col-6">
-            <label class="form-label small fw-bold">Transaction ref</label>
-            <input class="form-control" name="reference">
+
+            <label class="form-label small fw-bold">
+              Customer phone
+            </label>
+
+            <input
+              class="form-control"
+              name="customer_phone"
+            >
+
           </div>
+
+
+          <div class="col-6">
+
+            <label class="form-label small fw-bold">
+              Transaction ref
+            </label>
+
+            <input
+              class="form-control"
+              name="reference"
+            >
+
+          </div>
+
+
         </div>
+
       </div>
+
 
       <div class="modal-footer border-0">
-        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-success">Record sale</button>
+
+        <button
+          type="button"
+          class="btn btn-light"
+          data-bs-dismiss="modal"
+        >
+          Cancel
+        </button>
+
+        <button class="btn btn-success">
+          Record sale
+        </button>
+
       </div>
+
     </form>
+
   </div>
+
 </div>
 
-<div class="modal fade" id="missingModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered">
-    <form class="modal-content" method="post" action="{% url 'report_missing_vouchers' %}">
-      {% csrf_token %}
-      <input type="hidden" name="ids">
-      <input type="hidden" name="next" value="{{ request.get_full_path }}">
 
-      <div class="modal-header border-0">
-        <div>
-          <h5 class="modal-title fw-bold">Report missing voucher(s)</h5>
-          <small class="text-secondary" data-missing-summary></small>
-        </div>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-
-      <div class="modal-body pt-0">
-        <div class="mb-3">
-          <label class="form-label fw-semibold">What happened?</label>
-          <textarea class="form-control" name="details" rows="3" required placeholder="Example: vouchers could not be accounted for during stock count; printed vouchers were lost in transit..."></textarea>
-        </div>
-
-        <div class="mb-3">
-          <label class="form-label fw-semibold">Action status</label>
-          <select class="form-select" name="action_state">
-            <option value="planned">Action will be taken / planned</option>
-            <option value="done">Action already taken</option>
-          </select>
-        </div>
-
-        <div class="mb-3">
-          <label class="form-label fw-semibold">What was done or what will be done?</label>
-          <textarea class="form-control" name="action_notes" rows="3" required placeholder="Example: disable the codes, contact the agent, issue replacements, investigate stock movement..."></textarea>
-        </div>
-
-        <div>
-          <label class="form-label fw-semibold">Reference <span class="text-secondary fw-normal">(optional)</span></label>
-          <input class="form-control" name="reference" maxlength="160" placeholder="Incident number, police report, stock count reference...">
-        </div>
-      </div>
-
-      <div class="modal-footer border-0">
-        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-danger">Save missing report</button>
-      </div>
-    </form>
-  </div>
-</div>
 {% endwith %}
 {% endblock %}
 
+
+
 {% block scripts %}
+
 <script>
-(function(){
-  const sellModal=document.getElementById('sellModal');
-  if(sellModal){
-    sellModal.addEventListener('show.bs.modal',e=>{
-      const b=e.relatedTarget,f=sellModal.querySelector('form');
-      f.elements.codes.value=b.dataset.code;
-      sellModal.querySelector('[data-code]').textContent=b.dataset.code;
-      sellModal.querySelector('[data-info]').textContent=b.dataset.plan+' · {{ current_business.currency|escapejs }}'+b.dataset.price+(b.dataset.holder?' · held by '+b.dataset.holder+' (credited to them unless you choose otherwise)':'');
-    });
-  }
 
-  const boxes=[...document.querySelectorAll('.vsel')],
-        printBtn=document.getElementById('printSel'),
-        missingBtn=document.getElementById('missingSel'),
-        all=document.getElementById('allSel'),
-        missingModal=document.getElementById('missingModal');
+(function () {
 
-  function selected(){
-    return boxes.filter(x=>x.checked);
-  }
+    const sellModal =
+        document.getElementById('sellModal');
 
-  function upd(){
-    const n=selected().length;
-    printBtn.disabled=!n;
-    missingBtn.disabled=!n;
-    printBtn.innerHTML='<i class="bi bi-printer"></i> Print selected'+(n?' ('+n+')':'');
-    missingBtn.innerHTML='<i class="bi bi-exclamation-triangle"></i> Report selected missing'+(n?' ('+n+')':'');
-  }
 
-  boxes.forEach(b=>b.onchange=upd);
-  all.onchange=()=>{boxes.forEach(b=>b.checked=all.checked);upd();};
+    if (sellModal) {
 
-  printBtn.onclick=()=>{
-    location.href='{% url "voucher_print" %}?ids='+selected().map(x=>x.value).join(',');
-  };
+        sellModal.addEventListener(
+            'show.bs.modal',
 
-  function openMissing(ids,label){
-    const form=missingModal.querySelector('form');
-    form.reset();
-    form.elements.ids.value=ids.join(',');
-    missingModal.querySelector('[data-missing-summary]').textContent=label;
-    bootstrap.Modal.getOrCreateInstance(missingModal).show();
-  }
+            function (event) {
 
-  missingBtn.onclick=()=>{
-    const chosen=selected();
-    if(!chosen.length)return;
-    openMissing(chosen.map(x=>x.value), chosen.length+' selected voucher'+(chosen.length===1?'':'s'));
-  };
+                const button =
+                    event.relatedTarget;
 
-  document.querySelectorAll('.missing-one').forEach(btn=>{
-    btn.addEventListener('click',function(e){
-      e.preventDefault();
-      e.stopPropagation();
-      openMissing([btn.dataset.id], 'Voucher '+btn.dataset.code);
-    });
-  });
+                const form =
+                    sellModal.querySelector('form');
+
+
+                if (!button || !form) {
+                    return;
+                }
+
+
+                form.elements.codes.value =
+                    button.dataset.code || '';
+
+
+                const codeElement =
+                    sellModal.querySelector(
+                        '[data-code]'
+                    );
+
+
+                if (codeElement) {
+
+                    codeElement.textContent =
+                        button.dataset.code || '';
+
+                }
+
+
+                const infoElement =
+                    sellModal.querySelector(
+                        '[data-info]'
+                    );
+
+
+                if (infoElement) {
+
+                    let text =
+                        (button.dataset.plan || '') +
+                        ' · ' +
+                        '{{ current_business.currency|escapejs }}' +
+                        (button.dataset.price || '');
+
+
+                    if (button.dataset.holder) {
+
+                        text +=
+                            ' · held by ' +
+                            button.dataset.holder +
+                            ' (credited to them unless you choose otherwise)';
+
+                    }
+
+
+                    infoElement.textContent =
+                        text;
+
+                }
+
+            }
+
+        );
+
+    }
+
+
+
+    const boxes =
+        Array.from(
+            document.querySelectorAll('.vsel')
+        );
+
+
+    const printBtn =
+        document.getElementById('printSel');
+
+
+    const all =
+        document.getElementById('allSel');
+
+
+
+    function selected() {
+
+        return boxes.filter(
+            function (checkbox) {
+
+                return checkbox.checked;
+
+            }
+        );
+
+    }
+
+
+
+    function updateButtons() {
+
+        const count =
+            selected().length;
+
+
+        if (printBtn) {
+
+            printBtn.disabled =
+                count === 0;
+
+
+            printBtn.innerHTML =
+                '<i class="bi bi-printer"></i> Print selected' +
+                (
+                    count
+                        ? ' (' + count + ')'
+                        : ''
+                );
+
+        }
+
+    }
+
+
+
+    boxes.forEach(
+
+        function (checkbox) {
+
+            checkbox.addEventListener(
+                'change',
+                updateButtons
+            );
+
+        }
+
+    );
+
+
+
+    if (all) {
+
+        all.addEventListener(
+            'change',
+
+            function () {
+
+                boxes.forEach(
+
+                    function (checkbox) {
+
+                        checkbox.checked =
+                            all.checked;
+
+                    }
+
+                );
+
+
+                updateButtons();
+
+            }
+
+        );
+
+    }
+
+
+
+    if (printBtn) {
+
+        printBtn.addEventListener(
+            'click',
+
+            function () {
+
+                const ids =
+                    selected()
+                        .map(
+                            function (checkbox) {
+
+                                return checkbox.value;
+
+                            }
+                        )
+                        .join(',');
+
+
+                if (!ids) {
+                    return;
+                }
+
+
+                window.location.href =
+                    '{% url "voucher_print" %}?ids=' +
+                    encodeURIComponent(ids);
+
+            }
+
+        );
+
+    }
+
+
+    updateButtons();
+
 })();
+
 </script>
+
 {% endblock %}
