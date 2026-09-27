@@ -196,9 +196,17 @@
       </button>
     </div>
 
-    <button type="button" class="btn btn-outline-primary" onclick="window.location.reload()">
-      <i class="bi bi-arrow-clockwise"></i> Refresh live data
-    </button>
+    <div class="d-flex flex-wrap gap-2">
+      <button type="button" class="btn btn-outline-success" id="exportCsv">
+        <i class="bi bi-filetype-csv"></i> CSV
+      </button>
+      <button type="button" class="btn btn-outline-success" id="exportExcel">
+        <i class="bi bi-file-earmark-excel"></i> Excel
+      </button>
+      <button type="button" class="btn btn-outline-primary" onclick="window.location.reload()">
+        <i class="bi bi-arrow-clockwise"></i> Refresh live data
+      </button>
+    </div>
   </div>
 
   <div class="table-responsive">
@@ -206,6 +214,7 @@
       <thead>
         <tr>
           <th>User / Voucher</th>
+          <th>Plan</th>
           <th>IP Address</th>
           <th>MAC Address</th>
           <th>Uptime</th>
@@ -222,7 +231,20 @@
           role="button"
           aria-expanded="false"
           data-detail-id="detail-{{ forloop.counter }}"
-          data-search="{{ x.user|default:'' }} {{ x.address|default:'' }} {{ x.mac_address|default:'' }} {{ x.router_name|default:'' }} {{ x.server|default:'' }} {{ x.login_by|default:'' }}">
+          data-search="{{ x.user|default:'' }} {{ x.plan_name|default:'' }} {{ x.address|default:'' }} {{ x.mac_address|default:'' }} {{ x.router_name|default:'' }} {{ x.server|default:'' }} {{ x.login_by|default:'' }}"
+          data-user="{{ x.user|default:'' }}"
+          data-plan="{{ x.plan_name|default:'' }}"
+          data-ip="{{ x.address|default:'' }}"
+          data-mac="{{ x.mac_address|default:'' }}"
+          data-uptime="{{ x.uptime|default:'' }}"
+          data-bytes-in="{{ x.bytes_in|default:'0' }}"
+          data-bytes-out="{{ x.bytes_out|default:'0' }}"
+          data-router="{{ x.router_name|default:'' }}"
+          data-login-by="{{ x.login_by|default:'' }}"
+          data-server="{{ x.server|default:'' }}"
+          data-session-left="{{ x.session_time_left|default:'' }}"
+          data-packets-in="{{ x.packets_in|default:'0' }}"
+          data-packets-out="{{ x.packets_out|default:'0' }}">
 
           <td>
             <div class="session-user">
@@ -236,6 +258,14 @@
                 </small>
               </div>
             </div>
+          </td>
+
+          <td>
+            {% if x.plan_name %}
+              <span class="badge text-bg-light border">{{ x.plan_name }}</span>
+            {% else %}
+              <span class="text-secondary">—</span>
+            {% endif %}
           </td>
 
           <td>{{ x.address|default:'—' }}</td>
@@ -265,7 +295,7 @@
         </tr>
 
         <tr class="details-row" id="detail-{{ forloop.counter }}" hidden>
-          <td colspan="7">
+          <td colspan="8">
             <div class="session-details">
               <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
                 <div>
@@ -308,6 +338,11 @@
                 </div>
 
                 <div class="detail-card">
+                  <span class="label">Plan</span>
+                  <span class="value">{{ x.plan_name|default:'—' }}</span>
+                </div>
+
+                <div class="detail-card">
                   <span class="label">IP address</span>
                   <span class="value">{{ x.address|default:'—' }}</span>
                 </div>
@@ -347,6 +382,34 @@
                   <span class="value">{{ x.router_name }}</span>
                 </div>
 
+                {% if x.plan_duration_hours %}
+                <div class="detail-card">
+                  <span class="label">Plan duration</span>
+                  <span class="value">{{ x.plan_duration_hours }} hour{{ x.plan_duration_hours|pluralize }}</span>
+                </div>
+                {% endif %}
+
+                {% if x.plan_max_devices %}
+                <div class="detail-card">
+                  <span class="label">Allowed devices</span>
+                  <span class="value">{{ x.plan_max_devices }}</span>
+                </div>
+                {% endif %}
+
+                {% if x.customer_name %}
+                <div class="detail-card">
+                  <span class="label">Customer</span>
+                  <span class="value">{{ x.customer_name }}</span>
+                </div>
+                {% endif %}
+
+                {% if x.customer_phone %}
+                <div class="detail-card">
+                  <span class="label">Customer phone</span>
+                  <span class="value">{{ x.customer_phone }}</span>
+                </div>
+                {% endif %}
+
                 <div class="detail-card">
                   <span class="label">Router session ID</span>
                   <span class="value"><code>{{ x.id|default:'—' }}</code></span>
@@ -384,7 +447,7 @@
         </tr>
       {% empty %}
         <tr>
-          <td colspan="7" class="empty-table">No live sessions returned.</td>
+          <td colspan="8" class="empty-table">No live sessions returned.</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -521,6 +584,119 @@
       search.value = '';
       filterRows();
       search.focus();
+    });
+  }
+
+  function visibleSessionRows() {
+    return Array.prototype.slice.call(document.querySelectorAll('.active-row'))
+      .filter(function (row) { return !row.hidden; });
+  }
+
+  function exportData() {
+    return visibleSessionRows().map(function (row) {
+      var bytesIn = num(row.dataset.bytesIn);
+      var bytesOut = num(row.dataset.bytesOut);
+      return {
+        'User / Voucher': row.dataset.user || '',
+        'Plan': row.dataset.plan || '',
+        'IP Address': row.dataset.ip || '',
+        'MAC Address': row.dataset.mac || '',
+        'Uptime': row.dataset.uptime || '',
+        'Downloaded': formatBytes(bytesIn),
+        'Uploaded': formatBytes(bytesOut),
+        'Total Usage': formatBytes(bytesIn + bytesOut),
+        'Bytes In': bytesIn,
+        'Bytes Out': bytesOut,
+        'Router': row.dataset.router || '',
+        'Login Method': row.dataset.loginBy || '',
+        'HotSpot Server': row.dataset.server || '',
+        'Session Time Left': row.dataset.sessionLeft || '',
+        'Packets In': num(row.dataset.packetsIn),
+        'Packets Out': num(row.dataset.packetsOut)
+      };
+    });
+  }
+
+  function stamp() {
+    var d = new Date();
+    function two(v) { return String(v).padStart(2, '0'); }
+    return d.getFullYear() + '-' + two(d.getMonth() + 1) + '-' + two(d.getDate()) +
+      '_' + two(d.getHours()) + '-' + two(d.getMinutes());
+  }
+
+  function downloadBlob(blob, filename) {
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  var exportCsv = document.getElementById('exportCsv');
+  if (exportCsv) {
+    exportCsv.addEventListener('click', function () {
+      var rows = exportData();
+      if (!rows.length) return alert('There are no visible active connections to export.');
+
+      var headers = Object.keys(rows[0]);
+      function csvCell(value) {
+        return '"' + String(value == null ? '' : value).replace(/"/g, '""') + '"';
+      }
+
+      var csv = '\uFEFF' +
+        headers.map(csvCell).join(',') + '\r\n' +
+        rows.map(function (row) {
+          return headers.map(function (h) { return csvCell(row[h]); }).join(',');
+        }).join('\r\n');
+
+      downloadBlob(
+        new Blob([csv], { type: 'text/csv;charset=utf-8;' }),
+        'TapTap-Live-Active-Connections-' + stamp() + '.csv'
+      );
+    });
+  }
+
+  var exportExcel = document.getElementById('exportExcel');
+  if (exportExcel) {
+    exportExcel.addEventListener('click', function () {
+      var rows = exportData();
+      if (!rows.length) return alert('There are no visible active connections to export.');
+
+      var headers = Object.keys(rows[0]);
+      function html(value) {
+        return String(value == null ? '' : value)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      var table = '<table border="1"><thead><tr>' +
+        headers.map(function (h) { return '<th>' + html(h) + '</th>'; }).join('') +
+        '</tr></thead><tbody>' +
+        rows.map(function (row) {
+          return '<tr>' + headers.map(function (h) {
+            return '<td>' + html(row[h]) + '</td>';
+          }).join('') + '</tr>';
+        }).join('') +
+        '</tbody></table>';
+
+      var workbook =
+        '<html xmlns:o="urn:schemas-microsoft-com:office:office" ' +
+        'xmlns:x="urn:schemas-microsoft-com:office:excel" ' +
+        'xmlns="http://www.w3.org/TR/REC-html40">' +
+        '<head><meta charset="utf-8"></head><body>' +
+        '<h2>TapTap Live Active Connections</h2>' +
+        '<p>Exported: ' + html(new Date().toLocaleString()) + '</p>' +
+        table + '</body></html>';
+
+      downloadBlob(
+        new Blob(['\uFEFF', workbook], { type: 'application/vnd.ms-excel;charset=utf-8;' }),
+        'TapTap-Live-Active-Connections-' + stamp() + '.xls'
+      );
     });
   }
 })();

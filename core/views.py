@@ -520,8 +520,210 @@ def _router_rows(business,method):
 
 @login_required
 def active_users(request):
-    rows,errors=_router_rows(b(request),'active_users');return render(request,'core/active_users.html',{'rows':rows,'errors':errors})
+    business = b(request)
 
+    # Get the live sessions directly from all MikroTik routers.
+    rows, errors = _router_rows(business, 'active_users')
+
+    # ---------------------------------------------------------
+    # Collect all usernames currently online.
+    #
+    # For TapTap voucher users, RouterOS "user" is normally
+    # the voucher code.
+    # ---------------------------------------------------------
+    usernames = {
+        str(row.get('user') or '').strip()
+        for row in rows
+        if str(row.get('user') or '').strip()
+    }
+
+    usernames_upper = {
+        username.upper()
+        for username in usernames
+    }
+
+    # ---------------------------------------------------------
+    # Match live RouterOS users to TapTap vouchers.
+    #
+    # Voucher.plan_name is the authoritative TapTap plan name.
+    # ---------------------------------------------------------
+    voucher_map = {}
+
+    if usernames_upper:
+        vouchers = business.vouchers.filter(
+            code__in=usernames_upper
+        ).select_related(
+            'router',
+            'batch',
+            'agent',
+        )
+
+        for voucher in vouchers:
+            voucher_map[str(voucher.code).strip().upper()] = voucher
+
+    # ---------------------------------------------------------
+    # Fallback:
+    # A user may exist directly on MikroTik without having a
+    # TapTap Voucher record.
+    #
+    # In that case we show the MikroTik HotSpot profile.
+    # ---------------------------------------------------------
+    router_ids = {
+        row.get('router_id')
+        for row in rows
+        if row.get('router_id')
+    }
+
+    hotspot_user_map = {}
+
+    if router_ids and usernames:
+        hotspot_users = RouterHotspotUser.objects.filter(
+            business=business,
+            router_id__in=router_ids,
+            username__in=usernames,
+        ).select_related('router')
+
+        for hotspot_user in hotspot_users:
+            hotspot_user_map[
+                (
+                    hotspot_user.router_id,
+                    str(hotspot_user.username).strip().upper()
+                )
+            ] = hotspot_user
+
+    # ---------------------------------------------------------
+    # Enrich every live RouterOS session.
+    # ---------------------------------------------------------
+    for row in rows:
+        username = str(row.get('user') or '').strip()
+        username_key = username.upper()
+        router_id = row.get('router_id')
+
+        voucher = voucher_map.get(username_key)
+
+        hotspot_user = hotspot_user_map.get(
+            (router_id, username_key)
+        )
+
+        # Defaults
+        row['plan_name'] = ''
+        row['plan_duration_hours'] = ''
+        row['plan_max_devices'] = ''
+        row['plan_price'] = ''
+        row['plan_source'] = ''
+        row['customer_name'] = ''
+        row['customer_phone'] = ''
+        row['voucher_status'] = ''
+        row['voucher_source'] = ''
+        row['voucher_used_at'] = ''
+        row['voucher_expires_at'] = ''
+        row['rate_limit'] = ''
+
+        # -----------------------------------------------------
+        # TapTap voucher
+        # -----------------------------------------------------
+        if voucher:
+            row['plan_name'] = voucher.plan_name or ''
+            row['plan_duration_hours'] = voucher.duration_hours or ''
+            row['plan_max_devices'] = voucher.max_devices or ''
+            row['plan_price'] = voucher.price
+            row['plan_source'] = 'TapTap voucher'
+
+            row['customer_name'] = voucher.customer_name or ''
+            row['customer_phone'] = voucher.customer_phone or ''
+
+            row['voucher_status'] = voucher.status or ''
+            row['voucher_source'] = voucher.source or ''
+
+            row['voucher_used_at'] = voucher.used_at
+            row['voucher_expires_at'] = voucher.expires_at
+
+            row['rate_limit'] = voucher.rate_limit or ''
+
+        # -----------------------------------------------------
+        # Router-only user
+        # -----------------------------------------------------
+        elif hotspot_user:
+            row['plan_name'] = hotspot_user.profile or ''
+            row['plan_source'] = 'MikroTik profile'
+
+            # Useful information from the synchronized
+            # MikroTik HotSpot user record.
+            row['rate_limit'] = ''
+            row['hotspot_profile'] = hotspot_user.profile or ''
+            row['hotspot_limit_uptime'] = (
+                hotspot_user.limit_uptime or ''
+            )
+
+        else:
+            row['hotspot_profile'] = ''
+            row['hotspot_limit_uptime'] = ''
+
+        # -----------------------------------------------------
+        # Normalize live RouterOS byte counters.
+        #
+        # RouterOS /ip/hotspot/active normally returns:
+        # bytes-in
+        # bytes-out
+        #
+        # _router_rows() converts those keys to:
+        # bytes_in
+        # bytes_out
+        # -----------------------------------------------------
+        try:
+            bytes_in = int(row.get('bytes_in') or 0)
+        except (TypeError, ValueError):
+            bytes_in = 0
+
+        try:
+            bytes_out = int(row.get('bytes_out') or 0)
+        except (TypeError, ValueError):
+            bytes_out = 0
+
+        row['bytes_in'] = bytes_in
+        row['bytes_out'] = bytes_out
+        row['bytes_total'] = bytes_in + bytes_out
+
+        # Raw MB / GB values are also available to the template
+        # or future CSV/server-side exports.
+        row['download_mb'] = round(
+            bytes_in / (1024 * 1024),
+            2
+        )
+
+        row['upload_mb'] = round(
+            bytes_out / (1024 * 1024),
+            2
+        )
+
+        row['total_mb'] = round(
+            row['bytes_total'] / (1024 * 1024),
+            2
+        )
+
+        row['download_gb'] = round(
+            bytes_in / (1024 * 1024 * 1024),
+            3
+        )
+
+        row['upload_gb'] = round(
+            bytes_out / (1024 * 1024 * 1024),
+            3
+        )
+
+        row['total_gb'] = round(
+            row['bytes_total'] / (1024 * 1024 * 1024),
+            3
+        )
+
+    return render(
+        request,
+        'core/active_users.html',
+        {
+            'rows': rows,
+            'errors': errors,
+        }
+    )
 
 @login_required
 def disconnect_user(request):
