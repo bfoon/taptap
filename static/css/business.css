@@ -69,3 +69,24 @@
 @media(max-width:1280px){.kpi-row{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:760px){.kpi-row{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-box{height:240px}.target-card{grid-template-columns:1fr;justify-items:center}.funnel-row{grid-template-columns:90px 1fr 54px}.heat{grid-template-columns:28px repeat(24,1fr)}.custom-range input{width:7.6rem}}
 @media print{.sidebar,.mobile-top,.topbar .top-actions,.filter-bar .bar-actions,.no-print,.app-footer{display:none!important}.main-content{margin:0!important;padding:0!important}.chart-panel,.kpi{break-inside:avoid;border-color:#ccd}body{background:#fff}}
+
+/* app.css styles every `.form-panel input` as a full-width text box (width:100%, padding, background:#fff).
+   That breaks Bootstrap checkboxes, radios, switches and colour pickers inside form panels — give them back
+   their own look. Selectors are more specific than `.form-panel input` so they win regardless of order. */
+.form-panel input.form-check-input,.form-panel input[type=radio],.form-panel input[type=checkbox]{
+  display:inline-block;flex:none;width:1em;height:1em;padding:0;margin-top:.25em;vertical-align:top;
+  border:1px solid #b8c4d2;border-radius:.25em;
+  background-color:#fff;background-image:var(--bs-form-check-bg-image);background-position:center;background-repeat:no-repeat;background-size:contain;
+  -webkit-appearance:none;appearance:none;print-color-adjust:exact;cursor:pointer}
+.form-panel input[type=radio]{border-radius:50%}
+.form-panel input.form-check-input:checked,.form-panel input[type=radio]:checked,.form-panel input[type=checkbox]:checked{background-color:#0d6efd;border-color:#0d6efd}
+.form-panel input.form-check-input:focus{border-color:#86b7fe;outline:0;box-shadow:0 0 0 .25rem rgba(13,110,253,.25)}
+.form-panel .form-switch input.form-check-input{width:2em;margin-left:-2.5em;border-radius:2em;background-position:left center;
+  background-image:url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='rgba%280, 0, 0, 0.25%29'/%3e%3c/svg%3e");transition:background-position .15s ease-in-out}
+.form-panel .form-switch input.form-check-input:checked{background-position:right center;
+  background-image:url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23fff'/%3e%3c/svg%3e")}
+.form-panel .form-check,.form-panel .form-switch{display:flex;align-items:flex-start;gap:.5rem;padding-left:2.5em;min-height:1.5rem}
+.form-panel .form-check:not(.form-switch){padding-left:1.5em}.form-panel .form-check:not(.form-switch) input.form-check-input{margin-left:-1.5em}
+.form-panel .form-check-label,.form-panel .form-check label{margin:0;font-size:.85rem}
+.form-panel input.form-control-color{width:3rem;height:calc(1.5em + .75rem + 2px);padding:.375rem;display:inline-block}
+@media print{.form-panel input.form-check-input{print-color-adjust:exact}}
