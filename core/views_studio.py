@@ -33,14 +33,10 @@ STATIC_DIR = Path(settings.BASE_DIR) / 'static'
 def _b(request): return request.user.business
 
 
-def duration_text(hours):
-    hours = int(hours or 0)
-    if hours < 24: return f'{hours} hour{"s" if hours != 1 else ""}'
-    days = hours / 24
-    if days == 1: return '1 day'
-    if days % 7 == 0 and days < 28: return f'{int(days // 7)} week{"s" if days > 7 else ""}'
-    if 28 <= days <= 31: return '1 month'
-    return f'{round(days)} days'
+def duration_text(minutes):
+    """Human duration from minutes: '30 minutes', '12 hours', '3 days', '1 month'."""
+    from .durations import text
+    return text(minutes)
 
 
 def _money(v):
@@ -55,8 +51,10 @@ def business_ctx(business):
 
 
 def plans_ctx(business):
-    return [{'name': p.name, 'price': float(p.price), 'hours': p.duration_hours, 'devices': p.max_devices, 'speed': p.speed_limit}
-            for p in business.plans.filter(active=True).order_by('price', 'duration_hours')]
+    # 'minutes' is exact; 'hours' is kept for portal designs saved before minute plans existed.
+    return [{'name': p.name, 'price': float(p.price), 'minutes': p.duration_minutes, 'hours': p.duration_hours,
+             'duration': p.duration_text, 'devices': p.max_devices, 'speed': p.speed_limit}
+            for p in business.plans.filter(active=True).order_by('price', 'duration_minutes')]
 
 
 def _safe_json(obj):
@@ -212,7 +210,7 @@ def portal_check(request, slug):
                           mac=data.get('mac', ''), ip=data.get('ip') or ip, code=v.code, portal=page)
         except Exception:
             pass  # identification must never block a customer from logging in
-    return JsonResponse({'success': True, 'code': v.code, 'plan': v.plan_name, 'duration': duration_text(v.duration_hours), 'devices': v.max_devices})
+    return JsonResponse({'success': True, 'code': v.code, 'plan': v.plan_name, 'duration': duration_text(v.duration_minutes), 'devices': v.max_devices})
 
 
 # ─────────────────────── MikroTik export ───────────────────────
@@ -358,7 +356,7 @@ def voucher_design_editor(request, pk):
             business.voucher_designs.exclude(pk=dsg.pk).update(is_default=False); dsg.is_default = True
         dsg.save()
         return JsonResponse({'success': True, 'updated_at': timezone.localtime(dsg.updated_at).strftime('%H:%M:%S'), 'is_default': dsg.is_default})
-    plans = [{'name': p.name, 'price': _money(p.price), 'duration': duration_text(p.duration_hours),
+    plans = [{'name': p.name, 'price': _money(p.price), 'duration': duration_text(p.duration_minutes),
               'devices': f'{p.max_devices} device{"s" if p.max_devices != 1 else ""}', 'speed': p.speed_limit or 'Full speed',
               'data': f'{p.data_limit_mb} MB' if p.data_limit_mb else 'Unlimited'} for p in business.plans.filter(active=True).order_by('price')]
     return render(request, 'core/studio/voucher_editor.html', {
@@ -393,7 +391,7 @@ def voucher_print_rows(business, qs):
     rows = []
     for v in qs.select_related('batch'):
         p = plans.get(v.plan_name)
-        rows.append({'code': v.code, 'plan': v.plan_name, 'price': _money(v.price or (p.price if p else 0)), 'duration': duration_text(v.duration_hours),
+        rows.append({'code': v.code, 'plan': v.plan_name, 'price': _money(v.price or (p.price if p else 0)), 'duration': duration_text(v.duration_minutes),
                      'devices': f'{v.max_devices} device{"s" if v.max_devices != 1 else ""}', 'speed': (p.speed_limit if p and p.speed_limit else 'Full speed'),
                      'data': (f'{p.data_limit_mb} MB' if p and p.data_limit_mb else 'Unlimited'), 'serial': f'{v.pk:06d}',
                      'batch': v.batch.name if v.batch else '', 'created': timezone.localtime(v.created_at).strftime('%d %b %Y')})

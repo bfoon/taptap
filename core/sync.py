@@ -11,7 +11,8 @@ from .models import (
     SyncedIPBinding, RouterInterface, RouterNeighbor, RouterDevice,
     RouterInterfaceRole, RouterConfigSnapshot,
 )
-from .utils import duration_to_routeros, log, voucher_profile
+from .durations import best_unit, parse_routeros as _routeros_minutes, router_limit
+from .utils import log, voucher_profile
 from .finance import mark_activated
 
 
@@ -103,12 +104,12 @@ def _num(text):
 
 
 def parse_mikhmon(script):
-    """Return (price, validity_hours) from a Mikhmon-style on-login script, or (None, None)."""
+    """Return (price, validity_minutes) from a Mikhmon-style on-login script, or (None, None)."""
     m = MIKHMON_RE.search(str(script or ''))
     if not m:
         return None, None
     price = _num(m.group(4)) or _num(m.group(2))   # selling price wins over cost price
-    validity = _routeros_hours(m.group(3), 0) if m.group(3) else 0
+    validity = _routeros_minutes(m.group(3), 0) if m.group(3) else 0
     return price, (validity or None)
 
 
@@ -166,10 +167,12 @@ def _profile_to_plan(router, row, summary, now):
         if plan.source == 'mikrotik':
             plan.max_devices = shared
             plan.speed_limit = rate
-            plan.duration_hours = _routeros_hours(session, validity or plan.duration_hours or 24)
+            minutes = _routeros_minutes(session, validity or plan.duration_minutes or 1440)
+            if minutes != plan.duration_minutes:
+                plan.duration_minutes = minutes; plan.duration_unit = best_unit(minutes)
             plan.mikrotik_profile_name = name
             if not plan.imported_from_router_id: plan.imported_from_router = router
-            fields = ['max_devices','speed_limit','duration_hours','mikrotik_profile_name','imported_from_router']
+            fields = ['max_devices','speed_limit','duration_minutes','duration_unit','mikrotik_profile_name','imported_from_router']
             # The router is the source of truth for an imported plan's price — but a price the owner typed
             # in TapTap is never wiped just because the router has none.
             if price and plan.price != price and plan.price_source != 'manual':
@@ -182,7 +185,8 @@ def _profile_to_plan(router, row, summary, now):
         return plan
     plan = VoucherPlan.objects.create(
         business=router.business, name=name, price=price or 0, price_source='router' if price else '',
-        duration_hours=_routeros_hours(session, validity or 24), max_devices=shared,
+        duration_minutes=_routeros_minutes(session, validity or 1440),
+        duration_unit=best_unit(_routeros_minutes(session, validity or 1440)), max_devices=shared,
         speed_limit=rate, active=True, source='mikrotik', imported_from_router=router,
         mikrotik_profile_name=name,
     )
@@ -238,7 +242,7 @@ def sync_router(router, progress=None):
             profile_name = str(row.get('profile', 'default') or 'default')
             plan = profile_map.get(profile_name.lower()) or router.business.plans.filter(name__iexact=profile_name).first()
             max_devices = plan.max_devices if plan else 1
-            duration_hours = _routeros_hours(row.get('limit-uptime', row.get('limit_uptime', '')), plan.duration_hours if plan else 24)
+            duration_minutes = _routeros_minutes(row.get('limit-uptime', row.get('limit_uptime', '')), plan.duration_minutes if plan else 1440)
             disabled = ros_bool(row.get('disabled', False))
             existing_voucher = Voucher.objects.filter(code__iexact=username).first()
             source = 'taptap' if existing_voucher and existing_voucher.business_id == router.business_id and existing_voucher.source == 'taptap' else 'mikrotik'
@@ -267,14 +271,14 @@ def sync_router(router, progress=None):
                     existing_voucher.router=router; fields.append('router')
                 if existing_voucher.source == 'mikrotik':
                     existing_voucher.mikrotik_id=str(row.get('id','')); existing_voucher.plan_name=profile_name
-                    existing_voucher.duration_hours=duration_hours; existing_voucher.max_devices=max_devices
+                    existing_voucher.duration_minutes=duration_minutes; existing_voucher.max_devices=max_devices
                     _was=existing_voucher.status
                     existing_voucher.status='disabled' if disabled else 'active'
                     if _was!=existing_voucher.status:
                         from .voucher_history import record
                         record(existing_voucher,'router_disabled' if disabled else 'router_enabled',source='router',via='Full sync',
                                status_before=_was,status_after=existing_voucher.status,text=f'Changed on {router.name}')
-                    fields += ['mikrotik_id','plan_name','duration_hours','max_devices','status']
+                    fields += ['mikrotik_id','plan_name','duration_minutes','max_devices','status']
                 # Repair vouchers imported with no price (older TapTap versions always stored 0).
                 new_price = user_price or plan_price
                 if new_price and not existing_voucher.price and not existing_voucher.sold_at:
@@ -290,7 +294,7 @@ def sync_router(router, progress=None):
                 try:
                     new_voucher = Voucher.objects.create(
                         business=router.business, router=router, code=username, plan_name=profile_name,
-                        price=user_price or plan_price or 0, duration_hours=duration_hours, max_devices=max_devices,
+                        price=user_price or plan_price or 0, duration_minutes=duration_minutes, max_devices=max_devices,
                         status='disabled' if disabled else 'active', source='mikrotik', mikrotik_id=str(row.get('id','')),
                         mikrotik_sync_status='Synced', mikrotik_sync_error='',
                     )
@@ -315,7 +319,7 @@ def sync_router(router, progress=None):
                 profile_name, shared, rate = voucher_profile(voucher, plan)
                 svc.ensure_hotspot_profile(profile_name, shared, rate)
                 action, item_id = svc.upsert_voucher(
-                    voucher.code, profile_name, limit_uptime=duration_to_routeros(voucher.duration_hours),
+                    voucher.code, profile_name, limit_uptime=router_limit(voucher),
                     comment=f'TapTap voucher {voucher.code}', disabled=(voucher.status != 'active'),
                 )
                 voucher.mikrotik_id=str(item_id or voucher.mikrotik_id); voucher.mikrotik_sync_status='Synced'; voucher.mikrotik_sync_error=''

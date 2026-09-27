@@ -14,7 +14,8 @@ from django.views.decorators.http import require_POST
 from .finance import agent_balances, assign_batch, record_sale, PAYMENT_METHODS, d
 from .mikrotik import MikroTikService
 from .models import Voucher, VoucherBatch
-from .utils import duration_to_routeros, generate_code, log, voucher_profile
+from .durations import router_limit, to_minutes
+from .utils import generate_code, log, voucher_profile
 from .views_studio import duration_text, business_ctx, _safe_json, voucher_print_rows
 
 
@@ -109,19 +110,23 @@ def single_voucher(request):
         plan = plans.filter(pk=f.get('plan') or 0).first()
         if not plan: errors.append('Choose a plan, or switch to a custom voucher.')
         price = _dec(f.get('price'), str(plan.price if plan else 0)) if f.get('price') not in (None, '') else (plan.price if plan else Decimal('0'))
-        hours = plan.duration_hours if plan else 24; devices = plan.max_devices if plan else 1; plan_name = plan.name if plan else ''; rate = ''
+        minutes = plan.duration_minutes if plan else 1440; devices = plan.max_devices if plan else 1; plan_name = plan.name if plan else ''; rate = ''
     else:
+        # Old forms sent h/d/w; new ones send minutes/hours/days/months.
+        unit = {'h': 'hours', 'd': 'days', 'w': 'weeks'}.get(f.get('duration_unit'), f.get('duration_unit') or 'days')
         try:
-            amount = max(1, int(f.get('duration_value') or 1)); unit = {'h': 1, 'd': 24, 'w': 168}.get(f.get('duration_unit'), 24)
-            hours = min(amount * unit, 24 * 366)
-        except ValueError:
-            hours = 24; errors.append('Duration must be a whole number.')
+            if unit == 'weeks':
+                minutes = to_minutes(int(f.get('duration_value') or 1) * 7, 'days')
+            else:
+                minutes = to_minutes(f.get('duration_value') or 1, unit)
+        except ValueError as exc:
+            minutes = 1440; errors.append(str(exc))
         try: devices = max(1, min(20, int(f.get('devices') or 1)))
         except ValueError: devices = 1
         price = _dec(f.get('price')); rate = (f.get('rate_limit') or '').strip()[:50]
         if rate and not re.fullmatch(r'\d+[kKmM]?(/\d+[kKmM]?)?', rate):
             errors.append('Speed looks wrong — use a form like 5M/5M or 2M.')
-        plan_name = (f.get('custom_name') or '').strip()[:80] or f'Custom {duration_text(hours)}'
+        plan_name = (f.get('custom_name') or '').strip()[:80] or f'Custom {duration_text(minutes)}'
     code = re.sub(r'[\s-]', '', (f.get('code') or '')).upper()
     if code:
         if not CODE_RE.fullmatch(code): errors.append('A custom code must be 4–20 letters or numbers.')
@@ -135,7 +140,7 @@ def single_voucher(request):
         return render(request, 'core/single_voucher.html', ctx, status=400)
     with transaction.atomic():
         v = Voucher.objects.create(business=business, router=router, code=code or generate_code(), plan_name=plan_name, price=price,
-                                   duration_hours=hours, max_devices=devices, rate_limit=rate, source='taptap', agent=agent,
+                                   duration_minutes=minutes, max_devices=devices, rate_limit=rate, source='taptap', agent=agent,
                                    customer_name=name, customer_phone=phone, note=(f.get('note') or '')[:255])
         if f.get('paid'):
             method = f.get('method') if f.get('method') in dict(MANUAL_METHODS) else 'cash'
@@ -166,7 +171,7 @@ def push_one(voucher, plan=None):
         try:
             profile, shared, rate = voucher_profile(voucher, plan)
             svc.ensure_hotspot_profile(profile, shared, rate)
-            _, item_id = svc.upsert_voucher(voucher.code, profile, limit_uptime=duration_to_routeros(voucher.duration_hours),
+            _, item_id = svc.upsert_voucher(voucher.code, profile, limit_uptime=router_limit(voucher),
                                             comment=f'TapTap voucher {voucher.code}' + (f' · {voucher.customer_name}' if voucher.customer_name else ''))
         finally:
             svc.close()
@@ -186,7 +191,7 @@ def voucher_card(request, pk):
     brand = biz['name'] if re.search(r'wi-?fi', biz['name'], re.I) else f'{biz["name"]} Wi-Fi'
     lines = [f'Hi {v.customer_name.split()[0]},' if v.customer_name else 'Hello,',
              f'your {brand} voucher is ready.', '', f'Code: {grouped}',
-             f'Valid for: {duration_text(v.duration_hours)} · {v.max_devices} device{"s" if v.max_devices != 1 else ""}',
+             f'Valid for: {duration_text(v.duration_minutes)} · {v.max_devices} device{"s" if v.max_devices != 1 else ""}',
              f'Connect to the Wi-Fi “{biz["ssid"]}”, open any website and type the code.']
     if biz['login_url']:
         u = biz['login_url'] if biz['login_url'].startswith('http') else 'http://' + biz['login_url']
@@ -199,7 +204,7 @@ def voucher_card(request, pk):
     from .studio_presets import voucher_template
     return render(request, 'core/voucher_card.html', {
         'v': v, 'grouped': grouped, 'share_text': text, 'wa': wa_number(v.customer_phone),
-        'wa_text': quote(text), 'sms_text': quote(text), 'duration': duration_text(v.duration_hours),
+        'wa_text': quote(text), 'sms_text': quote(text), 'duration': duration_text(v.duration_minutes),
         'sale': v.sale if hasattr(v, 'sale') else None,
         'config_json': _safe_json(design.config if design else voucher_template('classic')),
         'row_json': _safe_json(voucher_print_rows(business, business.vouchers.filter(pk=v.pk))[0]), 'business_json': _safe_json(biz),

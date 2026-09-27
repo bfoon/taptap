@@ -53,7 +53,9 @@ class VoucherPlan(models.Model):
     business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='plans',null=True,blank=True)
     name=models.CharField(max_length=80)
     price=models.DecimalField(max_digits=10,decimal_places=2,default=0)
-    duration_hours=models.PositiveIntegerField(default=24)
+    # How long the plan lasts, in minutes; duration_unit is the unit the owner chose (for display/editing).
+    duration_minutes=models.PositiveIntegerField(default=1440)
+    duration_unit=models.CharField(max_length=10,default='hours',choices=[('minutes','Minutes'),('hours','Hours'),('days','Days'),('months','Months')])
     max_devices=models.PositiveIntegerField(default=1)
     speed_limit=models.CharField(max_length=50,blank=True)
     data_limit_mb=models.PositiveIntegerField(null=True,blank=True)
@@ -65,6 +67,18 @@ class VoucherPlan(models.Model):
     price_source=models.CharField(max_length=20,blank=True,default='')
     class Meta: unique_together=('business','name')
     def __str__(self): return self.name
+    @property
+    def duration_hours(self):
+        """Legacy read-only view in whole hours (rounded up)."""
+        return -(-int(self.duration_minutes or 0)//60)
+    @property
+    def duration_value(self):
+        from .durations import split
+        return split(self.duration_minutes,self.duration_unit)[0]
+    @property
+    def duration_text(self):
+        from .durations import text
+        return text(self.duration_minutes)
 
 
 class Router(models.Model):
@@ -112,7 +126,7 @@ class Voucher(models.Model):
     code=models.CharField(max_length=120,unique=True)
     plan_name=models.CharField(max_length=120)
     price=models.DecimalField(max_digits=10,decimal_places=2,default=0)
-    duration_hours=models.PositiveIntegerField(default=24)
+    duration_minutes=models.PositiveIntegerField(default=1440)
     max_devices=models.PositiveIntegerField(default=1)
     status=models.CharField(max_length=20,choices=STATUS,default='active')
     source=models.CharField(max_length=20,choices=SOURCE,default='taptap')
@@ -130,6 +144,14 @@ class Voucher(models.Model):
     mikrotik_sync_status=models.CharField(max_length=30,default='Pending')
     mikrotik_sync_error=models.TextField(blank=True)
     created_at=models.DateTimeField(auto_now_add=True)
+    @property
+    def duration_hours(self):
+        """Legacy read-only view in whole hours (rounded up)."""
+        return -(-int(self.duration_minutes or 0)//60)
+    @property
+    def duration_text(self):
+        from .durations import text
+        return text(self.duration_minutes)
 
 
 class VoucherEvent(models.Model):

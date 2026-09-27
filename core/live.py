@@ -28,7 +28,8 @@ from .finance import mark_activated
 from .mikrotik import MikroTikService, ros_bool
 from .models import (Business, IPBindingAccessExpiry, Router, RouterHotspotUser, SessionIncident, SyncedIPBinding,
                      Voucher)
-from .sync import _has_uptime, _routeros_hours, _routeros_seconds, first_use_estimate, price_from_text
+from .durations import parse_routeros as _routeros_minutes
+from .sync import _has_uptime, _routeros_seconds, first_use_estimate, price_from_text
 from .utils import log
 
 logger = logging.getLogger('taptap.live')
@@ -64,8 +65,8 @@ def voucher_problem(voucher, now):
     if voucher.status == 'disabled':
         return 'disabled', 'Disabled in TapTap but still connected on the router'
     expires = voucher.expires_at
-    if not expires and voucher.used_at and voucher.duration_hours:
-        expires = voucher.used_at + timedelta(hours=voucher.duration_hours)
+    if not expires and voucher.used_at and voucher.duration_minutes:
+        expires = voucher.used_at + timedelta(minutes=voucher.duration_minutes)
     if voucher.status == 'expired' or (expires and expires <= now):
         late = now - expires if expires else None
         mins = int(late.total_seconds() // 60) if late else 0
@@ -204,7 +205,7 @@ def watch_router(router, force=False):
                 price = price_from_text(row.get('comment', ''), business.currency) or (plan.price if plan and plan.price else 0)
                 try:
                     v = Voucher.objects.create(business=business, router=router, code=name, plan_name=profile, price=price or 0,
-                                               duration_hours=_routeros_hours(row.get('limit-uptime', ''), plan.duration_hours if plan else 24),
+                                               duration_minutes=_routeros_minutes(row.get('limit-uptime', ''), plan.duration_minutes if plan else 1440),
                                                max_devices=plan.max_devices if plan else 1, status='disabled' if disabled else 'active',
                                                source='mikrotik', mikrotik_id=str(row.get('id', '')), mikrotik_sync_status='Synced')
                 except Exception:
@@ -257,8 +258,8 @@ def watch_router(router, force=False):
                     summary['activated'] += 1
                     push_event(business.pk, f'Voucher {user} started on {router.name}', 'sale')
                 v.refresh_from_db(fields=['used_at', 'expires_at', 'status'])
-            if v.used_at and not v.expires_at and v.duration_hours:
-                v.expires_at = v.used_at + timedelta(hours=v.duration_hours)
+            if v.used_at and not v.expires_at and v.duration_minutes:
+                v.expires_at = v.used_at + timedelta(minutes=v.duration_minutes)
                 Voucher.objects.filter(pk=v.pk, expires_at__isnull=True).update(expires_at=v.expires_at)
             problem = voucher_problem(v, now)
             if not problem:

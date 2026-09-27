@@ -7,4 +7,24 @@ class RouterForm(forms.ModelForm):
  class Meta:
   model=Router; fields=['name','ip_address','api_port','username','password','use_ssl']; widgets={'password':forms.PasswordInput(render_value=True)}
 class PlanForm(forms.ModelForm):
- class Meta: model=VoucherPlan; fields=['name','price','duration_hours','max_devices','speed_limit','data_limit_mb','active']
+ duration_value=forms.IntegerField(min_value=1,initial=1,label='Duration')
+ duration_unit=forms.ChoiceField(choices=[('minutes','Minutes'),('hours','Hours'),('days','Days'),('months','Months (30 days)')],initial='days',label='Unit')
+ field_order=['name','price','duration_value','duration_unit','max_devices','speed_limit','data_limit_mb','active']
+ class Meta: model=VoucherPlan; fields=['name','price','max_devices','speed_limit','data_limit_mb','active']
+ def __init__(self,*a,**kw):
+  super().__init__(*a,**kw)
+  if self.instance and self.instance.pk:
+   from .durations import split
+   v,u=split(self.instance.duration_minutes,self.instance.duration_unit)
+   self.fields['duration_value'].initial=v;self.fields['duration_unit'].initial=u
+ def clean(self):
+  data=super().clean()
+  from .durations import to_minutes
+  try: data['duration_minutes']=to_minutes(data.get('duration_value'),data.get('duration_unit'))
+  except ValueError as e: self.add_error('duration_value',str(e))
+  return data
+ def save(self,commit=True):
+  obj=super().save(commit=False)
+  obj.duration_minutes=self.cleaned_data['duration_minutes'];obj.duration_unit=self.cleaned_data['duration_unit']
+  if commit: obj.save()
+  return obj

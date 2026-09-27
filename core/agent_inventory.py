@@ -28,6 +28,7 @@ from .models import (
     SyncedIPBinding,
     Voucher,
 )
+from .durations import parse_routeros as _routeros_minutes
 from .routeros_analysis import analyze_wan
 from .sync import (
     _clean,
@@ -35,7 +36,6 @@ from .sync import (
     _normalize_mac,
     _persist_topology,
     _profile_to_plan,
-    _routeros_hours,
     first_use_estimate,
     price_from_text,
 )
@@ -271,7 +271,7 @@ def _users(router, rows, now):
         profile_name = str(row.get('profile', 'default') or 'default')
         plan = router.business.plans.filter(name__iexact=profile_name).first()
         max_devices = plan.max_devices if plan else 1
-        duration_hours = _routeros_hours(row.get('limit-uptime', row.get('limit_uptime', '')), plan.duration_hours if plan else 24)
+        duration_minutes = _routeros_minutes(row.get('limit-uptime', row.get('limit_uptime', '')), plan.duration_minutes if plan else 1440)
         disabled = ros_bool(row.get('disabled', False))
         existing_voucher = Voucher.objects.filter(code__iexact=username).first()
         source = 'taptap' if existing_voucher and existing_voucher.business_id == router.business_id and existing_voucher.source == 'taptap' else 'mikrotik'
@@ -311,7 +311,7 @@ def _users(router, rows, now):
             if existing_voucher.source == 'mikrotik':
                 existing_voucher.mikrotik_id = str(row.get('id', ''))
                 existing_voucher.plan_name = profile_name
-                existing_voucher.duration_hours = duration_hours
+                existing_voucher.duration_minutes = duration_minutes
                 existing_voucher.max_devices = max_devices
                 was = existing_voucher.status
                 existing_voucher.status = 'disabled' if disabled else 'active'
@@ -320,7 +320,7 @@ def _users(router, rows, now):
                     record(existing_voucher, 'router_disabled' if disabled else 'router_enabled', source='router',
                            via='Full sync (TapTap Link)', status_before=was, status_after=existing_voucher.status,
                            text=f'Changed on {router.name}')
-                fields += ['mikrotik_id', 'plan_name', 'duration_hours', 'max_devices', 'status']
+                fields += ['mikrotik_id', 'plan_name', 'duration_minutes', 'max_devices', 'status']
             new_price = user_price or plan_price
             if new_price and not existing_voucher.price and not existing_voucher.sold_at:
                 existing_voucher.price = new_price
@@ -342,7 +342,7 @@ def _users(router, rows, now):
                     code=username,
                     plan_name=profile_name,
                     price=user_price or plan_price or 0,
-                    duration_hours=duration_hours,
+                    duration_minutes=duration_minutes,
                     max_devices=max_devices,
                     status='disabled' if disabled else 'active',
                     source='mikrotik',

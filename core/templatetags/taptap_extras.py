@@ -69,3 +69,17 @@ def duration_short(value):
     if h:
         return f'{h}h {m}m' if m else f'{h}h'
     return f'{m}m'
+
+
+@register.filter
+def minutes_text(minutes):
+    """Plan/voucher minutes -> '30 minutes', '12 hours', '3 days', '1 month'."""
+    from core.durations import text
+    return text(minutes)
+
+
+@register.filter
+def minutes_short(minutes):
+    """Plan/voucher minutes -> '30m', '12h', '3d', '1mo'."""
+    from core.durations import short
+    return short(minutes)

@@ -50,7 +50,7 @@
       <div class="vd-grid">
         <div><span>Plan</span><b>{{ v.plan_name }}</b></div>
         <div><span>Price</span><b>{{ v.price|money:c }}</b></div>
-        <div><span>Valid for</span><b>{{ v.duration_hours }} h</b></div>
+        <div><span>Valid for</span><b>{{ v.duration_minutes|minutes_text }}</b></div>
         <div><span>Devices allowed</span><b>{{ v.max_devices }}</b></div>
         {% if v.rate_limit %}<div><span>Speed</span><b>{{ v.rate_limit }}</b></div>{% endif %}
         <div><span>Origin</span><b>{{ v.get_source_display }}</b></div>

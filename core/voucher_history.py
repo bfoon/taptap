@@ -31,8 +31,8 @@ def ends_at(voucher):
     """When the voucher's time runs out, or None if the clock has not started."""
     if voucher.expires_at:
         return voucher.expires_at
-    if voucher.used_at and voucher.duration_hours:
-        return voucher.used_at + timedelta(hours=voucher.duration_hours)
+    if voucher.used_at and voucher.duration_minutes:
+        return voucher.used_at + timedelta(minutes=voucher.duration_minutes)
     return None
 
 

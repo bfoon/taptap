@@ -24,7 +24,9 @@
   function h(tag, attrs, html) { var e = document.createElement(tag); if (attrs) for (var k in attrs) { if (k === 'class') e.className = attrs[k]; else if (k === 'style') e.style.cssText = attrs[k]; else e.setAttribute(k, attrs[k]); } if (html != null) e.innerHTML = html; return e; }
   function hexA(hex, a) { if (!hex || hex.charAt(0) !== '#') return hex; var n = hex.slice(1); if (n.length === 3) n = n.replace(/./g, '$&$&'); var r = parseInt(n.slice(0, 2), 16), g = parseInt(n.slice(2, 4), 16), b = parseInt(n.slice(4, 6), 16); return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')'; }
   function isDark(hex) { if (!hex || hex.charAt(0) !== '#') return false; var n = hex.slice(1); if (n.length === 3) n = n.replace(/./g, '$&$&'); var r = parseInt(n.slice(0, 2), 16), g = parseInt(n.slice(2, 4), 16), b = parseInt(n.slice(4, 6), 16); return (r * 299 + g * 587 + b * 114) / 1000 < 140; }
-  function dur(hours) { hours = +hours || 0; if (hours < 24) return hours + ' h'; var d = hours / 24; if (d === 1) return '1 day'; if (d % 7 === 0 && d < 28) return (d / 7) + (d === 7 ? ' week' : ' weeks'); if (d >= 28 && d <= 31) return '1 month'; return Math.round(d) + ' days'; }
+  // Plans carry exact minutes; designs saved before minute plans only have hours.
+  function durOf(p) { return p.minutes != null ? +p.minutes : (+p.hours || 0) * 60; }
+  function dur(m) { m = +m || 0; if (m <= 0) return ''; if (m % 43200 === 0) return (m / 43200) + (m === 43200 ? ' month' : ' months'); if (m % 1440 === 0) { var d = m / 1440; if (d % 7 === 0 && d < 28) return (d / 7) + (d === 7 ? ' week' : ' weeks'); return d + (d === 1 ? ' day' : ' days'); } if (m % 60 === 0) return (m / 60) + ' h'; if (m < 60) return m + ' min'; return Math.floor(m / 60) + ' h ' + (m % 60) + ' min'; }
   function money(ctx, v) { var n = +v || 0; return (ctx.business.currency || 'D') + (n % 1 ? n.toFixed(2) : n.toLocaleString()); }
 
   /* ---------- MD5 for MikroTik CHAP (compact, public-domain style) ---------- */
@@ -295,9 +297,9 @@
     ps.forEach(function (p) {
       var hot = b.highlight && p.name.toLowerCase() === String(b.highlight).toLowerCase();
       var dev = b.show_devices ? ' · ' + p.devices + (p.devices > 1 ? ' devices' : ' device') : '';
-      if (b.style === 'list') inner += '<div><span style="margin:0;color:inherit;font-size:15px">' + esc(p.name) + '<span>' + dur(p.hours) + dev + '</span></span><strong>' + money(ctx, p.price) + '</strong></div>';
+      if (b.style === 'list') inner += '<div><span style="margin:0;color:inherit;font-size:15px">' + esc(p.name) + '<span>' + dur(durOf(p)) + dev + '</span></span><strong>' + money(ctx, p.price) + '</strong></div>';
       else if (b.style === 'chips') inner += '<span>' + esc(p.name) + ' <b>' + money(ctx, p.price) + '</b></span>';
-      else inner += '<div class="tp-plan' + (hot ? ' hot' : '') + '">' + (hot ? '<span class="tag">Popular</span>' : '') + '<b>' + esc(p.name) + '</b><strong>' + money(ctx, p.price) + '</strong><small>' + dur(p.hours) + dev + '</small></div>';
+      else inner += '<div class="tp-plan' + (hot ? ' hot' : '') + '">' + (hot ? '<span class="tag">Popular</span>' : '') + '<b>' + esc(p.name) + '</b><strong>' + money(ctx, p.price) + '</strong><small>' + dur(durOf(p)) + dev + '</small></div>';
     });
     var cls = b.style === 'list' ? 'tp-plans-list' : (b.style === 'chips' ? 'tp-chips' : 'tp-plans-cards');
     return t + '<div class="' + cls + '">' + inner + '</div>';

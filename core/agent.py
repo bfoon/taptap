@@ -406,8 +406,8 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
 
 def push_pending_vouchers(router, limit=25):
     """Queue TapTap vouchers the router does not have yet."""
+    from .durations import router_limit
     from .sync import voucher_profile
-    from .utils import duration_to_routeros
     if AgentCommand.objects.filter(router=router, kind='hotspot_users', status__in=['queued', 'sent']).exists():
         return 0
     todo = list(router.vouchers.filter(source='taptap').exclude(mikrotik_sync_status__in=['Synced', 'Queued'])[:limit])
@@ -418,7 +418,7 @@ def push_pending_vouchers(router, limit=25):
         plan = router.business.plans.filter(name__iexact=v.plan_name).first()
         prof, shared, rate = voucher_profile(v, plan)
         profiles[prof] = {'name': prof, 'shared': shared, 'rate': rate}
-        users.append({'n': v.code, 'prof': prof, 'lim': duration_to_routeros(v.duration_hours), 'dis': v.status != 'active', 'c': f'TapTap voucher {v.code}'})
+        users.append({'n': v.code, 'prof': prof, 'lim': router_limit(v), 'dis': v.status != 'active', 'c': f'TapTap voucher {v.code}'})
     queue(router, 'hotspot_users', {'users': users, 'profiles': list(profiles.values()), 'ids': [v.pk for v in todo]},
           label=f'Send {len(users)} voucher(s) to the router', minutes=60 * 24)
     Voucher.objects.filter(pk__in=[v.pk for v in todo]).update(mikrotik_sync_status='Queued', mikrotik_sync_error='')
@@ -702,8 +702,8 @@ def ingest_sessions(router, rows, now):
         if not v.used_at:
             mark_activated(v, now - timedelta(seconds=_routeros_seconds(s.get('uptime'))))
             v.refresh_from_db(fields=['used_at', 'expires_at', 'status'])
-        if v.used_at and not v.expires_at and v.duration_hours:
-            v.expires_at = v.used_at + timedelta(hours=v.duration_hours)
+        if v.used_at and not v.expires_at and v.duration_minutes:
+            v.expires_at = v.used_at + timedelta(minutes=v.duration_minutes)
             Voucher.objects.filter(pk=v.pk, expires_at__isnull=True).update(expires_at=v.expires_at)
         problem = voucher_problem(v, now)
         if problem:

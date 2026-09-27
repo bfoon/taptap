@@ -67,7 +67,8 @@ def register(request):
             with transaction.atomic():
                 user = User.objects.create_user(username=email,email=email,password=form.cleaned_data['password'],first_name=form.cleaned_data['owner_name'])
                 business = Business.objects.create(user=user,business_name=form.cleaned_data['business_name'],owner_name=form.cleaned_data['owner_name'],phone=form.cleaned_data['phone'],trial_ends_at=timezone.now()+timedelta(days=settings.TRIAL_DAYS))
-                for n,p,h,d in DEFAULT_PLANS: VoucherPlan.objects.create(business=business,name=n,price=p,duration_hours=h,max_devices=d)
+                from .durations import best_unit
+                for n,p,h,d in DEFAULT_PLANS: VoucherPlan.objects.create(business=business,name=n,price=p,duration_minutes=h*60,duration_unit=best_unit(h*60),max_devices=d)
             login(request,user); messages.success(request,f'Welcome to TapTap. Your {settings.TRIAL_DAYS}-day trial is active.'); return redirect('dashboard')
     return render(request,'core/register.html',{'form':form})
 
@@ -140,7 +141,7 @@ def generate_vouchers(request):
         with transaction.atomic():
             batch=VoucherBatch.objects.create(business=business,name=batch_name,plan=plan,quantity=qty,note=request.POST.get('note','')[:255]); made=[]
             for _ in range(qty):
-                made.append(Voucher.objects.create(business=business,batch=batch,router=router,code=generate_code(),plan_name=plan.name,price=plan.price,duration_hours=plan.duration_hours,max_devices=plan.max_devices,source='taptap'))
+                made.append(Voucher.objects.create(business=business,batch=batch,router=router,code=generate_code(),plan_name=plan.name,price=plan.price,duration_minutes=plan.duration_minutes,max_devices=plan.max_devices,source='taptap'))
             log(business,'Voucher Generated',f'Batch {batch.name}: {qty} voucher(s)'+(f' for {agent.name}' if agent else ''))
             if agent:
                 from .finance import assign_batch
@@ -279,7 +280,14 @@ def plan_update(request,pk):
     except (InvalidOperation,ValueError): messages.error(request,'Enter a valid price.');return redirect('plans')
     plan.price=price
     if price!=old_price: plan.price_source='manual'
-    if request.POST.get('duration_hours','').isdigit(): plan.duration_hours=max(1,int(request.POST['duration_hours']))
+    if request.POST.get('duration_value','').strip():
+        from .durations import to_minutes
+        try:
+            unit=request.POST.get('duration_unit') or plan.duration_unit
+            plan.duration_minutes=to_minutes(request.POST['duration_value'],unit);plan.duration_unit=unit
+        except ValueError as e: messages.error(request,str(e));return redirect('plans')
+    elif request.POST.get('duration_hours','').isdigit():  # older clients
+        plan.duration_minutes=max(1,int(request.POST['duration_hours']))*60;plan.duration_unit='hours'
     if request.POST.get('max_devices','').isdigit(): plan.max_devices=max(1,int(request.POST['max_devices']))
     plan.active=request.POST.get('active')=='1'
     plan.save()
@@ -946,4 +954,4 @@ def api_voucher_login(request):
     code=str(data.get('voucher') or data.get('code') or '').strip().upper();v=Voucher.objects.filter(code=code,status='active').first()
     if not v: return JsonResponse({'success':False,'message':'Invalid or inactive voucher'},status=404)
     if v.expires_at and v.expires_at<=timezone.now(): return JsonResponse({'success':False,'message':'Voucher expired'},status=403)
-    return JsonResponse({'success':True,'voucher':v.code,'plan':v.plan_name,'max_devices':v.max_devices,'duration_hours':v.duration_hours})
+    return JsonResponse({'success':True,'voucher':v.code,'plan':v.plan_name,'max_devices':v.max_devices,'duration_hours':v.duration_hours,'duration_minutes':v.duration_minutes,'duration':v.duration_text})
