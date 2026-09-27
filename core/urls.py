@@ -49,7 +49,7 @@ urlpatterns = [
     path('security/incident/<int:pk>/fix/',views_live.incident_fix,name='incident_fix'), path('security/incident/<int:pk>/ignore/',views_live.incident_ignore,name='incident_ignore'),
     path('security/incidents/fix-all/',views_live.incident_fix_all,name='incident_fix_all'),
     path('finance/book-missing/',views_live.finance_book_missing,name='finance_book_missing'),
-    path('traffic/',views_traffic.traffic,name='traffic'), path('traffic/now/',views_traffic.traffic_now,name='traffic_now'),
+    path('traffic/',views_traffic.traffic,name='traffic'), path('traffic/now/',views_traffic.traffic_now,name='traffic_now'), path('traffic/data/',views_traffic.traffic_data,name='traffic_data'),
     path('topology/node-devices/',views_traffic.node_devices,name='node_devices'), path('alerts/device/',views_traffic.device_alert_toggle,name='device_alert_toggle'),
     path('alerts/',views_traffic.alerts,name='alerts'), path('alerts/rule/',views_traffic.alert_rule_save,name='alert_rule_save'),
     path('alerts/rule/<int:pk>/',views_traffic.alert_rule_action,name='alert_rule_action'), path('alerts/read/',views_traffic.alerts_read,name='alerts_read'),

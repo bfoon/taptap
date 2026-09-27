@@ -5,6 +5,8 @@ import re
 from datetime import timedelta
 
 from django.contrib import messages
+from django.core.cache import cache
+from django.core.serializers.json import DjangoJSONEncoder
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q, Sum
 from django.http import HttpResponse, JsonResponse
@@ -25,21 +27,51 @@ def _b(request):
 
 
 # ─────────────────────────── traffic ───────────────────────────
-@login_required
-def traffic(request):
+def _traffic_args(request):
     business = _b(request)
     period = resolve_period(request.GET, '7d')
     router = request.GET.get('router') or None
     if router and not business.routers.filter(pk=router).exists():
         router = None
+    return business, period, router
+
+
+def _payload(business, period, router):
+    """The whole report as JSON-safe data. Cached briefly: it only changes once per live-sync pass."""
+    key = f'tt:trd:{business.pk}:{period.preset}:{period.start:%Y%m%d%H}:{period.end:%Y%m%d%H}:{router or 0}'
+    try:
+        hit = cache.get(key)
+        if hit:
+            return hit
+    except Exception:
+        pass
+    data = report(business, period, router)
+    data['insights'] = [list(x) for x in data['insights']]
+    data.pop('category_order', None)
+    data['generated_at'] = timezone.now().isoformat()
+    data['period'] = {'preset': period.preset, 'bucket': period.bucket, 'days': period.days}
+    try:
+        cache.set(key, data, 15)
+    except Exception:
+        pass
+    return data
+
+
+@login_required
+def traffic(request):
+    business, period, router = _traffic_args(request)
     exp = request.GET.get('export')
     if exp:
         return _export(business, period, router, exp)
-    data = report(business, period, router)
+    data = _payload(business, period, router)
     return render(request, 'core/traffic.html', {'period': period, 'presets': PRESETS, 'data': data, 'routers': business.routers.all().order_by('name'),
-                                                 'sel_router': router, 'now': right_now(business, router), 'query': request.GET.urlencode(),
-                                                 'chart_data': {k: data[k] for k in ('chart', 'hours', 'heat', 'app_hours')} | {
-                                                     'categories': [{'name': c['name'], 'total': c['total']} for c in data['categories']]}})
+                                                 'sel_router': router, 'now': right_now(business, router), 'query': request.GET.urlencode()})
+
+
+@login_required
+def traffic_data(request):
+    business, period, router = _traffic_args(request)
+    return JsonResponse(_payload(business, period, router), encoder=DjangoJSONEncoder)
 
 
 @login_required

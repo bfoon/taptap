@@ -2,47 +2,13 @@
 {% load static %}
 {% block title %}Traffic — TapTap{% endblock %}
 {% block heading %}Traffic &amp; consumption{% endblock %}
-{% block extra_head %}<style>
-.tr-bar{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;justify-content:space-between;margin-bottom:1rem}
-.tr-pills{display:flex;flex-wrap:wrap;gap:.25rem;background:#fff;border:1px solid var(--border);border-radius:12px;padding:.25rem}
-.tr-pills a{border-radius:9px;padding:.35rem .7rem;font-size:.78rem;font-weight:650;color:#51667b;text-decoration:none}.tr-pills a.on{background:#102033;color:#fff}
-.tr-now{background:radial-gradient(circle at 15% 0,#16304c,#0e1a2a 60%);border-radius:20px;color:#e8f0f8;padding:1.1rem 1.2rem;margin-bottom:1rem}
-.tr-now-head{display:flex;flex-wrap:wrap;gap:1rem;align-items:center;justify-content:space-between;margin-bottom:.8rem}
-.tr-now-head h3{font-size:1rem;font-weight:800;margin:0;display:flex;gap:.5rem;align-items:center}
-.tr-pulse{width:9px;height:9px;border-radius:50%;background:#2fcf86;box-shadow:0 0 0 0 #2fcf8688;animation:trP 1.8s infinite}@keyframes trP{70%{box-shadow:0 0 0 8px #2fcf8600}100%{box-shadow:0 0 0 0 #2fcf8600}}
-.tr-now-tot{display:flex;gap:1.2rem}.tr-now-tot span{display:block;font-size:.68rem;color:#9fb3c8}.tr-now-tot b{font-size:1.35rem;font-variant-numeric:tabular-nums}
-.tr-now-tot .dn b{color:#44c2ff}.tr-now-tot .up b{color:#b69cff}
-.tr-sess{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:.5rem}
-.tr-s{background:#ffffff0c;border-radius:12px;padding:.55rem .7rem;position:relative;overflow:hidden}
-.tr-s .fill{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#44c2ff30,#44c2ff05);transition:width .8s}
-.tr-s>*{position:relative}.tr-s b{display:block;font-size:.84rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.tr-s small{display:block;font-size:.68rem;color:#9fb3c8}
-.tr-s .rates{display:flex;gap:.8rem;font-size:.78rem;font-variant-numeric:tabular-nums;margin-top:.15rem}.tr-s .rates .d{color:#44c2ff}.tr-s .rates .u{color:#b69cff}
-.tr-s .pct{position:absolute;right:.7rem;top:.55rem;font-weight:800;font-size:.9rem;color:#fff}
-.tr-kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:.8rem;margin-bottom:1rem}
-.tr-kpi{background:#fff;border:1px solid var(--border);border-radius:16px;padding:.85rem 1rem}.tr-kpi span{display:block;font-size:.72rem;color:var(--muted);font-weight:600}
-.tr-kpi strong{display:block;font-size:1.3rem;font-variant-numeric:tabular-nums;line-height:1.25}.tr-kpi small{font-size:.7rem;color:var(--muted)}
-.tr-ins{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:.6rem;margin-bottom:1rem}
-.tr-in{display:flex;gap:.6rem;background:#fff;border:1px solid var(--border);border-radius:14px;padding:.7rem .85rem;font-size:.84rem;color:#34495e}
-.tr-in i{font-size:1.1rem;flex:none}.tr-in.peak i{color:#d64545}.tr-in.off i{color:#18a66a}.tr-in.app i,.tr-in.video i{color:#7c3aed}.tr-in.users i{color:#f59e0b}.tr-in.updates i{color:#1769e0}.tr-in.rate i,.tr-in.trend i{color:#14a3e2}
-.tr-grid{display:grid;grid-template-columns:2fr 1fr;gap:1rem;margin-bottom:1rem}.tr-grid.even{grid-template-columns:1fr 1fr}
-.tr-chart{position:relative;height:280px}.tr-chart.sm{height:230px}
-.tr-bands{display:flex;flex-wrap:wrap;gap:.5rem;margin-top:.6rem}.tr-bands span{font-size:.74rem;font-weight:700;border-radius:999px;padding:.25rem .65rem}
-.tr-bands .p{background:#fdeaea;color:#c02b2b}.tr-bands .s{background:#fff4dc;color:#9a6200}.tr-bands .o{background:#e4f7ee;color:#138453}
-.tr-heat{display:grid;grid-template-columns:34px repeat(24,minmax(8px,1fr));gap:3px;align-items:center}
-.tr-heat .h{font-size:.6rem;color:var(--muted)}.tr-heat .d{font-size:.7rem;color:#51667b;font-weight:650}
-.tr-heat .c{aspect-ratio:1;border-radius:4px;background:rgba(23,105,224,var(--a));outline:1px solid #edf1f6}
-.tr-table td,.tr-table th{white-space:nowrap;font-size:.82rem}.tr-num{text-align:right;font-variant-numeric:tabular-nums}
-.tr-share{height:6px;border-radius:99px;background:#edf2f7;min-width:80px;overflow:hidden}.tr-share i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#1769e0,#14a3e2)}
-.tr-cat{display:inline-block;font-size:.66rem;font-weight:700;border-radius:999px;padding:.12rem .5rem;background:#eef2f6;color:#4e6479}
-.tr-empty{background:#fff;border:1.5px dashed var(--border);border-radius:18px;padding:2rem;text-align:center;margin-bottom:1rem}.tr-empty i{font-size:2rem;color:#1769e0}
-@media(max-width:1200px){.tr-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.tr-grid,.tr-grid.even{grid-template-columns:1fr}}
-@media(max-width:640px){.tr-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(prefers-reduced-motion:reduce){.tr-pulse{animation:none}}
-</style>{% endblock %}
+{% block extra_head %}<link href="{% static 'css/traffic.css' %}?v=3" rel="stylesheet">{% endblock %}
 {% block content %}
 <div class="tr-bar">
-  <div class="tr-pills" role="group" aria-label="Period">{% for key,label in presets.items %}{% if key != 'custom' %}<a href="?range={{ key }}{% if sel_router %}&router={{ sel_router }}{% endif %}" class="{% if period.preset == key %}on{% endif %}">{{ label }}</a>{% endif %}{% endfor %}</div>
-  <div class="d-flex gap-2 flex-wrap">
+  <div class="tr-pills" role="group" aria-label="Period">{% for key,label in presets.items %}{% if key != 'custom' %}<a href="?range={{ key }}{% if sel_router %}&router={{ sel_router }}{% endif %}" class="{% if period.preset == key %}on{% endif %}"{% if period.preset == key %} aria-current="true"{% endif %}>{{ label }}</a>{% endif %}{% endfor %}</div>
+  <div class="d-flex gap-2 flex-wrap align-items-center">
+    <div class="tr-fresh" id="trFresh" aria-live="polite"><span class="tr-fdot"></span><span id="trFreshText">Live</span>
+      <button type="button" class="tr-pause" id="trPause" aria-pressed="false" title="Pause automatic updates"><i class="bi bi-pause-fill"></i></button></div>
     <form method="get" class="d-flex gap-2"><input type="hidden" name="range" value="{{ period.preset }}">
       <select class="form-select form-select-sm" name="router" onchange="this.form.submit()" aria-label="Router"><option value="">All routers</option>{% for r in routers %}<option value="{{ r.id }}" {% if sel_router == r.id|stringformat:'s' %}selected{% endif %}>{{ r.name }}</option>{% endfor %}</select></form>
     <div class="dropdown"><button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-download"></i> Export</button>
@@ -50,103 +16,57 @@
   </div>
 </div>
 
-<section class="tr-now" aria-live="polite">
+<section class="tr-now">
   <div class="tr-now-head"><h3><span class="tr-pulse"></span> Using bandwidth right now</h3>
-    <div class="tr-now-tot"><div class="dn"><span>Download</span><b id="nowDn">{{ now.down_h }}</b></div><div class="up"><span>Upload</span><b id="nowUp">{{ now.up_h }}</b></div><div><span>Online sessions</span><b id="nowCount">{{ now.count }}</b></div></div></div>
+    <div class="tr-now-tot"><div class="dn"><span>Download</span><b id="nowDn">—</b></div><div class="up"><span>Upload</span><b id="nowUp">—</b></div><div><span>Online sessions</span><b id="nowCount">0</b></div></div></div>
+  <div class="tr-spark"><canvas id="nowSpark" aria-label="Total speed over the last few minutes"></canvas></div>
   <div class="tr-sess" id="nowList"></div>
 </section>
 
-{% if not data.has_data %}
-<div class="tr-empty"><i class="bi bi-graph-up"></i><h3 class="h5 mt-2">Traffic history starts now</h3>
-  <p class="text-secondary mb-0">Live sync measures your line every 15 seconds and what customers use it for once a minute. Charts fill in over the next hours; peak and off-peak times become reliable after a few days.{% if data.source == 'users' %} Run <b>Discover</b> on the Topology page so TapTap finds your WAN links and measures the full line, not only hotspot customers.{% endif %}</p></div>
-{% endif %}
+<div class="tr-empty" id="trEmpty" hidden><i class="bi bi-graph-up"></i><h3 class="h5 mt-2">Traffic history starts now</h3>
+  <p class="text-secondary mb-0">Live sync measures your line every 15 seconds and what customers use it for once a minute. This page fills in by itself — no need to reload. Peak and off-peak times become reliable after a few days.<span id="trEmptyWan"> Run <b>Discover</b> on the Topology page so TapTap finds your WAN links and measures the whole line.</span></p></div>
 
-{% with k=data.kpis %}
 <div class="tr-kpis">
-  <div class="tr-kpi"><span>Data used</span><strong>{{ k.total_h }}</strong><small>↓ {{ k.down_h }} · ↑ {{ k.up_h }}{% if k.change is not None %} · {% if k.change >= 0 %}▲{% else %}▼{% endif %} {{ k.change|floatformat:0 }}%{% endif %}</small></div>
-  <div class="tr-kpi"><span>Per day</span><strong>{{ k.per_day_h }}</strong><small>average</small></div>
-  <div class="tr-kpi"><span>Highest speed</span><strong>{{ k.peak_h }}</strong><small>{{ k.peak_at|default:'—' }}</small></div>
-  <div class="tr-kpi"><span>Busiest hour</span><strong>{{ k.busiest }}</strong><small>most data on average</small></div>
-  <div class="tr-kpi"><span>Quietest hour</span><strong>{{ k.quietest }}</strong><small>least data on average</small></div>
-  <div class="tr-kpi"><span>Users</span><strong>{{ k.users }}</strong><small>{{ k.per_user_h }} each on average</small></div>
+  <div class="tr-kpi"><span>Data used</span><strong data-k="total">—</strong><small><span data-k="down">—</span> ↓ · <span data-k="up">—</span> ↑ <span data-k="change"></span></small></div>
+  <div class="tr-kpi"><span>Per day</span><strong data-k="per_day">—</strong><small>average</small></div>
+  <div class="tr-kpi"><span>Highest speed</span><strong data-k="peak_bps">—</strong><small data-k="peak_at">—</small></div>
+  <div class="tr-kpi"><span>Busiest hour</span><strong data-k="busiest">—</strong><small>most data on average</small></div>
+  <div class="tr-kpi"><span>Quietest hour</span><strong data-k="quietest">—</strong><small>least data on average</small></div>
+  <div class="tr-kpi"><span>Users</span><strong data-k="users">—</strong><small><span data-k="per_user">—</span> each on average</small></div>
 </div>
-{% endwith %}
 
-{% if data.insights %}<div class="tr-ins">{% for kind,text in data.insights %}<div class="tr-in {{ kind }}"><i class="bi {% if kind == 'peak' %}bi-sunset{% elif kind == 'off' %}bi-moon-stars{% elif kind == 'users' %}bi-people{% elif kind == 'app' or kind == 'video' %}bi-play-btn{% elif kind == 'updates' %}bi-cloud-arrow-down{% else %}bi-speedometer2{% endif %}"></i><span>{{ text }}</span></div>{% endfor %}</div>{% endif %}
+<div class="tr-ins" id="trIns"></div>
 
 <div class="tr-grid">
-  <section class="panel"><div class="panel-head"><div><h3>Peak and off-peak hours</h3><p>Average data per hour of the day{% if data.source == 'users' %} (hotspot customers){% endif %}. Red is peak, green is off-peak.</p></div></div>
+  <section class="panel"><div class="panel-head"><div><h3>Peak and off-peak hours</h3><p>Average data per hour of the day. Red is peak, green is off-peak.</p></div></div>
     <div class="tr-chart"><canvas id="trHours" aria-label="Average data by hour of day"></canvas></div>
-    <div class="tr-bands">{% for w in data.peak_windows %}<span class="p"><i class="bi bi-sunset"></i> Peak {{ w }}</span>{% endfor %}{% for w in data.off_windows %}<span class="o"><i class="bi bi-moon-stars"></i> Off-peak {{ w }}</span>{% endfor %}{% if not data.peak_windows %}<span class="s">Peak times appear after a day of data</span>{% endif %}</div></section>
-  <section class="panel"><div class="panel-head"><div><h3>What uses the bandwidth</h3><p>By type of traffic.</p></div></div><div class="tr-chart"><canvas id="trCats"></canvas></div></section>
+    <div class="tr-bands" id="trBands"></div></section>
+  <section class="panel"><div class="panel-head"><div><h3>What uses the bandwidth</h3><p>By type of traffic.</p></div></div><div class="tr-chart"><canvas id="trCats"></canvas><p class="tr-chart-empty" id="trCatsEmpty" hidden>Traffic types appear once live sync has run for a few minutes.</p></div></section>
 </div>
 
-<section class="panel mb-3"><div class="panel-head"><div><h3>Speed over time</h3><p>Average and highest download speed{% if period.bucket == 'hour' %} per hour{% elif period.bucket == 'day' %} per day{% endif %}.</p></div></div><div class="tr-chart"><canvas id="trSpeed" aria-label="Speed over time"></canvas></div></section>
+<section class="panel mb-3"><div class="panel-head"><div><h3>Speed over time</h3><p>Average and highest download speed{% if period.bucket == 'hour' %} per hour{% elif period.bucket == 'day' %} per day{% endif %}. The current {% if period.bucket == 'hour' %}hour{% else %}day{% endif %} is averaged over the time so far.</p></div></div><div class="tr-chart"><canvas id="trSpeed" aria-label="Speed over time"></canvas></div></section>
 
 <div class="tr-grid even">
   <section class="panel"><div class="panel-head"><div><h3>Week at a glance</h3><p>Data by weekday and hour — darker is busier.</p></div></div><div id="trHeat"></div></section>
-  <section class="panel"><div class="panel-head"><div><h3>Top apps through the day</h3><p>When the five biggest apps are used (MB).</p></div></div><div class="tr-chart sm"><canvas id="trAppHours"></canvas></div></section>
+  <section class="panel"><div class="panel-head"><div><h3>Top apps through the day</h3><p>When the five biggest apps are used (MB).</p></div></div><div class="tr-chart sm"><canvas id="trAppHours"></canvas><p class="tr-chart-empty" id="trAppHoursEmpty" hidden>Appears once apps have been recognised.</p></div></section>
 </div>
 
 <div class="tr-grid even">
   <section class="panel"><div class="panel-head"><div><h3>Apps &amp; services</h3><p>Recognised from the sites devices connect to.</p></div></div>
-    <div class="table-responsive"><table class="table align-middle tr-table"><thead><tr><th>App / service</th><th>Type</th><th class="tr-num">Data</th><th>Share</th></tr></thead><tbody>
-    {% for a in data.apps %}<tr><td><b>{{ a.app }}</b></td><td><span class="tr-cat">{{ a.category }}</span></td><td class="tr-num">{{ a.total_h }}</td><td><div class="tr-share"><i style="width:{{ a.share }}%"></i></div><small class="text-secondary">{{ a.share }}%</small></td></tr>
-    {% empty %}<tr><td colspan="4" class="empty-table">App information appears within a few minutes of live sync running.</td></tr>{% endfor %}</tbody></table></div></section>
+    <div class="table-responsive"><table class="table align-middle tr-table"><thead><tr><th>App / service</th><th>Type</th><th class="tr-num">Data</th><th>Share</th></tr></thead><tbody id="tbApps"></tbody></table></div></section>
   <section class="panel"><div class="panel-head"><div><h3>Top sites</h3><p>Where the data goes.</p></div></div>
-    <div class="table-responsive"><table class="table align-middle tr-table"><thead><tr><th>Site</th><th>App</th><th class="tr-num">Data</th></tr></thead><tbody>
-    {% for d in data.domains %}<tr><td>{{ d.domain }}</td><td><small class="text-secondary">{{ d.app }}</small></td><td class="tr-num">{{ d.total_h }}</td></tr>{% empty %}<tr><td colspan="3" class="empty-table">No sites recorded yet.</td></tr>{% endfor %}</tbody></table></div></section>
+    <div class="table-responsive"><table class="table align-middle tr-table"><thead><tr><th>Site</th><th>App</th><th class="tr-num">Data</th></tr></thead><tbody id="tbSites"></tbody></table></div></section>
 </div>
 
-<section class="panel mb-3"><div class="panel-head"><div><h3>Who uses the most data</h3><p>Per voucher and device in this period.{% if data.kpis.top5_share %} The top 5 used {{ data.kpis.top5_share }}% of all customer data.{% endif %}</p></div></div>
-  <div class="table-responsive"><table class="table align-middle tr-table"><thead><tr><th>Voucher / user</th><th>Device</th><th class="tr-num">Download</th><th class="tr-num">Upload</th><th class="tr-num">Total</th><th>Share</th><th class="tr-num">Top speed</th><th class="tr-num">Hours online</th></tr></thead><tbody>
-  {% for u in data.users %}<tr><td><b class="font-monospace">{{ u.username }}</b>{% if u.plan %}<br><small class="text-secondary">{{ u.plan }}</small>{% endif %}</td><td>{{ u.device|default:'' }}<br><small class="text-secondary font-monospace">{{ u.mac_address }}</small></td>
-    <td class="tr-num">{{ u.dn_h }}</td><td class="tr-num">{{ u.up_h }}</td><td class="tr-num"><b>{{ u.total_h }}</b></td><td><div class="tr-share"><i style="width:{{ u.share }}%"></i></div><small class="text-secondary">{{ u.share }}%</small></td><td class="tr-num">{{ u.peak_h }}</td><td class="tr-num">{{ u.hours }}</td></tr>
-  {% empty %}<tr><td colspan="8" class="empty-table">Per-user consumption appears as customers use the hotspot.</td></tr>{% endfor %}</tbody></table></div></section>
+<section class="panel mb-3"><div class="panel-head"><div><h3>Who uses the most data</h3><p id="usersNote">Per voucher and device in this period.</p></div></div>
+  <div class="table-responsive"><table class="table align-middle tr-table"><thead><tr><th>Voucher / user</th><th>Device</th><th class="tr-num">Download</th><th class="tr-num">Upload</th><th class="tr-num">Total</th><th>Share</th><th class="tr-num">Top speed</th><th class="tr-num">Hours online</th></tr></thead><tbody id="tbUsers"></tbody></table></div></section>
 
-{% if data.wans %}<section class="panel mb-3"><div class="panel-head"><div><h3>Internet links</h3><p>How the traffic was split between WAN links.</p></div></div>
-  <div class="table-responsive"><table class="table align-middle tr-table"><thead><tr><th>Router</th><th>Link</th><th class="tr-num">Download</th><th class="tr-num">Upload</th><th class="tr-num">Top speed</th><th>Share</th></tr></thead><tbody>
-  {% for w in data.wans %}<tr><td>{{ w.router }}</td><td><b>{{ w.interface }}</b></td><td class="tr-num">{{ w.down_h }}</td><td class="tr-num">{{ w.up_h }}</td><td class="tr-num">{{ w.peak_h }}</td><td><div class="tr-share"><i style="width:{{ w.share }}%"></i></div><small class="text-secondary">{{ w.share }}%</small></td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+<section class="panel mb-3" id="wanPanel" hidden><div class="panel-head"><div><h3>Internet links</h3><p>How the traffic was split between WAN links.</p></div></div>
+  <div class="table-responsive"><table class="table align-middle tr-table"><thead><tr><th>Router</th><th>Link</th><th class="tr-num">Download</th><th class="tr-num">Upload</th><th class="tr-num">Top speed</th><th>Share</th></tr></thead><tbody id="tbWans"></tbody></table></div></section>
 
-<form class="d-none">{% csrf_token %}</form>
-{{ chart_data|json_script:"trData" }}{{ now|json_script:"trNow" }}
+{{ data|json_script:"trData" }}{{ now|json_script:"trNow" }}
 {% endblock %}
 {% block scripts %}
 <script src="{% static 'vendor/chart.umd.min.js' %}"></script>
-<script>
-(function(){
-  var D=JSON.parse(document.getElementById('trData').textContent), C=window.Chart;
-  var PAL=['#1769e0','#14a3e2','#7c3aed','#f59e0b','#18a66a','#e05d9b','#5b6b7c','#d64545','#0ea5a5'];
-  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
-  function gb(v){v=+v||0;return v>=1?v.toFixed(v>=100?0:1)+' GB':(v*1024).toFixed(0)+' MB';}
-  if(C){C.defaults.font.family='Inter, system-ui, sans-serif';C.defaults.color='#6c7c90';C.defaults.plugins.legend.labels.usePointStyle=true;C.defaults.plugins.legend.labels.boxWidth=8;
-    if(matchMedia('(prefers-reduced-motion: reduce)').matches)C.defaults.animation=false;
-    var band={peak:'#d64545',shoulder:'#f5b544',off:'#18a66a',none:'#c8d1db'};
-    new C(document.getElementById('trHours'),{type:'bar',data:{labels:D.hours.avg_gb.map(function(_,h){return String(h).padStart(2,'0')+':00';}),datasets:[{label:'Average data',data:D.hours.avg_gb,backgroundColor:D.hours.bands.map(function(b){return band[b];}),borderRadius:5}]},
-      options:{maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:function(c){return gb(c.parsed.y)+' on average · '+({peak:'peak',shoulder:'normal',off:'off-peak',none:''}[D.hours.bands[c.dataIndex]]);}}}},scales:{x:{grid:{display:false},ticks:{maxTicksLimit:12}},y:{grid:{color:'#edf1f6'},ticks:{callback:gb}}}}});
-    var cats=D.categories.filter(function(c){return c.total>0;});
-    if(cats.length)new C(document.getElementById('trCats'),{type:'doughnut',data:{labels:cats.map(function(c){return c.name;}),datasets:[{data:cats.map(function(c){return c.total;}),backgroundColor:PAL,borderColor:'#fff',borderWidth:2}]},
-      options:{maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:function(c){var t=c.dataset.data.reduce(function(a,b){return a+b;},0);return c.label+': '+gb(c.parsed/1073741824)+' ('+Math.round(c.parsed*100/t)+'%)';}}}}}});
-    else document.getElementById('trCats').parentNode.innerHTML='<p class="text-secondary small text-center mt-5">Traffic types appear once live sync has run for a few minutes.</p>';
-    new C(document.getElementById('trSpeed'),{data:{labels:D.chart.labels,datasets:[
-      {type:'line',label:'Average download (Mb/s)',data:D.chart.mbps_dn,borderColor:'#1769e0',backgroundColor:'rgba(23,105,224,.12)',fill:'origin',tension:.3,pointRadius:0,borderWidth:2},
-      {type:'line',label:'Highest download (Mb/s)',data:D.chart.peak_dn,borderColor:'#d64545',borderDash:[5,4],tension:.3,pointRadius:0,borderWidth:1.6},
-      {type:'line',label:'Average upload (Mb/s)',data:D.chart.mbps_up,borderColor:'#7c3aed',tension:.3,pointRadius:0,borderWidth:1.6}]},
-      options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},scales:{x:{grid:{display:false},ticks:{maxTicksLimit:14}},y:{beginAtZero:true,grid:{color:'#edf1f6'},title:{display:true,text:'Mb/s'}}}}});
-    if(D.app_hours.series.length)new C(document.getElementById('trAppHours'),{type:'bar',data:{labels:D.app_hours.labels,datasets:D.app_hours.series.map(function(s,i){return {label:s.label,data:s.data,backgroundColor:PAL[i%PAL.length],stack:'a',borderRadius:2};})},
-      options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,grid:{color:'#edf1f6'},title:{display:true,text:'MB'}}}}});
-    else document.getElementById('trAppHours').parentNode.innerHTML='<p class="text-secondary small text-center mt-5">Appears once apps have been recognised.</p>';
-  }
-  var h='<div class="tr-heat"><span></span>';for(var i=0;i<24;i++)h+='<span class="h">'+(i%3===0?String(i).padStart(2,'0'):'')+'</span>';
-  D.heat.rows.forEach(function(r,d){h+='<span class="d">'+D.heat.days[d]+'</span>';r.forEach(function(v,hr){var a=v?(.12+.88*v/D.heat.max):0;h+='<span class="c" style="--a:'+a.toFixed(2)+'" title="'+D.heat.days[d]+' '+String(hr).padStart(2,'0')+':00 — '+gb(v/1073741824)+'"></span>';});});
-  document.getElementById('trHeat').innerHTML=h+'</div>';
-  // Right now
-  var list=document.getElementById('nowList'),token=document.querySelector('[name=csrfmiddlewaretoken]').value;
-  function paintNow(n){document.getElementById('nowDn').textContent=n.down_h;document.getElementById('nowUp').textContent=n.up_h;document.getElementById('nowCount').textContent=n.count;
-    list.innerHTML=n.sessions.length?n.sessions.map(function(s){return '<div class="tr-s"><span class="fill" style="width:'+s.share+'%"></span><span class="pct">'+s.share+'%</span><b>'+esc(s.user)+(s.device?' · <span style="font-weight:500">'+esc(s.device)+'</span>':'')+'</b><small>'+esc([s.ip,s.mac,s.router].filter(Boolean).join(' · '))+' · '+esc(s.session_h)+' this session</small><div class="rates"><span class="d">↓ '+esc(s.down_h)+'</span><span class="u">↑ '+esc(s.up_h)+'</span></div></div>';}).join(''):
-      '<small style="color:#9fb3c8">Nobody is using much right now. This updates every few seconds while live sync runs.</small>';}
-  paintNow(JSON.parse(document.getElementById('trNow').textContent));
-  setInterval(function(){if(document.hidden)return;fetch('{% url "traffic_now" %}{% if sel_router %}?router={{ sel_router }}{% endif %}',{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.json();}).then(paintNow).catch(function(){});},5000);
-})();
-</script>
+<script src="{% static 'js/traffic-live.js' %}?v=2" data-data-url="{% url 'traffic_data' %}?{{ query }}" data-now-url="{% url 'traffic_now' %}{% if sel_router %}?router={{ sel_router }}{% endif %}"></script>
 {% endblock %}

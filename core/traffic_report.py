@@ -202,7 +202,10 @@ def report(business, period, router_id=None):
     return {
         'has_data': bool(rows) or bool(user_total) or bool(app_rows),
         'source': 'wan' if wan_routers else 'users',
-        'kpis': {'down': total_down, 'up': total_up, 'down_h': human_bytes(total_down), 'up_h': human_bytes(total_up),
+        'kpis': {'down': total_down, 'up': total_up, 'total': total_down + total_up, 'per_day': (total_down + total_up) / ndays,
+                 'per_user': (user_total / users_count) if users_count else 0, 'user_total': user_total,
+                 'busiest_h': busiest, 'quietest_h': quietest,
+                 'down_h': human_bytes(total_down), 'up_h': human_bytes(total_up),
                  'total_h': human_bytes(total_down + total_up), 'per_day_h': human_bytes((total_down + total_up) / ndays),
                  'change': change, 'peak_bps': peak['bps'], 'peak_h': human_bps(peak['bps']),
                  'peak_at': timezone.localtime(peak['at']).strftime('%a %d %b %H:%M') if peak['at'] else '',
