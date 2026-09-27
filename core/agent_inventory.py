@@ -8,9 +8,11 @@ The normal TapTap database mirrors are then updated so the rest of the app can
 use the same data regardless of whether the router is connected by Direct API or
 TapTap Link.
 """
+import time
 from collections import OrderedDict
 
 from django.core.cache import cache
+from django.db import transaction
 from django.utils import timezone
 
 from .finance import mark_activated
@@ -124,36 +126,53 @@ def _rs(value):
     return f'"{v}"'
 
 
+def send_function():
+    """RouterOS helper defined once per batch: uploads one table in ~30 KB chunks.
+
+    Works on RouterOS 6 and 7 (no :serialize needed). Each row is written as
+    key=value fields separated by 0x1F and rows by 0x1E, so values containing
+    commas, quotes or newlines (e.g. Mikhmon on-login scripts) survive intact.
+    The leading '#' keeps the body non-empty for tables without rows.
+    """
+    post = ('/tool fetch url=($u . "&part=" . $part . "&final={final}&fmt=t") http-method=post '
+            'http-header-field="Content-Type: text/plain" http-data=$buf output=none check-certificate=$chk duration=20s idle-timeout=15s')
+    return (':local ttSend do={ :local buf "#"; :local part 0; '
+            ':foreach row in=$rows do={ :local line ""; '
+            ':foreach k,v in=$row do={ :set line ($line . $k . "=" . [:tostr $v] . "\\1F") }; '
+            ':set buf ($buf . $line . "\\1E"); '
+            ':if ([:len $buf] > 30000) do={ ' + post.format(final=0) + '; :set part ($part + 1); :set buf "#" } }; '
+            + post.format(final=1) + ' }')
+
+
 def inventory_piece_script(cmd, url, check, nonce_value):
-    """RouterOS body for one resource, chunked so large tables stay below Fetch limits."""
+    """RouterOS body for one table. The menu path is a trusted literal from SOURCES."""
     kind = str((cmd.params or {}).get('kind', ''))
     src = SOURCES.get(kind)
     if not src:
         raise ValueError(f'Unknown inventory source: {kind}')
-    path = src['path']
-    # path comes only from SOURCES above.  RouterOS cannot execute a menu path held in
-    # a variable, therefore the trusted literal path is emitted into the script.
+    menu = src['path']  # e.g. /ip/hotspot/user (RouterOS accepts the slash form)
     upload = f'{url}/api/agent/v1/inventory?c={cmd.pk}&n={nonce_value}'
-    return f''':local rows [:toarray ""]
-:do {{ :set rows [{path} print as-value] }} on-error={{ :set rows [:toarray ""] }}
-:local buf "["
-:local first true
-:local part 0
-:foreach row in=$rows do={{
-  :local item [:serialize to=json value=$row options=json.no-string-conversion]
-  :if (([:len $buf] + [:len $item]) > 45000) do={{
-    :set buf ($buf . "]")
-    /tool fetch url=({_rs(upload)} . "&part=" . $part . "&final=0") http-method=post http-header-field="Content-Type: application/json" http-data=$buf output=none check-certificate={check} duration=12s idle-timeout=8s
-    :set part ($part + 1)
-    :set buf "["
-    :set first true
-  }}
-  :if ($first = false) do={{ :set buf ($buf . ",") }}
-  :set buf ($buf . $item)
-  :set first false
-}}
-:set buf ($buf . "]")
-/tool fetch url=({_rs(upload)} . "&part=" . $part . "&final=1") http-method=post http-header-field="Content-Type: application/json" http-data=$buf output=none check-certificate={check} duration=12s idle-timeout=8s'''
+    return (f':local rows [:toarray ""]; :do {{ :set rows [{menu} print as-value] }} on-error={{ :set rows [:toarray ""] }}; '
+            f'$ttSend rows=$rows u={_rs(upload)} chk="{check}"')
+
+
+def parse_text_rows(body):
+    """Decode the 0x1E/0x1F format uploaded by send_function()."""
+    text = body.decode('utf-8', 'ignore') if isinstance(body, (bytes, bytearray)) else str(body or '')
+    if text.startswith('#'):
+        text = text[1:]
+    rows = []
+    for rec in text.split('\x1e'):
+        if not rec:
+            continue
+        row = {}
+        for field in rec.split('\x1f'):
+            if '=' in field:
+                k, v = field.split('=', 1)
+                row[k] = v
+        if row:
+            rows.append(row)
+    return rows
 
 
 def start_agent_inventory_sync(job):
@@ -436,104 +455,134 @@ def _merge_summary(base, extra):
 
 
 def receive_inventory_chunk(cmd, rows, part=0, final=False):
-    """Accept one JSON chunk uploaded by a signed inventory_piece command."""
+    """Accept one uploaded chunk. On the final chunk, processing is handed to the
+    background worker so the router's upload returns at once (no timeouts on big tables)."""
     params = dict(cmd.params or {})
     kind = str(params.get('kind', ''))
     if kind not in SOURCES:
         raise ValueError('Unknown inventory source.')
     if not isinstance(rows, list):
-        raise ValueError('Inventory payload must be a JSON array.')
-    if len(rows) > 10000:
+        raise ValueError('Inventory payload must be a list of rows.')
+    if len(rows) > 20000:
         raise ValueError('Inventory chunk is too large.')
-
     key = f'tt:agent-inventory:{cmd.pk}'
     parts = cache.get(key) or {}
     parts[str(max(0, int(part or 0)))] = rows
-    cache.set(key, parts, 1800)
+    cache.set(key, parts, 3600)
     if not final:
         return {'accepted': len(rows), 'complete': False}
-
     combined = []
     for pkey in sorted(parts, key=lambda x: int(x)):
         combined.extend(parts[pkey])
     cache.delete(key)
+    cache.set(f'tt:agent-inventory-rows:{cmd.pk}', combined, 3600)
+    from .tasks import process_inventory_piece
+    try:
+        process_inventory_piece.delay(cmd.pk)
+    except Exception:
+        process_piece(cmd.pk)  # no worker available: process here
+    return {'accepted': len(rows), 'complete': True, 'queued_for_processing': True}
 
-    router = cmd.router
+
+def process_piece(cmd_id):
+    """Import one uploaded table into TapTap. One router at a time, with row locks,
+    so two tables never overwrite each other's part of the configuration snapshot."""
+    cmd = AgentCommand.objects.select_related('router__business').filter(pk=cmd_id).first()
+    if not cmd:
+        return None
+    rows = cache.get(f'tt:agent-inventory-rows:{cmd.pk}')
+    if rows is None:
+        return None
+    lock = f'tt:agent-inventory-lock:{cmd.router_id}'
+    for _ in range(120):
+        if cache.add(lock, 1, 300):
+            break
+        time.sleep(0.5)
+    try:
+        params = dict(cmd.params or {})
+        kind = str(params.get('kind', ''))
+        router = cmd.router
+        now = timezone.now()
+        clean_rows = [_clean(x) for x in rows if isinstance(x, dict)]
+        with transaction.atomic():
+            RouterConfigSnapshot.objects.get_or_create(router=router)
+            snap = RouterConfigSnapshot.objects.select_for_update().get(router=router)
+            sections = dict(snap.sections or {})
+            src = SOURCES[kind]
+            limit = 2000 if kind in TOPOLOGY_KINDS else 500
+            sections[src['label']] = {'path': src['path'], 'rows': redact(clean_rows[:limit]), 'count': len(clean_rows), 'transport': 'agent'}
+            snap.sections, snap.captured_at = sections, now
+            snap.save(update_fields=['sections', 'captured_at', 'updated_at'])
+        piece_summary = {}
+        try:
+            if kind == 'hotspot_user_profiles':
+                piece_summary = _profiles(router, clean_rows, now)
+            elif kind == 'hotspot_users':
+                piece_summary = _users(router, clean_rows, now)
+            elif kind == 'hotspot_ip_bindings':
+                piece_summary = _bindings(router, clean_rows, now)
+            elif kind == 'active_users':
+                from .agent import ingest_sessions
+                ingest_sessions(router, clean_rows, now)
+        except Exception as exc:
+            piece_summary = {'errors': [f'{src["label"]}: {exc}']}
+        params.update(received=True, row_count=len(clean_rows))
+        AgentCommand.objects.filter(pk=cmd.pk).update(params=params)
+        cache.delete(f'tt:agent-inventory-rows:{cmd.pk}')
+        _record_piece(router, params.get('job_id'), piece_summary)
+        return len(clean_rows)
+    finally:
+        cache.delete(lock)
+
+
+def _record_piece(router, job_id, piece_summary):
+    """Add one table's result to the sync job and finish the job when every table is accounted for."""
     now = timezone.now()
-    clean_rows = [_clean(x) for x in combined if isinstance(x, dict)]
-    snap = _snapshot_store(router, kind, clean_rows, now)
-
-    piece_summary = {}
-    if kind == 'hotspot_user_profiles':
-        piece_summary = _profiles(router, clean_rows, now)
-    elif kind == 'hotspot_users':
-        piece_summary = _users(router, clean_rows, now)
-    elif kind == 'hotspot_ip_bindings':
-        piece_summary = _bindings(router, clean_rows, now)
-    elif kind == 'active_users':
-        try:
-            from .agent import ingest_sessions
-            ingest_sessions(router, clean_rows, now)
-        except Exception as exc:
-            piece_summary = {'errors': [f'Active-session ingest: {exc}']}
-
-    params['received'] = True
-    params['row_count'] = len(clean_rows)
-    cmd.params = params
-    cmd.save(update_fields=['params'])
-
-    job_id = params.get('job_id')
-    job = RouterSyncJob.objects.filter(pk=job_id, router=router).first()
-    if not job:
-        return {'accepted': len(clean_rows), 'complete': True}
-
-    job.summary = _merge_summary(job.summary, piece_summary)
-    pieces = list(router.agent_commands.filter(kind='inventory_piece'))
-    pieces = [c for c in pieces if (c.params or {}).get('job_id') == job.pk]
-    received = [c for c in pieces if (c.params or {}).get('received')]
-    job.summary['inventory_parts'] = len(pieces)
-    job.summary['inventory_received'] = len(received)
-    progress = 5 + int((len(received) / max(1, len(pieces))) * 90)
-    job.progress = min(95, progress)
-    job.phase = f'TapTap Link inventory: {len(received)}/{len(pieces)} sections received'
-
-    received_kinds = {(c.params or {}).get('kind') for c in received}
-    if TOPOLOGY_KINDS.issubset(received_kinds):
-        try:
-            _rebuild_topology_and_analysis(router, snap, now)
-            job.summary['devices_discovered'] = router.devices.filter(is_online=True).count()
-        except Exception as exc:
-            job.summary = _merge_summary(job.summary, {'errors': [f'Topology rebuild: {exc}']})
-
-    if len(received) >= len(pieces) and pieces:
-        job.status = 'success'
-        job.progress = 100
-        job.phase = 'Synchronization complete through TapTap Link'
-        job.finished_at = now
-        job.summary['config_sections'] = len(snap.sections or {})
-        Router.objects.filter(pk=router.pk).update(
-            status='Online', last_error='', last_tested_at=now, last_watch_at=now,
-            connection_mode='agent', ip_address='', username='', password='', use_ssl=False,
-        )
-        if not router.sales_baseline_at:
-            Router.objects.filter(pk=router.pk, sales_baseline_at__isnull=True).update(sales_baseline_at=now)
-        log(router.business, 'Router Sync', f'{router.name}: full inventory synchronized through TapTap Link')
+    with transaction.atomic():
+        job = RouterSyncJob.objects.select_for_update().filter(pk=job_id, router=router).first()
+        if not job or job.status not in {'queued', 'running'}:
+            return
+        job.summary = _merge_summary(job.summary, piece_summary)
+        pieces = [c for c in router.agent_commands.filter(kind='inventory_piece') if (c.params or {}).get('job_id') == job.pk]
+        received = [c for c in pieces if (c.params or {}).get('received')]
+        failed = [c for c in pieces if not (c.params or {}).get('received') and c.status in ('failed', 'expired', 'cancelled')]
+        done = len(received) + len(failed)
+        job.summary['inventory_parts'] = len(pieces)
+        job.summary['inventory_received'] = len(received)
+        job.summary['inventory_skipped'] = len(failed)
+        job.progress = min(95, 5 + int(done / max(1, len(pieces)) * 90))
+        job.phase = f'TapTap Link inventory: {done}/{len(pieces)} sections'
+        finished = pieces and done >= len(pieces)
+        if not finished:
+            job.save(update_fields=['progress', 'phase', 'summary', 'updated_at'])
+            return
+        snap = RouterConfigSnapshot.objects.filter(router=router).first()
+        if snap:
+            try:
+                _rebuild_topology_and_analysis(router, snap, now)
+                job.summary['devices_discovered'] = router.devices.filter(is_online=True).count()
+            except Exception as exc:
+                job.summary = _merge_summary(job.summary, {'errors': [f'Topology rebuild: {exc}']})
+        if not received:  # nothing arrived at all: not a sync, let the next one retry
+            job.status, job.finished_at = 'failed', now
+            job.phase = 'No RouterOS data arrived (router offline or busy) — will retry automatically'
+            job.save(update_fields=['status', 'phase', 'summary', 'finished_at', 'updated_at'])
+            return
+        job.status, job.progress, job.finished_at = 'success', 100, now
+        job.phase = 'Synchronization complete through TapTap Link' + (f' ({len(failed)} section(s) not available on this router)' if failed else '')
+        job.summary['config_sections'] = len((snap.sections if snap else {}) or {})
         job.save(update_fields=['status', 'progress', 'phase', 'summary', 'finished_at', 'updated_at'])
-    else:
-        job.save(update_fields=['progress', 'phase', 'summary', 'updated_at'])
-
-    return {'accepted': len(clean_rows), 'complete': True, 'progress': job.progress}
+    Router.objects.filter(pk=router.pk).update(status='Online', last_error='', last_tested_at=now, last_watch_at=now,
+                                               connection_mode='agent', ip_address='', username='', password='', use_ssl=False)
+    if not router.sales_baseline_at:
+        Router.objects.filter(pk=router.pk, sales_baseline_at__isnull=True).update(sales_baseline_at=now)
+    log(router.business, 'Router Sync', f'{router.name}: full inventory synchronized through TapTap Link')
 
 
 def inventory_command_ack(cmd, ok):
-    """Fail the parent sync job if RouterOS explicitly rejects an inventory piece."""
-    params = cmd.params or {}
-    job = RouterSyncJob.objects.filter(pk=params.get('job_id'), router=cmd.router).first()
-    if not job or job.status not in {'queued', 'running'}:
+    """A table RouterOS could not provide is noted, never fatal: the sync still completes."""
+    if ok:
         return
-    if not ok:
-        job.status = 'failed'
-        job.phase = f'Agent inventory failed: {SOURCES.get(params.get("kind"), {}).get("label", params.get("kind", "section"))}'
-        job.error = cmd.result or 'The router reported an inventory error.'
-        job.finished_at = timezone.now()
-        job.save(update_fields=['status', 'phase', 'error', 'finished_at', 'updated_at'])
+    params = cmd.params or {}
+    label = SOURCES.get(params.get('kind'), {}).get('label', params.get('kind', 'section'))
+    _record_piece(cmd.router, params.get('job_id'), {'errors': [f'{label}: {cmd.result or "not available on this router"}']})

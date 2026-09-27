@@ -767,6 +767,7 @@ class RouterAgent(models.Model):
     memory_total=models.BigIntegerField(null=True,blank=True)
     active_sessions=models.PositiveIntegerField(default=0)
     polls=models.PositiveBigIntegerField(default=0)
+    script_version=models.PositiveSmallIntegerField(default=1,help_text='Heartbeat version installed on the router')
     def __str__(self): return f'Link for {self.router}'
     @property
     def online(self):

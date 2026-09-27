@@ -104,3 +104,10 @@ def deliver_notifications():
     """Every minute: send instant emails, hourly digests and the morning summary."""
     from .notify import deliver
     deliver()
+
+
+@shared_task(ignore_result=True, queue='live')
+def process_inventory_piece(cmd_id):
+    """Import one RouterOS table uploaded over TapTap Link (keeps the upload request instant)."""
+    from .agent_inventory import process_piece
+    process_piece(cmd_id)

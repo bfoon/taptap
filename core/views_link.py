@@ -78,6 +78,18 @@ def agent_poll(request):
     return HttpResponse(script, content_type='text/plain; charset=utf-8')
 
 
+def agent_hello(request):
+    """Reachability test for routers: no side effects. Confirms the token when one is sent."""
+    auth = request.META.get('HTTP_AUTHORIZATION', '')
+    token = auth[7:].strip() if auth.lower().startswith('bearer ') else ''
+    if token:
+        agent = link.agent_for_token(token)
+        if not agent:
+            return HttpResponse('TapTap Link: reachable, but this token is NOT accepted (revoked or mistyped)', status=401, content_type='text/plain')
+        return HttpResponse(f'TapTap Link OK - token accepted for {agent.router.name}', content_type='text/plain')
+    return HttpResponse(f'TapTap Link OK - server time {timezone.now():%Y-%m-%d %H:%M} UTC', content_type='text/plain')
+
+
 @csrf_exempt
 def agent_ack(request):
     try:
@@ -108,16 +120,39 @@ def agent_inventory(request):
     if cmd.status in ('failed', 'expired', 'cancelled') or cmd.expires_at < timezone.now():
         return HttpResponse(status=410)
     try:
-        payload = json.loads((request.body or b'[]').decode('utf-8'))
-        if isinstance(payload, dict):
-            payload = [payload]
-        if not isinstance(payload, list):
-            raise ValueError('JSON array required')
+        if request.GET.get('fmt') == 't':
+            from .agent_inventory import parse_text_rows
+            payload = parse_text_rows(request.body)
+        else:  # JSON uploads from routers still running the earlier inventory script
+            payload = json.loads((request.body or b'[]').decode('utf-8'))
+            if isinstance(payload, dict):
+                payload = [payload]
+            if not isinstance(payload, list):
+                raise ValueError('JSON array required')
         from .agent_inventory import receive_inventory_chunk
         result = receive_inventory_chunk(cmd, payload, part=part, final=request.GET.get('final') == '1')
         return JsonResponse({'ok': True, **result})
     except Exception as exc:
         return JsonResponse({'ok': False, 'error': str(exc)[:300]}, status=400)
+
+
+def troubleshooting_steps(site):
+    host = site.split('://')[-1].split('/')[0].split(':')[0] or 'your-taptap-address'
+    check = 'yes-without-crl'
+    return [
+        {'title': 'Unfreeze the Link', 'help': 'Use this when the router stopped checking in. It clears a stuck lock left by the earlier heartbeat, stops stuck jobs and runs one check-in now. The router then updates its heartbeat by itself.',
+         'code': ':global taptapLinkBusy; :set taptapLinkBusy false\n/system script job remove [find where script="taptap-link"]\n/system scheduler enable [find where name="taptap-link"]\n/system script run taptap-link\n:log info "TapTap Link restarted by hand"'},
+        {'title': 'Is it running?', 'help': 'The scheduler must be enabled with a short interval, and the log shows every problem the Link meets.',
+         'code': '/system scheduler print detail where name="taptap-link"\n/system script print detail where name="taptap-link"\n/system script job print\n/log print where message~"TapTap"'},
+        {'title': 'Can the router reach TapTap?', 'help': 'Checks DNS, the clock (HTTPS fails with a wrong date) and HTTPS itself. Expected last line: "TapTap Link OK".',
+         'code': f':put [:resolve "{host}"]\n/system clock print\n:put ([/tool fetch url="{site}/api/agent/v1/hello" output=user as-value check-certificate={check} duration=8s idle-timeout=5s]->"data")'},
+        {'title': 'Fix the clock and DNS', 'help': 'Only if the date was wrong or the name did not resolve. Sets public NTP and DNS servers.',
+         'code': ':do { /system ntp client set enabled=yes servers=pool.ntp.org } on-error={ /system ntp client set enabled=yes server-dns-names=pool.ntp.org }\n/ip dns set servers=1.1.1.1,8.8.8.8\n/system clock print'},
+        {'title': 'Certificate problem', 'help': 'If the HTTPS test says "no trusted CA", update RouterOS (newer versions trust public certificates), or on RouterOS 7.19+ enable the built-in trust store.',
+         'code': ':do { /certificate settings set builtin-trust-anchors=trusted } on-error={ :put "Not available on this RouterOS - update it" }\n/system package update check-for-updates\n/system package update print'},
+        {'title': 'Remove TapTap Link', 'help': 'Removes the Link from this router completely. Also press Revoke in TapTap.',
+         'code': '/system scheduler remove [find where name="taptap-link"]\n/system script job remove [find where script="taptap-link"]\n/system script remove [find where name="taptap-link"]\n:global taptapLinkBusy; :set taptapLinkBusy'},
+    ]
 
 
 # ─────────────────────────── owner pages ───────────────────────────
@@ -170,6 +205,8 @@ def router_link(request, pk):
         'token': token,
         'script': script,
         'advanced_script': advanced_script,
+        'current_version': link.SCRIPT_VERSION,
+        'fixes': troubleshooting_steps(link.base_url(request)),
         'commands': cmds,
         'site': link.base_url(request),
         'https': link.base_url(request).startswith('https://'),

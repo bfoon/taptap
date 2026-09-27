@@ -58,7 +58,7 @@ urlpatterns = [
     path('vouchers/missing/<int:pk>/resolve/',views_missing.resolve_missing_report,name='resolve_missing_report'),
     path('batches/<int:pk>/missing/report/',views_missing.report_missing_batch,name='report_missing_batch'),
     path('api/agent/v1/poll',views_link.agent_poll,name='agent_poll'), path('api/agent/v1/ack',views_link.agent_ack,name='agent_ack'),
-    path('api/agent/v1/inventory',views_link.agent_inventory,name='agent_inventory'),
+    path('api/agent/v1/inventory',views_link.agent_inventory,name='agent_inventory'), path('api/agent/v1/hello',views_link.agent_hello,name='agent_hello'),
     path('routers/<int:pk>/link/',views_link.router_link,name='router_link'), path('routers/<int:pk>/link/action/',views_link.router_link_action,name='router_link_action'),
     path('routers/<int:pk>/link/status/',views_link.router_link_status,name='router_link_status'),
     path('notifications/',views_link.notifications,name='notifications'), path('notifications/test/',views_link.notifications_test,name='notifications_test'),

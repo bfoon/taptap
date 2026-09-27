@@ -133,6 +133,8 @@ EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.Email
 SITE_URL = os.getenv('SITE_URL', '').rstrip('/')
 # TapTap Link: routers verify the server certificate (turn off only for testing with self-signed certificates).
 AGENT_VERIFY_TLS = env_bool('AGENT_VERIFY_TLS', True)
+# TapTap Link routers re-upload their full inventory this often (minutes).
+LINK_SYNC_MINUTES = int(os.getenv('LINK_SYNC_MINUTES', '30'))
 
 CELERY_BEAT_SCHEDULE['taptap-notifications'] = {'task': 'core.tasks.deliver_notifications', 'schedule': 60.0, 'options': {'expires': 120}}
 CELERY_TASK_ROUTES['core.tasks.deliver_notifications'] = {'queue': 'live'}

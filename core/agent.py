@@ -40,8 +40,9 @@ POLICY = 'ftp,read,write,test,reboot,sensitive'
 SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
     'hotspot_user_set', 'hotspot_user_remove', 'disconnect', 'binding_set',
-    'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece',
+    'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update',
 }
+ACK_WAIT = {'inventory_piece': 600, 'backup': 300, 'hotspot_users': 300, 'self_update': 300}   # seconds before a resend
 NAME_RE = re.compile(r'^[\w.@:+/<>-]{1,64}$')
 MAC_RE = re.compile(r'^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$')
 
@@ -87,15 +88,20 @@ def rs(value):
     return f'"{v}"'
 
 
-def agent_script(url, token, check):
-    """The resilient RouterOS heartbeat script installed as ``taptap-link``."""
-    return f''':global taptapLinkBusy
-:if ($taptapLinkBusy = true) do={{
-  :log warning "TapTap Link: previous job still running, skipping"
-  :return
-}}
-:set taptapLinkBusy true
+SCRIPT_VERSION = 2   # bump when the router-side heartbeat changes; routers upgrade themselves
 
+
+def agent_script(url, token, check):
+    """The RouterOS heartbeat installed as ``taptap-link`` (runs every few seconds).
+
+    v2: the heartbeat only reports and fetches. Commands TapTap sends back run in a
+    separate background job (:execute), so a long command (inventory upload, backup)
+    never delays or blocks the next check-in. The overlap guard counts real running
+    jobs, so it cannot get stuck (the v1 global flag could, until a reboot).
+    """
+    return f''':if ([:len [/system script job find where script="taptap-link"]] > 1) do={{
+  :log warning "TapTap Link: previous check-in still running, skipping"
+}} else={{
 :do {{
   :local url {rs(url + "/api/agent/v1")}
   :local tok {rs(token)}
@@ -107,7 +113,6 @@ def agent_script(url, token, check):
   :local board [/system resource get board-name]
   :local a ""
   :local n 0
-
   :foreach s in=[/ip hotspot active find] do={{
     :if ($n < 300) do={{
       :local e [/ip hotspot active get $s]
@@ -115,23 +120,38 @@ def agent_script(url, token, check):
       :set n ($n + 1)
     }}
   }}
-
-  :local body ("id=" . [/system identity get name] . "&ver=" . $ver . "&up=" . $up . "&cpu=" . $cpu . "&mf=" . $mf . "&mt=" . $mt . "&board=" . $board . "&n=" . [:len [/ip hotspot active find]] . "&act=" . $a)
+  :local body ("id=" . [/system identity get name] . "&ver=" . $ver . "&up=" . $up . "&cpu=" . $cpu . "&mf=" . $mf . "&mt=" . $mt . "&board=" . $board . "&n=" . [:len [/ip hotspot active find]] . "&sv={SCRIPT_VERSION}&act=" . $a)
   :local res [/tool fetch url=($url . "/poll") http-method=post http-data=$body http-header-field=("Authorization: Bearer " . $tok) output=user as-value check-certificate={check} duration=8s idle-timeout=5s]
-
   :if (($res->"status") = "finished") do={{
     :local cmd ($res->"data")
-    :if ([:len $cmd] > 0) do={{
-      :local f [:parse $cmd]
-      $f
-    }}
+    :if ([:len $cmd] > 0) do={{ :execute script=$cmd }}
   }}
 }} on-error={{
-  :log warning "TapTap Link: cannot reach or process TapTap"
+  :log warning "TapTap Link: cannot reach TapTap"
 }}
-
-:set taptapLinkBusy false
+}}
 '''
+
+
+def self_update_body(url, check):
+    """Replace the router's heartbeat with the current version, keeping its own token.
+
+    TapTap stores only a hash of the token, so the router reads the token out of its
+    installed script and splices it into the new one.
+    """
+    marker = 'TAPTAP_TOKEN_MARKER'
+    new = agent_script(url, marker, check)
+    pre, post = new.split(marker, 1)
+    quote = rs('"')
+    return (':global taptapLinkBusy; :set taptapLinkBusy false; '
+            ':local sid [/system script find where name="taptap-link"]; '
+            ':local src [/system script get $sid source]; '
+            ':local p [:find $src "ttl_"]; '
+            f':local q [:find $src {quote} $p]; '
+            ':local tok [:pick $src $p $q]; '
+            ':if ([:len $tok] < 20) do={ :error "TapTap Link: token not found in installed script" }; '
+            f'/system script set $sid source=({rs(pre)} . $tok . {rs(post)}); '
+            ':log info "TapTap Link: heartbeat updated"')
 
 
 def enrollment_script(router, token, request=None):
@@ -177,14 +197,20 @@ def advanced_enrollment_script(router, token, request=None):
 :global taptapLinkBusy
 :set taptapLinkBusy false
 
-# 2) Show RouterOS and certificate/trust-store information.
+# 2) Show RouterOS, clock and certificate information.
+#    HTTPS fails if the router clock is wrong: make sure the date below is today.
 /system resource print
-/certificate settings print
+/system clock print
+:do {{ /system ntp client set enabled=yes servers=pool.ntp.org }} on-error={{ :do {{ /system ntp client set enabled=yes server-dns-names=pool.ntp.org }} on-error={{}} }}
+:do {{ /certificate settings print }} on-error={{}}
+
+# 2b) DNS: the router must resolve TapTap's name.
+:do {{ :put ("TapTap resolves to " . [:resolve {rs(url.split('://')[-1].split('/')[0].split(':')[0])}]) }} on-error={{ :put "DNS FAILED - set a DNS server: /ip dns set servers=1.1.1.1,8.8.8.8" }}
 
 # 3) Verify that this MikroTik can reach TapTap with certificate validation.
 #    Expected: status=finished and code=200.
 :do {{
-  /tool fetch url={rs(url)} output=none check-certificate=yes-without-crl duration=8s idle-timeout=5s
+  :put ([/tool fetch url={rs(url + "/api/agent/v1/hello")} output=user as-value check-certificate=yes-without-crl duration=8s idle-timeout=5s]->"data")
   :log info "TapTap Link HTTPS test passed"
 }} on-error={{
   :log warning "TapTap Link HTTPS test failed. If the log says no trusted CA, update RouterOS stable and retry."
@@ -271,6 +297,8 @@ def wrap(cmd, url, check):
     if cmd.kind == 'inventory_piece':
         from .agent_inventory import inventory_piece_script
         body = inventory_piece_script(cmd, url, check, nonce(cmd))
+    elif cmd.kind == 'self_update':
+        body = self_update_body(url, check)
     else:
         body = command_body(cmd)
     result = f'{cmd.params.get("file")}.backup, {cmd.params.get("file")}.rsc' if cmd.kind == 'backup' else ''
@@ -382,6 +410,19 @@ def handle_poll(agent, data, ip, url):
                f'if you did not expect it, revoke the token in TapTap.', key=f'link:{router.pk}:ip:{ip}')
 
     try:
+        sv = int(str(data.get('sv', '1')).strip() or 1)
+    except ValueError:
+        sv = 1
+    if agent.script_version != sv:
+        RouterAgent.objects.filter(pk=agent.pk).update(script_version=sv)
+    if (sv < SCRIPT_VERSION and cache.add(f'tt:link:upgrade:{router.pk}', 1, 1800)
+            and not AgentCommand.objects.filter(router=router, kind='self_update', status__in=['queued', 'sent']).exists()):
+        queue(router, 'self_update', {'to': SCRIPT_VERSION}, label=f'Update TapTap Link on the router to v{SCRIPT_VERSION}', minutes=30)
+    try:
+        auto_sync(router, first)
+    except Exception as exc:
+        logger.info('link auto-sync %s: %s', router, exc)
+    try:
         ingest_sessions(router, parse_sessions(data.get('act', '')), now)
     except Exception as exc:
         logger.info('session ingest %s: %s', router, exc)
@@ -392,26 +433,70 @@ def handle_poll(agent, data, ip, url):
     return build_response(router, url)
 
 
+def auto_sync(router, first=False):
+    """Full inventory sync on the first check-in, then every LINK_SYNC_MINUTES (default 30).
+
+    Also settles sync jobs left 'running' by a router that went offline mid-sync
+    (their unfinished tables expired), so a stale job never blocks future syncs.
+    """
+    from .models import RouterSyncJob
+    from .tasks import enqueue_router_sync
+    if not first and not cache.add(f'tt:link:autosync:{router.pk}', 1, 60):
+        return
+    now = timezone.now()
+    for job in router.sync_jobs.filter(status__in=['queued', 'running'], created_at__lt=now - timedelta(minutes=35)):
+        from .agent_inventory import _record_piece
+        _record_piece(router, job.pk, {'errors': ['Some sections did not arrive in time (router offline or busy).']})
+        RouterSyncJob.objects.filter(pk=job.pk, status__in=['queued', 'running']).update(
+            status='failed', phase='Timed out waiting for the router', finished_at=now)
+    every = int(getattr(settings, 'LINK_SYNC_MINUTES', 30))
+    last_ok = router.sync_jobs.filter(status='success').order_by('-finished_at').values_list('finished_at', flat=True).first()
+    if first or not last_ok or now - last_ok > timedelta(minutes=every):
+        enqueue_router_sync(router)
+
+
 def build_response(router, url):
+    """Return the next batch of commands, but only once the previous batch is acknowledged.
+
+    Commands run in a background job on the router, so TapTap waits for the
+    acknowledgements before sending more: nothing piles up on a slow router.
+    """
     now = timezone.now()
     check = tls_flag(url)
     AgentCommand.objects.filter(router=router, status__in=['queued', 'sent'], expires_at__lt=now).update(status='expired', done_at=now)
-    AgentCommand.objects.filter(router=router, status='sent', sent_at__lt=now - timedelta(seconds=90), attempts__lt=2).update(status='queued')
-    AgentCommand.objects.filter(router=router, status='sent', sent_at__lt=now - timedelta(seconds=90), attempts__gte=2).update(
-        status='failed', result='No answer from the router', done_at=now)
-    parts, size = [], 0
-    for cmd in AgentCommand.objects.filter(router=router, status='queued').order_by('created_at')[:20]:
+    for cmd in AgentCommand.objects.filter(router=router, status='sent'):
+        if cmd.sent_at and (now - cmd.sent_at).total_seconds() > ACK_WAIT.get(cmd.kind, 120):
+            if cmd.attempts < 2:
+                AgentCommand.objects.filter(pk=cmd.pk).update(status='queued')
+            else:
+                AgentCommand.objects.filter(pk=cmd.pk).update(status='failed', result='No answer from the router', done_at=now)
+                if cmd.kind == 'inventory_piece':
+                    from .agent_inventory import inventory_command_ack
+                    cmd.status, cmd.result = 'failed', 'No answer from the router'
+                    inventory_command_ack(cmd, False)
+    if AgentCommand.objects.filter(router=router, status='sent').exists():
+        return ''  # the router is still working on the last batch
+    from .agent_inventory import send_function
+    parts, size, helper = [], 0, False
+    for cmd in AgentCommand.objects.filter(router=router, status='queued').order_by('created_at')[:40]:
+        if cmd.kind in ('reboot', 'self_update') and parts:
+            break  # these always travel alone
         try:
             chunk = wrap(cmd, url, check)
         except Exception as exc:
             AgentCommand.objects.filter(pk=cmd.pk).update(status='failed', result=str(exc)[:500], done_at=now)
             continue
-        if parts and size + len(chunk) > MAX_SCRIPT:
+        extra = len(send_function()) + 1 if cmd.kind == 'inventory_piece' and not helper else 0
+        if parts and size + len(chunk) + extra > MAX_SCRIPT:
             break
+        if extra:
+            parts.insert(0, send_function())
+            helper = True
+            size += extra
         parts.append(chunk)
         size += len(chunk) + 1
         AgentCommand.objects.filter(pk=cmd.pk).update(status='sent', sent_at=now, attempts=cmd.attempts + 1)
-        if cmd.kind == 'reboot':
+        if cmd.kind in ('reboot', 'self_update'):
             break
     return '\n'.join(parts)
 
@@ -512,7 +597,7 @@ def check_offline_agents():
     now = timezone.now()
     for agent in RouterAgent.objects.select_related('router__business').filter(revoked=False, last_seen_at__isnull=False, router__connection_mode='agent'):
         silent = (now - agent.last_seen_at).total_seconds()
-        if silent > max(60, agent.poll_seconds * 6) and agent.router.status == 'Online':
+        if silent > max(90, agent.poll_seconds * 6) and agent.router.status == 'Online':
             Router.objects.filter(pk=agent.router_id).update(status='Offline', last_error=f'No TapTap Link check-in for {int(silent)} s')
             push_event(agent.router.business_id, f'{agent.router.name} stopped calling in (TapTap Link)', 'bad')
             notify(agent.router.business, 'router_offline', f'{agent.router.name} is offline',
