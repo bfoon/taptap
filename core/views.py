@@ -245,37 +245,267 @@ def vouchers(request):
 
 @login_required
 def generate_vouchers(request):
-    business=b(request); plans=business.plans.filter(active=True); routers=business.routers.all()
-    if request.method=='POST':
-        plan=get_object_or_404(plans,pk=request.POST.get('plan')); qty=max(1,min(500,int(request.POST.get('quantity','1')))); router=routers.filter(pk=request.POST.get('router')).first(); batch_name=request.POST.get('batch_name','').strip() or f'{plan.name} {timezone.localtime():%Y-%m-%d %H:%M}'
-        agent=business.agents.filter(pk=request.POST.get('owner') or 0).first()
+    business = b(request)
+    plans = business.plans.filter(active=True)
+    routers = business.routers.all()
+
+    if request.method == 'POST':
+        # -----------------------------------------------------
+        # Plan
+        # -----------------------------------------------------
+        plan_id = request.POST.get('plan')
+
+        plan = get_object_or_404(
+            plans,
+            pk=plan_id,
+        )
+
+        # -----------------------------------------------------
+        # Quantity
+        # -----------------------------------------------------
+        try:
+            qty = int(request.POST.get('quantity') or 1)
+        except (TypeError, ValueError):
+            qty = 1
+
+        qty = max(1, min(500, qty))
+
+        # -----------------------------------------------------
+        # Router
+        #
+        # Router is optional.
+        # Never filter pk="" because Django expects an integer.
+        # -----------------------------------------------------
+        router_id = (
+            request.POST.get('router') or ''
+        ).strip()
+
+        router = None
+
+        if router_id.isdigit():
+            router = routers.filter(
+                pk=int(router_id)
+            ).first()
+
+        # -----------------------------------------------------
+        # Batch name
+        # -----------------------------------------------------
+        batch_name = (
+            request.POST.get('batch_name') or ''
+        ).strip()
+
+        if not batch_name:
+            batch_name = (
+                f'{plan.name} '
+                f'{timezone.localtime():%Y-%m-%d %H:%M}'
+            )
+
+        # -----------------------------------------------------
+        # Agent / owner
+        # -----------------------------------------------------
+        owner_id = (
+            request.POST.get('owner') or ''
+        ).strip()
+
+        agent = None
+
+        if owner_id.isdigit():
+            agent = business.agents.filter(
+                pk=int(owner_id)
+            ).first()
+
+        # -----------------------------------------------------
+        # Create the batch and vouchers
+        # -----------------------------------------------------
         with transaction.atomic():
-            batch=VoucherBatch.objects.create(business=business,name=batch_name,plan=plan,quantity=qty,note=request.POST.get('note','')[:255]); made=[]
+            batch = VoucherBatch.objects.create(
+                business=business,
+                name=batch_name,
+                plan=plan,
+                quantity=qty,
+                note=(
+                    request.POST.get('note') or ''
+                )[:255],
+            )
+
+            made = []
+
             for _ in range(qty):
-                made.append(Voucher.objects.create(business=business,batch=batch,router=router,code=generate_code(),plan_name=plan.name,price=plan.price,duration_hours=plan.duration_hours,max_devices=plan.max_devices,source='taptap'))
-            log(business,'Voucher Generated',f'Batch {batch.name}: {qty} voucher(s)'+(f' for {agent.name}' if agent else ''))
+                voucher = Voucher.objects.create(
+                    business=business,
+                    batch=batch,
+                    router=router,
+                    code=generate_code(),
+                    plan_name=plan.name,
+                    price=plan.price,
+                    duration_hours=plan.duration_hours,
+                    max_devices=plan.max_devices,
+                    source='taptap',
+                )
+
+                made.append(voucher)
+
+            log(
+                business,
+                'Voucher Generated',
+                (
+                    f'Batch {batch.name}: '
+                    f'{qty} voucher(s)'
+                    + (
+                        f' for {agent.name}'
+                        if agent
+                        else ''
+                    )
+                ),
+            )
+
+            # -------------------------------------------------
+            # Assign to agent if selected
+            # -------------------------------------------------
             if agent:
                 from .finance import assign_batch
-                settlement=request.POST.get('settlement') if request.POST.get('settlement') in {'credit','prepaid'} else 'credit'
-                _,sales=assign_batch(batch,agent,settlement,request.POST.get('pay_method','cash'),request.user,request.POST.get('reference','')[:120])
-                messages.info(request,f'Batch issued to {agent.name}'+(f' — bought upfront for {business.currency}{sum(x.amount for x in sales):,.2f}.' if sales else ' on credit: each voucher is credited to them as it sells.'))
+
+                settlement = (
+                    request.POST.get('settlement')
+                    if request.POST.get('settlement')
+                    in {'credit', 'prepaid'}
+                    else 'credit'
+                )
+
+                _, sales = assign_batch(
+                    batch,
+                    agent,
+                    settlement,
+                    request.POST.get(
+                        'pay_method',
+                        'cash',
+                    ),
+                    request.user,
+                    (
+                        request.POST.get(
+                            'reference'
+                        ) or ''
+                    )[:120],
+                )
+
+                if sales:
+                    total = sum(
+                        x.amount
+                        for x in sales
+                    )
+
+                    messages.info(
+                        request,
+                        (
+                            f'Batch issued to '
+                            f'{agent.name} — '
+                            f'bought upfront for '
+                            f'{business.currency}'
+                            f'{total:,.2f}.'
+                        ),
+                    )
+                else:
+                    messages.info(
+                        request,
+                        (
+                            f'Batch issued to '
+                            f'{agent.name} on credit: '
+                            f'each voucher is credited '
+                            f'to them as it sells.'
+                        ),
+                    )
+
+        # -----------------------------------------------------
+        # Send to MikroTik if a router was selected
+        # -----------------------------------------------------
         if router:
             try:
-                _,created=enqueue_router_sync(router,request.user)
-                if created:
-                    messages.info(request,f'{router.name} background sync was queued to publish the new vouchers to RouterOS.')
-                else:
-                    messages.info(request,f'{router.name} already has a background sync running; the new vouchers will be picked up by that sync or the next one.')
-            except Exception as e:
-                messages.warning(request,f'Vouchers were created in TapTap, but the router background sync could not be queued: {e}')
-        messages.success(request,f'{qty} voucher(s) created successfully.')
-        if request.POST.get('print_after'):
-            design=request.POST.get('design','')
-            return redirect(f"/studio/vouchers/print/?batch={batch.pk}"+(f"&design={design}" if design else ''))
-        return redirect('vouchers')
-    return render(request,'core/generate_vouchers.html',{'plans':plans,'routers':routers,'designs':business.voucher_designs.all(),
-        'agents':business.agents.filter(active=True),'owner':request.GET.get('agent',''),'methods':[m for m in PAYMENT_METHODS if m[0]!='auto']})
+                _, created = enqueue_router_sync(
+                    router,
+                    request.user,
+                )
 
+                if created:
+                    messages.info(
+                        request,
+                        (
+                            f'{router.name} background '
+                            f'sync was queued to publish '
+                            f'the new vouchers to RouterOS.'
+                        ),
+                    )
+                else:
+                    messages.info(
+                        request,
+                        (
+                            f'{router.name} already has '
+                            f'a background sync running; '
+                            f'the new vouchers will be '
+                            f'picked up by that sync or '
+                            f'the next one.'
+                        ),
+                    )
+
+            except Exception as e:
+                messages.warning(
+                    request,
+                    (
+                        'Vouchers were created in TapTap, '
+                        'but the router background sync '
+                        f'could not be queued: {e}'
+                    ),
+                )
+
+        messages.success(
+            request,
+            f'{qty} voucher(s) created successfully.',
+        )
+
+        # -----------------------------------------------------
+        # Print immediately if requested
+        # -----------------------------------------------------
+        if request.POST.get('print_after'):
+            design = (
+                request.POST.get('design') or ''
+            ).strip()
+
+            url = (
+                f'/studio/vouchers/print/'
+                f'?batch={batch.pk}'
+            )
+
+            if design:
+                url += f'&design={design}'
+
+            return redirect(url)
+
+        return redirect('vouchers')
+
+    return render(
+        request,
+        'core/generate_vouchers.html',
+        {
+            'plans': plans,
+            'routers': routers,
+            'designs': (
+                business.voucher_designs.all()
+            ),
+            'agents': (
+                business.agents.filter(
+                    active=True
+                )
+            ),
+            'owner': request.GET.get(
+                'agent',
+                '',
+            ),
+            'methods': [
+                m
+                for m in PAYMENT_METHODS
+                if m[0] != 'auto'
+            ],
+        },
+    )
 
 @login_required
 def disable_voucher(request,pk):
