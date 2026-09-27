@@ -1,0 +1,53 @@
+# Production/Linux overlay for TapTap Tunnel.
+# Start with:
+# docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
+
+services:
+  db:
+    # Host-network tunnel manager reaches the same PostgreSQL database here.
+    # Localhost-only: this does NOT publish PostgreSQL to the Internet.
+    ports:
+      - "127.0.0.1:${TAPTAP_TUNNEL_DB_PORT:-5433}:5432"
+
+  web:
+    volumes:
+      - tunnel_data:/var/lib/taptap-tunnel:ro
+
+  worker:
+    volumes:
+      - tunnel_data:/var/lib/taptap-tunnel:ro
+
+  live:
+    volumes:
+      - tunnel_data:/var/lib/taptap-tunnel:ro
+
+  tunnel:
+    build:
+      context: .
+      dockerfile: Dockerfile.tunnel
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TAPTAP_TUNNEL_ENABLED: "1"
+      POSTGRES_HOST: "127.0.0.1"
+      POSTGRES_PORT: "${TAPTAP_TUNNEL_DB_PORT:-5433}"
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    volumes:
+      - tunnel_data:/var/lib/taptap-tunnel
+      - /lib/modules:/lib/modules:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint:
+      - sh
+      - -c
+      - >
+        until python manage.py migrate --check >/dev/null 2>&1;
+        do echo 'tunnel: waiting for database migrations...'; sleep 5; done;
+        exec python manage.py run_tunnel_manager
+
+volumes:
+  tunnel_data:

@@ -1,0 +1,22 @@
+{
+  "bundle": "TapTap Tunnel Upgrade",
+  "base_repository": "bfoon/taptap master",
+  "replace": [
+    "core/apps.py",
+    "core/tasks.py",
+    "config/urls.py"
+  ],
+  "add": [
+    "core/tunnel.py",
+    "core/views_tunnel.py",
+    "core/tunnel_urls.py",
+    "core/migrations/0017_router_tunnel_transport.py",
+    "core/management/commands/run_tunnel_manager.py",
+    "Dockerfile.tunnel",
+    "docker-compose.tunnel.yml",
+    ".env.tunnel.example",
+    "routeros/taptap-enable-tunnel-existing.rsc",
+    "routeros/taptap-tunnel-diagnostics.rsc",
+    "README_TUNNEL_UPGRADE.md"
+  ]
+}

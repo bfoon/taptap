@@ -1,0 +1,16 @@
+# TapTap Tunnel diagnostics - read-only checks
+:put "=== RouterOS ==="
+/system resource print
+:put "=== TapTap WireGuard interface ==="
+/interface wireguard print detail where name="taptap-wg"
+:put "=== TapTap WireGuard peer ==="
+/interface wireguard peers print detail where interface="taptap-wg"
+:put "=== TapTap tunnel address ==="
+/ip address print detail where interface="taptap-wg"
+:put "=== RouterOS API ==="
+/ip service print detail where name="api"
+:put "=== TapTap API firewall rule ==="
+/ip firewall filter print detail where comment="TapTap tunnel API"
+:put "=== TapTap Link fallback ==="
+/system scheduler print detail where name="taptap-link"
+/log print where message~"TapTap"
