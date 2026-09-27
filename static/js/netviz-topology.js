@@ -326,6 +326,48 @@
       if (f) f.addEventListener('input', () => { const q = f.value.toLowerCase(); this.drawer.querySelectorAll('.nm-dev').forEach(d => d.hidden = !d.textContent.toLowerCase().includes(q)); });
       const btn = this.drawer.querySelector('[data-discover]'); if (btn) btn.onclick = () => this.discover([Number(btn.dataset.discover)]);
       this.drawer.classList.add('open'); this.drawer.setAttribute('aria-hidden', 'false'); this.paintDrawerLive();
+      if (n.type !== 'internet' && n.type !== 'wan') this.loadNodeDevices(n);
+    }
+
+    // Everything behind this node — online and offline — with a per-device alert bell.
+    loadNodeDevices(n) {
+      const body = this.drawer.querySelector('.nm-drawer-body');
+      let box = body.querySelector('.nm-nd');
+      if (!box) { box = el('div', 'nm-nd'); body.appendChild(box); }
+      box.innerHTML = '<div class="nm-nd-head"><b>Devices</b><span class="nm-more">Loading…</span></div>';
+      const token = csrf(), self = this, node = n;
+      fetch('/topology/node-devices/?node=' + encodeURIComponent(n.id), { credentials: 'same-origin', cache: 'no-store' }).then(r => r.json()).then(d => {
+        if (!d.ok) { box.innerHTML = '<p class="nm-more">' + esc(d.message || 'Could not load devices.') + '</p>'; return; }
+        let filter = 'all', q = '';
+        const ago = iso => { const s = (Date.now() - new Date(iso)) / 1000; return s < 90 ? 'just now' : s < 3600 ? Math.round(s / 60) + ' min ago' : s < 86400 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' d ago'; };
+        const bell = x => x.alert === 'alerting' ? ['bi-bell-fill', 'on', 'Alerts on' + (x.rule ? ' (' + x.rule + ')' : '') + ' — click to mute'] :
+          x.alert === 'muted' ? ['bi-bell-slash', 'mute', 'Muted — click to follow your general rules'] : ['bi-bell', '', 'No alerts — click to alert me when it goes offline'];
+        const draw = () => {
+          const rows = d.devices.filter(x => (filter === 'all' || (filter === 'on') === x.online) && (!q || [x.name, x.ip, x.mac, x.detail].join(' ').toLowerCase().includes(q)));
+          box.innerHTML = '<div class="nm-nd-head"><b>Devices</b><span class="nm-more">' + d.counts.online + ' online · ' + d.counts.offline + ' offline</span></div>' +
+            '<div class="nm-nd-tabs" role="group" aria-label="Filter devices">' + [['all', 'All', d.devices.length], ['on', 'Online', d.counts.online], ['off', 'Offline', d.counts.offline]].map(t =>
+              '<button type="button" data-f="' + t[0] + '" class="' + (filter === t[0] ? 'on' : '') + '">' + t[1] + ' <b>' + t[2] + '</b></button>').join('') + '</div>' +
+            '<input class="form-control form-control-sm nm-dev-filter" placeholder="Search name, IP or MAC" value="' + esc(q) + '" aria-label="Search devices">' +
+            '<div class="nm-devlist">' + (rows.map(x => { const bl = bell(x); return '<div class="nm-dev nm-nd-row' + (x.online ? '' : ' off') + '">' +
+              '<span class="nm-nd-dot' + (x.online ? ' on' : '') + '" title="' + (x.online ? 'Online' : 'Offline') + '"></span><div class="flex-grow-1" style="min-width:0"><b>' + (x.network ? '<i class="bi bi-hdd-network"></i> ' : '') + esc(x.name) + '</b>' +
+              '<small>' + esc([x.ip, x.mac].filter(Boolean).join(' · ')) + '</small><small>' + (x.online ? 'Online' : 'Offline · last seen ' + ago(x.last_seen)) + (x.port ? ' · ' + esc(x.port) : '') + (x.detail ? ' · ' + esc(x.detail) : '') + '</small>' +
+              (x.types.length ? '<span class="nm-nd-types">' + x.types.filter(t => t !== 'private').map(t => '<i>' + esc(t) + '</i>').join('') + '</span>' : '') + '</div>' +
+              '<button type="button" class="nm-nd-bell ' + bl[1] + '" data-k="' + esc(x.key) + '" title="' + esc(bl[2]) + '" aria-label="' + esc(bl[2]) + '"><i class="bi ' + bl[0] + '"></i></button></div>'; }).join('') ||
+              '<p class="nm-more">No ' + (filter === 'off' ? 'offline ' : filter === 'on' ? 'online ' : '') + 'devices here.</p>') + '</div>';
+          box.querySelectorAll('[data-f]').forEach(b => b.onclick = () => { filter = b.dataset.f; draw(); });
+          const inp = box.querySelector('.nm-dev-filter'); inp.oninput = () => { q = inp.value.toLowerCase(); const pos = inp.selectionStart; draw(); const i2 = box.querySelector('.nm-dev-filter'); i2.focus(); i2.setSelectionRange(pos, pos); };
+          box.querySelectorAll('.nm-nd-bell').forEach(b => b.onclick = () => {
+            const x = d.devices.find(y => y.key === b.dataset.k), want = x.alert === 'alerting' ? 'mute' : x.alert === 'muted' ? 'default' : 'alert';
+            const fd = new FormData(); fd.append('mac', x.mac || ''); fd.append('ip', x.ip || ''); fd.append('name', x.name); fd.append('network', x.network ? '1' : '0'); fd.append('want', want);
+            b.disabled = true;
+            fetch('/alerts/device/', { method: 'POST', body: fd, credentials: 'same-origin', headers: { 'X-CSRFToken': token } }).then(r => r.json()).then(res => {
+              if (!res.ok) { alert(res.message); b.disabled = false; return; }
+              self.loadNodeDevices(node);
+            });
+          });
+        };
+        draw();
+      }).catch(e => { box.innerHTML = '<p class="nm-more">Could not load devices: ' + esc(e.message) + '</p>'; });
     }
     closeDrawer() { this.drawer.classList.remove('open'); this.drawer.setAttribute('aria-hidden', 'true'); this.nodeLayer.querySelectorAll('.nm-node.sel').forEach(x => x.classList.remove('sel')); }
 

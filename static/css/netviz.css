@@ -227,3 +227,13 @@
 .nm-empty[hidden],.nm-drawer [hidden]{display:none!important}
 .nm-dev-filter::placeholder{color:#7f97ae}.nm-dev-filter:focus{background:#ffffff14;color:#fff;border-color:#7cc4ff;box-shadow:none}
 .g-none{--gc:#8a9aab}.sec-ops .btn{white-space:nowrap}
+/* devices behind a node */
+.nm-nd{margin-top:1rem;border-top:1px solid #ffffff14;padding-top:.8rem}
+.nm-nd-head{display:flex;justify-content:space-between;align-items:baseline}.nm-nd-head b{font-size:.9rem}
+.nm-nd-tabs{display:flex;gap:.3rem;margin:.55rem 0 0}.nm-nd-tabs button{border:1px solid #ffffff22;background:transparent;color:#9fb5ca;border-radius:999px;padding:.2rem .6rem;font-size:.72rem;font-weight:700}
+.nm-nd-tabs button.on{background:#ffffff1a;color:#fff}.nm-nd-tabs b{font-variant-numeric:tabular-nums}
+.nm-nd-row{align-items:center}.nm-nd-row.off b{color:#9fb3c8}
+.nm-nd-dot{flex:none;width:9px;height:9px;border-radius:50%;background:#5b6f83;box-shadow:0 0 0 3px #5b6f8322}.nm-nd-dot.on{background:#2fcf86;box-shadow:0 0 0 3px #2fcf8633}
+.nm-nd-types{display:flex;gap:.2rem;flex-wrap:wrap;margin-top:.15rem}.nm-nd-types i{font-style:normal;font-size:.6rem;font-weight:700;border-radius:999px;padding:.05rem .4rem;background:#ffffff12;color:#b8c9da}
+.nm-nd-bell{flex:none;width:30px;height:30px;border-radius:9px;border:1px solid #ffffff1f;background:transparent;color:#8ea6bc}
+.nm-nd-bell.on{color:#ffd166;border-color:#ffd16655;background:#ffd16614}.nm-nd-bell.mute{color:#ef8f8f}

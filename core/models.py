@@ -604,4 +604,88 @@ class SessionIncident(models.Model):
         indexes=[models.Index(fields=['business','status'],name='incident_business_status_idx')]
     def __str__(self): return f'{self.username} on {self.router}: {self.get_reason_display()}'
 
-from .models_missing import MissingVoucherReport
+
+# ─────────────────────────────── Traffic & consumption ───────────────────────────────
+class TrafficSample(models.Model):
+    """Bytes through one router interface in a 5-minute bucket (from live sync).
+    interface '*users' = total of all hotspot sessions (used when no WAN is known)."""
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='traffic_samples')
+    interface=models.CharField(max_length=120)
+    bucket=models.DateTimeField(db_index=True)
+    rx_bytes=models.BigIntegerField(default=0)
+    tx_bytes=models.BigIntegerField(default=0)
+    rx_peak_bps=models.BigIntegerField(default=0)
+    tx_peak_bps=models.BigIntegerField(default=0)
+    samples=models.PositiveIntegerField(default=0)
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['router','interface','bucket'],name='uniq_traffic_sample')]
+
+
+class UsageRecord(models.Model):
+    """Data used by one hotspot user/device in one hour."""
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='usage_records')
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='usage_records')
+    username=models.CharField(max_length=120)
+    mac_address=models.CharField(max_length=32,blank=True)
+    hour=models.DateTimeField(db_index=True)
+    download=models.BigIntegerField(default=0)
+    upload=models.BigIntegerField(default=0)
+    peak_bps=models.BigIntegerField(default=0)
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['router','username','mac_address','hour'],name='uniq_usage_record')]
+        indexes=[models.Index(fields=['business','hour'],name='usage_business_hour_idx')]
+
+
+class AppUsage(models.Model):
+    """Traffic per app/service and site in one hour, from the router's connection table."""
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='app_usage')
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='app_usage')
+    hour=models.DateTimeField(db_index=True)
+    app=models.CharField(max_length=60)
+    category=models.CharField(max_length=40)
+    domain=models.CharField(max_length=120)
+    download=models.BigIntegerField(default=0)
+    upload=models.BigIntegerField(default=0)
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['router','hour','app','domain'],name='uniq_app_usage')]
+        indexes=[models.Index(fields=['business','hour'],name='appusage_business_hour_idx')]
+
+
+# ─────────────────────────────── Device presence alerts ───────────────────────────────
+class AlertRule(models.Model):
+    """Which devices you want to hear about when they go offline (or never hear about)."""
+    SUBJECTS=[('network','Network equipment (switches, access points, routers)'),('client','Customer & other devices'),('any','Any device')]
+    MATCHES=[('all','Every device'),('cidr','IP range'),('ip','Exact IP address'),('ip_type','IP type'),('mac','MAC address'),('name','Name contains'),('kind','Device kind')]
+    IP_TYPES=[('static','Static IP / static DHCP lease'),('dynamic','Dynamic DHCP lease'),('hotspot','Logged-in hotspot customer'),('bypassed','Bypassed IP binding'),('private','Private address'),('public','Public address')]
+    KINDS=[('switch','Switch'),('wifi','Access point'),('router','Router'),('network','Other network device'),('wired','Wired client'),('wifi_client','Wi-Fi client')]
+    ACTIONS=[('alert','Alert me'),('mute','Never alert')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='alert_rules')
+    name=models.CharField(max_length=120)
+    subject=models.CharField(max_length=20,choices=SUBJECTS,default='network')
+    match=models.CharField(max_length=20,choices=MATCHES,default='all')
+    value=models.CharField(max_length=120,blank=True)
+    action=models.CharField(max_length=10,choices=ACTIONS,default='alert')
+    min_offline_minutes=models.PositiveSmallIntegerField(default=3,help_text='Only alert if still offline after this long')
+    notify_recovery=models.BooleanField(default=True,help_text='Also tell me when it comes back online')
+    enabled=models.BooleanField(default=True)
+    created_at=models.DateTimeField(auto_now_add=True)
+    class Meta: ordering=['action','-created_at']
+    def __str__(self): return self.name
+
+
+class DeviceAlert(models.Model):
+    EVENTS=[('offline','Went offline'),('online','Back online')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='device_alerts')
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='device_alerts')
+    rule=models.ForeignKey(AlertRule,on_delete=models.SET_NULL,null=True,blank=True)
+    subject=models.CharField(max_length=20,default='network')
+    device_key=models.CharField(max_length=255)
+    name=models.CharField(max_length=180,blank=True)
+    ip_address=models.CharField(max_length=120,blank=True)
+    mac_address=models.CharField(max_length=32,blank=True)
+    kind=models.CharField(max_length=30,blank=True)
+    event=models.CharField(max_length=10,choices=EVENTS)
+    offline_since=models.DateTimeField(null=True,blank=True)
+    created_at=models.DateTimeField(auto_now_add=True,db_index=True)
+    read_at=models.DateTimeField(null=True,blank=True)
+    class Meta: ordering=['-created_at']

@@ -258,6 +258,13 @@ def watch_router(router, force=False):
         if ended:
             SessionIncident.objects.filter(pk__in=ended).update(status='ended', fixed_at=now, fixed_by='router')
 
+        # ---------------- traffic & consumption ----------------
+        try:
+            from .traffic import collect
+            summary['traffic'] = collect(router, svc, active, now)
+        except Exception as exc:  # reporting must never break voucher sync
+            logger.info('traffic collection %s: %s', router, exc)
+
         # ---------------- IP bindings ----------------
         bmirror = {b.mikrotik_id: b for b in SyncedIPBinding.objects.filter(router=router) if b.mikrotik_id}
         bseen = set()
@@ -311,6 +318,15 @@ def watch_router(router, force=False):
         if not baseline:
             updates['sales_baseline_at'] = now
         Router.objects.filter(pk=router.pk).update(**updates)
+
+        # ---------------- device presence (once a minute) ----------------
+        try:
+            from .presence import presence_interval, scan
+            if cache.add(f'tt:pres:gate:{router.pk}', 1, presence_interval()):
+                router.status = 'Online'
+                summary['presence'] = scan(router)
+        except Exception as exc:
+            logger.info('presence scan %s: %s', router, exc)
         return summary
     except Exception as exc:
         logger.exception('live watch %s failed', router)
@@ -356,6 +372,12 @@ def watch_all():
     if not cache.add('tt:watch:all', 1, timeout=interval() * 4):
         return 'previous pass still running'
     try:
+        if cache.add('tt:traffic:prune', 1, 3600):
+            try:
+                from .traffic import prune
+                prune()
+            except Exception as exc:
+                logger.info('traffic prune: %s', exc)
         results = []
         for business in Business.objects.filter(live_sync=True, routers__isnull=False).distinct():
             if not business.has_access:

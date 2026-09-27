@@ -49,6 +49,12 @@ def live_tick(request):
     data = _status(business)
     if ran is not None:
         data['ran'] = ran
+    from .views_traffic import unread_alerts
+    try:
+        since = int(request.GET.get('since') or 0)
+    except ValueError:
+        since = 0
+    data['alerts'] = unread_alerts(business, since)
     return JsonResponse(data)
 
 

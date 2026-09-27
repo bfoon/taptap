@@ -87,6 +87,9 @@ CELERY_TASK_ALWAYS_EAGER = env_bool('CELERY_EAGER', False)  # no Redis/worker? r
 CELERY_TASK_TRACK_STARTED = True
 # Live sync: how often routers are checked for new/used vouchers, sessions and IP bindings.
 LIVE_WATCH_SECONDS = int(os.getenv('LIVE_WATCH_SECONDS', '15'))
+PRESENCE_SECONDS = int(os.getenv('PRESENCE_SECONDS', '60'))          # device online/offline scan
+TRAFFIC_APP_SECONDS = int(os.getenv('TRAFFIC_APP_SECONDS', '60'))    # app/site sampling from the connection table
+TRAFFIC_MAX_CONNECTIONS = int(os.getenv('TRAFFIC_MAX_CONNECTIONS', '40000'))
 CELERY_BEAT_SCHEDULE = {
     'taptap-live-watch': {'task': 'core.tasks.live_watch_all', 'schedule': float(LIVE_WATCH_SECONDS),
                           'options': {'expires': LIVE_WATCH_SECONDS * 2}},

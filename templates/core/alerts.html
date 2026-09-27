@@ -1,0 +1,87 @@
+{% extends 'core/base.html' %}
+{% block title %}Alerts — TapTap{% endblock %}
+{% block heading %}Device alerts{% endblock %}
+{% block extra_head %}<style>
+.al-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem;margin-bottom:1rem}
+.al-kpi{background:#fff;border:1px solid var(--border);border-radius:16px;padding:.85rem 1rem}.al-kpi span{display:block;font-size:.72rem;color:var(--muted);font-weight:600}.al-kpi strong{font-size:1.4rem}
+.al-kpi.bad strong{color:#c02b2b}
+.al-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:1rem}
+.al-row{display:flex;gap:.7rem;align-items:flex-start;padding:.6rem 0;border-bottom:1px solid #eef2f6}
+.al-row i.ev{font-size:1.15rem;margin-top:.1rem}.al-row.offline i.ev{color:#d64545}.al-row.online i.ev{color:#18a66a}
+.al-row b{font-size:.88rem}.al-row small{display:block;font-size:.74rem;color:var(--muted)}.al-row.unread{background:linear-gradient(90deg,#fff5f5,transparent)}
+.al-tabs{display:flex;gap:.3rem;margin-bottom:.6rem}.al-tabs a{border:1px solid var(--border);border-radius:999px;padding:.3rem .7rem;font-size:.76rem;font-weight:700;color:#4e6479;text-decoration:none}.al-tabs a.on{background:#102033;color:#fff;border-color:#102033}
+.rule{border:1px solid var(--border);border-radius:14px;padding:.7rem .8rem;margin-bottom:.5rem;background:#fff;display:flex;gap:.6rem;align-items:center}
+.rule.off{opacity:.55}.rule .ic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex:none}
+.rule.alert .ic{background:#fff4dc;color:#9a6200}.rule.mute .ic{background:#eef2f6;color:#6c7c90}
+.rule b{font-size:.85rem;display:block}.rule small{font-size:.72rem;color:var(--muted)}
+.al-help{background:#f3f7fb;border-radius:12px;padding:.7rem .8rem;font-size:.78rem;color:#3d5166;margin-bottom:.8rem}
+@media(max-width:1000px){.al-grid{grid-template-columns:1fr}}
+</style>{% endblock %}
+{% block content %}
+<div class="page-actions"><div><h2 class="section-title">Know when a device drops off</h2><p>Live sync scans your routers every minute. When a device you watch disappears — and is still gone after a few minutes — you get an alert in the bell, a pop-up, and a desktop notification if you turn those on.</p></div>
+  <form method="post" action="{% url 'alerts_read' %}">{% csrf_token %}<button class="btn btn-outline-secondary text-nowrap" {% if not unread %}disabled{% endif %}>Mark all read</button></form></div>
+
+<div class="al-kpis">
+  <div class="al-kpi {% if still_down %}bad{% endif %}"><span>Watched devices still offline</span><strong>{{ still_down }}</strong></div>
+  <div class="al-kpi"><span>Unread alerts</span><strong>{{ unread }}</strong></div>
+  <div class="al-kpi"><span>Active rules</span><strong>{{ rules|length }}</strong></div>
+</div>
+
+<div class="al-grid">
+  <section class="panel">
+    <div class="panel-head"><div><h3>Alert history</h3></div></div>
+    <div class="al-tabs"><a href="?f=all" class="{% if f == 'all' %}on{% endif %}">All</a><a href="?f=offline" class="{% if f == 'offline' %}on{% endif %}">Went offline</a><a href="?f=unread" class="{% if f == 'unread' %}on{% endif %}">Unread</a></div>
+    {% for a in alerts %}
+    <div class="al-row {{ a.event }} {% if not a.read_at %}unread{% endif %}">
+      <i class="bi ev {% if a.event == 'offline' %}bi-exclamation-octagon{% else %}bi-check-circle{% endif %}"></i>
+      <div class="flex-grow-1"><b>{{ a.name }}</b> {% if a.event == 'offline' %}went offline{% else %}is back online{% if a.offline_since %} after {{ a.offline_since|timesince:a.created_at }}{% endif %}{% endif %}
+        <small>{{ a.ip_address|default:'' }}{% if a.mac_address %} · {{ a.mac_address }}{% endif %} · {{ a.router.name }}{% if a.rule %} · rule: {{ a.rule.name }}{% endif %}</small></div>
+      <small class="text-nowrap">{{ a.created_at|date:'d M H:i' }}</small>
+    </div>
+    {% empty %}<p class="text-secondary small mb-0">No alerts yet. When a watched device goes offline it appears here.</p>{% endfor %}
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div><h3>What should alert you</h3><p>Mute rules always win. Devices that match no alert rule stay quiet.</p></div>
+      <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#ruleModal"><i class="bi bi-plus-lg"></i> Add rule</button></div>
+    <div class="al-help"><i class="bi bi-lightbulb"></i> Tip: in Topology, click a router, switch or device group and use the <i class="bi bi-bell"></i> bell next to any device to watch or mute just that device.</div>
+    {% for r in rules %}
+    <div class="rule {{ r.action }} {% if not r.enabled %}off{% endif %}">
+      <span class="ic"><i class="bi {% if r.action == 'mute' %}bi-bell-slash{% else %}bi-bell-fill{% endif %}"></i></span>
+      <div class="flex-grow-1"><b>{{ r.name }}</b><small>{{ r.get_subject_display }} · {{ r.get_match_display }}{% if r.value %}: {{ r.value }}{% endif %}{% if r.action == 'alert' %} · after {{ r.min_offline_minutes }} min{% if r.notify_recovery %} · tells you when back{% endif %}{% endif %}</small></div>
+      <form method="post" action="{% url 'alert_rule_action' r.id %}" class="d-flex gap-1">{% csrf_token %}
+        <button name="action" value="toggle" class="btn btn-sm btn-light" title="{% if r.enabled %}Pause{% else %}Resume{% endif %}" aria-label="{% if r.enabled %}Pause rule{% else %}Resume rule{% endif %}"><i class="bi {% if r.enabled %}bi-pause{% else %}bi-play{% endif %}"></i></button>
+        <button name="action" value="delete" class="btn btn-sm btn-light text-danger" onclick="return confirm('Delete this rule?')" aria-label="Delete rule"><i class="bi bi-trash"></i></button></form>
+    </div>
+    {% endfor %}
+  </section>
+</div>
+
+<div class="modal fade" id="ruleModal" tabindex="-1" aria-labelledby="ruleTitle" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'alert_rule_save' %}" id="ruleForm">{% csrf_token %}
+  <div class="modal-header"><h5 class="modal-title" id="ruleTitle">Add alert rule</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body row g-3">
+    <div class="col-12"><label class="form-label">When</label><select class="form-select" name="action">{% for k,v in actions %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+    <div class="col-12"><label class="form-label">Devices</label><select class="form-select" name="subject">{% for k,v in subjects %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+    <div class="col-12"><label class="form-label">Which ones</label><select class="form-select" name="match" id="ruleMatch">{% for k,v in matches %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+    <div class="col-12" data-show="cidr ip mac name"><label class="form-label" id="valueLabel">Value</label><input class="form-control" name="value" id="ruleValue"></div>
+    <div class="col-12" data-show="ip_type"><label class="form-label">IP type</label><select class="form-select" name="ip_type">{% for k,v in ip_types %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+    <div class="col-12" data-show="kind"><label class="form-label">Device kind</label><select class="form-select" name="kind">{% for k,v in kinds %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+    <div class="col-6" data-alert-only><label class="form-label">Alert if offline for</label><select class="form-select" name="min_offline_minutes"><option value="1">1 min</option><option value="3" selected>3 min</option><option value="5">5 min</option><option value="10">10 min</option><option value="30">30 min</option><option value="60">1 hour</option></select></div>
+    <div class="col-6 d-flex align-items-end" data-alert-only><label class="form-check"><input class="form-check-input" type="checkbox" name="notify_recovery" checked> <span class="form-check-label">Tell me when it is back</span></label></div>
+    <div class="col-12"><label class="form-label">Name <small class="text-secondary">(optional)</small></label><input class="form-control" name="name" placeholder="e.g. Office access points"></div>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save rule</button></div>
+</form></div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var f=document.getElementById('ruleForm'),m=document.getElementById('ruleMatch'),lab=document.getElementById('valueLabel'),val=document.getElementById('ruleValue');
+  var hints={cidr:['IP range','192.168.88.0/24'],ip:['IP address','192.168.88.2'],mac:['MAC address','AA:BB:CC:DD:EE:FF'],name:['Name contains','cAP']};
+  function sync(){f.querySelectorAll('[data-show]').forEach(function(e){e.style.display=e.dataset.show.split(' ').indexOf(m.value)>=0?'':'none';});
+    if(hints[m.value]){lab.textContent=hints[m.value][0];val.placeholder=hints[m.value][1];}
+    var mute=f.elements['action'].value==='mute';f.querySelectorAll('[data-alert-only]').forEach(function(e){e.style.display=mute?'none':'';});}
+  m.onchange=sync;f.elements['action'].onchange=sync;sync();
+})();
+</script>
+{% endblock %}

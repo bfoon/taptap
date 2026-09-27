@@ -1,13 +1,13 @@
 from django.urls import path
 from . import views, views_business as vb, views_studio as vs, views_wan as vw, views_agents as va
-from . import views_ads, views_ports, views_live, views_missing as vm
+
+from . import views_ads, views_ports, views_live, views_traffic
 
 urlpatterns = [
     path('',views.home,name='home'), path('register/',views.register,name='register'), path('login/',views.login_view,name='login'), path('logout/',views.logout_view,name='logout'),
     path('dashboard/',views.dashboard,name='dashboard'), path('subscription/',views.subscription,name='subscription'), path('subscription/select/<str:code>/',views.subscription_select,name='subscription_select'),
     path('vouchers/',views.vouchers,name='vouchers'), path('vouchers/generate/',views.generate_vouchers,name='generate_vouchers'), path('vouchers/<int:pk>/disable/',views.disable_voucher,name='disable_voucher'), path('vouchers/<int:pk>/reset-mac/',views.reset_mac,name='reset_mac'), path('vouchers/delete-expired/',views.delete_expired,name='delete_expired'),
-    path('vouchers/missing/',vm.missing_vouchers,name='missing_vouchers'), path('vouchers/missing/report/',vm.report_missing_vouchers,name='report_missing_vouchers'), path('vouchers/missing/<int:pk>/resolve/',vm.resolve_missing_report,name='resolve_missing_report'),
-    path('batches/',views.batches,name='batches'), path('batches/<int:pk>/missing/report/',vm.report_missing_batch,name='report_missing_batch'), path('plans/',views.plans,name='plans'), path('plans/<int:pk>/update/',views.plan_update,name='plan_update'),
+    path('batches/',views.batches,name='batches'), path('plans/',views.plans,name='plans'), path('plans/<int:pk>/update/',views.plan_update,name='plan_update'),
     path('routers/',views.routers,name='routers'), path('routers/inventory/',views.router_inventory,name='router_inventory'), path('routers/sync-all/',views.routers_sync_all,name='routers_sync_all'), path('routers/sync-status/',views.router_sync_status,name='router_sync_status'),
     path('routers/<int:pk>/sync/',views.router_sync,name='router_sync'), path('routers/<int:pk>/test/',views.router_test,name='router_test'), path('routers/<int:pk>/delete/',views.router_delete,name='router_delete'),
     path('routers/<int:pk>/control/',views.router_control,name='router_control'), path('routers/<int:pk>/control/refresh/',views.router_config_refresh,name='router_config_refresh'),
@@ -49,4 +49,8 @@ urlpatterns = [
     path('security/incident/<int:pk>/fix/',views_live.incident_fix,name='incident_fix'), path('security/incident/<int:pk>/ignore/',views_live.incident_ignore,name='incident_ignore'),
     path('security/incidents/fix-all/',views_live.incident_fix_all,name='incident_fix_all'),
     path('finance/book-missing/',views_live.finance_book_missing,name='finance_book_missing'),
+    path('traffic/',views_traffic.traffic,name='traffic'), path('traffic/now/',views_traffic.traffic_now,name='traffic_now'),
+    path('topology/node-devices/',views_traffic.node_devices,name='node_devices'), path('alerts/device/',views_traffic.device_alert_toggle,name='device_alert_toggle'),
+    path('alerts/',views_traffic.alerts,name='alerts'), path('alerts/rule/',views_traffic.alert_rule_save,name='alert_rule_save'),
+    path('alerts/rule/<int:pk>/',views_traffic.alert_rule_action,name='alert_rule_action'), path('alerts/read/',views_traffic.alerts_read,name='alerts_read'),
 ]
