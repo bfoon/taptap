@@ -92,9 +92,17 @@ def agent_script(url, token, check):
     """The script that lives on the router (runs every few seconds)."""
     return f''':local url {rs(url + "/api/agent/v1")}
 :local tok {rs(token)}
+
+# Prevent overlapping TapTap Link jobs
+:if ([:len [/system script job find where script="taptap-link"]] > 1) do={{
+  :log warning "TapTap Link: previous job still running, skipping"
+  :return
+}}
+
 :local r [/system resource get]
 :local a ""
 :local n 0
+
 :foreach s in=[/ip hotspot active find] do={{
   :if ($n < 300) do={{
     :local e [/ip hotspot active get $s]
@@ -102,15 +110,32 @@ def agent_script(url, token, check):
     :set n ($n + 1)
   }}
 }}
+
 :local body ("id=" . [/system identity get name] . "&ver=" . ($r->"version") . "&up=" . ($r->"uptime") . "&cpu=" . ($r->"cpu-load") . "&mf=" . ($r->"free-memory") . "&mt=" . ($r->"total-memory") . "&board=" . ($r->"board-name") . "&n=" . [:len [/ip hotspot active find]] . "&act=" . $a)
+
 :do {{
-  :local res [/tool fetch url=($url . "/poll") http-method=post http-data=$body http-header-field=("Authorization: Bearer " . $tok) output=user as-value check-certificate={check}]
+  :local res [/tool fetch \
+      url=($url . "/poll") \
+      http-method=post \
+      http-data=$body \
+      http-header-field=("Authorization: Bearer " . $tok) \
+      output=user \
+      as-value \
+      check-certificate={check} \
+      duration=8s \
+      idle-timeout=5s]
+
   :if (($res->"status") = "finished") do={{
     :local cmd ($res->"data")
-    :if ([:len $cmd] > 0) do={{ :local f [:parse $cmd]; $f }}
+    :if ([:len $cmd] > 0) do={{
+      :local f [:parse $cmd]
+      $f
+    }}
   }}
-}} on-error={{ :log warning "TapTap Link: cannot reach TapTap" }}'''
-
+}} on-error={{
+  :log warning "TapTap Link: cannot reach TapTap"
+}}
+'''
 
 def enrollment_script(router, token, request=None):
     url = base_url(request)
