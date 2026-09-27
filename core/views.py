@@ -101,25 +101,146 @@ def subscription_select(request,code):
 @login_required
 def vouchers(request):
     from django.core.paginator import Paginator
-    business=b(request);qs=business.vouchers.select_related('router','batch','agent').order_by('-created_at')
-    state=request.GET.get('state','');plan=request.GET.get('plan','');q=request.GET.get('q','').strip()
-    if state=='unsold': qs=qs.filter(status='active',sold_at__isnull=True,used_at__isnull=True)
-    elif state=='sold': qs=qs.filter(sold_at__isnull=False,used_at__isnull=True)
-    elif state=='used': qs=qs.filter(used_at__isnull=False)
-    elif state=='disabled': qs=qs.exclude(status='active')
-    if plan: qs=qs.filter(plan_name=plan)
-    holder=request.GET.get('holder','')
-    if holder=='shop': qs=qs.filter(agent__isnull=True)
-    elif holder=='individual': qs=qs.filter(batch__isnull=True,source='taptap')
-    elif holder.isdigit(): qs=qs.filter(agent_id=holder)
-    if q: qs=qs.filter(Q(code__icontains=q)|Q(batch__name__icontains=q)|Q(customer_name__icontains=q)|Q(customer_phone__icontains=q))
-    counts=business.vouchers.aggregate(all=Count('id'),unsold=Count('id',filter=Q(status='active',sold_at__isnull=True,used_at__isnull=True)),
-        sold=Count('id',filter=Q(sold_at__isnull=False,used_at__isnull=True)),used=Count('id',filter=Q(used_at__isnull=False)),disabled=Count('id',filter=~Q(status='active')))
-    params=request.GET.copy();params.pop('page',None)
-    state_tabs=[('','All',counts['all']),('unsold','In stock',counts['unsold']),('sold','Sold, not used',counts['sold']),('used','Used',counts['used']),('disabled','Disabled / expired',counts['disabled'])]
-    return render(request,'core/vouchers.html',{'page_obj':Paginator(qs,100).get_page(request.GET.get('page')),'counts':counts,'state_tabs':state_tabs,'state':state,'plan':plan,'q':q,
-        'plans':business.vouchers.values_list('plan_name',flat=True).distinct().order_by('plan_name'),'agents':business.agents.filter(active=True),'all_agents':business.agents.all(),'holder':holder,
-        'designs':business.voucher_designs.all(),'params':params.urlencode()})
+    from .models_missing import MissingVoucherReport
+
+    business = b(request)
+
+    open_missing_reports = list(
+        MissingVoucherReport.objects
+        .filter(business=business, status='open')
+        .only('id', 'voucher_codes')
+    )
+
+    missing_codes = set()
+    for report in open_missing_reports:
+        for code in report.voucher_codes or []:
+            if code:
+                missing_codes.add(str(code).strip().upper())
+
+    qs = (
+        business.vouchers
+        .select_related('router', 'batch', 'agent')
+        .order_by('-created_at')
+    )
+
+    state = request.GET.get('state', '')
+    plan = request.GET.get('plan', '')
+    q = request.GET.get('q', '').strip()
+
+    if state == 'unsold':
+        qs = qs.filter(
+            status='active',
+            sold_at__isnull=True,
+            used_at__isnull=True,
+        )
+    elif state == 'sold':
+        qs = qs.filter(
+            sold_at__isnull=False,
+            used_at__isnull=True,
+        )
+    elif state == 'used':
+        qs = qs.filter(used_at__isnull=False)
+    elif state == 'disabled':
+        qs = qs.exclude(status='active')
+    elif state == 'missing':
+        qs = qs.filter(code__in=missing_codes)
+
+    if plan:
+        qs = qs.filter(plan_name=plan)
+
+    holder = request.GET.get('holder', '')
+
+    if holder == 'shop':
+        qs = qs.filter(agent__isnull=True)
+    elif holder == 'individual':
+        qs = qs.filter(batch__isnull=True, source='taptap')
+    elif holder.isdigit():
+        qs = qs.filter(agent_id=holder)
+
+    if q:
+        qs = qs.filter(
+            Q(code__icontains=q)
+            | Q(batch__name__icontains=q)
+            | Q(customer_name__icontains=q)
+            | Q(customer_phone__icontains=q)
+        )
+
+    counts = business.vouchers.aggregate(
+        all=Count('id'),
+        unsold=Count(
+            'id',
+            filter=Q(
+                status='active',
+                sold_at__isnull=True,
+                used_at__isnull=True,
+            ),
+        ),
+        sold=Count(
+            'id',
+            filter=Q(
+                sold_at__isnull=False,
+                used_at__isnull=True,
+            ),
+        ),
+        used=Count(
+            'id',
+            filter=Q(used_at__isnull=False),
+        ),
+        disabled=Count(
+            'id',
+            filter=~Q(status='active'),
+        ),
+    )
+
+    missing_count = (
+        business.vouchers.filter(code__in=missing_codes).count()
+        if missing_codes
+        else 0
+    )
+
+    params = request.GET.copy()
+    params.pop('page', None)
+
+    state_tabs = [
+        ('', 'All', counts['all']),
+        ('unsold', 'In stock', counts['unsold']),
+        ('sold', 'Sold, not used', counts['sold']),
+        ('used', 'Used', counts['used']),
+        ('missing', 'Missing', missing_count),
+        ('disabled', 'Disabled / expired', counts['disabled']),
+    ]
+
+    page_obj = Paginator(qs, 100).get_page(request.GET.get('page'))
+
+    for voucher in page_obj.object_list:
+        voucher.missing_open = (
+            str(voucher.code).strip().upper() in missing_codes
+        )
+
+    return render(
+        request,
+        'core/vouchers.html',
+        {
+            'page_obj': page_obj,
+            'counts': counts,
+            'state_tabs': state_tabs,
+            'state': state,
+            'plan': plan,
+            'q': q,
+            'plans': (
+                business.vouchers
+                .values_list('plan_name', flat=True)
+                .distinct()
+                .order_by('plan_name')
+            ),
+            'agents': business.agents.filter(active=True),
+            'all_agents': business.agents.all(),
+            'holder': holder,
+            'designs': business.voucher_designs.all(),
+            'params': params.urlencode(),
+            'open_missing_count': len(open_missing_reports),
+        },
+    )
 
 
 @login_required
@@ -181,10 +302,83 @@ def delete_expired(request):
 
 @login_required
 def batches(request):
-    return render(request,'core/batches.html',{'agents':b(request).agents.filter(active=True),'methods':[m for m in PAYMENT_METHODS if m[0]!='auto'],
-        'batches':b(request).batches.select_related('plan','agent').annotate(actual=Count('vouchers'),left=Count('vouchers',filter=Q(vouchers__sold_at__isnull=True,vouchers__used_at__isnull=True,vouchers__status='active')),
-        sold=Count('vouchers',filter=Q(vouchers__sold_at__isnull=False)),used=Count('vouchers',filter=Q(vouchers__used_at__isnull=False))).order_by('-created_at'),
-        'designs':b(request).voucher_designs.all()})
+    from .models_missing import MissingVoucherReport
+
+    business = b(request)
+
+    batch_rows = list(
+        business.batches
+        .select_related('plan', 'agent')
+        .annotate(
+            actual=Count('vouchers'),
+            left=Count(
+                'vouchers',
+                filter=Q(
+                    vouchers__sold_at__isnull=True,
+                    vouchers__used_at__isnull=True,
+                    vouchers__status='active',
+                ),
+            ),
+            sold=Count(
+                'vouchers',
+                filter=Q(vouchers__sold_at__isnull=False),
+            ),
+            used=Count(
+                'vouchers',
+                filter=Q(vouchers__used_at__isnull=False),
+            ),
+        )
+        .order_by('-created_at')
+    )
+
+    open_reports = list(
+        MissingVoucherReport.objects
+        .filter(
+            business=business,
+            status='open',
+            batch__isnull=False,
+        )
+        .select_related('batch')
+        .order_by('-reported_at')
+    )
+
+    latest_by_batch = {}
+    missing_codes_by_batch = {}
+
+    for report in open_reports:
+        latest_by_batch.setdefault(report.batch_id, report)
+
+        code_set = missing_codes_by_batch.setdefault(
+            report.batch_id,
+            set(),
+        )
+        code_set.update(
+            str(code).strip().upper()
+            for code in (report.voucher_codes or [])
+            if code
+        )
+
+    for batch in batch_rows:
+        batch.missing_report = latest_by_batch.get(batch.id)
+        batch.missing_count = len(
+            missing_codes_by_batch.get(batch.id, set())
+        )
+
+    return render(
+        request,
+        'core/batches.html',
+        {
+            'agents': business.agents.filter(active=True),
+            'methods': [
+                m for m in PAYMENT_METHODS
+                if m[0] != 'auto'
+            ],
+            'batches': batch_rows,
+            'designs': business.voucher_designs.all(),
+        },
+    )
+
+
 
 
 @login_required
@@ -520,17 +714,17 @@ def _router_rows(business,method):
 
 @login_required
 def active_users(request):
+    from .models_missing import MissingVoucherReport
+
     business = b(request)
 
-    # Get the live sessions directly from all MikroTik routers.
-    rows, errors = _router_rows(business, 'active_users')
+    # Live sessions directly from all MikroTik routers.
+    rows, errors = _router_rows(
+        business,
+        'active_users',
+    )
 
-    # ---------------------------------------------------------
-    # Collect all usernames currently online.
-    #
-    # For TapTap voucher users, RouterOS "user" is normally
-    # the voucher code.
-    # ---------------------------------------------------------
+    # RouterOS HotSpot "user" is normally the TapTap voucher code.
     usernames = {
         str(row.get('user') or '').strip()
         for row in rows
@@ -542,32 +736,25 @@ def active_users(request):
         for username in usernames
     }
 
-    # ---------------------------------------------------------
-    # Match live RouterOS users to TapTap vouchers.
-    #
-    # Voucher.plan_name is the authoritative TapTap plan name.
-    # ---------------------------------------------------------
     voucher_map = {}
 
     if usernames_upper:
-        vouchers = business.vouchers.filter(
-            code__in=usernames_upper
-        ).select_related(
-            'router',
-            'batch',
-            'agent',
+        vouchers = (
+            business.vouchers
+            .filter(code__in=usernames_upper)
+            .select_related(
+                'router',
+                'batch',
+                'agent',
+            )
         )
 
         for voucher in vouchers:
-            voucher_map[str(voucher.code).strip().upper()] = voucher
+            voucher_map[
+                str(voucher.code).strip().upper()
+            ] = voucher
 
-    # ---------------------------------------------------------
-    # Fallback:
-    # A user may exist directly on MikroTik without having a
-    # TapTap Voucher record.
-    #
-    # In that case we show the MikroTik HotSpot profile.
-    # ---------------------------------------------------------
+    # Fallback for router-only users.
     router_ids = {
         row.get('router_id')
         for row in rows
@@ -577,36 +764,65 @@ def active_users(request):
     hotspot_user_map = {}
 
     if router_ids and usernames:
-        hotspot_users = RouterHotspotUser.objects.filter(
-            business=business,
-            router_id__in=router_ids,
-            username__in=usernames,
-        ).select_related('router')
+        hotspot_users = (
+            RouterHotspotUser.objects
+            .filter(
+                business=business,
+                router_id__in=router_ids,
+                username__in=usernames,
+            )
+            .select_related('router')
+        )
 
         for hotspot_user in hotspot_users:
             hotspot_user_map[
                 (
                     hotspot_user.router_id,
-                    str(hotspot_user.username).strip().upper()
+                    str(hotspot_user.username).strip().upper(),
                 )
             ] = hotspot_user
 
-    # ---------------------------------------------------------
-    # Enrich every live RouterOS session.
-    # ---------------------------------------------------------
+    # Open missing-voucher codes.
+    missing_codes = set()
+
+    open_missing_reports = (
+        MissingVoucherReport.objects
+        .filter(
+            business=business,
+            status='open',
+        )
+        .only('voucher_codes')
+    )
+
+    for report in open_missing_reports:
+        missing_codes.update(
+            str(code).strip().upper()
+            for code in (report.voucher_codes or [])
+            if code
+        )
+
     for row in rows:
-        username = str(row.get('user') or '').strip()
+        username = str(
+            row.get('user') or ''
+        ).strip()
+
         username_key = username.upper()
         router_id = row.get('router_id')
 
-        voucher = voucher_map.get(username_key)
-
-        hotspot_user = hotspot_user_map.get(
-            (router_id, username_key)
+        voucher = voucher_map.get(
+            username_key
         )
 
-        # Defaults
+        hotspot_user = hotspot_user_map.get(
+            (
+                router_id,
+                username_key,
+            )
+        )
+
+        # Defaults.
         row['plan_name'] = ''
+        row['batch_name'] = ''
         row['plan_duration_hours'] = ''
         row['plan_max_devices'] = ''
         row['plan_price'] = ''
@@ -618,102 +834,138 @@ def active_users(request):
         row['voucher_used_at'] = ''
         row['voucher_expires_at'] = ''
         row['rate_limit'] = ''
+        row['hotspot_profile'] = ''
+        row['hotspot_limit_uptime'] = ''
 
-        # -----------------------------------------------------
-        # TapTap voucher
-        # -----------------------------------------------------
         if voucher:
-            row['plan_name'] = voucher.plan_name or ''
-            row['plan_duration_hours'] = voucher.duration_hours or ''
-            row['plan_max_devices'] = voucher.max_devices or ''
-            row['plan_price'] = voucher.price
-            row['plan_source'] = 'TapTap voucher'
+            row['plan_name'] = (
+                voucher.plan_name or ''
+            )
 
-            row['customer_name'] = voucher.customer_name or ''
-            row['customer_phone'] = voucher.customer_phone or ''
+            row['batch_name'] = (
+                voucher.batch.name
+                if voucher.batch
+                else ''
+            )
 
-            row['voucher_status'] = voucher.status or ''
-            row['voucher_source'] = voucher.source or ''
+            row['plan_duration_hours'] = (
+                voucher.duration_hours or ''
+            )
 
-            row['voucher_used_at'] = voucher.used_at
-            row['voucher_expires_at'] = voucher.expires_at
+            row['plan_max_devices'] = (
+                voucher.max_devices or ''
+            )
 
-            row['rate_limit'] = voucher.rate_limit or ''
+            row['plan_price'] = (
+                voucher.price
+            )
 
-        # -----------------------------------------------------
-        # Router-only user
-        # -----------------------------------------------------
+            row['plan_source'] = (
+                'TapTap voucher'
+            )
+
+            row['customer_name'] = (
+                voucher.customer_name or ''
+            )
+
+            row['customer_phone'] = (
+                voucher.customer_phone or ''
+            )
+
+            row['voucher_status'] = (
+                voucher.status or ''
+            )
+
+            row['voucher_source'] = (
+                voucher.source or ''
+            )
+
+            row['voucher_used_at'] = (
+                voucher.used_at
+            )
+
+            row['voucher_expires_at'] = (
+                voucher.expires_at
+            )
+
+            row['rate_limit'] = (
+                voucher.rate_limit or ''
+            )
+
         elif hotspot_user:
-            row['plan_name'] = hotspot_user.profile or ''
-            row['plan_source'] = 'MikroTik profile'
+            row['plan_name'] = (
+                hotspot_user.profile or ''
+            )
 
-            # Useful information from the synchronized
-            # MikroTik HotSpot user record.
-            row['rate_limit'] = ''
-            row['hotspot_profile'] = hotspot_user.profile or ''
+            row['plan_source'] = (
+                'MikroTik profile'
+            )
+
+            row['hotspot_profile'] = (
+                hotspot_user.profile or ''
+            )
+
             row['hotspot_limit_uptime'] = (
                 hotspot_user.limit_uptime or ''
             )
 
-        else:
-            row['hotspot_profile'] = ''
-            row['hotspot_limit_uptime'] = ''
+        row['missing_reported'] = (
+            username_key in missing_codes
+        )
 
-        # -----------------------------------------------------
-        # Normalize live RouterOS byte counters.
-        #
-        # RouterOS /ip/hotspot/active normally returns:
-        # bytes-in
-        # bytes-out
-        #
-        # _router_rows() converts those keys to:
-        # bytes_in
-        # bytes_out
-        # -----------------------------------------------------
+        # Normalize RouterOS byte counters.
         try:
-            bytes_in = int(row.get('bytes_in') or 0)
+            bytes_in = int(
+                row.get('bytes_in') or 0
+            )
         except (TypeError, ValueError):
             bytes_in = 0
 
         try:
-            bytes_out = int(row.get('bytes_out') or 0)
+            bytes_out = int(
+                row.get('bytes_out') or 0
+            )
         except (TypeError, ValueError):
             bytes_out = 0
 
         row['bytes_in'] = bytes_in
         row['bytes_out'] = bytes_out
-        row['bytes_total'] = bytes_in + bytes_out
+        row['bytes_total'] = (
+            bytes_in + bytes_out
+        )
 
-        # Raw MB / GB values are also available to the template
-        # or future CSV/server-side exports.
         row['download_mb'] = round(
             bytes_in / (1024 * 1024),
-            2
+            2,
         )
 
         row['upload_mb'] = round(
             bytes_out / (1024 * 1024),
-            2
+            2,
         )
 
         row['total_mb'] = round(
-            row['bytes_total'] / (1024 * 1024),
-            2
+            row['bytes_total']
+            / (1024 * 1024),
+            2,
         )
 
         row['download_gb'] = round(
-            bytes_in / (1024 * 1024 * 1024),
-            3
+            bytes_in
+            / (1024 * 1024 * 1024),
+            3,
         )
 
         row['upload_gb'] = round(
-            bytes_out / (1024 * 1024 * 1024),
-            3
+            bytes_out
+            / (1024 * 1024 * 1024),
+            3,
         )
 
         row['total_gb'] = round(
-            row['bytes_total'] / (1024 * 1024 * 1024),
-            3
+            row['bytes_total']
+            / (1024 * 1024 * 1024),
+            3,
         )
 
     return render(
@@ -722,8 +974,9 @@ def active_users(request):
         {
             'rows': rows,
             'errors': errors,
-        }
+        },
     )
+
 
 @login_required
 def disconnect_user(request):

@@ -215,6 +215,7 @@
         <tr>
           <th>User / Voucher</th>
           <th>Plan</th>
+          <th>Batch</th>
           <th>IP Address</th>
           <th>MAC Address</th>
           <th>Uptime</th>
@@ -231,9 +232,11 @@
           role="button"
           aria-expanded="false"
           data-detail-id="detail-{{ forloop.counter }}"
-          data-search="{{ x.user|default:'' }} {{ x.plan_name|default:'' }} {{ x.address|default:'' }} {{ x.mac_address|default:'' }} {{ x.router_name|default:'' }} {{ x.server|default:'' }} {{ x.login_by|default:'' }}"
+          data-search="{{ x.user|default:'' }} {{ x.plan_name|default:'' }} {{ x.batch_name|default:'' }} {{ x.address|default:'' }} {{ x.mac_address|default:'' }} {{ x.router_name|default:'' }} {{ x.server|default:'' }} {{ x.login_by|default:'' }}"
           data-user="{{ x.user|default:'' }}"
           data-plan="{{ x.plan_name|default:'' }}"
+          data-batch="{{ x.batch_name|default:'' }}"
+          data-missing="{{ x.missing_reported|yesno:'Yes,No' }}"
           data-ip="{{ x.address|default:'' }}"
           data-mac="{{ x.mac_address|default:'' }}"
           data-uptime="{{ x.uptime|default:'' }}"
@@ -253,6 +256,9 @@
               </span>
               <div>
                 <b>{{ x.user|default:'—' }}</b>
+                {% if x.missing_reported %}
+                  <span class="badge text-bg-danger ms-1">Reported missing</span>
+                {% endif %}
                 <small>
                   {% if x.login_by %}{{ x.login_by }}{% else %}HotSpot session{% endif %}
                 </small>
@@ -267,6 +273,8 @@
               <span class="text-secondary">—</span>
             {% endif %}
           </td>
+
+          <td>{{ x.batch_name|default:'—' }}</td>
 
           <td>{{ x.address|default:'—' }}</td>
           <td><code>{{ x.mac_address|default:'—' }}</code></td>
@@ -295,7 +303,7 @@
         </tr>
 
         <tr class="details-row" id="detail-{{ forloop.counter }}" hidden>
-          <td colspan="8">
+          <td colspan="9">
             <div class="session-details">
               <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
                 <div>
@@ -340,6 +348,22 @@
                 <div class="detail-card">
                   <span class="label">Plan</span>
                   <span class="value">{{ x.plan_name|default:'—' }}</span>
+                </div>
+
+                <div class="detail-card">
+                  <span class="label">Batch</span>
+                  <span class="value">{{ x.batch_name|default:'—' }}</span>
+                </div>
+
+                <div class="detail-card">
+                  <span class="label">Missing voucher report</span>
+                  <span class="value">
+                    {% if x.missing_reported %}
+                      <span class="badge text-bg-danger">Reported missing</span>
+                    {% else %}
+                      <span class="text-secondary">No open report</span>
+                    {% endif %}
+                  </span>
                 </div>
 
                 <div class="detail-card">
@@ -447,7 +471,7 @@
         </tr>
       {% empty %}
         <tr>
-          <td colspan="8" class="empty-table">No live sessions returned.</td>
+          <td colspan="9" class="empty-table">No live sessions returned.</td>
         </tr>
       {% endfor %}
       </tbody>
@@ -599,6 +623,8 @@
       return {
         'User / Voucher': row.dataset.user || '',
         'Plan': row.dataset.plan || '',
+        'Batch': row.dataset.batch || '',
+        'Reported Missing': row.dataset.missing || 'No',
         'IP Address': row.dataset.ip || '',
         'MAC Address': row.dataset.mac || '',
         'Uptime': row.dataset.uptime || '',

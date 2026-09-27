@@ -603,3 +603,5 @@ class SessionIncident(models.Model):
         ordering=['-last_seen']
         indexes=[models.Index(fields=['business','status'],name='incident_business_status_idx')]
     def __str__(self): return f'{self.username} on {self.router}: {self.get_reason_display()}'
+
+from .models_missing import MissingVoucherReport

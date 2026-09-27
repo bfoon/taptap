@@ -1,0 +1,159 @@
+{% extends 'core/base.html' %}
+{% block title %}Missing Vouchers — TapTap{% endblock %}
+{% block heading %}Missing Voucher Reports{% endblock %}
+
+{% block content %}
+<div class="page-actions">
+  <div>
+    <h2 class="section-title">Missing voucher control</h2>
+    <p>Track single vouchers, groups of vouchers, or entire batches that are missing. Keep the action taken or planned with the report.</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-outline-secondary" href="{% url 'batches' %}"><i class="bi bi-collection"></i> Batches</a>
+    <a class="btn btn-primary" href="{% url 'vouchers' %}"><i class="bi bi-ticket-perforated"></i> Vouchers</a>
+  </div>
+</div>
+
+<div class="panel mb-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h5 class="mb-1">Open reports</h5>
+      <p class="text-secondary small mb-0">These reports still need follow-up or closure.</p>
+    </div>
+    <span class="badge text-bg-danger">{{ open_reports|length }} open</span>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr>
+          <th>Report</th>
+          <th>Batch</th>
+          <th>Vouchers</th>
+          <th>What happened</th>
+          <th>Action</th>
+          <th>Reported</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in open_reports %}
+        <tr>
+          <td>
+            <b>#{{ r.id }}</b>
+            <small class="d-block text-secondary">{{ r.get_report_type_display }}</small>
+            {% if r.reference %}<small class="d-block">Ref: {{ r.reference }}</small>{% endif %}
+          </td>
+          <td>{{ r.batch.name|default:'—' }}</td>
+          <td>
+            <b>{{ r.voucher_count }}</b>
+            <div class="small text-secondary mt-1">
+              {% for code in r.voucher_codes|slice:":8" %}
+                <code>{{ code }}</code>{% if not forloop.last %}, {% endif %}
+              {% endfor %}
+              {% if r.voucher_count > 8 %}<span>… +{{ r.voucher_count|add:"-8" }} more</span>{% endif %}
+            </div>
+          </td>
+          <td>{{ r.details|default:'—'|linebreaksbr }}</td>
+          <td>
+            <span class="badge {% if r.action_state == 'done' %}text-bg-success{% else %}text-bg-warning{% endif %}">
+              {{ r.get_action_state_display }}
+            </span>
+            <div class="small mt-1">{{ r.action_notes|default:'—'|linebreaksbr }}</div>
+          </td>
+          <td>
+            {{ r.reported_at|date:'d M Y H:i' }}
+            {% if r.reported_by %}<small class="d-block text-secondary">by {{ r.reported_by.get_full_name|default:r.reported_by.username }}</small>{% endif %}
+          </td>
+          <td class="text-end">
+            <button class="btn btn-sm btn-outline-success"
+                    data-bs-toggle="modal"
+                    data-bs-target="#resolveModal"
+                    data-id="{{ r.id }}"
+                    data-label="Report #{{ r.id }}">
+              Resolve
+            </button>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="7" class="empty-table">No open missing voucher reports.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="mb-3">
+    <h5 class="mb-1">Resolved reports</h5>
+    <p class="text-secondary small mb-0">Recent closed missing-voucher cases.</p>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr>
+          <th>Report</th>
+          <th>Batch</th>
+          <th>Vouchers</th>
+          <th>Original action</th>
+          <th>Resolution</th>
+          <th>Resolved</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for r in resolved_reports %}
+        <tr>
+          <td><b>#{{ r.id }}</b><small class="d-block text-secondary">{{ r.get_report_type_display }}</small></td>
+          <td>{{ r.batch.name|default:'—' }}</td>
+          <td>{{ r.voucher_count }}</td>
+          <td>{{ r.action_notes|default:'—'|linebreaksbr }}</td>
+          <td>{{ r.resolution_notes|default:'—'|linebreaksbr }}</td>
+          <td>
+            {{ r.resolved_at|date:'d M Y H:i' }}
+            {% if r.resolved_by %}<small class="d-block text-secondary">by {{ r.resolved_by.get_full_name|default:r.resolved_by.username }}</small>{% endif %}
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="6" class="empty-table">No resolved reports yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="modal fade" id="resolveModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{% url 'missing_vouchers' %}">
+      <div class="modal-header border-0">
+        <h5 class="modal-title fw-bold">Resolve <span data-label></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body pt-0">
+        <label class="form-label fw-semibold">Resolution / final action</label>
+        <textarea class="form-control" name="resolution_notes" rows="4" placeholder="Example: voucher found and returned; codes disabled; replacement vouchers issued; police report completed..."></textarea>
+      </div>
+      <div class="modal-footer border-0">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-success">Mark resolved</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const modal = document.getElementById('resolveModal');
+  if (!modal) return;
+  modal.addEventListener('show.bs.modal', function (e) {
+    const b = e.relatedTarget;
+    modal.querySelector('[data-label]').textContent = b.dataset.label || '';
+    modal.querySelector('form').action = '/vouchers/missing/' + b.dataset.id + '/resolve/';
+  });
+})();
+</script>
+{% endblock %}

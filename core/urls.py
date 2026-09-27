@@ -1,13 +1,13 @@
 from django.urls import path
 from . import views, views_business as vb, views_studio as vs, views_wan as vw, views_agents as va
-
-from . import views_ads, views_ports, views_live
+from . import views_ads, views_ports, views_live, views_missing as vm
 
 urlpatterns = [
     path('',views.home,name='home'), path('register/',views.register,name='register'), path('login/',views.login_view,name='login'), path('logout/',views.logout_view,name='logout'),
     path('dashboard/',views.dashboard,name='dashboard'), path('subscription/',views.subscription,name='subscription'), path('subscription/select/<str:code>/',views.subscription_select,name='subscription_select'),
     path('vouchers/',views.vouchers,name='vouchers'), path('vouchers/generate/',views.generate_vouchers,name='generate_vouchers'), path('vouchers/<int:pk>/disable/',views.disable_voucher,name='disable_voucher'), path('vouchers/<int:pk>/reset-mac/',views.reset_mac,name='reset_mac'), path('vouchers/delete-expired/',views.delete_expired,name='delete_expired'),
-    path('batches/',views.batches,name='batches'), path('plans/',views.plans,name='plans'), path('plans/<int:pk>/update/',views.plan_update,name='plan_update'),
+    path('vouchers/missing/',vm.missing_vouchers,name='missing_vouchers'), path('vouchers/missing/report/',vm.report_missing_vouchers,name='report_missing_vouchers'), path('vouchers/missing/<int:pk>/resolve/',vm.resolve_missing_report,name='resolve_missing_report'),
+    path('batches/',views.batches,name='batches'), path('batches/<int:pk>/missing/report/',vm.report_missing_batch,name='report_missing_batch'), path('plans/',views.plans,name='plans'), path('plans/<int:pk>/update/',views.plan_update,name='plan_update'),
     path('routers/',views.routers,name='routers'), path('routers/inventory/',views.router_inventory,name='router_inventory'), path('routers/sync-all/',views.routers_sync_all,name='routers_sync_all'), path('routers/sync-status/',views.router_sync_status,name='router_sync_status'),
     path('routers/<int:pk>/sync/',views.router_sync,name='router_sync'), path('routers/<int:pk>/test/',views.router_test,name='router_test'), path('routers/<int:pk>/delete/',views.router_delete,name='router_delete'),
     path('routers/<int:pk>/control/',views.router_control,name='router_control'), path('routers/<int:pk>/control/refresh/',views.router_config_refresh,name='router_config_refresh'),
