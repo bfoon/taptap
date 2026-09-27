@@ -27,7 +27,7 @@
 {% for snap in snapshots %}
 <section class="panel topology-router-panel mb-4" id="router-{{ snap.router.id }}">
   <div class="router-topology-head">
-    <div class="router-identity"><div class="router-symbol xl"><i class="bi bi-router"></i></div><div><h3>{{ snap.router.name }}</h3><p>{{ snap.router.ip_address }}:{{ snap.router.api_port }}{% if snap.router.use_ssl %} · api-ssl{% endif %}</p></div></div>
+    <div class="router-identity"><div class="router-symbol xl"><i class="bi bi-router"></i></div><div><h3>{{ snap.router.name }}</h3><p>{% if snap.router.connection_mode == 'agent' %}via TapTap Link{% else %}{{ snap.router.ip_address }}:{{ snap.router.api_port }}{% if snap.router.use_ssl %} · api-ssl{% endif %}{% endif %}</p></div></div>
     <div class="topology-health"><span class="status-dot {% if snap.router.status == 'Online' %}online{% endif %}"><i class="bi bi-circle-fill"></i> {{ snap.router.status }}</span>{% if snap.captured_at %}<small>Last discovery {{ snap.captured_at|date:'M j, H:i:s' }}</small>{% endif %}<a class="btn btn-sm btn-dark mt-2" href="{% url 'router_control' snap.router.id %}"><i class="bi bi-sliders"></i> Control Center</a></div>
   </div>
   {% if snap.error %}<div class="alert alert-warning py-2"><i class="bi bi-exclamation-triangle"></i> {{ snap.error }}</div>{% endif %}

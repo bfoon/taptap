@@ -131,6 +131,19 @@ def scan(router):
     before = _online_map(router, bypassed)
     refresh_router_topology(router, timeout=getattr(settings, 'MIKROTIK_TIMEOUT', 10))
     after = _online_map(router, bypassed)
+    return apply_changes(router, before, after)
+
+
+def online_snapshot(router):
+    """Who is online right now (used by TapTap Link syncs to compare before/after)."""
+    bypassed = set(SyncedIPBinding.objects.filter(router=router, binding_type='bypassed', disabled=False).values_list('mac_address', flat=True))
+    return _online_map(router, bypassed)
+
+
+def apply_changes(router, before, after):
+    """Turn a before/after comparison into confirmed offline / back-online alerts."""
+    from .live import push_event
+    business = router.business
     now = timezone.now()
     rules = list(ensure_default_rules(business))
     pkey, akey = f'tt:pres:pending:{router.pk}', f'tt:pres:alerted:{router.pk}'

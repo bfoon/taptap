@@ -41,6 +41,7 @@ SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
     'hotspot_user_set', 'hotspot_user_remove', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update',
+    'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat',
 }
 ACK_WAIT = {'inventory_piece': 600, 'backup': 300, 'hotspot_users': 300, 'self_update': 300}   # seconds before a resend
 NAME_RE = re.compile(r'^[\w.@:+/<>-]{1,64}$')
@@ -88,20 +89,24 @@ def rs(value):
     return f'"{v}"'
 
 
-SCRIPT_VERSION = 2   # bump when the router-side heartbeat changes; routers upgrade themselves
+SCRIPT_VERSION = 3   # bump when the router-side heartbeat changes; routers upgrade themselves
 
 
 def agent_script(url, token, check):
     """The RouterOS heartbeat installed as ``taptap-link`` (runs every few seconds).
 
-    v2: the heartbeat only reports and fetches. Commands TapTap sends back run in a
-    separate background job (:execute), so a long command (inventory upload, backup)
-    never delays or blocks the next check-in. The overlap guard counts real running
-    jobs, so it cannot get stuck (the v1 global flag could, until a reboot).
+    v3: the heartbeat only reports (health, live sessions, interface counters) and
+    fetches. Commands run in a separate background job (:execute). Check-ins never
+    skip each other — a long or hung command cannot stop the router reporting (v1's
+    global flag and v2's job-count guard both could, until the jobs were removed).
+    If jobs ever pile up, the heartbeat clears them and recovers by itself.
     """
-    return f''':if ([:len [/system script job find where script="taptap-link"]] > 1) do={{
-  :log warning "TapTap Link: previous check-in still running, skipping"
-}} else={{
+    return f'''# Self-healing: check-ins never skip each other. If jobs ever pile up (a hung fetch or
+# command), clear them all; the next check-in 10 s later starts clean.
+:if ([:len [/system script job find where script="taptap-link"]] > 5) do={{
+  :log warning "TapTap Link: clearing stuck jobs"
+  /system script job remove [find where script="taptap-link"]
+}}
 :do {{
   :local url {rs(url + "/api/agent/v1")}
   :local tok {rs(token)}
@@ -120,7 +125,16 @@ def agent_script(url, token, check):
       :set n ($n + 1)
     }}
   }}
-  :local body ("id=" . [/system identity get name] . "&ver=" . $ver . "&up=" . $up . "&cpu=" . $cpu . "&mf=" . $mf . "&mt=" . $mt . "&board=" . $board . "&n=" . [:len [/ip hotspot active find]] . "&sv={SCRIPT_VERSION}&act=" . $a)
+  :local ic ""
+  :local m 0
+  :foreach i in=[/interface find where running=yes] do={{
+    :if ($m < 60) do={{
+      :local f [/interface get $i]
+      :set ic ($ic . ($f->"name") . "," . ($f->"rx-byte") . "," . ($f->"tx-byte") . ";")
+      :set m ($m + 1)
+    }}
+  }}
+  :local body ("id=" . [/system identity get name] . "&ver=" . $ver . "&up=" . $up . "&cpu=" . $cpu . "&mf=" . $mf . "&mt=" . $mt . "&board=" . $board . "&n=" . [:len [/ip hotspot active find]] . "&sv={SCRIPT_VERSION}&ifc=" . $ic . "&act=" . $a)
   :local res [/tool fetch url=($url . "/poll") http-method=post http-data=$body http-header-field=("Authorization: Bearer " . $tok) output=user as-value check-certificate={check} duration=8s idle-timeout=5s]
   :if (($res->"status") = "finished") do={{
     :local cmd ($res->"data")
@@ -128,7 +142,6 @@ def agent_script(url, token, check):
   }}
 }} on-error={{
   :log warning "TapTap Link: cannot reach TapTap"
-}}
 }}
 '''
 
@@ -273,15 +286,39 @@ def command_body(cmd):
         return f'/ip hotspot active remove [find user={name("user")}]'
     if k == 'binding_set':
         return f'/ip hotspot ip-binding set [find mac-address={name("mac")}] disabled={"no" if p.get("enabled") else "yes"}'
+    if k == 'binding_upsert':
+        f = f'type={p.get("type", "bypassed")} server={rs(p.get("server") or "all")} comment={rs(p.get("comment", "TapTap"))} disabled={"yes" if p.get("disabled") else "no"}'
+        if p.get('address'):
+            f += f' address={rs(p["address"])}'
+        return (f':if ([:len [/ip hotspot ip-binding find mac-address={name("mac")}]] = 0) do={{ /ip hotspot ip-binding add mac-address={name("mac")} {f} }} '
+                f'else={{ /ip hotspot ip-binding set [find mac-address={name("mac")}] {f} }}')
+    if k == 'security_fix':
+        from .mikrotik import MikroTikService
+        path, lookup, fields, _label = MikroTikService.SECURITY_FIXES[p['key']]
+        menu = path.strip('/').replace('/', ' ')
+        vals = ' '.join(f'{kk}={vv}' for kk, vv in fields.items())
+        if lookup:
+            (lk, lv), = lookup.items()
+            return f'/{menu} set [find {lk}={rs(lv)}] {vals}'
+        return f'/{menu} set {vals}'
+    if k == 'bridge_port':
+        if p.get('bridge'):
+            return (f':if ([:len [/interface bridge port find interface={name()}]] = 0) do={{ /interface bridge port add interface={name()} bridge={rs(p["bridge"])} }} '
+                    f'else={{ /interface bridge port set [find interface={name()}] bridge={rs(p["bridge"])} }}')
+        return f'/interface bridge port remove [find interface={name()}]'
+    if k == 'wan_dhcp_nat':
+        return (f':if ([:len [/interface bridge port find interface={name()}]] > 0) do={{ /interface bridge port remove [find interface={name()}] }}; '
+                f':if ([:len [/ip dhcp-client find interface={name()}]] = 0) do={{ /ip dhcp-client add interface={name()} disabled=no comment="TapTap WAN" }}; '
+                f':if ([:len [/ip firewall nat find chain=srcnat action=masquerade out-interface={name()}]] = 0) do={{ /ip firewall nat add chain=srcnat action=masquerade out-interface={name()} comment="TapTap WAN" }}')
     if k == 'binding_remove':
         return f'/ip hotspot ip-binding remove [find mac-address={name("mac")}]'
     if k == 'limit':
-        q = rs(f'TapTap limit {p["name"]}')
+        q = rs(p.get('queue') or f'TapTap limit {p["name"]}')
         lim = rs(f'{int(float(p.get("up", 0)) * 1000)}k/{int(float(p.get("down", 0)) * 1000)}k')
         return (f':if ([:len [/queue simple find name={q}]] = 0) do={{ /queue simple add name={q} target={name()} max-limit={lim} comment="Managed by TapTap" }} '
                 f'else={{ /queue simple set [find name={q}] target={name()} max-limit={lim} }}')
     if k == 'unlimit':
-        return f'/queue simple remove [find name={rs("TapTap limit " + p["name"])}]'
+        return f'/queue simple remove [find name={rs(p.get("queue") or ("TapTap limit " + p["name"]))}]'
     if k == 'backup':
         b = rs(p['file'])
         return f':do {{ /system backup save name={b} dont-encrypt=yes }} on-error={{ /system backup save name={b} }}; /export file={b}'
@@ -323,6 +360,14 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
             raise ValueError(f'Invalid {key}.')
     if params and 'mac' in params and not MAC_RE.match(str(params['mac'])):
         raise ValueError('Invalid MAC address.')
+    if kind == 'security_fix':
+        from .mikrotik import MikroTikService
+        if (params or {}).get('key') not in MikroTikService.SECURITY_FIXES:
+            raise ValueError('Unknown security fix.')
+    if kind == 'binding_upsert' and (params or {}).get('type', 'bypassed') not in ('bypassed', 'regular', 'blocked'):
+        raise ValueError('Invalid binding type.')
+    if kind == 'bridge_port' and (params or {}).get('bridge') and not NAME_RE.match(str(params['bridge'])):
+        raise ValueError('Invalid bridge name.')
     mins = minutes or DEFAULT_EXPIRY.get(kind, 60)
     cmd = AgentCommand.objects.create(
         router=router,
@@ -419,11 +464,27 @@ def handle_poll(agent, data, ip, url):
             and not AgentCommand.objects.filter(router=router, kind='self_update', status__in=['queued', 'sent']).exists()):
         queue(router, 'self_update', {'to': SCRIPT_VERSION}, label=f'Update TapTap Link on the router to v{SCRIPT_VERSION}', minutes=30)
     try:
+        link_guards(router, now)
+    except Exception as exc:
+        logger.info('link traffic guard %s: %s', router, exc)
+    try:
+        link_expiries(router, now)
+    except Exception as exc:
+        logger.info('link binding expiry %s: %s', router, exc)
+    try:
         auto_sync(router, first)
     except Exception as exc:
         logger.info('link auto-sync %s: %s', router, exc)
+    rows = parse_sessions(data.get('act', ''))
     try:
-        ingest_sessions(router, parse_sessions(data.get('act', '')), now)
+        from .linklive import ingest_counters, store_sessions
+        store_sessions(router, rows)
+        if data.get('ifc'):
+            ingest_counters(router, data.get('ifc'), now)
+    except Exception as exc:
+        logger.info('link counters %s: %s', router, exc)
+    try:
+        ingest_sessions(router, rows, now)
     except Exception as exc:
         logger.info('session ingest %s: %s', router, exc)
     try:
@@ -431,6 +492,66 @@ def handle_poll(agent, data, ip, url):
     except Exception as exc:
         logger.info('voucher push %s: %s', router, exc)
     return build_response(router, url)
+
+
+def link_guards(router, now):
+    """Traffic guard for Link routers, driven by the speeds reported in each heartbeat."""
+    from .linklive import rates
+    from .live import push_event
+    from .models import PortRule
+    from .notify import notify
+    from .portctl import port_risk
+    rules = list(PortRule.objects.filter(router=router, kind='guard', enabled=True))
+    if not rules:
+        return
+    speeds = rates(router)
+    ts = now.timestamp()
+    for r in rules:
+        qname = f'TapTap guard {r.interface}'
+        if r.active:
+            if r.restore_at and now >= r.restore_at:
+                if r.action == 'throttle':
+                    queue(router, 'unlimit', {'name': r.interface, 'queue': qname}, label=f'Traffic guard on {r.interface}: back to normal', minutes=60)
+                PortRule.objects.filter(pk=r.pk).update(active=False, restore_at=None)
+                cache.delete(f'tt:guard:over:{r.pk}')
+                push_event(router.business_id, f'Traffic guard on {router.name} {r.interface}: back to normal')
+            continue
+        sp = speeds.get(r.interface)
+        if not sp:
+            continue
+        # On a LAN port the router sends the devices' downloads (tx) and receives their uploads (rx).
+        down, up = sp['tx_bps'], sp['rx_bps']
+        speed = max(down, up) if r.direction == 'any' else (down if r.direction == 'down' else up)
+        okey = f'tt:guard:over:{r.pk}'
+        if speed < r.threshold_mbps * 1e6:
+            cache.delete(okey); continue
+        since = cache.get(okey) or ts
+        cache.set(okey, since, 3600)
+        if ts - since < r.sustain_seconds:
+            continue
+        action = 'throttle' if (r.action == 'shutdown' and port_risk(router, r.interface)) else r.action
+        if action == 'throttle':
+            queue(router, 'limit', {'name': r.interface, 'queue': qname, 'down': r.throttle_mbps, 'up': r.throttle_mbps},
+                  label=f'Traffic guard: slow {r.interface} to {r.throttle_mbps:g} Mb/s', minutes=15)
+            what = f'slowed to {r.throttle_mbps:g} Mb/s'
+        else:
+            queue(router, 'port_off_for', {'name': r.interface, 'minutes': r.hold_minutes}, label=f'Traffic guard: {r.interface} off for {r.hold_minutes} min', minutes=15)
+            what = 'switched off'
+        PortRule.objects.filter(pk=r.pk).update(active=True, triggered_at=now, restore_at=now + timedelta(minutes=r.hold_minutes),
+                                                times_triggered=r.times_triggered + 1, last_error='')
+        push_event(router.business_id, f'Traffic guard: {router.name} {r.interface} reached {speed / 1e6:.1f} Mb/s — {what} for {r.hold_minutes} min', 'bad')
+        notify(router.business, 'traffic_guard', f'Traffic guard on {router.name} {r.interface}',
+               f'{r.interface} reached {speed / 1e6:.1f} Mb/s and was {what} for {r.hold_minutes} minutes. It is restored automatically.', link='/topology/', key=f'guard:{r.pk}')
+
+
+def link_expiries(router, now):
+    """Timed IP-binding access that ran out: switch it off through the Link."""
+    from .models import IPBindingAccessExpiry, SyncedIPBinding
+    for exp in IPBindingAccessExpiry.objects.filter(router=router, expires_at__lte=now):
+        if exp.mac_address:
+            queue(router, 'binding_set', {'mac': exp.mac_address, 'enabled': False}, label=f'Timed access ended for {exp.mac_address}', minutes=60)
+            SyncedIPBinding.objects.filter(router=router, mac_address__iexact=exp.mac_address).update(disabled=True)
+        exp.delete()
 
 
 def auto_sync(router, first=False):

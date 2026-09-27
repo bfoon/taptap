@@ -89,7 +89,7 @@
   <div class="sec-router {% if r.sec_scanned %}g-{{ r.sec_grade }}{% else %}g-none{% endif %}" data-router="{{ r.id }}" data-rescan-url="{% url 'security_rescan' r.id %}" data-name="{{ r.name }}">
     <span class="rg" title="{% if r.sec_scanned %}Score {{ r.sec_score }} / 100{% else %}Not scanned — grade unknown{% endif %}">{% if r.sec_scanned %}{{ r.sec_grade }}{% else %}?{% endif %}</span>
     <b>{{ r.name }}</b>
-    <small>{{ r.ip_address }} · {% if r.status == 'Online' %}online{% else %}unreachable{% endif %}</small>
+    <small>{% if r.connection_mode == 'agent' %}TapTap Link{% else %}{{ r.ip_address }}{% endif %} · {% if r.status == 'Online' %}online{% else %}unreachable{% endif %}</small>
     <span class="rs">{% if r.sec_scanned %}Scanned {{ r.sec_scanned|timesince }} ago{% else %}Not scanned yet{% endif %}</span>
   </div>
   {% endfor %}

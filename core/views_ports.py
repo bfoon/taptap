@@ -107,7 +107,12 @@ def router_port(request, pk):
         'control': _control_state(router, name),
     }
 
-    if request.GET.get('live') and router.status == 'Online':
+    if request.GET.get('live') and router.connection_mode == 'agent':
+        from .linklive import link_state, rates
+        online, why = link_state(router)
+        r = rates(router, {name}).get(name) if online else None
+        data['live'] = {'at': timezone.now().isoformat(), 'transport': 'link', **(r or {})} if online else {'error': why}
+    elif request.GET.get('live') and router.status == 'Online':
         live = {'at': timezone.now().isoformat()}
         try:
             with MikroTikService(router, timeout=getattr(settings, 'MIKROTIK_LIVE_TIMEOUT', 5)) as svc:
@@ -275,8 +280,23 @@ def _port_action_via_link(request, router, name, action):
         elif action == 'unlimit':
             link.queue(router, 'unlimit', {'name': name}, label=f'Remove limit on {name}', user=request.user)
             router.port_rules.filter(interface=name, kind='limit').delete()
+        elif action in ('guard_save', 'guard_delete'):
+            if action == 'guard_delete':
+                rule = router.port_rules.filter(interface=name, kind='guard').first()
+                if rule and rule.active and rule.action == 'throttle':
+                    link.queue(router, 'unlimit', {'name': name, 'queue': f'TapTap guard {name}'}, label=f'Remove traffic guard limit on {name}', user=request.user)
+                router.port_rules.filter(interface=name, kind='guard').delete()
+                return JsonResponse({'ok': True, 'message': 'Traffic guard removed.', 'control': _control_state(router, name)})
+            if request.POST.get('guard_action') == 'shutdown' and risk:
+                return JsonResponse({'ok': False, 'message': 'This port carries the Internet, so the guard can only slow it down, not switch it off.'}, status=400)
+            PortRule.objects.update_or_create(router=router, interface=name, kind='guard', defaults={
+                'threshold_mbps': _num(request.POST.get('threshold'), 0.1, 100000, 20), 'direction': request.POST.get('direction') if request.POST.get('direction') in ('down', 'up', 'any') else 'down',
+                'sustain_seconds': int(_num(request.POST.get('sustain'), 15, 3600, 60)), 'action': 'shutdown' if request.POST.get('guard_action') == 'shutdown' else 'throttle',
+                'throttle_mbps': _num(request.POST.get('throttle'), 0.1, 100000, 2), 'hold_minutes': int(_num(request.POST.get('hold'), 1, 1440, 10)),
+                'enabled': True, 'created_by': request.user, 'last_error': ''})
+            return JsonResponse({'ok': True, 'message': 'Traffic guard saved. It checks the speed reported at every TapTap Link check-in.', 'control': _control_state(router, name)})
         else:
-            return JsonResponse({'ok': False, 'message': 'The traffic guard needs a direct API connection — it measures the port every few seconds. Use a speed limit instead.'}, status=400)
+            return JsonResponse({'ok': False, 'message': 'Unknown action.'}, status=400)
     except ValueError as exc:
         return JsonResponse({'ok': False, 'message': str(exc)}, status=400)
     return JsonResponse({'ok': True, 'message': 'Sent through TapTap Link — the router applies it at its next check-in (a few seconds).', 'control': _control_state(router, name)})

@@ -148,6 +148,11 @@ def single_voucher(request):
 
 def push_one(voucher, plan=None):
     """Put one voucher on its router straight away instead of waiting for a full sync."""
+    if voucher.router and voucher.router.connection_mode == 'agent':
+        from .agent import push_pending_vouchers
+        Voucher.objects.filter(pk=voucher.pk).update(mikrotik_sync_status='Pending', mikrotik_sync_error='')
+        push_pending_vouchers(voucher.router)
+        return True  # delivered at the router's next check-in (a few seconds)
     try:
         svc = MikroTikService(voucher.router).connect()
         try:

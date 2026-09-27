@@ -121,6 +121,23 @@ def ip_bindings(request):
                                                  server=request.POST.get('server', 'all').strip() or 'all', binding_type=kind,
                                                  comment=request.POST.get('comment', '').strip() or 'TapTap', disabled=request.POST.get('start_disabled') == 'on',
                                                  source='taptap', sync_status='Pending')
+        if r.connection_mode == 'agent':
+            from .linkops import send, QUEUED
+            try:
+                if not mac:
+                    raise ValueError('A MAC address is needed for bindings sent through TapTap Link.')
+                send(r, 'binding_upsert', {'mac': mac, 'type': kind, 'address': binding.address, 'server': binding.server,
+                                           'comment': binding.comment, 'disabled': binding.disabled}, label=f'Add binding {binding.comment or mac}', user=request.user)
+                binding.sync_status = 'Queued'; binding.save(update_fields=['sync_status', 'updated_at'])
+                hours = request.POST.get('hours')
+                if hours and hours.isdigit():
+                    IPBindingAccessExpiry.objects.update_or_create(business=business, router=r, binding_id=f'mac:{mac}',
+                                                                   defaults={'mac_address': mac, 'expires_at': timezone.now() + timedelta(hours=int(hours))})
+                messages.success(request, f'Binding for {binding.comment or mac}: {QUEUED}')
+            except ValueError as e:
+                binding.sync_status = 'Error'; binding.sync_error = str(e); binding.save(update_fields=['sync_status', 'sync_error', 'updated_at'])
+                messages.warning(request, f'Saved in TapTap but not sent: {e}')
+            return redirect('ip_bindings')
         try:
             with MikroTikService(r) as svc:
                 _, item_id = svc.upsert_binding(binding)
@@ -169,6 +186,41 @@ def _apply(svc, b, action, value=None):
     return b
 
 
+def _binding_set_via_link(request, router, group, action, value, errors):
+    """IP binding changes for a TapTap Link router: queued commands + optimistic mirror update."""
+    from .linkops import send
+    n = 0
+    for b in group:
+        try:
+            if not b.mac_address:
+                raise ValueError('no MAC address')
+            if action in ('enable', 'disable', 'timed'):
+                send(router, 'binding_set', {'mac': b.mac_address, 'enabled': action != 'disable'}, label=f'{action.capitalize()} binding {b.comment or b.mac_address}', user=request.user)
+                b.disabled = action == 'disable'
+                if action == 'timed':
+                    hours = max(1, min(24 * 90, int(value or 24)))
+                    IPBindingAccessExpiry.objects.update_or_create(business=router.business, router=router, binding_id=b.mikrotik_id or f'mac:{b.mac_address}',
+                                                                   defaults={'mac_address': b.mac_address, 'expires_at': timezone.now() + timedelta(hours=hours)})
+                else:
+                    IPBindingAccessExpiry.objects.filter(router=router, mac_address=b.mac_address).delete()
+            elif action in ('type', 'comment'):
+                if action == 'type': b.binding_type = value
+                else: b.comment = value[:255]
+                send(router, 'binding_upsert', {'mac': b.mac_address, 'type': b.binding_type, 'address': b.address, 'server': b.server or 'all',
+                                                'comment': b.comment, 'disabled': b.disabled}, label=f'Update binding {b.comment or b.mac_address}', user=request.user)
+            elif action == 'delete':
+                send(router, 'binding_remove', {'mac': b.mac_address}, label=f'Delete binding {b.comment or b.mac_address}', user=request.user)
+                IPBindingAccessExpiry.objects.filter(router=router, mac_address=b.mac_address).delete()
+                b.delete(); n += 1
+                continue
+            b.sync_status = 'Queued'
+            b.save(update_fields=['disabled', 'binding_type', 'comment', 'sync_status', 'updated_at'])
+            n += 1
+        except ValueError as exc:
+            errors.append(f'{b.comment or b.mac_address}: {exc}')
+    return n
+
+
 @login_required
 @require_POST
 def ip_binding_set(request):
@@ -187,6 +239,9 @@ def ip_binding_set(request):
         by_router.setdefault(b.router, []).append(b)
     done, errors, rows = 0, [], []
     for router, group in by_router.items():
+        if router.connection_mode == 'agent':
+            done += _binding_set_via_link(request, router, group, action, value, errors)
+            continue
         try:
             with MikroTikService(router, timeout=getattr(settings, 'MIKROTIK_LIVE_TIMEOUT', 5)) as svc:
                 for b in group:

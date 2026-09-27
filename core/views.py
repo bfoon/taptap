@@ -159,7 +159,11 @@ def generate_vouchers(request):
 @login_required
 def disable_voucher(request,pk):
     v=get_object_or_404(b(request).vouchers,pk=pk);v.status='disabled';v.save(update_fields=['status'])
-    if v.router:
+    if v.router and v.router.connection_mode=='agent':
+        from .linkops import send
+        try: send(v.router,'hotspot_user_set',{'name':v.code,'disabled':True},label=f'Disable voucher {v.code}',user=request.user); send(v.router,'disconnect',{'user':v.code},label=f'Disconnect {v.code}',user=request.user)
+        except ValueError as e: messages.warning(request,f'Disabled in TapTap; the router gets it when TapTap Link is back ({e})')
+    elif v.router:
         try: svc=MikroTikService(v.router).connect();svc.disable_voucher(v.code);svc.close()
         except Exception as e: messages.warning(request,f'Disabled locally; router update failed: {e}')
     log(b(request),'Voucher Disabled',v.code);return redirect('vouchers')
@@ -168,7 +172,11 @@ def disable_voucher(request,pk):
 @login_required
 def reset_mac(request,pk):
     v=get_object_or_404(b(request).vouchers,pk=pk);v.device_bindings.all().delete()
-    if v.router:
+    if v.router and v.router.connection_mode=='agent':
+        from .linkops import send
+        try: send(v.router,'disconnect',{'user':v.code},label=f'Reset session of {v.code}',user=request.user)
+        except ValueError as e: messages.warning(request,f'Device binding reset in TapTap; router session removal waits for TapTap Link ({e})')
+    elif v.router:
         try: svc=MikroTikService(v.router).connect();svc.reset_active_by_name(v.code);svc.close()
         except Exception as e: messages.warning(request,f'Device binding reset locally; router session removal failed: {e}')
     log(b(request),'Voucher MAC Reset',v.code);messages.success(request,'Voucher device binding reset.');return redirect('vouchers')
@@ -353,8 +361,18 @@ def router_inventory(request):
 @login_required
 def router_test(request,pk):
     r=get_object_or_404(b(request).routers,pk=pk)
+    if r.connection_mode=='agent':
+        from .linklive import link_state
+        from . import agent as link
+        online,why=link_state(r)
+        if online:
+            link.queue(r,'ping',label='Test connection',user=request.user)
+            messages.success(request,f'{r.name} is connected through TapTap Link (last check-in {timezone.localtime(r.agent.last_seen_at):%H:%M:%S}). A test command was sent; see it on the TapTap Link page.')
+        else:
+            messages.error(request,why)
+        return redirect('routers')
     try: svc=MikroTikService(r).connect();svc.test();svc.close();r.status='Online';r.last_error='';messages.success(request,f'{r.name} connected successfully. RouterOS resource data received.')
-    except Exception as e: r.status='Offline';r.last_error=str(e);messages.error(request,f'Connection failed: {e}')
+    except Exception as e: r.status='Offline';r.last_error=str(e);messages.error(request,f'Connection failed: {e}')  # direct-API routers only (Link handled above)
     r.last_tested_at=timezone.now();r.save(update_fields=['status','last_error','last_tested_at']);return redirect('routers')
 
 
@@ -367,7 +385,12 @@ def router_delete(request,pk):
 def router_control(request,pk):
     router=get_object_or_404(b(request).routers,pk=pk)
     snapshot=RouterConfigSnapshot.objects.filter(router=router).first()
-    if not snapshot:
+    if not snapshot and router.connection_mode=='agent':
+        from .linkops import refresh
+        try:
+            refresh(router,request.user);messages.info(request,f'{router.name} is on TapTap Link: its configuration is being collected through the Link. Reload in a minute.')
+        except ValueError as e: messages.warning(request,str(e))
+    elif not snapshot:
         try:
             svc=MikroTikService(router).connect();cfg=svc.configuration_snapshot();svc.close()
             snapshot=RouterConfigSnapshot.objects.create(router=router,sections=cfg['sections'],load_balancing=cfg['load_balancing'],captured_at=cfg['captured_at'])
@@ -387,6 +410,13 @@ def router_control(request,pk):
 def router_config_refresh(request,pk):
     router=get_object_or_404(b(request).routers,pk=pk)
     if request.method!='POST': return redirect('router_control',pk=pk)
+    if router.connection_mode=='agent':
+        from .linkops import refresh
+        try:
+            created=refresh(router,request.user)
+            messages.success(request,'Collecting the configuration through TapTap Link — sections update as the router sends them.' if created else 'A TapTap Link sync is already running.')
+        except ValueError as e: messages.error(request,str(e))
+        return redirect('router_control',pk=pk)
     try:
         svc=MikroTikService(router).connect();cfg=svc.configuration_snapshot();svc.close()
         RouterConfigSnapshot.objects.update_or_create(router=router,defaults={'sections':cfg['sections'],'load_balancing':cfg['load_balancing'],'captured_at':cfg['captured_at']})
@@ -398,6 +428,12 @@ def router_config_refresh(request,pk):
 @login_required
 def router_resource_api(request,pk):
     router=get_object_or_404(b(request).routers,pk=pk);path=request.GET.get('path','/interface')
+    if router.connection_mode=='agent':
+        from .linkops import snapshot_rows
+        rows,label,at=snapshot_rows(router,path)
+        if rows is None:
+            return JsonResponse({'success':False,'message':f'{path} is not part of the TapTap Link sync. The explorer shows the menus collected at the last sync.'},status=400)
+        return JsonResponse({'success':True,'path':path,'count':len(rows),'rows':rows,'source':f'TapTap Link sync {timezone.localtime(at):%d %b %H:%M}' if at else 'TapTap Link'})
     try:
         svc=MikroTikService(router).connect();rows=svc.browse_resource(path);svc.close();return JsonResponse({'success':True,'path':path,'count':len(rows),'rows':rows})
     except Exception as e: return JsonResponse({'success':False,'message':str(e)},status=400)
@@ -413,6 +449,9 @@ def router_config_apply(request,pk):
         messages.error(request,'Fields must be valid JSON.');return redirect('router_control',pk=pk)
     if request.POST.get('confirm')!='APPLY':
         messages.error(request,'Advanced RouterOS changes require the APPLY confirmation.');return redirect('router_control',pk=pk)
+    if router.connection_mode=='agent':
+        messages.error(request,f'{router.name} is on TapTap Link. Raw RouterOS changes are not sent over the Link; use the built-in actions, or enable custom scripts on the TapTap Link page and run the change there.')
+        return redirect('router_control',pk=pk)
     change=RouterConfigChange.objects.create(business=router.business,router=router,actor=request.user,resource_path=path,operation=operation,target_id=target,fields=redact(fields),status='success')
     try:
         svc=MikroTikService(router).connect();svc.apply_change(path,operation,target,fields);cfg=svc.configuration_snapshot();svc.close()
@@ -432,7 +471,16 @@ def router_interface_role(request,pk):
     if role not in valid or not router.interfaces.filter(name=name).exists():
         messages.error(request,'Invalid interface or role.');return redirect('router_control',pk=pk)
     RouterInterfaceRole.objects.update_or_create(router=router,interface_name=name,defaults={'role':role,'label':label})
-    if request.POST.get('apply')=='yes':
+    if request.POST.get('apply')=='yes' and router.connection_mode=='agent':
+        from .linkops import send, QUEUED
+        try:
+            send(router,'interface_set',{'name':name,'enabled':role!='disabled'},label=f'{name}: {"disable" if role=="disabled" else "enable"}',user=request.user)
+            bridge=request.POST.get('bridge_name','').strip()
+            if role in {'lan','hotspot','trunk','management'} and bridge: send(router,'bridge_port',{'name':name,'bridge':bridge},label=f'Add {name} to {bridge}',user=request.user)
+            if role=='wan' and request.POST.get('remove_from_bridge')=='yes': send(router,'bridge_port',{'name':name},label=f'Remove {name} from its bridge',user=request.user)
+            messages.success(request,f'{name} assigned to {dict(RouterInterfaceRole.ROLES).get(role)}. {QUEUED}')
+        except ValueError as e: messages.warning(request,f'Role saved in TapTap; not sent to the router: {e}')
+    elif request.POST.get('apply')=='yes':
         try:
             svc=MikroTikService(router).connect();svc.set_interface_disabled(name,role=='disabled')
             bridge=request.POST.get('bridge_name','').strip()
@@ -450,6 +498,19 @@ def router_quick_recipe(request,pk):
     if request.method!='POST': return redirect('router_control',pk=pk)
     recipe=request.POST.get('recipe');iface=request.POST.get('interface_name','').strip()
     if not router.interfaces.filter(name=iface).exists(): messages.error(request,'Interface was not found.');return redirect('router_control',pk=pk)
+    if router.connection_mode=='agent':
+        from .linkops import send, QUEUED
+        try:
+            if recipe=='wan_dhcp_nat':
+                send(router,'wan_dhcp_nat',{'name':iface},label=f'{iface}: DHCP WAN with NAT',user=request.user);RouterInterfaceRole.objects.update_or_create(router=router,interface_name=iface,defaults={'role':'wan'})
+            elif recipe in ('enable','disable'):
+                send(router,'interface_set',{'name':iface,'enabled':recipe=='enable'},label=f'{recipe.capitalize()} {iface}',user=request.user)
+                if recipe=='disable': RouterInterfaceRole.objects.update_or_create(router=router,interface_name=iface,defaults={'role':'disabled'})
+            else: raise ValueError('Unknown quick configuration recipe.')
+            RouterConfigChange.objects.create(business=router.business,router=router,actor=request.user,resource_path='/visual-studio',operation=recipe,target_id=iface,fields={'via':'TapTap Link'},status='success')
+            messages.success(request,QUEUED)
+        except ValueError as e: messages.error(request,f'Quick configuration not sent: {e}')
+        return redirect('router_control',pk=pk)
     try:
         svc=MikroTikService(router).connect()
         if recipe=='wan_dhcp_nat':
@@ -479,7 +540,7 @@ def _lb_config(router,snapshot=None):
         snapshot=RouterConfigSnapshot.objects.filter(router=router).first()
     lb=(snapshot.load_balancing if snapshot else None) or {}
     from django.urls import reverse
-    return {'router_id':router.id,'router_name':router.name,'router_ip':router.ip_address,'status':router.status,
+    return {'router_id':router.id,'router_name':router.name,'router_ip':router.ip_address or ('TapTap Link' if router.connection_mode=='agent' else ''),'status':router.status,
             'dom_id':f'lb-cfg-{router.id}','telemetry_url':reverse('router_telemetry',args=[router.id]),'load_balancing':lb}
 
 
@@ -496,6 +557,12 @@ def router_telemetry(request,pk):
     if cached:
         return JsonResponse(cached)
     snapshot=RouterConfigSnapshot.objects.filter(router=router).first()
+    if router.connection_mode=='agent':
+        from .linklive import link_state, telemetry as link_telemetry
+        online,why=link_state(router)
+        payload={'success':True,**link_telemetry(router)} if online else {'success':False,'message':why}
+        _safe_cache_set(key,payload,settings.LIVE_CACHE_SECONDS)
+        return JsonResponse(payload)
     try:
         with MikroTikService(router,timeout=settings.MIKROTIK_LIVE_TIMEOUT) as svc:
             data=svc.telemetry(snapshot.sections if snapshot else None)
@@ -518,6 +585,16 @@ def router_telemetry(request,pk):
 def _router_rows(business,method):
     rows=[];errors=[]
     for r in business.routers.all():
+        if r.connection_mode=='agent':
+            from .linklive import link_state, sessions
+            online,why=link_state(r)
+            if method=='active_users' and online:
+                for x in sessions(r):
+                    rows.append({'id':x.get('id',''),'user':x.get('user',''),'mac_address':x.get('mac-address',''),'address':x.get('address',''),
+                                 'uptime':x.get('uptime',''),'bytes_in':x.get('bytes-in',''),'bytes_out':x.get('bytes-out',''),'router_name':r.name,'router_id':r.id,'via_link':True})
+            elif not online:
+                errors.append(why)
+            continue
         try:
             svc=MikroTikService(r).connect();data=getattr(svc,method)();svc.close()
             for x in data:
@@ -534,6 +611,14 @@ def active_users(request):
 @login_required
 def disconnect_user(request):
     r=get_object_or_404(b(request).routers,pk=request.POST.get('router_id'))
+    if r.connection_mode=='agent':
+        from .linkops import send, session_user, QUEUED
+        user=request.POST.get('user') or session_user(r,request.POST.get('item_id'))
+        try:
+            if not user: raise ValueError('That session has already ended.')
+            send(r,'disconnect',{'user':user},label=f'Disconnect {user}',user=request.user);messages.success(request,f'{user}: {QUEUED}')
+        except ValueError as e: messages.error(request,str(e))
+        return redirect('active_users')
     try: svc=MikroTikService(r).connect();svc.disconnect(request.POST.get('item_id'));svc.close();messages.success(request,'User disconnected.')
     except Exception as e: messages.error(request,str(e))
     return redirect('active_users')
@@ -556,6 +641,18 @@ def ip_bindings(request):
 @login_required
 def ip_binding_action(request):
     r=get_object_or_404(b(request).routers,pk=request.POST.get('router_id'));action=request.POST.get('action');item=request.POST.get('item_id')
+    if r.connection_mode=='agent':
+        from .linkops import send, QUEUED
+        bnd=SyncedIPBinding.objects.filter(router=r,mikrotik_id=item).first()
+        try:
+            if not bnd or not bnd.mac_address: raise ValueError('Binding not found (or it has no MAC address).')
+            if action=='delete': send(r,'binding_remove',{'mac':bnd.mac_address},label=f'Delete binding {bnd.mac_address}',user=request.user);bnd.delete()
+            else:
+                send(r,'binding_set',{'mac':bnd.mac_address,'enabled':bnd.disabled},label=f'{"Enable" if bnd.disabled else "Disable"} binding {bnd.mac_address}',user=request.user)
+                SyncedIPBinding.objects.filter(pk=bnd.pk).update(disabled=not bnd.disabled)
+            messages.success(request,QUEUED)
+        except ValueError as e: messages.error(request,str(e))
+        return redirect('ip_bindings')
     try:
         svc=MikroTikService(r).connect()
         if action=='delete': svc.delete_binding(item);SyncedIPBinding.objects.filter(router=r,mikrotik_id=item).delete()
@@ -596,6 +693,17 @@ def topology_refresh(request,pk):
     """Live discovery for ONE router, bounded by MIKROTIK_TIMEOUT. The page calls these in parallel."""
     router=get_object_or_404(b(request).routers,pk=pk)
     started=timezone.now()
+    if router.connection_mode=='agent':
+        from .linklive import link_state
+        from .tasks import enqueue_router_sync
+        online,why=link_state(router)
+        if not online:
+            return JsonResponse({'success':False,'router_id':router.id,'name':router.name,'message':why})
+        job,created=enqueue_router_sync(router,request.user)
+        return JsonResponse({'success':True,'router_id':router.id,'name':router.name,'via_link':True,
+            'devices':router.devices.filter(is_online=True).count(),'neighbors':router.neighbors.filter(is_online=True).count(),
+            'ports':router.interfaces.count(),'lb_method':'','seconds':0,
+            'message':'Refreshing through TapTap Link — the map updates as the router sends its tables.' if created else 'A TapTap Link sync is already running.'})
     try:
         snap=refresh_router_topology(router)
         return JsonResponse({'success':True,'router_id':router.id,'name':router.name,
@@ -604,7 +712,7 @@ def topology_refresh(request,pk):
             'seconds':round((timezone.now()-started).total_seconds(),1)})
     except Exception as e:
         logger.warning('Topology refresh failed for %s: %s',router.name,e)
-        Router.objects.filter(pk=router.pk).update(status='Offline',last_error=str(e)[:2000],last_tested_at=timezone.now())
+        Router.objects.filter(pk=router.pk).exclude(connection_mode='agent').update(status='Offline',last_error=str(e)[:2000],last_tested_at=timezone.now())
         return JsonResponse({'success':False,'router_id':router.id,'name':router.name,'message':str(e)},status=200)
 
 
@@ -616,6 +724,10 @@ def _live_for_router(router,names):
     cached=_safe_cache_get(key)
     if cached is not None:
         return cached
+    if router.connection_mode=='agent':
+        from .linklive import link_state, rates
+        online,why=link_state(router)
+        return {'ok':online,'interfaces':rates(router,set(names)) if online else {},'error':why}
     try:
         with MikroTikService(router,timeout=settings.MIKROTIK_LIVE_TIMEOUT) as svc:
             result={'ok':True,'interfaces':svc.live_traffic(names)}
@@ -669,6 +781,12 @@ def security(request):
 @require_POST
 def security_rescan(request,pk):
     router=get_object_or_404(b(request).routers,pk=pk)
+    if router.connection_mode=='agent':
+        from .linkops import refresh
+        try:
+            refresh(router,request.user)
+            return JsonResponse({'success':True,'router_id':router.id,'sections':0,'message':'Collecting the configuration through TapTap Link; results update in a minute.'})
+        except ValueError as e: return JsonResponse({'success':False,'router_id':router.id,'message':str(e)})
     try:
         with MikroTikService(router) as svc:
             cfg=svc.configuration_snapshot()
@@ -680,7 +798,7 @@ def security_rescan(request,pk):
         Router.objects.filter(pk=router.pk).update(status='Online',last_error='',last_tested_at=timezone.now())
         return JsonResponse({'success':True,'router_id':router.id,'sections':len(sections)})
     except Exception as e:
-        Router.objects.filter(pk=router.pk).update(status='Offline',last_error=str(e)[:2000],last_tested_at=timezone.now())
+        Router.objects.filter(pk=router.pk).exclude(connection_mode='agent').update(status='Offline',last_error=str(e)[:2000],last_tested_at=timezone.now())
         return JsonResponse({'success':False,'router_id':router.id,'message':str(e)})
 
 
@@ -692,6 +810,16 @@ def security_fix(request,pk):
     if key not in MikroTikService.SECURITY_FIXES:
         return JsonResponse({'success':False,'message':'Unknown fix.'},status=400)
     path,lookup,fields,label=MikroTikService.SECURITY_FIXES[key]
+    if router.connection_mode=='agent':
+        from .linkops import send, refresh, QUEUED
+        try:
+            send(router,'security_fix',{'key':key},label=label,user=request.user)
+            RouterConfigChange.objects.create(business=router.business,router=router,actor=request.user,resource_path=path,operation='security-fix',target_id=key,fields={**fields,'via':'TapTap Link'},status='success')
+            log(router.business,'Security Fix',f'{router.name}: {label} (TapTap Link)')
+            try: refresh(router,request.user)
+            except ValueError: pass
+            return JsonResponse({'success':True,'message':f'{label} — {QUEUED} The finding clears after the next sync.'})
+        except ValueError as e: return JsonResponse({'success':False,'message':str(e)})
     change=RouterConfigChange.objects.create(business=router.business,router=router,actor=request.user,resource_path=path,
         operation='security-fix',target_id=key,fields=fields,status='success')
     try:

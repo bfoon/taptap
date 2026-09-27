@@ -70,7 +70,7 @@ def build_graph(business, include_clients=True, client_sample=40):
         wan_ifaces = [l.get('interface') for l in lb.get('wan_links', []) if l.get('interface')]
         meta[r.id]['wan_ifaces'] = set(wan_ifaces)
         nodes[f'router:{r.id}'] = {
-            'id': f'router:{r.id}', 'type': 'router', 'label': identity or r.name, 'sub': r.ip_address,
+            'id': f'router:{r.id}', 'type': 'router', 'label': identity or r.name, 'sub': r.ip_address or ('via TapTap Link' if r.connection_mode == 'agent' else ''),
             'router_id': r.id, 'status': 'online' if r.status == 'Online' else 'offline', 'model': model,
             'lb_method': lb.get('method', ''), 'error': r.last_error[:240] if r.last_error else '',
             'last_seen': r.last_tested_at.isoformat() if r.last_tested_at else None,

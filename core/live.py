@@ -76,6 +76,12 @@ def voucher_problem(voucher, now):
 
 def fix_incident(incident, svc=None, user=None, by='user'):
     """Disconnect the session and disable the voucher on the router. Returns (ok, message)."""
+    if getattr(incident.router, 'connection_mode', 'api') == 'agent':
+        from .agent import fix_incident_via_link
+        try:
+            return fix_incident_via_link(incident, user=user, by=by)
+        except ValueError as exc:
+            return False, str(exc)
     own = svc is None
     try:
         if own:

@@ -7,7 +7,7 @@
 <form class="d-none" id="csrf-holder">{% csrf_token %}</form>
 <div class="page-actions control-page-head">
   <div>
-    <span class="control-kicker"><i class="bi bi-router"></i> {{ router.name }} • {{ router.ip_address }}:{{ router.api_port }}</span>
+    <span class="control-kicker"><i class="bi bi-router"></i> {{ router.name }} • {% if router.connection_mode == 'agent' %}via TapTap Link{% else %}{{ router.ip_address }}:{{ router.api_port }}{% endif %}</span>
     <h2 class="section-title mt-2">Visual + Advanced RouterOS Management</h2>
     <p>Design the network visually, inspect RouterOS configuration, and apply controlled advanced changes.</p>
   </div>

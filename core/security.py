@@ -175,7 +175,7 @@ def audit_router(audit, router, now):
                               '/user add name=taptap group=taptap password=<strong> address=<TAPTAP_SERVER_IP>/32')
 
     # ---- transport of TapTap credentials ----
-    if not router.use_ssl and _is_public(router.ip_address):
+    if router.connection_mode != 'agent' and router.ip_address and not router.use_ssl and _is_public(router.ip_address):
         audit.add(f'r{router.id}:api-cleartext', 'high', 'Access control', 'TapTap talks to this router over the Internet without encryption',
                   'The plain API (8728) is used over a public address, so the router password crosses the Internet readable. '
                   'Use api-ssl (8729) or connect through a VPN.', router,
@@ -287,7 +287,7 @@ def audit_business(business):
                           evidence=[f'{c}: {n} devices (plan allows {lim})' for c, n, lim in shared], link='active_users')
 
         # ---- unknown routers on the LAN (rogue / customer routers) ----
-        managed_ips = {r.ip_address for r in routers}
+        managed_ips = {r.ip_address for r in routers if r.ip_address}
         try:
             snap = router.config_snapshot
         except Exception:

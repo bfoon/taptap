@@ -559,7 +559,13 @@ def _record_piece(router, job_id, piece_summary):
         snap = RouterConfigSnapshot.objects.filter(router=router).first()
         if snap:
             try:
+                from .presence import apply_changes, online_snapshot
+                before = online_snapshot(router)
                 _rebuild_topology_and_analysis(router, snap, now)
+                try:
+                    apply_changes(router, before, online_snapshot(router))   # device offline alerts for Link routers
+                except Exception as exc:
+                    job.summary = _merge_summary(job.summary, {'errors': [f'Device alerts: {exc}']})
                 job.summary['devices_discovered'] = router.devices.filter(is_online=True).count()
             except Exception as exc:
                 job.summary = _merge_summary(job.summary, {'errors': [f'Topology rebuild: {exc}']})

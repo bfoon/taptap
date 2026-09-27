@@ -140,7 +140,7 @@ def troubleshooting_steps(site):
     host = site.split('://')[-1].split('/')[0].split(':')[0] or 'your-taptap-address'
     check = 'yes-without-crl'
     return [
-        {'title': 'Unfreeze the Link', 'help': 'Use this when the router stopped checking in. It clears a stuck lock left by the earlier heartbeat, stops stuck jobs and runs one check-in now. The router then updates its heartbeat by itself.',
+        {'title': 'Unfreeze the Link', 'help': 'Use this once if the router stopped checking in (older heartbeats could freeze). It clears the stuck lock and jobs and runs a check-in now; the router then updates itself to the current heartbeat, which recovers on its own.',
          'code': ':global taptapLinkBusy; :set taptapLinkBusy false\n/system script job remove [find where script="taptap-link"]\n/system scheduler enable [find where name="taptap-link"]\n/system script run taptap-link\n:log info "TapTap Link restarted by hand"'},
         {'title': 'Is it running?', 'help': 'The scheduler must be enabled with a short interval, and the log shows every problem the Link meets.',
          'code': '/system scheduler print detail where name="taptap-link"\n/system script print detail where name="taptap-link"\n/system script job print\n/log print where message~"TapTap"'},

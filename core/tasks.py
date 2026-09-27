@@ -76,7 +76,7 @@ def sync_router_task(self, job_id):
         now = timezone.now()
         # Direct API failures mean unreachable/offline.  For agent mode we keep
         # the transport label but still expose the failure on the router card.
-        Router.objects.filter(pk=router.pk).update(
+        Router.objects.filter(pk=router.pk).exclude(connection_mode='agent').update(
             status='Offline', last_error=str(exc), last_tested_at=now
         )
         job.status = 'failed'

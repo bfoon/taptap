@@ -132,6 +132,10 @@ class MikroTikService:
 
     def connect(self):
         """Connect with bounded timeouts; fall back to the legacy MD5 login (< 6.43)."""
+        # TapTap Link routers sit behind NAT and have no usable address: never try one.
+        if getattr(self.router, 'connection_mode', 'api') == 'agent' or not str(self.router.ip_address or '').strip():
+            raise MikroTikError(f'{self.router.name} is managed through TapTap Link, so TapTap does not connect to it directly. '
+                                'Its data comes from the Link check-ins and syncs; changes are sent as Link commands.')
         last = None
         for plaintext in (True, False):
             try:
