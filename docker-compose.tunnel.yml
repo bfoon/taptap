@@ -1,6 +1,18 @@
 # Production/Linux overlay for TapTap Tunnel.
 # Start with:
-# docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
+#   docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
+#
+# Required in .env:
+#   TAPTAP_WG_ENDPOINT=<public IP or UNPROXIED DNS name of this server>
+# Recommended in .env:
+#   TAPTAP_TUNNEL_SECRET=<long random string>   (encrypts tunnel API passwords;
+#                                                falls back to SECRET_KEY)
+# Also open UDP ${TAPTAP_WG_PORT:-51820} in any cloud firewall / security group.
+
+x-tunnel-env: &tunnel-env
+  # Every container that talks to routers must know the tunnel is on,
+  # otherwise web/worker/live keep treating Link routers as Link-only.
+  TAPTAP_TUNNEL_ENABLED: "1"
 
 services:
   db:
@@ -10,14 +22,17 @@ services:
       - "127.0.0.1:${TAPTAP_TUNNEL_DB_PORT:-5433}:5432"
 
   web:
+    environment: *tunnel-env
     volumes:
       - tunnel_data:/var/lib/taptap-tunnel:ro
 
   worker:
+    environment: *tunnel-env
     volumes:
       - tunnel_data:/var/lib/taptap-tunnel:ro
 
   live:
+    environment: *tunnel-env
     volumes:
       - tunnel_data:/var/lib/taptap-tunnel:ro
 

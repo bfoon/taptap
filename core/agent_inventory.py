@@ -9,6 +9,7 @@ use the same data regardless of whether the router is connected by Direct API or
 TapTap Link.
 """
 import time
+from datetime import timedelta
 from collections import OrderedDict
 
 from django.core.cache import cache
@@ -111,6 +112,9 @@ EXTRA_SOURCES = [
     ('remote_caps_legacy', 'Legacy CAPsMAN remote CAPs', '/caps-man/remote-cap'),
 ]
 
+# Tables that only exist with the wifi / wireless / CAPsMAN packages.
+OPTIONAL_KINDS = {'wifi_registrations', 'wireless_registrations', 'remote_caps_wifi', 'remote_caps_legacy'}
+
 SOURCES = OrderedDict((key, {'label': label, 'path': path}) for key, label, path in CONFIG_SOURCES + EXTRA_SOURCES)
 
 TOPOLOGY_KINDS = {
@@ -152,7 +156,13 @@ def inventory_piece_script(cmd, url, check, nonce_value):
         raise ValueError(f'Unknown inventory source: {kind}')
     menu = src['path']  # e.g. /ip/hotspot/user (RouterOS accepts the slash form)
     upload = f'{url}/api/agent/v1/inventory?c={cmd.pk}&n={nonce_value}'
-    return (f':local rows [:toarray ""]; :do {{ :set rows [{menu} print as-value] }} on-error={{ :set rows [:toarray ""] }}; '
+    # The menu is compiled at run time with :parse. Written directly, a menu this
+    # router does not have (e.g. /interface/wifi without the wifi package, /routing/table
+    # on RouterOS 6) is a *syntax* error: RouterOS rejects the whole batch script before
+    # running it and on-error never fires, so every table in that batch silently vanished.
+    # Through :parse it is an ordinary run-time error: caught, and uploaded as an empty table.
+    return (f':local rows [:toarray ""]; '
+            f':do {{ :set rows [[:parse ":return [{menu} print as-value]"]] }} on-error={{ :set rows [:toarray ""] }}; '
             f'$ttSend rows=$rows u={_rs(upload)} chk="{check}"')
 
 
@@ -303,7 +313,13 @@ def _users(router, rows, now):
                 existing_voucher.plan_name = profile_name
                 existing_voucher.duration_hours = duration_hours
                 existing_voucher.max_devices = max_devices
+                was = existing_voucher.status
                 existing_voucher.status = 'disabled' if disabled else 'active'
+                if was != existing_voucher.status:
+                    from .voucher_history import record
+                    record(existing_voucher, 'router_disabled' if disabled else 'router_enabled', source='router',
+                           via='Full sync (TapTap Link)', status_before=was, status_after=existing_voucher.status,
+                           text=f'Changed on {router.name}')
                 fields += ['mikrotik_id', 'plan_name', 'duration_hours', 'max_devices', 'status']
             new_price = user_price or plan_price
             if new_price and not existing_voucher.price and not existing_voucher.sold_at:
@@ -390,7 +406,38 @@ def _rows(sections, label):
     return rows if isinstance(rows, list) else []
 
 
-def _rebuild_topology_and_analysis(router, snap, now):
+def _topology_digest(snap):
+    """Fingerprint of the tables the topology is built from."""
+    import hashlib
+    import json
+    sections = snap.sections or {}
+    labels = sorted(SOURCES[k]['label'] for k in TOPOLOGY_KINDS if k in SOURCES)
+    blob = json.dumps([(sections.get(label) or {}).get('rows') or [] for label in labels], sort_keys=True, default=str)
+    return hashlib.sha1(blob.encode()).hexdigest()
+
+
+def _topology_with_alerts(router, snap, now, job):
+    """Rebuild topology + WAN analysis, and raise device offline/online alerts for
+    the change. Skips the (heavier) topology write when its tables are unchanged
+    since the last build in this job; the WAN analysis always runs because it also
+    depends on routes/mangle tables that may have arrived since."""
+    digest = _topology_digest(snap)
+    if job.summary.get('topology_digest') == digest:
+        _rebuild_topology_and_analysis(router, snap, now, topology=False)
+        return
+    from .presence import apply_changes, online_snapshot
+    before = online_snapshot(router)
+    _rebuild_topology_and_analysis(router, snap, now)
+    try:
+        apply_changes(router, before, online_snapshot(router))   # device offline alerts for Link routers
+    except Exception as exc:
+        job.summary = _merge_summary(job.summary, {'errors': [f'Device alerts: {exc}']})
+    job.summary['topology_digest'] = digest
+    job.summary['topology_built'] = True
+    job.summary['devices_discovered'] = router.devices.filter(is_online=True).count()
+
+
+def _rebuild_topology_and_analysis(router, snap, now, topology=True):
     sections = snap.sections or {}
     wifi = _rows(sections, 'WiFi registrations') + _rows(sections, 'Wireless registrations')
     caps = _rows(sections, 'WiFi CAPsMAN remote CAPs') + _rows(sections, 'Legacy CAPsMAN remote CAPs')
@@ -419,7 +466,8 @@ def _rebuild_topology_and_analysis(router, snap, now):
         'addresses': _rows(sections, 'IP addresses'),
         'hotspot_servers': _rows(sections, 'HotSpot servers'),
     }
-    _persist_topology(router, data, now)
+    if topology:
+        _persist_topology(router, data, now)
 
     declared = list(router.interface_roles.filter(role='wan').values_list('interface_name', flat=True))
     try:
@@ -554,19 +602,23 @@ def _record_piece(router, job_id, piece_summary):
         job.phase = f'TapTap Link inventory: {done}/{len(pieces)} sections'
         finished = pieces and done >= len(pieces)
         if not finished:
+            # Show the network map as soon as its own tables are in, instead of
+            # waiting for every configuration section.
+            if not job.summary.get('topology_built'):
+                accounted = {(c.params or {}).get('kind') for c in received + failed}
+                if (TOPOLOGY_KINDS - OPTIONAL_KINDS) <= accounted:
+                    snap = RouterConfigSnapshot.objects.filter(router=router).first()
+                    if snap:
+                        try:
+                            _topology_with_alerts(router, snap, now, job)
+                        except Exception as exc:
+                            job.summary = _merge_summary(job.summary, {'errors': [f'Topology rebuild: {exc}']})
             job.save(update_fields=['progress', 'phase', 'summary', 'updated_at'])
             return
         snap = RouterConfigSnapshot.objects.filter(router=router).first()
         if snap:
             try:
-                from .presence import apply_changes, online_snapshot
-                before = online_snapshot(router)
-                _rebuild_topology_and_analysis(router, snap, now)
-                try:
-                    apply_changes(router, before, online_snapshot(router))   # device offline alerts for Link routers
-                except Exception as exc:
-                    job.summary = _merge_summary(job.summary, {'errors': [f'Device alerts: {exc}']})
-                job.summary['devices_discovered'] = router.devices.filter(is_online=True).count()
+                _topology_with_alerts(router, snap, now, job)
             except Exception as exc:
                 job.summary = _merge_summary(job.summary, {'errors': [f'Topology rebuild: {exc}']})
         if not received:  # nothing arrived at all: not a sync, let the next one retry
@@ -592,3 +644,47 @@ def inventory_command_ack(cmd, ok):
     params = cmd.params or {}
     label = SOURCES.get(params.get('kind'), {}).get('label', params.get('kind', 'section'))
     _record_piece(cmd.router, params.get('job_id'), {'errors': [f'{label}: {cmd.result or "not available on this router"}']})
+
+
+# How long a Link sync may go without receiving any table before it is settled
+# with what arrived. Longer than ACK_WAIT['inventory_piece'] (600 s) so a slow
+# router that is still uploading one very large table is never cut short.
+STALL_MINUTES = 12
+
+
+def settle_stalled_jobs(router=None):
+    """Finish Link syncs that stopped making progress.
+
+    Tables that will never arrive (router rebooted mid-sync, batch lost, command
+    expired) used to hold the job at e.g. 89 % for up to 35 minutes, and a running
+    job blocks every new sync. Here the missing tables are marked as not delivered,
+    the job completes with the data that did arrive, and the topology is rebuilt.
+    """
+    now = timezone.now()
+    cutoff = now - timedelta(minutes=STALL_MINUTES)
+    jobs = RouterSyncJob.objects.filter(status__in=['queued', 'running'], updated_at__lt=cutoff,
+                                        router__connection_mode='agent').select_related('router')
+    if router is not None:
+        jobs = jobs.filter(router=router)
+    settled = 0
+    for job in jobs[:50]:
+        pieces = [c for c in job.router.agent_commands.filter(kind='inventory_piece')
+                  if (c.params or {}).get('job_id') == job.pk]
+        if not pieces:
+            # Not a Link inventory job (e.g. a TapTap Tunnel/API sync or one never
+            # picked up by a worker): just close it so new syncs are not blocked.
+            RouterSyncJob.objects.filter(pk=job.pk, status__in=['queued', 'running']).update(
+                status='failed', phase='Sync stopped responding — will retry automatically', finished_at=now)
+            settled += 1
+            continue
+        pending = [c for c in pieces if c.status in ('queued', 'sent') and not (c.params or {}).get('received')]
+        if pending:
+            AgentCommand.objects.filter(pk__in=[c.pk for c in pending]).update(
+                status='cancelled', done_at=now, result='No answer from the router in time')
+        _record_piece(job.router, job.pk, {'errors': [f'{len(pending)} section(s) did not arrive in time.'] if pending else []})
+        # _record_piece finishes the job when every table is accounted for; if the
+        # job was never started on the router (no pieces), close it explicitly.
+        RouterSyncJob.objects.filter(pk=job.pk, status__in=['queued', 'running']).update(
+            status='failed', phase='No answer from the router — will retry automatically', finished_at=now)
+        settled += 1
+    return settled

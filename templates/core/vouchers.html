@@ -210,9 +210,11 @@
 
 
           <td>
-            <code class="voucher-code">
-              {{ v.code }}
-            </code>
+            <a href="{% url 'voucher_detail' v.id %}" class="text-decoration-none" title="Details and history">
+              <code class="voucher-code">
+                {{ v.code }}
+              </code>
+            </a>
           </td>
 
 
@@ -357,8 +359,17 @@
 
 
             <a
+              class="btn btn-sm btn-outline-primary"
+              href="{% url 'voucher_detail' v.id %}"
+              title="Details and history"
+            >
+              <i class="bi bi-info-circle"></i>
+            </a>
+
+
+            <a
               class="btn btn-sm btn-outline-secondary"
-              href="{% url 'reset_mac' v.id %}"
+              href="{% url 'voucher_detail' v.id %}?do=reset"
             >
               Reset MAC
             </a>
@@ -368,9 +379,18 @@
 
               <a
                 class="btn btn-sm btn-outline-danger"
-                href="{% url 'disable_voucher' v.id %}"
+                href="{% url 'voucher_detail' v.id %}?do=disable"
               >
                 Disable
+              </a>
+
+            {% else %}
+
+              <a
+                class="btn btn-sm btn-outline-success"
+                href="{% url 'voucher_detail' v.id %}?do=enable"
+              >
+                Enable
               </a>
 
             {% endif %}

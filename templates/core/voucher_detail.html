@@ -1,0 +1,187 @@
+{% extends 'core/base.html' %}{% load taptap_extras %}
+{% block title %}Voucher {{ v.code }} — TapTap{% endblock %}
+{% block heading %}Voucher details{% endblock %}
+{% block extra_head %}<style>
+.vd-hero{display:flex;flex-wrap:wrap;gap:1rem;align-items:center;justify-content:space-between}
+.vd-code{font-size:1.6rem;font-weight:800;letter-spacing:.06em}
+.vd-state{display:inline-flex;align-items:center;gap:.4rem;border-radius:999px;padding:.3rem .8rem;font-weight:700;font-size:.8rem}
+.vd-state.stock{background:#e6f6ee;color:#127a4d}.vd-state.sold{background:#fff4dc;color:#8a5a00}.vd-state.used{background:#e5f3fb;color:#0b6690}
+.vd-state.disabled{background:#fdeaea;color:#a12b2b}.vd-state.expired{background:#eef1f5;color:#56687a}
+.vd-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.6rem}
+.vd-grid div{border:1px solid #e3e9f1;border-radius:12px;padding:.55rem .75rem}
+.vd-grid span{display:block;font-size:.72rem;color:#51667b}.vd-grid b{font-size:.92rem;word-break:break-word}
+.vd-tl{list-style:none;margin:0;padding:0}
+.vd-tl li{display:flex;gap:.75rem;padding:.65rem 0;border-bottom:1px solid #eef2f6}
+.vd-tl li:last-child{border-bottom:0}
+.vd-ic{flex:0 0 34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1rem}
+.vd-ic.success{background:#e6f6ee;color:#127a4d}.vd-ic.danger{background:#fdeaea;color:#a12b2b}.vd-ic.warning{background:#fff4dc;color:#8a5a00}
+.vd-ic.info{background:#e5f3fb;color:#0b6690}.vd-ic.secondary{background:#eef1f5;color:#56687a}
+.vd-meta{font-size:.76rem;color:#51667b}.vd-reason{font-size:.8rem;background:#f6f8fb;border-radius:8px;padding:.3rem .55rem;margin-top:.25rem;display:inline-block}
+</style>{% endblock %}
+{% block content %}
+{% with c=current_business.currency %}
+<p class="mb-3"><a href="{% url 'vouchers' %}" class="text-decoration-none"><i class="bi bi-arrow-left"></i> Vouchers</a></p>
+
+<section class="panel mb-3">
+  <div class="vd-hero">
+    <div>
+      <div class="vd-code"><code>{{ v.code }}</code></div>
+      <span class="vd-state {{ state_key }}"><i class="bi bi-circle-fill" style="font-size:.5rem"></i> {{ state_label }}</span>
+      <span class="text-secondary small ms-2">{{ v.plan_name }} · {{ v.price|money:c }}</span>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      {% if v.status == 'active' and not time_is_up %}
+        <button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#disableModal"><i class="bi bi-slash-circle"></i> Disable</button>
+        <button class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#enableModal"><i class="bi bi-clock-history"></i> Add time</button>
+      {% else %}
+        <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#enableModal"><i class="bi bi-check-circle"></i> Enable{% if time_is_up %} &amp; add time{% endif %}</button>
+      {% endif %}
+      <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#resetModal"><i class="bi bi-arrow-counterclockwise"></i> Reset devices</button>
+      <a class="btn btn-outline-primary" href="{% url 'voucher_card' v.id %}"><i class="bi bi-card-text"></i> Card / share</a>
+    </div>
+  </div>
+  <p class="small text-secondary mt-3 mb-0"><i class="bi bi-router"></i> Changes reach {{ v.router.name|default:'no router (TapTap only)' }} through <b>{{ channel }}</b>.</p>
+</section>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-7">
+    <section class="panel h-100">
+      <div class="panel-head"><div><h3>Details</h3></div></div>
+      <div class="vd-grid">
+        <div><span>Plan</span><b>{{ v.plan_name }}</b></div>
+        <div><span>Price</span><b>{{ v.price|money:c }}</b></div>
+        <div><span>Valid for</span><b>{{ v.duration_hours }} h</b></div>
+        <div><span>Devices allowed</span><b>{{ v.max_devices }}</b></div>
+        {% if v.rate_limit %}<div><span>Speed</span><b>{{ v.rate_limit }}</b></div>{% endif %}
+        <div><span>Origin</span><b>{{ v.get_source_display }}</b></div>
+        <div><span>Batch</span><b>{{ v.batch.name|default:'—' }}</b></div>
+        <div><span>Held by</span><b>{% if v.agent %}<a href="{% url 'agent_detail' v.agent_id %}">{{ v.agent.name }}</a>{% else %}Shop{% endif %}</b></div>
+        {% if v.customer_name or v.customer_phone %}<div><span>Customer</span><b>{{ v.customer_name|default:'' }} {{ v.customer_phone|default:'' }}</b></div>{% endif %}
+        {% if v.note %}<div><span>Note</span><b>{{ v.note }}</b></div>{% endif %}
+        <div><span>Created</span><b>{{ v.created_at|date:'d M Y H:i' }}</b></div>
+        <div><span>Sold</span><b>{{ v.sold_at|date:'d M Y H:i'|default:'Not sold' }}</b></div>
+        <div><span>First used</span><b>{{ v.used_at|date:'d M Y H:i'|default:'Not used yet' }}</b></div>
+        <div><span>{% if time_is_up %}Time ran out{% else %}Ends{% endif %}</span><b>{% if ends_at %}{{ ends_at|date:'d M Y H:i' }}{% else %}Clock starts on first login{% endif %}</b></div>
+        {% if time_left %}<div><span>Time left</span><b>{{ time_left|duration_short }}</b></div>{% endif %}
+        <div><span>Status in TapTap</span><b>{{ v.get_status_display }}</b></div>
+      </div>
+    </section>
+  </div>
+  <div class="col-lg-5">
+    <section class="panel h-100">
+      <div class="panel-head"><div><h3>Router</h3></div></div>
+      <div class="vd-grid">
+        <div><span>Router</span><b>{{ v.router.name|default:'—' }}</b></div>
+        <div><span>Sync</span><b>{{ v.mikrotik_sync_status }}</b></div>
+        {% if v.mikrotik_sync_error %}<div style="grid-column:1/-1"><span>Sync error</span><b class="text-danger">{{ v.mikrotik_sync_error }}</b></div>{% endif %}
+        {% if mirror %}
+          <div><span>On the router</span><b>{% if mirror.disabled %}Disabled{% else %}Enabled{% endif %}{% if not mirror.is_present %} · not found at last sync{% endif %}</b></div>
+          <div><span>Profile</span><b>{{ mirror.profile }}</b></div>
+          <div><span>Uptime used</span><b>{{ mirror.uptime|default:'0s' }}</b></div>
+          <div><span>Uptime limit</span><b>{{ mirror.limit_uptime|default:'none' }}</b></div>
+          <div><span>Last seen by sync</span><b>{{ mirror.last_seen_at|date:'d M H:i' }}</b></div>
+        {% else %}
+          <div style="grid-column:1/-1"><span>On the router</span><b>Not seen in a router sync yet</b></div>
+        {% endif %}
+      </div>
+      {% if sale %}
+      <h4 class="h6 mt-3">Sale</h4>
+      <div class="vd-grid">
+        <div><span>Amount</span><b>{{ sale.amount|money:c }}</b></div>
+        <div><span>Payment</span><b>{{ sale.get_payment_method_display }}</b></div>
+        <div><span>Agent</span><b>{{ sale.agent.name|default:'—' }}</b></div>
+        <div><span>Recorded by</span><b>{{ sale.recorded_by.username|default:'Automatic' }}</b></div>
+      </div>
+      {% endif %}
+    </section>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-5">
+    <section class="panel h-100">
+      <div class="panel-head"><div><h3>Devices</h3><p>{{ bindings|length }} of {{ v.max_devices }} slot{{ v.max_devices|pluralize }} used.</p></div></div>
+      {% if bindings %}
+      <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+        <thead><tr><th>Slot</th><th>MAC</th><th>First connected</th><th>Last seen</th></tr></thead>
+        <tbody>{% for d in bindings %}<tr><td>{{ d.slot_no }}</td><td><code>{{ d.current_mac }}</code>{% if d.previous_mac %}<div class="vd-meta">before: {{ d.previous_mac }}</div>{% endif %}</td><td>{{ d.first_bound_at|date:'d M H:i' }}</td><td>{{ d.last_seen_at|date:'d M H:i' }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+      {% else %}<p class="text-secondary small mb-0">No device has used this voucher yet.</p>{% endif %}
+      {% if incidents %}
+      <h4 class="h6 mt-3">Enforcement</h4>
+      <ul class="small mb-0 ps-3">{% for i in incidents %}<li>{{ i.first_seen|date:'d M H:i' }} · {{ i.get_reason_display }} · {{ i.get_status_display }} on {{ i.router.name }}</li>{% endfor %}</ul>
+      {% endif %}
+    </section>
+  </div>
+  <div class="col-lg-7">
+    <section class="panel h-100" id="history">
+      <div class="panel-head"><div><h3><i class="bi bi-clock-history"></i> History</h3><p>Every change, who made it, why, and what the router answered.</p></div></div>
+      <ul class="vd-tl">
+        {% for e in timeline %}
+        <li>
+          <div class="vd-ic {{ e.tone }}"><i class="bi {{ e.icon }}"></i></div>
+          <div class="flex-grow-1">
+            <div class="d-flex justify-content-between gap-2 flex-wrap"><b>{{ e.title }}</b><span class="vd-meta">{{ e.at|date:'d M Y H:i' }}</span></div>
+            {% if e.text %}<div class="small">{{ e.text }}</div>{% endif %}
+            {% if e.reason %}<div class="vd-reason"><i class="bi bi-chat-left-quote"></i> {{ e.reason }}</div>{% endif %}
+            <div class="vd-meta">{% if e.who %}{{ e.who }}{% endif %}{% if e.via %} · via {{ e.via }}{% endif %}{% if e.result %} · {{ e.result }}{% endif %}</div>
+          </div>
+        </li>
+        {% empty %}<li class="text-secondary small">No history yet.</li>{% endfor %}
+      </ul>
+    </section>
+  </div>
+</div>
+
+{# ─────────── action dialogs ─────────── #}
+<div class="modal fade" id="disableModal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'disable_voucher' v.id %}">{% csrf_token %}
+  <div class="modal-header"><h5 class="modal-title">Disable {{ v.code }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body"><p class="small">The voucher stops working at once and anyone using it is disconnected. You can enable it again later.</p>
+    <label class="form-label">Reason <span class="text-secondary">(kept in the history)</span></label>
+    <input name="reason" class="form-control" maxlength="255" placeholder="e.g. Customer refunded, lost card, abuse"></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-danger">Disable</button></div>
+</form></div></div>
+
+<div class="modal fade" id="enableModal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'enable_voucher' v.id %}">{% csrf_token %}
+  <div class="modal-header"><h5 class="modal-title">{% if v.status == 'active' and not time_is_up %}Add time to{% else %}Enable{% endif %} {{ v.code }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    {% if time_is_up %}
+      <div class="alert alert-warning small">The time on this voucher ran out {{ ends_at|date:'d M Y H:i' }}. Choose how much time to give; without it TapTap would disconnect it again straight away.</div>
+    {% elif v.status != 'active' %}
+      <p class="small">The voucher works again with the time it has left{% if ends_at %} (until {{ ends_at|date:'d M Y H:i' }}){% endif %}. You can also add time.</p>
+    {% else %}
+      <p class="small">Adds time on top of the current end{% if ends_at %} ({{ ends_at|date:'d M Y H:i' }}){% endif %}. The router's uptime limit is raised too.</p>
+    {% endif %}
+    <label class="form-label">{% if time_is_up or v.status == 'active' %}Time to add{% else %}Add time (optional){% endif %}</label>
+    <select name="add_hours" class="form-select mb-3" {% if time_is_up or v.status == 'active' %}required{% endif %}>
+      {% if not time_is_up and v.status != 'active' %}<option value="">No extra time</option>{% else %}<option value="" disabled selected>Choose…</option>{% endif %}
+      {% for h,label in extend_choices %}<option value="{{ h }}">{{ label }}</option>{% endfor %}
+    </select>
+    <label class="form-label">Reason <span class="text-secondary">(kept in the history)</span></label>
+    <input name="reason" class="form-control" maxlength="255" placeholder="e.g. Disabled by mistake, customer paid again, compensation"></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success">{% if v.status == 'active' and not time_is_up %}Add time{% else %}Enable{% endif %}</button></div>
+</form></div></div>
+
+<div class="modal fade" id="resetModal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'reset_mac' v.id %}">{% csrf_token %}
+  <div class="modal-header"><h5 class="modal-title">Reset devices on {{ v.code }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body"><p class="small">Forgets the devices bound to this voucher and ends its current session, so a new phone or laptop can log in.</p>
+    <label class="form-label">Reason <span class="text-secondary">(kept in the history)</span></label>
+    <input name="reason" class="form-control" maxlength="255" placeholder="e.g. Customer changed phone"></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Reset devices</button></div>
+</form></div></div>
+{% endwith %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var want=new URLSearchParams(location.search).get('do');
+  var id={enable:'enableModal',disable:'disableModal',reset:'resetModal'}[want];
+  if(!id)return;
+  document.addEventListener('DOMContentLoaded',function(){
+    var el=document.getElementById(id);
+    if(el&&window.bootstrap){bootstrap.Modal.getOrCreateInstance(el).show();}
+    history.replaceState(null,'',location.pathname);
+  });
+})();
+</script>
+{% endblock %}

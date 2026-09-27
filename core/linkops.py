@@ -13,7 +13,21 @@ QUEUED = 'Sent through TapTap Link — the router applies it at its next check-i
 
 
 def is_link(router):
+    """The router is enrolled in TapTap Link (identity, not transport)."""
     return bool(router) and getattr(router, 'connection_mode', 'api') == 'agent'
+
+
+def uses_link(router):
+    """Transport decision: True when TapTap must go through Link commands/snapshots
+    right now, i.e. a Link router whose TapTap Tunnel is not healthy. Link routers
+    with a healthy tunnel are driven over the RouterOS API like direct routers."""
+    if not is_link(router):
+        return False
+    try:
+        from .tunnel import uses_link as tunnel_uses_link
+        return tunnel_uses_link(router)
+    except Exception:
+        return True
 
 
 def ensure_online(router):
@@ -31,7 +45,8 @@ def send(router, kind, params=None, label='', user=None, minutes=None):
 def refresh(router, user=None):
     """Start a full Link inventory sync (the Link equivalent of reading the router again)."""
     from .tasks import enqueue_router_sync
-    ensure_online(router)
+    if uses_link(router):          # a healthy tunnel syncs over the API instead
+        ensure_online(router)
     job, created = enqueue_router_sync(router, user)
     return created
 

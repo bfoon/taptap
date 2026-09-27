@@ -34,6 +34,15 @@ from .tasks import enqueue_router_sync
 from .utils import generate_code, duration_to_routeros, log
 
 import logging
+
+
+def _on_link(router):
+    """True when this router must be handled through TapTap Link right now
+    (enrolled in Link and its TapTap Tunnel is not healthy)."""
+    from .linkops import uses_link
+    return uses_link(router)
+
+
 logger=logging.getLogger('taptap')
 
 SUBSCRIPTION_PACKAGES = {
@@ -157,34 +166,78 @@ def generate_vouchers(request):
 
 
 @login_required
+def _voucher_back(request, v):
+    nxt=request.POST.get('next','')
+    if nxt.startswith('/') and not nxt.startswith('//'): return redirect(nxt)
+    return redirect('voucher_detail',pk=v.pk)
+
+
+def _voucher_result(request, v, ok, result, done):
+    if ok: messages.success(request,f'{v.code} {done}. {result}.' if result else f'{v.code} {done}.')
+    else: messages.warning(request,f'{v.code} {done} in TapTap, but the router was not updated: {result}')
+
+
+@login_required
 def disable_voucher(request,pk):
-    v=get_object_or_404(b(request).vouchers,pk=pk);v.status='disabled';v.save(update_fields=['status'])
-    if v.router and v.router.connection_mode=='agent':
-        from .linkops import send
-        try: send(v.router,'hotspot_user_set',{'name':v.code,'disabled':True},label=f'Disable voucher {v.code}',user=request.user); send(v.router,'disconnect',{'user':v.code},label=f'Disconnect {v.code}',user=request.user)
-        except ValueError as e: messages.warning(request,f'Disabled in TapTap; the router gets it when TapTap Link is back ({e})')
-    elif v.router:
-        try: svc=MikroTikService(v.router).connect();svc.disable_voucher(v.code);svc.close()
-        except Exception as e: messages.warning(request,f'Disabled locally; router update failed: {e}')
-    log(b(request),'Voucher Disabled',v.code);return redirect('vouchers')
+    from . import voucher_history as vh
+    v=get_object_or_404(b(request).vouchers,pk=pk)
+    if request.method!='POST': return redirect('voucher_detail',pk=pk)
+    try: ok,result=vh.disable(v,request.user,request.POST.get('reason','').strip())
+    except vh.VoucherActionError as e: messages.error(request,str(e)); return _voucher_back(request,v)
+    log(b(request),'Voucher Disabled',v.code);_voucher_result(request,v,ok,result,'disabled')
+    return _voucher_back(request,v)
+
+
+@login_required
+def enable_voucher(request,pk):
+    from . import voucher_history as vh
+    v=get_object_or_404(b(request).vouchers,pk=pk)
+    if request.method!='POST': return redirect('voucher_detail',pk=pk)
+    try: ok,result=vh.enable(v,request.user,request.POST.get('reason','').strip(),request.POST.get('add_hours'))
+    except vh.VoucherActionError as e: messages.error(request,str(e)); return _voucher_back(request,v)
+    log(b(request),'Voucher Enabled',v.code);_voucher_result(request,v,ok,result,'enabled')
+    return _voucher_back(request,v)
 
 
 @login_required
 def reset_mac(request,pk):
-    v=get_object_or_404(b(request).vouchers,pk=pk);v.device_bindings.all().delete()
-    if v.router and v.router.connection_mode=='agent':
-        from .linkops import send
-        try: send(v.router,'disconnect',{'user':v.code},label=f'Reset session of {v.code}',user=request.user)
-        except ValueError as e: messages.warning(request,f'Device binding reset in TapTap; router session removal waits for TapTap Link ({e})')
-    elif v.router:
-        try: svc=MikroTikService(v.router).connect();svc.reset_active_by_name(v.code);svc.close()
-        except Exception as e: messages.warning(request,f'Device binding reset locally; router session removal failed: {e}')
-    log(b(request),'Voucher MAC Reset',v.code);messages.success(request,'Voucher device binding reset.');return redirect('vouchers')
+    from . import voucher_history as vh
+    v=get_object_or_404(b(request).vouchers,pk=pk)
+    if request.method!='POST': return redirect('voucher_detail',pk=pk)
+    ok,result=vh.reset_devices(v,request.user,request.POST.get('reason','').strip())
+    log(b(request),'Voucher MAC Reset',v.code);_voucher_result(request,v,ok,result,'device binding reset')
+    return _voucher_back(request,v)
+
+
+@login_required
+def voucher_detail(request,pk):
+    """Everything about one voucher: details, devices, sale, router state and full history."""
+    from . import voucher_history as vh
+    from .models import SessionIncident, VoucherSale
+    business=b(request)
+    v=get_object_or_404(business.vouchers.select_related('router','batch','agent'),pk=pk)
+    now=timezone.now();end=vh.ends_at(v);state_key,state_label=vh.display_state(v,now)
+    left=(end-now) if end and end>now else None
+    mirror=RouterHotspotUser.objects.filter(router=v.router,username=v.code).first() if v.router_id else None
+    return render(request,'core/voucher_detail.html',{
+        'v':v,'state_key':state_key,'state_label':state_label,'ends_at':end,'time_left':left,'time_is_up':vh.time_is_up(v,now),
+        'timeline':vh.timeline(v,now),'bindings':v.device_bindings.order_by('slot_no'),
+        'sale':VoucherSale.objects.filter(voucher=v).select_related('agent','recorded_by').first(),
+        'incidents':SessionIncident.objects.filter(voucher=v).select_related('router').order_by('-first_seen')[:20],
+        'mirror':mirror,'channel':vh.channel(v.router),'max_extend':vh.MAX_EXTEND_HOURS,
+        'extend_choices':[(1,'1 hour'),(3,'3 hours'),(24,'1 day'),(72,'3 days'),(168,'1 week'),(720,'30 days')],
+    })
 
 
 @login_required
 def delete_expired(request):
-    qs=b(request).vouchers.filter(Q(status='expired')|Q(expires_at__lt=timezone.now()));n=qs.count();qs.delete();messages.success(request,f'{n} expired voucher(s) deleted.');return redirect('vouchers')
+    from .models import VoucherEvent
+    business=b(request);qs=business.vouchers.filter(Q(status='expired')|Q(expires_at__lt=timezone.now()))
+    user=request.user if request.user.is_authenticated else None
+    VoucherEvent.objects.bulk_create([VoucherEvent(business=business,voucher_id=v.pk,voucher_code=v.code,event='deleted',user=user,
+        status_before=v.status,status_after='deleted',reason='Delete expired vouchers',detail={'plan':v.plan_name,'price':str(v.price)})
+        for v in qs.only('pk','code','status','plan_name','price')],batch_size=500)
+    n=qs.count();qs.delete();messages.success(request,f'{n} expired voucher(s) deleted. Their history is kept.');return redirect('vouchers')
 
 
 @login_required
@@ -385,7 +438,7 @@ def router_delete(request,pk):
 def router_control(request,pk):
     router=get_object_or_404(b(request).routers,pk=pk)
     snapshot=RouterConfigSnapshot.objects.filter(router=router).first()
-    if not snapshot and router.connection_mode=='agent':
+    if not snapshot and _on_link(router):
         from .linkops import refresh
         try:
             refresh(router,request.user);messages.info(request,f'{router.name} is on TapTap Link: its configuration is being collected through the Link. Reload in a minute.')
@@ -410,7 +463,7 @@ def router_control(request,pk):
 def router_config_refresh(request,pk):
     router=get_object_or_404(b(request).routers,pk=pk)
     if request.method!='POST': return redirect('router_control',pk=pk)
-    if router.connection_mode=='agent':
+    if _on_link(router):
         from .linkops import refresh
         try:
             created=refresh(router,request.user)
@@ -428,7 +481,7 @@ def router_config_refresh(request,pk):
 @login_required
 def router_resource_api(request,pk):
     router=get_object_or_404(b(request).routers,pk=pk);path=request.GET.get('path','/interface')
-    if router.connection_mode=='agent':
+    if _on_link(router):
         from .linkops import snapshot_rows
         rows,label,at=snapshot_rows(router,path)
         if rows is None:
@@ -449,7 +502,7 @@ def router_config_apply(request,pk):
         messages.error(request,'Fields must be valid JSON.');return redirect('router_control',pk=pk)
     if request.POST.get('confirm')!='APPLY':
         messages.error(request,'Advanced RouterOS changes require the APPLY confirmation.');return redirect('router_control',pk=pk)
-    if router.connection_mode=='agent':
+    if _on_link(router):
         messages.error(request,f'{router.name} is on TapTap Link. Raw RouterOS changes are not sent over the Link; use the built-in actions, or enable custom scripts on the TapTap Link page and run the change there.')
         return redirect('router_control',pk=pk)
     change=RouterConfigChange.objects.create(business=router.business,router=router,actor=request.user,resource_path=path,operation=operation,target_id=target,fields=redact(fields),status='success')
@@ -471,7 +524,7 @@ def router_interface_role(request,pk):
     if role not in valid or not router.interfaces.filter(name=name).exists():
         messages.error(request,'Invalid interface or role.');return redirect('router_control',pk=pk)
     RouterInterfaceRole.objects.update_or_create(router=router,interface_name=name,defaults={'role':role,'label':label})
-    if request.POST.get('apply')=='yes' and router.connection_mode=='agent':
+    if request.POST.get('apply')=='yes' and _on_link(router):
         from .linkops import send, QUEUED
         try:
             send(router,'interface_set',{'name':name,'enabled':role!='disabled'},label=f'{name}: {"disable" if role=="disabled" else "enable"}',user=request.user)
@@ -498,7 +551,7 @@ def router_quick_recipe(request,pk):
     if request.method!='POST': return redirect('router_control',pk=pk)
     recipe=request.POST.get('recipe');iface=request.POST.get('interface_name','').strip()
     if not router.interfaces.filter(name=iface).exists(): messages.error(request,'Interface was not found.');return redirect('router_control',pk=pk)
-    if router.connection_mode=='agent':
+    if _on_link(router):
         from .linkops import send, QUEUED
         try:
             if recipe=='wan_dhcp_nat':
@@ -557,7 +610,7 @@ def router_telemetry(request,pk):
     if cached:
         return JsonResponse(cached)
     snapshot=RouterConfigSnapshot.objects.filter(router=router).first()
-    if router.connection_mode=='agent':
+    if _on_link(router):
         from .linklive import link_state, telemetry as link_telemetry
         online,why=link_state(router)
         payload={'success':True,**link_telemetry(router)} if online else {'success':False,'message':why}
@@ -585,7 +638,7 @@ def router_telemetry(request,pk):
 def _router_rows(business,method):
     rows=[];errors=[]
     for r in business.routers.all():
-        if r.connection_mode=='agent':
+        if _on_link(r):
             from .linklive import link_state, sessions
             online,why=link_state(r)
             if method=='active_users' and online:
@@ -611,7 +664,7 @@ def active_users(request):
 @login_required
 def disconnect_user(request):
     r=get_object_or_404(b(request).routers,pk=request.POST.get('router_id'))
-    if r.connection_mode=='agent':
+    if _on_link(r):
         from .linkops import send, session_user, QUEUED
         user=request.POST.get('user') or session_user(r,request.POST.get('item_id'))
         try:
@@ -641,7 +694,7 @@ def ip_bindings(request):
 @login_required
 def ip_binding_action(request):
     r=get_object_or_404(b(request).routers,pk=request.POST.get('router_id'));action=request.POST.get('action');item=request.POST.get('item_id')
-    if r.connection_mode=='agent':
+    if _on_link(r):
         from .linkops import send, QUEUED
         bnd=SyncedIPBinding.objects.filter(router=r,mikrotik_id=item).first()
         try:
@@ -693,7 +746,7 @@ def topology_refresh(request,pk):
     """Live discovery for ONE router, bounded by MIKROTIK_TIMEOUT. The page calls these in parallel."""
     router=get_object_or_404(b(request).routers,pk=pk)
     started=timezone.now()
-    if router.connection_mode=='agent':
+    if _on_link(router):
         from .linklive import link_state
         from .tasks import enqueue_router_sync
         online,why=link_state(router)
@@ -724,7 +777,7 @@ def _live_for_router(router,names):
     cached=_safe_cache_get(key)
     if cached is not None:
         return cached
-    if router.connection_mode=='agent':
+    if _on_link(router):
         from .linklive import link_state, rates
         online,why=link_state(router)
         return {'ok':online,'interfaces':rates(router,set(names)) if online else {},'error':why}
@@ -781,7 +834,7 @@ def security(request):
 @require_POST
 def security_rescan(request,pk):
     router=get_object_or_404(b(request).routers,pk=pk)
-    if router.connection_mode=='agent':
+    if _on_link(router):
         from .linkops import refresh
         try:
             refresh(router,request.user)
@@ -810,7 +863,7 @@ def security_fix(request,pk):
     if key not in MikroTikService.SECURITY_FIXES:
         return JsonResponse({'success':False,'message':'Unknown fix.'},status=400)
     path,lookup,fields,label=MikroTikService.SECURITY_FIXES[key]
-    if router.connection_mode=='agent':
+    if _on_link(router):
         from .linkops import send, refresh, QUEUED
         try:
             send(router,'security_fix',{'key':key},label=label,user=request.user)

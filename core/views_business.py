@@ -167,7 +167,12 @@ def finance_sale_add(request):
 @require_POST
 def finance_sale_delete(request, pk):
     business = _b(request); s = get_object_or_404(business.sales, pk=pk)
-    if s.voucher_id: business.vouchers.filter(pk=s.voucher_id).update(sold_at=None)
+    if s.voucher_id:
+        business.vouchers.filter(pk=s.voucher_id).update(sold_at=None)
+        v = business.vouchers.filter(pk=s.voucher_id).first()
+        if v:
+            from .voucher_history import record
+            record(v, 'sale_voided', user=request.user, text=f'{business.currency}{s.amount} · voucher back in stock')
     log(business, 'Sale Voided', f'{s.plan_name} {s.voucher_code} {business.currency}{s.amount}')
     s.delete(); messages.success(request, 'Sale voided. The voucher is back in stock.')
     return _back(request, 'sales')

@@ -52,3 +52,20 @@ def hours_text(hours):
     from core.views_studio import duration_text
     try: return duration_text(int(hours))
     except (TypeError, ValueError): return hours
+
+
+@register.filter
+def duration_short(value):
+    """timedelta -> '2d 4h', '3h 20m' or '12m'."""
+    try:
+        secs = int(value.total_seconds())
+    except Exception:
+        return ''
+    d, rest = divmod(max(0, secs), 86400)
+    h, rest = divmod(rest, 3600)
+    m = rest // 60
+    if d:
+        return f'{d}d {h}h' if h else f'{d}d'
+    if h:
+        return f'{h}h {m}m' if m else f'{h}h'
+    return f'{m}m'

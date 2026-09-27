@@ -76,7 +76,8 @@ def voucher_problem(voucher, now):
 
 def fix_incident(incident, svc=None, user=None, by='user'):
     """Disconnect the session and disable the voucher on the router. Returns (ok, message)."""
-    if getattr(incident.router, 'connection_mode', 'api') == 'agent':
+    from .linkops import uses_link
+    if svc is None and uses_link(incident.router):
         from .agent import fix_incident_via_link
         try:
             return fix_incident_via_link(incident, user=user, by=by)
@@ -94,7 +95,15 @@ def fix_incident(incident, svc=None, user=None, by='user'):
         RouterHotspotUser.objects.filter(router=incident.router, username=incident.username).update(disabled=True)
         if incident.voucher_id:
             new_status = 'expired' if incident.reason == 'expired' else 'disabled'
-            Voucher.objects.filter(pk=incident.voucher_id).exclude(status=new_status).update(status=new_status)
+            v = Voucher.objects.filter(pk=incident.voucher_id).first()
+            if v:
+                before = v.status
+                Voucher.objects.filter(pk=v.pk).exclude(status=new_status).update(status=new_status)
+                from .voucher_history import channel, record
+                record(v, 'enforced', user=user, source='auto' if by == 'auto' else 'user', via=channel(incident.router),
+                       reason=incident.get_reason_display(), router_result='Session removed and voucher disabled on the router',
+                       status_before=before, status_after=new_status,
+                       text=f'{incident.mac_address or incident.ip_address} on {incident.router.name}')
         incident.status, incident.fixed_at, incident.fixed_by, incident.fixed_user, incident.error = 'fixed', timezone.now(), by, user, ''
         incident.save(update_fields=['status', 'fixed_at', 'fixed_by', 'fixed_user', 'error'])
         msg = f'{"Auto-fixed" if by == "auto" else "Fixed"}: disconnected {incident.username} on {incident.router.name} ({incident.get_reason_display().lower()})'
@@ -125,6 +134,12 @@ def watch_router(router, force=False):
     try:
         svc = MikroTikService(router, timeout=getattr(settings, 'MIKROTIK_LIVE_TIMEOUT', 5)).connect()
     except Exception as exc:
+        if getattr(router, 'connection_mode', 'api') == 'agent':
+            # Tunnel hiccup on a Link router: the Link heartbeat owns online/offline,
+            # so never raise a false "went offline" alert here. The tunnel is already
+            # marked degraded and the router falls back to TapTap Link.
+            cache.delete(lock)
+            return {**summary, 'error': str(exc)[:300], 'fallback': 'link'}
         if router.status != 'Offline':
             Router.objects.filter(pk=router.pk).update(status='Offline', last_error=str(exc)[:2000], last_tested_at=now)
             push_event(business.pk, f'{router.name} went offline', 'bad')
@@ -200,7 +215,11 @@ def watch_router(router, force=False):
             elif v.source == 'mikrotik':
                 want = 'disabled' if disabled else ('expired' if v.status == 'expired' else 'active')
                 if v.status != want:
+                    before = v.status
                     Voucher.objects.filter(pk=v.pk).update(status=want); v.status = want
+                    from .voucher_history import record
+                    record(v, 'router_disabled' if disabled else 'router_enabled', source='router', via='Live sync',
+                           status_before=before, status_after=want, text=f'Changed on {router.name}')
                     push_event(business.pk, f'Voucher {name} {"disabled" if disabled else "enabled"} on {router.name}')
             if v.router_id is None:
                 Voucher.objects.filter(pk=v.pk).update(router=router); v.router_id = router.pk
@@ -371,8 +390,13 @@ def _watch_in_thread(router_id, force):
 def watch_business(business, force=False):
     if not business.live_sync and not force:
         return []
+    from .tunnel import tunnel_ready
     ids = []
-    for r in business.routers.exclude(connection_mode='agent'):  # Link routers report in by themselves
+    for r in business.routers.all():
+        # Link routers report in by themselves; with a healthy TapTap Tunnel they
+        # also get the full 15 s live watch over the RouterOS API.
+        if r.connection_mode == 'agent' and not tunnel_ready(r):
+            continue
         # Offline routers are retried once a minute, not every pass.
         if r.status == 'Offline' and not force and not cache.add(f'tt:watch:retry:{r.pk}', 1, 60):
             continue
@@ -405,6 +429,12 @@ def watch_all():
             check_offline_agents()
         except Exception as exc:
             logger.info('link heartbeat check: %s', exc)
+        if cache.add('tt:link:settle-stalled', 1, 60):
+            try:
+                from .agent_inventory import settle_stalled_jobs
+                settle_stalled_jobs()
+            except Exception as exc:
+                logger.info('settle stalled Link syncs: %s', exc)
         results = []
         for business in Business.objects.filter(live_sync=True, routers__isnull=False).distinct():
             if not business.has_access:

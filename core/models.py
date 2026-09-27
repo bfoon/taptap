@@ -132,6 +132,32 @@ class Voucher(models.Model):
     created_at=models.DateTimeField(auto_now_add=True)
 
 
+class VoucherEvent(models.Model):
+    """Permanent history of a voucher: who did what, when, why and through which channel.
+    Keeps the code and survives deletion of the voucher itself."""
+    EVENTS=[('disabled','Disabled'),('enabled','Enabled'),('extended','Time added'),('mac_reset','Devices reset'),
+            ('enforced','Disconnected by enforcement'),('router_disabled','Disabled on the router'),
+            ('router_enabled','Enabled on the router'),('sale_voided','Sale voided'),('deleted','Deleted'),('note','Note')]
+    SOURCES=[('user','User'),('auto','Automatic'),('router','Router')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='voucher_events')
+    voucher=models.ForeignKey(Voucher,on_delete=models.SET_NULL,null=True,blank=True,related_name='events')
+    voucher_code=models.CharField(max_length=120,db_index=True)
+    event=models.CharField(max_length=30,choices=EVENTS)
+    source=models.CharField(max_length=10,choices=SOURCES,default='user')
+    user=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='voucher_events')
+    status_before=models.CharField(max_length=20,blank=True)
+    status_after=models.CharField(max_length=20,blank=True)
+    reason=models.CharField(max_length=255,blank=True)
+    via=models.CharField(max_length=40,blank=True,help_text='TapTap Link, TapTap Tunnel, Direct API or TapTap only')
+    router_result=models.CharField(max_length=255,blank=True)
+    detail=models.JSONField(default=dict,blank=True)
+    created_at=models.DateTimeField(default=timezone.now,db_index=True)
+    class Meta:
+        ordering=['-created_at','-id']
+        indexes=[models.Index(fields=['business','voucher_code','created_at'],name='voucher_event_lookup')]
+    def __str__(self): return f'{self.voucher_code}: {self.get_event_display()}'
+
+
 class VoucherDeviceBinding(models.Model):
     business=models.ForeignKey(Business,on_delete=models.CASCADE)
     voucher=models.ForeignKey(Voucher,on_delete=models.CASCADE,related_name='device_bindings')

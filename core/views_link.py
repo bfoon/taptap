@@ -13,6 +13,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from . import agent as link
+from .mikrotik import MikroTikService
 from .models import AgentCommand, NotificationSettings, Router, RouterAgent
 from .notify import EVENTS, email_configured, notify, prefs, recipients, send_test
 from .utils import log
@@ -210,7 +211,17 @@ def router_link(request, pk):
         'commands': cmds,
         'site': link.base_url(request),
         'https': link.base_url(request).startswith('https://'),
+        'tunnel': _tunnel_info(router),
+        'tunnel_script': _tunnel_script(),
     })
+
+
+def _tunnel_script():
+    try:
+        from .tunnel import existing_router_bootstrap_script, tunnel_enabled
+        return existing_router_bootstrap_script() if tunnel_enabled() else ''
+    except Exception:
+        return ''
 
 
 @login_required
@@ -316,6 +327,19 @@ def router_test(request, pk):
     if agent.revoked:
         messages.error(request, 'TapTap Link is revoked. Rotate/reinstall the token first.')
         return redirect('routers')
+    from .tunnel import tunnel_ready
+    if tunnel_ready(router):
+        try:
+            svc = MikroTikService(router).connect()
+            try:
+                svc.test()
+            finally:
+                svc.close()
+            messages.success(request, f'{router.name} answered over TapTap Tunnel (RouterOS API). '
+                                      'TapTap Link is standing by as the backup channel.')
+            return redirect('routers')
+        except Exception as exc:
+            messages.warning(request, f'TapTap Tunnel test failed ({exc}); testing through TapTap Link instead.')
     link.queue(router, 'ping', label='Router connection test', user=request.user)
     if agent.online:
         messages.success(request, f'{router.name} is checking in through TapTap Link. A test command has been queued.')
@@ -342,7 +366,16 @@ def router_link_status(request, pk):
         'ip': a.last_ip, 'identity': a.identity, 'version': a.ros_version, 'board': a.board,
         'uptime': a.uptime, 'cpu': a.cpu_load, 'mem_free': a.memory_free, 'mem_total': a.memory_total,
         'sessions': a.active_sessions, 'polls': a.polls, 'commands': cmds,
+        'tunnel': _tunnel_info(router),
     })
+
+
+def _tunnel_info(router):
+    try:
+        from .tunnel import tunnel_summary
+        return tunnel_summary(router)
+    except Exception:
+        return {'enabled': False}
 
 
 # ─────────────────────────── notifications ───────────────────────────

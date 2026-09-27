@@ -2,6 +2,7 @@ import re
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from collections import defaultdict
+from django.db import transaction
 from django.utils import timezone
 
 from .mikrotik import MikroTikService, ros_bool, redact
@@ -267,7 +268,12 @@ def sync_router(router, progress=None):
                 if existing_voucher.source == 'mikrotik':
                     existing_voucher.mikrotik_id=str(row.get('id','')); existing_voucher.plan_name=profile_name
                     existing_voucher.duration_hours=duration_hours; existing_voucher.max_devices=max_devices
+                    _was=existing_voucher.status
                     existing_voucher.status='disabled' if disabled else 'active'
+                    if _was!=existing_voucher.status:
+                        from .voucher_history import record
+                        record(existing_voucher,'router_disabled' if disabled else 'router_enabled',source='router',via='Full sync',
+                               status_before=_was,status_after=existing_voucher.status,text=f'Changed on {router.name}')
                     fields += ['mikrotik_id','plan_name','duration_hours','max_devices','status']
                 # Repair vouchers imported with no price (older TapTap versions always stored 0).
                 new_price = user_price or plan_price
@@ -387,7 +393,102 @@ def sync_router(router, progress=None):
         svc.close()
 
 
+BULK_BATCH = 500
+
+
+def _fast_bulk_update(model, objs, fields):
+    """bulk_update() for many rows.
+
+    Django's bulk_update builds a CASE WHEN expression per field per row in Python,
+    which dominated the rebuild (about 2 s for 1,000 changed devices). On PostgreSQL
+    this sends one ``UPDATE ... FROM (VALUES ...)`` statement per batch instead.
+    Other databases use Django's implementation.
+    """
+    if not objs:
+        return
+    from django.db import connection
+    if connection.vendor != 'postgresql':
+        model.objects.bulk_update(objs, fields, batch_size=BULK_BATCH)
+        return
+    meta = model._meta
+    pk = meta.pk
+    cols = [meta.get_field(f) for f in fields]
+    table = connection.ops.quote_name(meta.db_table)
+    qn = connection.ops.quote_name
+    names = [qn(pk.column)] + [qn(c.column) for c in cols]
+    types = [pk.db_type(connection)] + [c.db_type(connection) for c in cols]
+    row_sql = '(' + ', '.join(f'%s::{t}' for t in types) + ')'
+    set_sql = ', '.join(f'{qn(c.column)} = v.{qn(c.column)}' for c in cols)
+    with connection.cursor() as cur:
+        for i in range(0, len(objs), BULK_BATCH):
+            batch = objs[i:i + BULK_BATCH]
+            params = []
+            for obj in batch:
+                params.append(pk.get_db_prep_value(obj.pk, connection))
+                for c in cols:
+                    params.append(c.get_db_prep_save(getattr(obj, c.attname), connection))
+            cur.execute(
+                f'UPDATE {table} AS t SET {set_sql} FROM (VALUES '
+                + ', '.join([row_sql] * len(batch))
+                + f') AS v({", ".join(names)}) WHERE t.{qn(pk.column)} = v.{qn(pk.column)}',
+                params,
+            )
+
+
+def _upsert(model, router, key_field, desired, fields, now, present_flag, extra_create=None):
+    """Bulk upsert rows of one router, keyed by ``key_field``.
+
+    ``desired`` maps key -> dict of field values. Existing rows are loaded once;
+    rows whose values changed are written with one bulk_update per batch, rows
+    that only need their timestamp/flag refreshed get a single UPDATE, new rows
+    are bulk-created, and rows no longer reported get ``present_flag=False``.
+    Returns {key: instance} for every desired row.
+    """
+    existing = {getattr(o, key_field): o for o in model.objects.filter(router=router)}
+    changed, unchanged_pks, new = [], [], []
+    for key, values in desired.items():
+        obj = existing.get(key)
+        if obj is None:
+            new.append(model(router=router, **{key_field: key}, **values, **(extra_create or {})))
+            continue
+        if any(getattr(obj, f) != values[f] for f in fields):
+            for f in fields:
+                setattr(obj, f, values[f])
+            changed.append(obj)
+        else:
+            unchanged_pks.append(obj.pk)
+    stamp = {present_flag: True, 'last_seen_at': now}
+    if any(f.name == 'updated_at' for f in model._meta.fields):
+        stamp['updated_at'] = now
+        for obj in changed:
+            obj.updated_at = now
+    for obj in changed:
+        setattr(obj, present_flag, True)
+        obj.last_seen_at = now
+    if changed:
+        _fast_bulk_update(model, changed, list(dict.fromkeys(fields + list(stamp))))
+    for i in range(0, len(unchanged_pks), 2000):
+        model.objects.filter(pk__in=unchanged_pks[i:i + 2000]).update(**stamp)
+    if new:
+        model.objects.bulk_create(new, batch_size=BULK_BATCH)
+    gone = [o.pk for k, o in existing.items() if k not in desired and getattr(o, present_flag)]
+    for i in range(0, len(gone), 2000):
+        model.objects.filter(pk__in=gone[i:i + 2000]).update(**{present_flag: False})
+    if new:  # bulk_create does not return primary keys on every backend: reload
+        existing = {getattr(o, key_field): o for o in model.objects.filter(router=router, **{key_field + '__in': list(desired)})}
+    else:
+        for obj in changed:
+            existing[getattr(obj, key_field)] = obj
+    return {k: existing[k] for k in desired if k in existing}
+
+
 def _persist_topology(router, data, now=None):
+    """Save ports, neighbors and the merged device inventory of one router.
+
+    Bulk version: a fixed handful of queries per table instead of one or two
+    per device, all inside one transaction (one commit), so a router with
+    thousands of DHCP/ARP/hotspot entries rebuilds in well under a second.
+    """
     now = now or timezone.now()
     interfaces=[_clean(x) for x in data.get('interfaces',[])]
     ethernet={_clean(x).get('name'):_clean(x) for x in data.get('ethernet',[])}
@@ -400,80 +501,85 @@ def _persist_topology(router, data, now=None):
     wifi_regs=[_clean(x) for x in data.get('wifi_registrations',[])]
     remote_caps=[_clean(x) for x in data.get('remote_caps',[])]
 
-    RouterInterface.objects.filter(router=router).update(is_present=False)
-    interface_map={}
-    for row in interfaces:
-        name=str(row.get('name','')).strip()
-        if not name: continue
-        eth=ethernet.get(name,{})
-        obj,_=RouterInterface.objects.update_or_create(
-            router=router,name=name,
-            defaults={
+    with transaction.atomic():
+        # ---------------- interfaces ----------------
+        iface_fields=['default_name','interface_type','mac_address','comment','running','disabled','mtu','rx_byte','tx_byte','raw_data']
+        wanted_ifaces={}
+        for row in interfaces:
+            name=str(row.get('name','')).strip()
+            if not name: continue
+            eth=ethernet.get(name,{})
+            wanted_ifaces[name]={
                 'default_name':eth.get('default-name',eth.get('default_name','')),'interface_type':row.get('type',''),
                 'mac_address':_normalize_mac(row.get('mac-address',row.get('mac_address',eth.get('mac-address','')))),
                 'comment':row.get('comment',''),'running':ros_bool(row.get('running',False)),'disabled':ros_bool(row.get('disabled',False)),
                 'mtu':str(row.get('actual-mtu',row.get('mtu',''))),'rx_byte':_safe_int(row.get('rx-byte',row.get('rx_byte',0))),
-                'tx_byte':_safe_int(row.get('tx-byte',row.get('tx_byte',0))),'is_present':True,
-                'raw_data':{**row,'ethernet':eth,'bridge_port':bridge_ports.get(name,{})},'last_seen_at':now,
-            },
-        )
-        interface_map[name]=obj
-        RouterInterfaceRole.objects.get_or_create(router=router,interface_name=name,defaults={'role':'unused'})
+                'tx_byte':_safe_int(row.get('tx-byte',row.get('tx_byte',0))),
+                'raw_data':{**row,'ethernet':eth,'bridge_port':bridge_ports.get(name,{})},
+            }
+        interface_map=_upsert(RouterInterface,router,'name',wanted_ifaces,iface_fields,now,'is_present')
+        known_roles=set(RouterInterfaceRole.objects.filter(router=router).values_list('interface_name',flat=True))
+        RouterInterfaceRole.objects.bulk_create(
+            [RouterInterfaceRole(router=router,interface_name=n,role='unused') for n in wanted_ifaces if n not in known_roles],
+            batch_size=BULK_BATCH,ignore_conflicts=True)
 
-    RouterNeighbor.objects.filter(router=router).update(is_online=False)
-    for raw in data.get('neighbors',[]):
-        row=_clean(raw);identity=str(row.get('identity','')).strip();address=str(row.get('address','')).strip();mac=_normalize_mac(row.get('mac-address',row.get('mac_address','')));iface=str(row.get('interface','')).split(',')[0].strip()
-        key=mac or '|'.join([identity,address,iface])
-        if not key: continue
-        RouterNeighbor.objects.update_or_create(
-            router=router,neighbor_key=key,
-            defaults={'identity':identity,'address':address,'mac_address':mac,'interface_name':iface,'platform':row.get('platform',''),'board':row.get('board',''),'version':row.get('version',''),'discovered_by':row.get('discovered-by',row.get('discovered_by','')),'device_kind':_neighbor_kind(row),'is_online':True,'raw_data':row,'last_seen_at':now},
-        )
-    for row in remote_caps:
-        identity=str(row.get('identity',row.get('name','Remote CAP')));mac=_normalize_mac(row.get('base-mac',row.get('base_mac','')));address=str(row.get('address',''));key=mac or f'cap|{identity}|{address}'
-        RouterNeighbor.objects.update_or_create(
-            router=router,neighbor_key=key,
-            defaults={'identity':identity,'address':address,'mac_address':mac,'interface_name':str(row.get('interface','CAPsMAN')),'platform':'CAPsMAN','board':row.get('board-name',row.get('board_name','')),'version':row.get('version',''),'discovered_by':'capsman','device_kind':'wifi','is_online':True,'raw_data':row,'last_seen_at':now},
-        )
+        # ---------------- neighbors (+ CAPsMAN remote CAPs) ----------------
+        nb_fields=['identity','address','mac_address','interface_name','platform','board','version','discovered_by','device_kind','raw_data']
+        wanted_nb={}
+        for raw in data.get('neighbors',[]):
+            row=_clean(raw);identity=str(row.get('identity','')).strip();address=str(row.get('address','')).strip();mac=_normalize_mac(row.get('mac-address',row.get('mac_address','')));iface=str(row.get('interface','')).split(',')[0].strip()
+            key=mac or '|'.join([identity,address,iface])
+            if not key: continue
+            wanted_nb[key]={'identity':identity,'address':address,'mac_address':mac,'interface_name':iface,'platform':row.get('platform',''),'board':row.get('board',''),'version':row.get('version',''),'discovered_by':row.get('discovered-by',row.get('discovered_by','')),'device_kind':_neighbor_kind(row),'raw_data':row}
+        for row in remote_caps:
+            identity=str(row.get('identity',row.get('name','Remote CAP')));mac=_normalize_mac(row.get('base-mac',row.get('base_mac','')));address=str(row.get('address',''));key=mac or f'cap|{identity}|{address}'
+            wanted_nb[key]={'identity':identity,'address':address,'mac_address':mac,'interface_name':str(row.get('interface','CAPsMAN')),'platform':'CAPsMAN','board':row.get('board-name',row.get('board_name','')),'version':row.get('version',''),'discovered_by':'capsman','device_kind':'wifi','raw_data':row}
+        neighbors=list(_upsert(RouterNeighbor,router,'neighbor_key',wanted_nb,nb_fields,now,'is_online').values())
 
-    # Merge all MAC/IP sources into one device inventory.
-    RouterDevice.objects.filter(router=router).update(is_online=False)
-    merged={}
-    def touch(mac='',ip='',hostname='',iface='',source='',kind='',raw=None):
-        mac=_normalize_mac(mac);ip=str(ip or '').strip();hostname=str(hostname or '').strip();iface=str(iface or '').strip()
-        key=mac or (f'ip:{ip}' if ip else (f'name:{hostname}' if hostname else ''))
-        if not key: return
-        item=merged.setdefault(key,{'mac':mac,'ip':ip,'hostname':hostname,'iface':iface,'sources':set(),'kind':kind or 'wired','raw':{}})
-        if mac:item['mac']=mac
-        if ip:item['ip']=ip
-        if hostname:item['hostname']=hostname
-        if iface:item['iface']=iface
-        if kind:item['kind']=kind
-        if source:item['sources'].add(source)
-        if raw:item['raw'][source or 'source']=raw
-    for x in bridge_hosts:
-        if not ros_bool(x.get('local',False)): touch(x.get('mac-address'),iface=x.get('on-interface',x.get('on_interface','')),source='bridge',kind='wired',raw=x)
-    for x in dhcp: touch(x.get('mac-address'),x.get('address'),x.get('host-name',x.get('comment','')),x.get('interface',''),source='dhcp',raw=x)
-    for x in arp: touch(x.get('mac-address'),x.get('address'),'',x.get('interface',''),source='arp',raw=x)
-    for x in hotspot_hosts: touch(x.get('mac-address'),x.get('address'),x.get('user',''),'',source='hotspot-host',raw=x)
-    for x in active: touch(x.get('mac-address'),x.get('address'),x.get('user',''),'',source='hotspot-active',raw=x)
-    for x in wifi_regs: touch(x.get('mac-address'),'',x.get('comment',''),x.get('interface',''),source='wifi',kind='wifi',raw=x)
-    for n in RouterNeighbor.objects.filter(router=router,is_online=True): touch(n.mac_address,n.address,n.identity,n.interface_name,source='neighbor',kind=n.device_kind,raw=n.raw_data)
+        # ---------------- merged device inventory ----------------
+        merged={}
+        def touch(mac='',ip='',hostname='',iface='',source='',kind='',raw=None):
+            mac=_normalize_mac(mac);ip=str(ip or '').strip();hostname=str(hostname or '').strip();iface=str(iface or '').strip()
+            key=mac or (f'ip:{ip}' if ip else (f'name:{hostname}' if hostname else ''))
+            if not key: return
+            item=merged.setdefault(key,{'mac':mac,'ip':ip,'hostname':hostname,'iface':iface,'sources':set(),'kind':kind or 'wired','raw':{}})
+            if mac:item['mac']=mac
+            if ip:item['ip']=ip
+            if hostname:item['hostname']=hostname
+            if iface:item['iface']=iface
+            if kind:item['kind']=kind
+            if source:item['sources'].add(source)
+            if raw:item['raw'][source or 'source']=raw
+        for x in bridge_hosts:
+            if not ros_bool(x.get('local',False)): touch(x.get('mac-address'),iface=x.get('on-interface',x.get('on_interface','')),source='bridge',kind='wired',raw=x)
+        for x in dhcp: touch(x.get('mac-address'),x.get('address'),x.get('host-name',x.get('comment','')),x.get('interface',''),source='dhcp',raw=x)
+        for x in arp: touch(x.get('mac-address'),x.get('address'),'',x.get('interface',''),source='arp',raw=x)
+        for x in hotspot_hosts: touch(x.get('mac-address'),x.get('address'),x.get('user',''),'',source='hotspot-host',raw=x)
+        for x in active: touch(x.get('mac-address'),x.get('address'),x.get('user',''),'',source='hotspot-active',raw=x)
+        for x in wifi_regs: touch(x.get('mac-address'),'',x.get('comment',''),x.get('interface',''),source='wifi',kind='wifi',raw=x)
+        for n in neighbors: touch(n.mac_address,n.address,n.identity,n.interface_name,source='neighbor',kind=n.device_kind,raw=n.raw_data)
 
-    neighbors_by_iface={}
-    for n in RouterNeighbor.objects.filter(router=router,is_online=True).order_by('identity'):
-        if n.interface_name and n.interface_name not in neighbors_by_iface: neighbors_by_iface[n.interface_name]=n
-    for key,item in merged.items():
-        parent=neighbors_by_iface.get(item['iface'])
-        RouterDevice.objects.update_or_create(
-            router=router,device_key=key,
-            defaults={'mac_address':item['mac'],'ip_address':item['ip'],'hostname':item['hostname'],'interface_name':item['iface'],'parent_identity':(parent.identity or parent.address or parent.mac_address) if parent else '', 'connection_type':item['kind'],'sources':', '.join(sorted(item['sources'])),'is_online':True,'raw_data':item['raw'],'last_seen_at':now},
-        )
+        neighbors_by_iface={}
+        for n in sorted(neighbors,key=lambda n:n.identity or ''):
+            if n.interface_name and n.interface_name not in neighbors_by_iface: neighbors_by_iface[n.interface_name]=n
+        dev_fields=['mac_address','ip_address','hostname','interface_name','parent_identity','connection_type','sources','raw_data']
+        wanted_dev={}
+        for key,item in merged.items():
+            parent=neighbors_by_iface.get(item['iface'])
+            wanted_dev[key]={'mac_address':item['mac'],'ip_address':item['ip'],'hostname':item['hostname'],'interface_name':item['iface'],
+                             'parent_identity':(parent.identity or parent.address or parent.mac_address) if parent else '',
+                             'connection_type':item['kind'],'sources':', '.join(sorted(item['sources'])),'raw_data':item['raw']}
+        _upsert(RouterDevice,router,'device_key',wanted_dev,dev_fields,now,'is_online',extra_create={'first_seen_at':now})
 
+    # ---------------- page data (read-only, a few queries) ----------------
     clients_by_interface=defaultdict(list)
-    for dev in RouterDevice.objects.filter(router=router,is_online=True):
-        if dev.interface_name:
-            clients_by_interface[dev.interface_name].append({'mac':dev.mac_address,'name':dev.hostname,'ip':dev.ip_address,'kind':dev.connection_type,'parent':dev.parent_identity})
+    for key in sorted(wanted_dev):
+        dev=wanted_dev[key]
+        if dev['interface_name']:
+            clients_by_interface[dev['interface_name']].append({'mac':dev['mac_address'],'name':dev['hostname'],'ip':dev['ip_address'],'kind':dev['connection_type'],'parent':dev['parent_identity']})
+    neighbors_on_port=defaultdict(list)
+    for n in sorted(neighbors,key=lambda n:n.pk or 0):
+        if n.interface_name: neighbors_on_port[n.interface_name].append(n)
 
     role_map={x.interface_name:x for x in router.interface_roles.all()}
     ports=[]
@@ -481,7 +587,7 @@ def _persist_topology(router, data, now=None):
         name=str(row.get('name',''));itype=str(row.get('type','')).lower()
         if itype not in {'ether','ethernet'} and not name.lower().startswith(('ether','sfp','qsfp','combo')): continue
         obj=interface_map.get(name);role=role_map.get(name)
-        ports.append({'name':name,'running':bool(obj.running) if obj else False,'disabled':bool(obj.disabled) if obj else False,'mac_address':obj.mac_address if obj else '', 'comment':obj.comment if obj else '', 'rx_byte':obj.rx_byte if obj else 0,'tx_byte':obj.tx_byte if obj else 0,'neighbors':list(router.neighbors.filter(is_online=True,interface_name=name)),'clients':clients_by_interface.get(name,[])[:8],'client_count':len(clients_by_interface.get(name,[])),'bridge':bridge_ports.get(name,{}).get('bridge',''),'pvid':bridge_ports.get(name,{}).get('pvid',''),'role':role.role if role else 'unused','role_label':role.get_role_display() if role else 'Unused'})
+        ports.append({'name':name,'running':bool(obj.running) if obj else False,'disabled':bool(obj.disabled) if obj else False,'mac_address':obj.mac_address if obj else '', 'comment':obj.comment if obj else '', 'rx_byte':obj.rx_byte if obj else 0,'tx_byte':obj.tx_byte if obj else 0,'neighbors':neighbors_on_port.get(name,[]),'clients':clients_by_interface.get(name,[])[:8],'client_count':len(clients_by_interface.get(name,[])),'bridge':bridge_ports.get(name,{}).get('bridge',''),'pvid':bridge_ports.get(name,{}).get('pvid',''),'role':role.role if role else 'unused','role_label':role.get_role_display() if role else 'Unused'})
 
     wifi_clients_view=[{**x,'mac_address':x.get('mac-address',x.get('mac_address','')),'last_activity':x.get('last-activity',x.get('last_activity',''))} for x in wifi_regs]
     return {'router':router,'identity':_clean(data.get('identity',{})),'routerboard':_clean(data.get('routerboard',{})),'ports':ports,'neighbors':list(router.neighbors.all().order_by('-is_online','identity')),'wifi_clients':wifi_clients_view,'devices':list(router.devices.filter(is_online=True).order_by('interface_name','hostname','mac_address')),'captured_at':now,'error':''}

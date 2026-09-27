@@ -17,6 +17,14 @@ from .models import Voucher, VoucherBatch
 from .utils import duration_to_routeros, generate_code, log, voucher_profile
 from .views_studio import duration_text, business_ctx, _safe_json, voucher_print_rows
 
+
+def _on_link(router):
+    """True when this router must be handled through TapTap Link right now
+    (enrolled in Link and its TapTap Tunnel is not healthy)."""
+    from .linkops import uses_link
+    return uses_link(router)
+
+
 CODE_RE = re.compile(r'^[A-Z0-9]{4,20}$')
 MANUAL_METHODS = [m for m in PAYMENT_METHODS if m[0] != 'auto']
 
@@ -148,7 +156,7 @@ def single_voucher(request):
 
 def push_one(voucher, plan=None):
     """Put one voucher on its router straight away instead of waiting for a full sync."""
-    if voucher.router and voucher.router.connection_mode == 'agent':
+    if voucher.router and _on_link(voucher.router):
         from .agent import push_pending_vouchers
         Voucher.objects.filter(pk=voucher.pk).update(mikrotik_sync_status='Pending', mikrotik_sync_error='')
         push_pending_vouchers(voucher.router)

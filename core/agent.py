@@ -41,7 +41,7 @@ SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
     'hotspot_user_set', 'hotspot_user_remove', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update',
-    'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat',
+    'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend',
 }
 ACK_WAIT = {'inventory_piece': 600, 'backup': 300, 'hotspot_users': 300, 'self_update': 300}   # seconds before a resend
 NAME_RE = re.compile(r'^[\w.@:+/<>-]{1,64}$')
@@ -189,7 +189,19 @@ def enrollment_script(router, token, request=None):
 /system scheduler add name="taptap-link" interval={secs}s start-time=startup policy={POLICY} on-event=taptap-link comment="TapTap Link"
 /system script run taptap-link
 :log info "TapTap Link installed"
-'''
+''' + _tunnel_trigger(token)
+
+
+def _tunnel_trigger(token):
+    """RouterOS 7: also request the one-time TapTap Tunnel bootstrap."""
+    if not token:
+        return ''
+    try:
+        from .tunnel import enrollment_bootstrap_trigger
+        return enrollment_bootstrap_trigger(token)
+    except Exception:
+        logger.exception('TapTap Tunnel trigger could not be added')
+        return ''
 
 
 def advanced_enrollment_script(router, token, request=None):
@@ -277,6 +289,15 @@ def command_body(cmd):
         return '; '.join(lines) or ':nothing'
     if k == 'hotspot_user_set':
         return f'/ip hotspot user set [find name={name()}] disabled={"yes" if p.get("disabled") else "no"}'
+    if k == 'hotspot_user_extend':
+        # Add time on top of what the voucher already used, so a router-side
+        # limit-uptime cannot lock it out again; vouchers with no limit keep none.
+        secs = max(60, min(8760 * 3600, int(p.get('hours', 1)) * 3600))
+        return (f':local id [/ip hotspot user find name={name()}]; :if ([:len $id] > 0) do={{ '
+                f':local lim [/ip hotspot user get $id limit-uptime]; '
+                f':if ([:typeof $lim] = "time" and $lim > 0s) do={{ '
+                f'/ip hotspot user set $id limit-uptime=([/ip hotspot user get $id uptime] + {secs}s) }}; '
+                f'/ip hotspot user set $id disabled=no }}')
     if k == 'hotspot_user_remove':
         return f'/ip hotspot user remove [find name={name()}]'
     if k == 'disconnect':
@@ -357,6 +378,10 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
             raise ValueError(f'Invalid {key}.')
     if params and 'mac' in params and not MAC_RE.match(str(params['mac'])):
         raise ValueError('Invalid MAC address.')
+    if kind == 'hotspot_user_extend':
+        hours = (params or {}).get('hours')
+        if not isinstance(hours, int) or not 1 <= hours <= 8760:
+            raise ValueError('Extra time must be between 1 hour and 1 year.')
     if kind == 'security_fix':
         from .mikrotik import MikroTikService
         if (params or {}).get('key') not in MikroTikService.SECURITY_FIXES:
@@ -562,6 +587,8 @@ def auto_sync(router, first=False):
     if not first and not cache.add(f'tt:link:autosync:{router.pk}', 1, 60):
         return
     now = timezone.now()
+    from .agent_inventory import settle_stalled_jobs
+    settle_stalled_jobs(router)
     for job in router.sync_jobs.filter(status__in=['queued', 'running'], created_at__lt=now - timedelta(minutes=35)):
         from .agent_inventory import _record_piece
         _record_piece(router, job.pk, {'errors': ['Some sections did not arrive in time (router offline or busy).']})
@@ -581,7 +608,14 @@ def build_response(router, url):
     """
     now = timezone.now()
     check = tls_flag(url)
-    AgentCommand.objects.filter(router=router, status__in=['queued', 'sent'], expires_at__lt=now).update(status='expired', done_at=now)
+    expiring = list(AgentCommand.objects.filter(router=router, status__in=['queued', 'sent'], expires_at__lt=now))
+    if expiring:
+        AgentCommand.objects.filter(pk__in=[c.pk for c in expiring]).update(status='expired', done_at=now)
+        from .agent_inventory import inventory_command_ack
+        for cmd in expiring:
+            if cmd.kind == 'inventory_piece' and not (cmd.params or {}).get('received'):
+                cmd.status, cmd.result = 'expired', 'Expired before the router answered'
+                inventory_command_ack(cmd, False)
     for cmd in AgentCommand.objects.filter(router=router, status='sent'):
         if cmd.sent_at and (now - cmd.sent_at).total_seconds() > ACK_WAIT.get(cmd.kind, 120):
             if cmd.attempts < 2:
@@ -698,7 +732,16 @@ def fix_incident_via_link(inc, user=None, by='user'):
     queue(inc.router, 'disconnect', {'user': inc.username}, label=f'Disconnect {inc.username}', minutes=10)
     queue(inc.router, 'hotspot_user_set', {'name': inc.username, 'disabled': True}, label=f'Disable voucher {inc.username}', minutes=60)
     if inc.voucher_id:
-        Voucher.objects.filter(pk=inc.voucher_id).update(status='expired' if inc.reason == 'expired' else 'disabled')
+        new_status = 'expired' if inc.reason == 'expired' else 'disabled'
+        v = Voucher.objects.filter(pk=inc.voucher_id).first()
+        if v:
+            before = v.status
+            Voucher.objects.filter(pk=v.pk).update(status=new_status)
+            from .voucher_history import record
+            record(v, 'enforced', user=user, source='auto' if by == 'auto' else 'user', via='TapTap Link',
+                   reason=inc.get_reason_display(), router_result='Queued: disconnect and disable',
+                   status_before=before, status_after=new_status,
+                   text=f'{inc.mac_address or inc.ip_address} on {inc.router.name}')
     inc.status, inc.fixed_at, inc.fixed_by, inc.fixed_user = 'fixed', timezone.now(), by, user
     inc.save(update_fields=['status', 'fixed_at', 'fixed_by', 'fixed_user'])
     msg = f'{"Auto-fixed" if by == "auto" else "Fixed"}: {inc.username} disconnected on {inc.router.name} through TapTap Link'

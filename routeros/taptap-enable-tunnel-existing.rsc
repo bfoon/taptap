@@ -1,6 +1,9 @@
 # TapTap Tunnel - router that ALREADY has TapTap Link
 # Paste this whole block in WinBox -> New Terminal. RouterOS 7 required.
 
+:local ver [/system resource get version]
+:if ([:tonum [:pick $ver 0 [:find $ver "."]]] < 7) do={ :error "TapTap Tunnel needs RouterOS 7; TapTap Link keeps working" }
+
 :local sid [/system script find where name="taptap-link"]
 :if ([:len $sid] = 0) do={ :error "TapTap Link is not installed" }
 

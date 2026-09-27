@@ -216,3 +216,50 @@ On **Batches** you can give a shop batch to an agent, transfer it between agents
 Each agent has a statement page (**Finance → Agents & cash → Statement**): still to hand in, vouchers held, sales, commission, hand-ins, per-batch progress, print their stock, print the statement, and send their balance by WhatsApp.
 
 **One voucher for one person** (**Generate → One voucher for one person**, or **Vouchers → One voucher**): enter the customer's name and phone, pick a plan (optionally at a discount) or set a custom duration / devices / speed / price, optionally type a memorable code (e.g. `AWA2026`), and mark it paid. The voucher is pushed to the router immediately (or on the next sync if the router is offline), then shown as a printable card with a ready-to-send message — WhatsApp, SMS or copy — including a one-tap login link. Custom vouchers share a few router profiles (`taptap-2dev-5M-5M`, …) instead of creating one per customer.
+
+## TapTap Tunnel — primary connection for TapTap Link routers (RouterOS 7)
+
+Link routers (behind NAT, CGNAT or 4G) dial an always-on WireGuard tunnel out to the
+TapTap server. While the tunnel is healthy TapTap drives the router over the RouterOS
+API exactly like a directly reachable router: 15 s live sync, instant commands, full
+discovery, the WAN designer (with its mandatory on-router undo timer). TapTap Link keeps
+running as the backup channel; if the tunnel drops, every screen switches to Link
+automatically (`linkops.uses_link`) and the tunnel manager asks the router, over the
+Link, to repair its tunnel. RouterOS 6 routers stay on Link only.
+
+### Deploy
+
+```bash
+# .env
+TAPTAP_WG_ENDPOINT=203.0.113.10        # public IP or an UNPROXIED DNS name (no CDN)
+TAPTAP_TUNNEL_SECRET=<long random>     # encrypts stored tunnel API passwords
+# optional: TAPTAP_WG_PORT=51820 TAPTAP_WG_NETWORK=10.77.0.0/16 TAPTAP_WG_SERVER_IP=10.77.0.1
+#           TAPTAP_WG_MTU=1380 TAPTAP_WG_HANDSHAKE_TIMEOUT=180 TAPTAP_WG_PROBE_SECONDS=30
+#           TAPTAP_WG_PROBE_WORKERS=16 TAPTAP_IPTABLES=iptables-nft|iptables-legacy
+
+docker compose -f docker-compose.yml -f docker-compose.tunnel.yml up -d --build
+```
+
+Open UDP 51820 in the cloud firewall / security group. Pick a `TAPTAP_WG_NETWORK` that
+does not overlap customer LANs. Do not change `TAPTAP_TUNNEL_SECRET` (or `SECRET_KEY`, if
+you rely on the fallback) afterwards: stored API passwords could no longer be decrypted and
+routers would need the tunnel setup again.
+
+### Enable on a router
+
+New Link enrollments on RouterOS 7 set the tunnel up automatically. For routers that
+already have Link, open **Routers › TapTap Link** and paste the "Enable the tunnel" block
+once in WinBox › New Terminal. It keeps the router's existing API allow-list (only adds
+the TapTap server), uses the router's real API port, and places its firewall accept rule
+safely even when the filter list is empty.
+
+### Health and repair
+
+* Healthy = a WireGuard handshake younger than 180 s (WireGuard rekeys about every
+  2 minutes) **and** a successful RouterOS API login within the last couple of minutes.
+* Repairs go over Link with backoff (5, 10, 20, 40, 60 min). They are idempotent — a
+  working peer is never deleted — and re-register the router's public key, so a
+  recreated interface recovers by itself.
+* If no router at all has a fresh handshake, repairs pause and the tunnel container logs
+  a server-side warning (UDP blocked, wrong endpoint, interface down).
+* The manager picks the same iptables backend (nft/legacy) as the host's Docker.

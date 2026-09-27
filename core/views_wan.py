@@ -15,6 +15,19 @@ from .models import WanSetup, RouterConfigSnapshot, RouterConfigChange
 from .utils import log
 
 
+def _on_link(router):
+    """True when this router must be handled through TapTap Link right now
+    (enrolled in Link and its TapTap Tunnel is not healthy)."""
+    from .linkops import uses_link
+    return uses_link(router)
+
+
+_LINK_ONLY_MSG = ('{name} is on TapTap Link and its TapTap Tunnel is not connected right now. '
+                  'Changing Internet lines needs a live RouterOS connection so TapTap can undo the change '
+                  'if the Internet drops. Wait for the tunnel to come back (see the TapTap Link page), '
+                  'or make the change from WinBox.')
+
+
 def _router(request, pk):
     return get_object_or_404(request.user.business.routers, pk=pk)
 
@@ -113,7 +126,7 @@ def wan_designer(request, pk):
 def wan_detect(request, pk):
     router = _router(request, pk); setup = _setup(router)
     try:
-        if router.connection_mode == 'agent':
+        if _on_link(router):
             from .linkops import SnapshotService
             svc = SnapshotService(router)   # reads the latest TapTap Link sync
         else:
@@ -172,8 +185,13 @@ def _audit(request, router, op, fields, ok=True, error=''):
 def wan_apply(request, pk):
     router = _router(request, pk); setup = _setup(router); data = _body(request)
     minutes = 0 if data.get('undo_minutes') in (0, '0') else max(2, min(15, int(data.get('undo_minutes') or 5)))
-    if router.connection_mode == 'agent':
-        return JsonResponse({'success': False, 'message': f'{router.name} is on TapTap Link. Changing Internet lines needs a direct connection so TapTap can undo the change if the Internet drops; do it from WinBox, or connect this router directly while you change it.'}, status=409)
+    if router.connection_mode == 'agent' and not minutes:
+        # Over TapTap Tunnel a bad WAN change can cut the tunnel itself, so the
+        # on-router safety timer is mandatory: it undoes the change unless TapTap
+        # can confirm through the tunnel afterwards.
+        minutes = 5
+    if _on_link(router):
+        return JsonResponse({'success': False, 'message': _LINK_ONLY_MSG.format(name=router.name)}, status=409)
     try:
         svc = MikroTikService(router).connect()
     except Exception as exc:
@@ -224,8 +242,8 @@ def wan_apply(request, pk):
 @require_POST
 def wan_confirm(request, pk):
     router = _router(request, pk); setup = _setup(router)
-    if router.connection_mode == 'agent':
-        return JsonResponse({'success': False, 'message': f'{router.name} is on TapTap Link. Changing Internet lines needs a direct connection so TapTap can undo the change if the Internet drops; do it from WinBox, or connect this router directly while you change it.'}, status=409)
+    if _on_link(router):
+        return JsonResponse({'success': False, 'message': _LINK_ONLY_MSG.format(name=router.name)}, status=409)
     try:
         svc = MikroTikService(router).connect()
         try:
@@ -248,8 +266,8 @@ def wan_confirm(request, pk):
 @require_POST
 def wan_undo(request, pk):
     router = _router(request, pk); setup = _setup(router)
-    if router.connection_mode == 'agent':
-        return JsonResponse({'success': False, 'message': f'{router.name} is on TapTap Link. Changing Internet lines needs a direct connection so TapTap can undo the change if the Internet drops; do it from WinBox, or connect this router directly while you change it.'}, status=409)
+    if _on_link(router):
+        return JsonResponse({'success': False, 'message': _LINK_ONLY_MSG.format(name=router.name)}, status=409)
     try:
         svc = MikroTikService(router).connect()
         try:
@@ -270,7 +288,7 @@ def wan_undo(request, pk):
 def wan_status(request, pk):
     router = _router(request, pk); setup = _setup(router)
     cfg, errors, _ = wan.normalize(setup.config or {}, setup.facts or {})
-    if router.connection_mode == 'agent':
+    if _on_link(router):
         return JsonResponse({'success': True, 'status': setup.status, 'undo_pending': False, 'health': [], 'via_link': True,
                              'confirm_by': setup.confirm_by.isoformat() if setup.confirm_by else None})
     try:

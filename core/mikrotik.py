@@ -132,7 +132,11 @@ class MikroTikService:
 
     def connect(self):
         """Connect with bounded timeouts; fall back to the legacy MD5 login (< 6.43)."""
-        # TapTap Link routers sit behind NAT and have no usable address: never try one.
+        # TapTap Link routers sit behind NAT: reach them only through TapTap Tunnel.
+        if getattr(self.router, 'connection_mode', 'api') == 'agent':
+            from .tunnel import connect_via_tunnel, tunnel_enabled
+            if tunnel_enabled():
+                return connect_via_tunnel(self)
         if getattr(self.router, 'connection_mode', 'api') == 'agent' or not str(self.router.ip_address or '').strip():
             raise MikroTikError(f'{self.router.name} is managed through TapTap Link, so TapTap does not connect to it directly. '
                                 'Its data comes from the Link check-ins and syncs; changes are sent as Link commands.')
@@ -300,6 +304,32 @@ class MikroTikService:
         users = self.resource('/ip/hotspot/user').get(name=code)
         if users:
             self.resource('/ip/hotspot/user').set(id=users[0]['id'], disabled='yes')
+
+    def enable_voucher(self, code):
+        users = self.resource('/ip/hotspot/user').get(name=code)
+        if not users:
+            return False
+        self.resource('/ip/hotspot/user').set(id=users[0]['id'], disabled='no')
+        return True
+
+    def extend_voucher(self, code, hours):
+        """Enable and add ``hours`` on top of the time already used, so the router's
+        own limit-uptime does not lock the voucher out again. Returns the new limit
+        (or '' when the voucher has no router-side limit)."""
+        from .sync import _routeros_seconds
+        users = self.resource('/ip/hotspot/user').get(name=code)
+        if not users:
+            return None
+        row = users[0]
+        data = {'disabled': 'no'}
+        limit = ''
+        if _routeros_seconds(row.get('limit-uptime', row.get('limit_uptime', ''))) > 0:
+            total = _routeros_seconds(row.get('uptime', '')) + int(hours) * 3600
+            d, rest = divmod(total, 86400); h, rest = divmod(rest, 3600); m, s = divmod(rest, 60)
+            limit = ''.join(f'{v}{u}' for v, u in ((d, 'd'), (h, 'h'), (m, 'm'), (s, 's')) if v) or '1h'
+            data['limit_uptime'] = limit
+        self.resource('/ip/hotspot/user').set(id=row['id'], **data)
+        return limit
 
     def reset_active_by_name(self, code):
         for row in self.resource('/ip/hotspot/active').get(user=code):

@@ -6,3 +6,4 @@ routeros-api==0.21.0
 python-dotenv==1.1.1
 celery==5.5.3
 redis==6.4.0
+cryptography>=42,<47

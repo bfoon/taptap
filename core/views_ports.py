@@ -13,6 +13,14 @@ from django.utils import timezone
 
 from .mikrotik import MikroTikService, redact
 
+
+def _on_link(router):
+    """True when this router must be handled through TapTap Link right now
+    (enrolled in Link and its TapTap Tunnel is not healthy)."""
+    from .linkops import uses_link
+    return uses_link(router)
+
+
 NAME_RE = re.compile(r'^[\w.@<>/:+-]{1,64}$')
 HIDE = {'.id', 'id', '.nextid', 'nextid'}
 COUNTER_KEYS = ['rx-byte', 'tx-byte', 'rx-packet', 'tx-packet', 'rx-drop', 'tx-drop', 'rx-error', 'tx-error', 'tx-queue-drop',
@@ -107,7 +115,7 @@ def router_port(request, pk):
         'control': _control_state(router, name),
     }
 
-    if request.GET.get('live') and router.connection_mode == 'agent':
+    if request.GET.get('live') and _on_link(router):
         from .linklive import link_state, rates
         online, why = link_state(router)
         r = rates(router, {name}).get(name) if online else None
@@ -178,7 +186,7 @@ def port_action(request, pk):
     action = request.POST.get('action', '')
     if not NAME_RE.match(name) or '..' in name or not router.interfaces.filter(name=name).exists():
         return JsonResponse({'ok': False, 'message': 'Unknown port.'}, status=400)
-    if router.connection_mode == 'agent':
+    if _on_link(router):
         return _port_action_via_link(request, router, name, action)
     risk = port_risk(router, name)
     if action in ('disable', 'restart', 'off_for') and request.POST.get('confirm') != name:
@@ -308,7 +316,7 @@ def router_reboot(request, pk):
     router = get_object_or_404(request.user.business.routers, pk=pk)
     if request.POST.get('confirm', '').strip() != router.name:
         return JsonResponse({'ok': False, 'message': f'Type the router name “{router.name}” to confirm.'}, status=400)
-    if router.connection_mode == 'agent':
+    if _on_link(router):
         from . import agent as link
         link.queue(router, 'reboot', label='Reboot router', user=request.user, minutes=5)
         return JsonResponse({'ok': True, 'message': f'Reboot sent through TapTap Link — {router.name} reboots at its next check-in.'})
@@ -330,7 +338,7 @@ def router_backups(request, pk):
         if request.POST.get('action') == 'auto':
             router.auto_backup = request.POST.get('on') == '1'; router.save(update_fields=['auto_backup'])
             return JsonResponse({'ok': True, 'message': 'Nightly backups are ' + ('on (between 02:00 and 05:00).' if router.auto_backup else 'off.'), 'auto_backup': router.auto_backup})
-        if router.connection_mode == 'agent':
+        if _on_link(router):
             from . import agent as link
             f = f'taptap-{router.name}-{timezone.localtime():%Y%m%d-%H%M}'.replace(' ', '-')[:60]
             link.queue(router, 'backup', {'file': f}, label='Back up configuration', user=request.user)

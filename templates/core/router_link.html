@@ -109,6 +109,33 @@
 </div>
 {% endif %}
 
+{% if agent and not agent.revoked and tunnel.enabled %}
+<section class="panel mb-3" id="tunnel">
+  <div class="panel-head"><div><h3><i class="bi bi-shield-lock"></i> TapTap Tunnel — primary connection</h3>
+    <p>An always-on WireGuard tunnel the router dials out to TapTap. While it is up, TapTap manages {{ router.name }} over the RouterOS API in real time (15 s live sync, instant commands, WAN designer). TapTap Link stays installed as the backup channel and repairs the tunnel automatically.</p></div>
+    <span class="lk-state {% if tunnel.ready %}on{% elif tunnel.exists %}off{% else %}wait{% endif %}" id="tnState"><i></i> {% if not tunnel.supported %}Needs RouterOS 7{% elif tunnel.ready %}Tunnel online{% elif tunnel.status == 'fallback' %}On TapTap Link (fallback){% elif tunnel.exists %}{{ tunnel.status|capfirst }}{% else %}Not set up{% endif %}</span>
+  </div>
+  {% if not tunnel.supported %}
+    <p class="small text-secondary mb-0">WireGuard exists only on RouterOS 7. This router stays on TapTap Link, which keeps working as before. Upgrade RouterOS to 7 to enable the tunnel.</p>
+  {% else %}
+  <div class="tn-facts">
+    <div><span>Tunnel address</span><b id="tnIp">{{ tunnel.ip|default:'—' }}</b></div>
+    <div><span>Last handshake</span><b id="tnHs">—</b></div>
+    <div><span>Last API check</span><b id="tnApi">—</b></div>
+    <div><span>Last repair</span><b id="tnRep">—</b></div>
+  </div>
+  <p class="small text-danger mt-2 mb-0" id="tnErr">{% if tunnel.error and not tunnel.ready %}{{ tunnel.error }}{% endif %}</p>
+  <details class="lk-advanced mt-3" {% if not tunnel.registered %}open{% endif %}>
+    <summary><i class="bi bi-terminal"></i> {% if tunnel.registered %}Re-run the tunnel setup{% else %}Enable the tunnel — paste once in WinBox › New Terminal{% endif %}</summary>
+    <p class="small mt-3 mb-2">One-time setup for a router that already has TapTap Link. The router creates its own WireGuard key (the private key never leaves the router) and reports only its public key. This block contains no token, so it is safe to share with a technician.</p>
+    <div class="d-flex gap-2 mb-2"><button type="button" class="btn btn-primary btn-sm" data-copy="tnScript"><i class="bi bi-clipboard"></i> Copy</button></div>
+    <pre class="lk-script lk-mini" id="tnScript">{{ tunnel_script }}</pre>
+  </details>
+  {% endif %}
+</section>
+<style>.tn-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:.6rem}.tn-facts div{border:1px solid #e3e9f1;border-radius:12px;padding:.55rem .7rem}.tn-facts span{display:block;font-size:.72rem;color:#51667b}.tn-facts b{font-size:.9rem}</style>
+{% endif %}
+
 <section class="panel mb-3" id="troubleshoot">
   <div class="panel-head"><div><h3><i class="bi bi-life-preserver"></i> If the router stops checking in</h3><p>Paste these into WinBox › New Terminal on {{ router.name }}. None of them contain the token, so they are safe to share with a technician.</p></div></div>
   <div class="lk-fix">
@@ -141,6 +168,13 @@
     if(d.cpu!=null){set('lkCpu',d.cpu+'%');document.getElementById('lkCpuBar').style.width=d.cpu+'%';}
     if(d.mem_total){var u=Math.round((d.mem_total-d.mem_free)*100/d.mem_total);set('lkMem',u+'%');document.getElementById('lkMemBar').style.width=u+'%';}
     if(d.commands&&d.commands.length)document.getElementById('lkCmds').innerHTML=d.commands.map(function(c){return '<tr><td class="text-nowrap">'+new Date(c.at).toLocaleString()+'</td><td>'+esc(c.label)+'</td><td><span class="lk-pill '+c.status+'">'+esc(c.status_label)+'</span></td><td><small class="text-secondary">'+esc((c.result||'').slice(0,80))+'</small></td></tr>';}).join('');
+    var t=d.tunnel, ts=document.getElementById('tnState');
+    if(t&&t.enabled&&ts&&t.supported){
+      ts.className='lk-state '+(t.ready?'on':t.exists?'off':'wait');
+      ts.innerHTML='<i></i> '+(t.ready?'Tunnel online':t.status==='fallback'?'On TapTap Link (fallback)':t.exists?esc(t.status.charAt(0).toUpperCase()+t.status.slice(1)):'Not set up');
+      set('tnIp',t.ip||'—');set('tnHs',ago(t.last_handshake));set('tnApi',ago(t.last_api_ok));set('tnRep',t.last_repair?ago(t.last_repair):'—');
+      set('tnErr',t.ready?'':(t.error||''));
+    }
   }).catch(function(){});}
   tick();setInterval(tick,3000);
 })();

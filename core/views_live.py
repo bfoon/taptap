@@ -19,6 +19,14 @@ from .mikrotik import MikroTikService, ros_bool
 from .models import IPBindingAccessExpiry, SessionIncident, SyncedIPBinding, Voucher, VoucherSale
 from .utils import log
 
+
+def _on_link(router):
+    """True when this router must be handled through TapTap Link right now
+    (enrolled in Link and its TapTap Tunnel is not healthy)."""
+    from .linkops import uses_link
+    return uses_link(router)
+
+
 MAC_RE = re.compile(r'^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$')
 TYPES = ('bypassed', 'regular', 'blocked')
 
@@ -121,7 +129,7 @@ def ip_bindings(request):
                                                  server=request.POST.get('server', 'all').strip() or 'all', binding_type=kind,
                                                  comment=request.POST.get('comment', '').strip() or 'TapTap', disabled=request.POST.get('start_disabled') == 'on',
                                                  source='taptap', sync_status='Pending')
-        if r.connection_mode == 'agent':
+        if _on_link(r):
             from .linkops import send, QUEUED
             try:
                 if not mac:
@@ -239,7 +247,7 @@ def ip_binding_set(request):
         by_router.setdefault(b.router, []).append(b)
     done, errors, rows = 0, [], []
     for router, group in by_router.items():
-        if router.connection_mode == 'agent':
+        if _on_link(router):
             done += _binding_set_via_link(request, router, group, action, value, errors)
             continue
         try:
