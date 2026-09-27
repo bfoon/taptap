@@ -89,23 +89,22 @@ def rs(value):
     return f'"{v}"'
 
 
-SCRIPT_VERSION = 3   # bump when the router-side heartbeat changes; routers upgrade themselves
+SCRIPT_VERSION = 4   # v4: direct scheduler execution + single-instance guard
 
 
 def agent_script(url, token, check):
     """The RouterOS heartbeat installed as ``taptap-link`` (runs every few seconds).
 
-    v3: the heartbeat only reports (health, live sessions, interface counters) and
-    fetches. Commands run in a separate background job (:execute). Check-ins never
-    skip each other — a long or hung command cannot stop the router reporting (v1's
-    global flag and v2's job-count guard both could, until the jobs were removed).
-    If jobs ever pile up, the heartbeat clears them and recovers by itself.
+    v4: the scheduler calls this script directly by name. MikroTik's documented
+    :jobname guard prevents overlapping heartbeat instances. Commands still run in
+    a separate background job (:execute), so a slow router command does not block
+    future heartbeats.
     """
-    return f'''# Self-healing: check-ins never skip each other. If jobs ever pile up (a hung fetch or
-# command), clear them all; the next check-in 10 s later starts clean.
-:if ([:len [/system script job find where script="taptap-link"]] > 5) do={{
-  :log warning "TapTap Link: clearing stuck jobs"
-  /system script job remove [find where script="taptap-link"]
+    return f'''# TapTap Link v{SCRIPT_VERSION}
+# Never allow heartbeat instances to overlap. The scheduler calls this script
+# directly, so :jobname resolves to taptap-link.
+:if ([/system script job print count-only as-value where script=[:jobname]] > 1) do={{
+  :error "TapTap Link: previous check-in is still running"
 }}
 :do {{
   :local url {rs(url + "/api/agent/v1")}
@@ -147,23 +146,23 @@ def agent_script(url, token, check):
 
 
 def self_update_body(url, check):
-    """Replace the router's heartbeat with the current version, keeping its own token.
+    """Replace the router heartbeat with the current version and repair its scheduler.
 
-    TapTap stores only a hash of the token, so the router reads the token out of its
+    TapTap stores only a hash of the token, so the router reads the token from its
     installed script and splices it into the new one.
     """
     marker = 'TAPTAP_TOKEN_MARKER'
     new = agent_script(url, marker, check)
     pre, post = new.split(marker, 1)
     quote = rs('"')
-    return (':global taptapLinkBusy; :set taptapLinkBusy false; '
-            ':local sid [/system script find where name="taptap-link"]; '
+    return (':local sid [/system script find where name="taptap-link"]; '
             ':local src [/system script get $sid source]; '
             ':local p [:find $src "ttl_"]; '
             f':local q [:find $src {quote} $p]; '
             ':local tok [:pick $src $p $q]; '
             ':if ([:len $tok] < 20) do={ :error "TapTap Link: token not found in installed script" }; '
             f'/system script set $sid source=({rs(pre)} . $tok . {rs(post)}); '
+            '/system scheduler set [find where name="taptap-link"] on-event=taptap-link; '
             ':log info "TapTap Link: heartbeat updated"')
 
 
@@ -183,12 +182,11 @@ def enrollment_script(router, token, request=None):
 # Keep the token private. Rotate it from TapTap if it is ever exposed.
 /system scheduler disable [find where name="taptap-link"]
 /system script job remove [find where trace~"scheduler:taptap-link"]
+:do {{ /system script job remove [find where script="taptap-link"] }} on-error={{}}
 /system scheduler remove [find where name="taptap-link"]
 /system script remove [find where name="taptap-link"]
-:global taptapLinkBusy
-:set taptapLinkBusy false
 /system script add name="taptap-link" policy={POLICY} comment="TapTap Link - do not edit" source={rs(body)}
-/system scheduler add name="taptap-link" interval={secs}s start-time=startup policy={POLICY} on-event="/system script run taptap-link" comment="TapTap Link"
+/system scheduler add name="taptap-link" interval={secs}s start-time=startup policy={POLICY} on-event=taptap-link comment="TapTap Link"
 /system script run taptap-link
 :log info "TapTap Link installed"
 '''
@@ -207,8 +205,7 @@ def advanced_enrollment_script(router, token, request=None):
 # 1) Stop an old scheduler and clear only stuck TapTap Link jobs.
 /system scheduler disable [find where name="taptap-link"]
 /system script job remove [find where trace~"scheduler:taptap-link"]
-:global taptapLinkBusy
-:set taptapLinkBusy false
+:do {{ /system script job remove [find where script="taptap-link"] }} on-error={{}}
 
 # 2) Show RouterOS, clock and certificate information.
 #    HTTPS fails if the router clock is wrong: make sure the date below is today.
