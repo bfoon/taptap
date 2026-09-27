@@ -85,6 +85,14 @@ CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://redis:6379/0')
 CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://redis:6379/1')
 CELERY_TASK_ALWAYS_EAGER = env_bool('CELERY_EAGER', False)  # no Redis/worker? run syncs inline
 CELERY_TASK_TRACK_STARTED = True
+# Live sync: how often routers are checked for new/used vouchers, sessions and IP bindings.
+LIVE_WATCH_SECONDS = int(os.getenv('LIVE_WATCH_SECONDS', '15'))
+CELERY_BEAT_SCHEDULE = {
+    'taptap-live-watch': {'task': 'core.tasks.live_watch_all', 'schedule': float(LIVE_WATCH_SECONDS),
+                          'options': {'expires': LIVE_WATCH_SECONDS * 2}},
+}
+# Live checks run on their own queue so they never wait behind a long full sync.
+CELERY_TASK_ROUTES = {'core.tasks.live_watch_all': {'queue': 'live'}}
 CELERY_TASK_TIME_LIMIT = int(os.getenv('CELERY_TASK_TIME_LIMIT', '1800'))
 CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv('CELERY_TASK_SOFT_TIME_LIMIT', '1700'))
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1

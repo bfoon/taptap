@@ -90,7 +90,15 @@ def finance(request):
         if by_cat.get(key): pl_rows.append((label, -by_cat[key], 'out'))
     pl_rows.append(('Net profit', summary['profit'], 'total'))
 
+    from .views_live import missing_sales
+    priced, unpriced = missing_sales(business)
+    health = {'missing_count': len(priced), 'missing_value': sum((p for _, p in priced), Decimal('0')), 'unpriced': unpriced,
+              'oldest': min((v.used_at for v, _ in priced), default=None),
+              'auto': business.auto_record_sales, 'live': business.live_sync,
+              'unpriced_plans': list(business.vouchers.filter(used_at__isnull=False, sale__isnull=True, price=0)
+                                     .values_list('plan_name', flat=True).distinct()[:8])}
     ctx = {
+        'health': health,
         'tab': tab, 'period': period, 'presets': PRESETS, 'summary': summary, 'charts': charts,
         'sales_page': Paginator(sales, 40).get_page(request.GET.get('sp')),
         'expenses_page': Paginator(expenses, 40).get_page(request.GET.get('ep')),

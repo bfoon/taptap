@@ -24,6 +24,10 @@ class Business(models.Model):
     # Finance
     monthly_revenue_target=models.DecimalField(max_digits=12,decimal_places=2,default=0)
     auto_record_sales=models.BooleanField(default=True,help_text='Record a sale automatically when an unsold voucher is first used on the router')
+    # Live sync & enforcement
+    live_sync=models.BooleanField(default=True,help_text='Check routers every few seconds for voucher, session and binding changes')
+    auto_enforce=models.BooleanField(default=True,help_text='Automatically disconnect sessions whose voucher has expired or been disabled')
+    enforce_grace_minutes=models.PositiveSmallIntegerField(default=5,help_text='Wait this long before fixing automatically')
     def access_expires_at(self): return self.subscription_expires_at if self.subscription_status=='active' else self.trial_ends_at
     @property
     def has_access(self):
@@ -73,6 +77,10 @@ class Router(models.Model):
     status=models.CharField(max_length=40,default='Not connected')
     last_error=models.TextField(blank=True)
     last_tested_at=models.DateTimeField(null=True,blank=True)
+    # When TapTap first finished reading this router. Vouchers first seen already-used after this
+    # moment were sold while TapTap was watching, so their sales are booked; older history is not.
+    sales_baseline_at=models.DateTimeField(null=True,blank=True)
+    last_watch_at=models.DateTimeField(null=True,blank=True)
     created_at=models.DateTimeField(auto_now_add=True)
     def __str__(self): return self.name
 
@@ -568,3 +576,30 @@ class DeviceSignature(models.Model):
                 if int(str(m).replace('-',':').split(':')[0],16)&2: out.append(m)
             except ValueError: pass
         return out
+
+
+class SessionIncident(models.Model):
+    """A hotspot session that should not be online (voucher expired, disabled or removed)."""
+    REASONS=[('expired','Voucher expired'),('disabled','Voucher disabled in TapTap'),('unknown','Not a TapTap or router voucher')]
+    STATUS=[('open','Open'),('fixed','Fixed'),('ended','Session ended by itself'),('ignored','Allowed by you')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='session_incidents')
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='session_incidents')
+    voucher=models.ForeignKey(Voucher,on_delete=models.SET_NULL,null=True,blank=True,related_name='incidents')
+    username=models.CharField(max_length=120)
+    mac_address=models.CharField(max_length=32,blank=True)
+    ip_address=models.CharField(max_length=64,blank=True)
+    session_id=models.CharField(max_length=60,blank=True)
+    reason=models.CharField(max_length=20,choices=REASONS,default='expired')
+    detail=models.CharField(max_length=255,blank=True)
+    status=models.CharField(max_length=20,choices=STATUS,default='open',db_index=True)
+    first_seen=models.DateTimeField(default=timezone.now)
+    last_seen=models.DateTimeField(default=timezone.now)
+    fix_due_at=models.DateTimeField(null=True,blank=True)
+    fixed_at=models.DateTimeField(null=True,blank=True)
+    fixed_by=models.CharField(max_length=20,blank=True,help_text='auto or user')
+    fixed_user=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)
+    error=models.CharField(max_length=255,blank=True)
+    class Meta:
+        ordering=['-last_seen']
+        indexes=[models.Index(fields=['business','status'],name='incident_business_status_idx')]
+    def __str__(self): return f'{self.username} on {self.router}: {self.get_reason_display()}'

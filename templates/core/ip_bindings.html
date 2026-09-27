@@ -1,20 +1,145 @@
 {% extends 'core/base.html' %}
 {% block title %}IP Binding — TapTap{% endblock %}
 {% block heading %}IP Binding{% endblock %}
+{% block extra_head %}<style>
+.ib-top{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;justify-content:space-between;margin-bottom:.9rem}
+.ib-chips{display:flex;flex-wrap:wrap;gap:.35rem}
+.ib-chip{border:1px solid var(--border);background:#fff;border-radius:999px;padding:.35rem .75rem;font-size:.78rem;font-weight:700;color:#4e6479}
+.ib-chip b{font-variant-numeric:tabular-nums;margin-left:.25rem}.ib-chip.on{background:#102033;border-color:#102033;color:#fff}
+.ib-chip.act b{color:#138453}.ib-chip.dis b{color:#8a9aab}.ib-chip.on b{color:#fff}
+.ib-tools{display:flex;gap:.4rem;flex-wrap:wrap}.ib-tools .form-control,.ib-tools .form-select{max-width:220px}
+.ib-legend{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;margin-bottom:.9rem}
+.ib-legend div{background:#fff;border:1px solid var(--border);border-radius:12px;padding:.6rem .75rem;font-size:.78rem;color:#51667b}
+.ib-legend b{display:block;color:var(--ink);font-size:.82rem}
+.ib-table{width:100%;border-collapse:separate;border-spacing:0}
+.ib-table th{font-size:.7rem;font-weight:700;color:#8a9aab;text-transform:uppercase;letter-spacing:.04em;padding:.55rem .6rem;border-bottom:1px solid var(--border);white-space:nowrap}
+.ib-table td{padding:.55rem .6rem;border-bottom:1px solid #eef2f6;font-size:.84rem;vertical-align:middle}
+.ib-table tr.off td:not(:first-child):not(:nth-child(2)){opacity:.55}
+.ib-table tr.sel td{background:#f3f8ff}
+.ib-mac{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem;color:#b3246b}
+.ib-sw{display:inline-flex;align-items:center;gap:.5rem;border:0;background:none;padding:0;cursor:pointer;font:inherit}
+.ib-track{position:relative;width:46px;height:26px;border-radius:999px;background:#c8d1db;transition:background .2s;flex:none}
+.ib-track::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #0003;transition:transform .2s}
+.ib-sw[aria-checked=true] .ib-track{background:#18a66a}.ib-sw[aria-checked=true] .ib-track::after{transform:translateX(20px)}
+.ib-sw .ib-lab{font-size:.78rem;font-weight:800;min-width:58px;text-align:left;color:#8a9aab}
+.ib-sw[aria-checked=true] .ib-lab{color:#138453}
+.ib-sw.busy .ib-track::after{animation:ibPulse .8s ease-in-out infinite}
+.ib-sw:focus-visible .ib-track{outline:2px solid #1769e0;outline-offset:2px}
+@keyframes ibPulse{50%{box-shadow:0 0 0 5px #1769e033}}
+.ib-type{border:1px solid transparent;border-radius:999px;padding:.2rem 1.6rem .2rem .6rem;font-size:.74rem;font-weight:700;background-position:right .4rem center;cursor:pointer;width:auto;display:inline-block}
+.ib-type.bypassed{background-color:#e4f7ee;color:#138453}.ib-type.blocked{background-color:#fdeaea;color:#c02b2b}.ib-type.regular{background-color:#eef2f6;color:#4e6479}
+.ib-until{display:inline-block;font-size:.66rem;font-weight:700;border-radius:999px;padding:.1rem .45rem;background:#fff4dc;color:#9a6200;margin-left:.3rem}
+.ib-err{display:block;font-size:.66rem;color:#c02b2b}
+.ib-bulk{position:sticky;bottom:.8rem;z-index:5;display:none;align-items:center;gap:.5rem;flex-wrap:wrap;background:#102033;color:#fff;border-radius:14px;padding:.6rem .8rem;margin-top:.8rem;box-shadow:0 10px 30px #0b223755}
+.ib-bulk.show{display:flex}
+.ib-toast{position:fixed;right:1rem;bottom:1rem;z-index:1080;background:#102033;color:#fff;border-radius:12px;padding:.6rem .9rem;font-size:.84rem;box-shadow:0 10px 30px #0006;display:none;max-width:420px}
+.ib-toast.show{display:block}.ib-toast.bad{background:#b42323}
+.ib-live{font-size:.74rem;color:#6c7c90}
+@media(max-width:900px){.ib-legend{grid-template-columns:1fr}.ib-hide-sm{display:none}}
+</style>{% endblock %}
 {% block content %}
-{% for e in errors %}<div class="alert alert-warning">{{ e }}</div>{% endfor %}
-<div class="page-actions"><div><h2 class="section-title">Router IP bindings</h2><p>Live RouterOS bindings are shown below. TapTap-created bindings are kept in the database and pushed again during synchronization.</p></div><a href="{% url 'routers' %}" class="btn btn-outline-primary"><i class="bi bi-arrow-repeat"></i> Router Sync</a></div>
-<div class="row g-4">
- <div class="col-xl-8">
-  <div class="panel">
-   <div class="table-responsive"><table class="table align-middle"><thead><tr><th>MAC</th><th>Address</th><th>Type</th><th>Comment</th><th>Router</th><th></th></tr></thead><tbody>
-   {% for x in rows %}<tr><td><code>{{ x.mac_address|default:'—' }}</code></td><td>{{ x.address|default:'—' }}</td><td>{{ x.type|default:'regular' }}</td><td>{{ x.comment|default:'—' }}</td><td>{{ x.router_name }}</td><td class="d-flex gap-1"><form method="post" action="{% url 'ip_binding_action' %}">{% csrf_token %}<input type="hidden" name="router_id" value="{{ x.router_id }}"><input type="hidden" name="item_id" value="{{ x.id }}"><input type="hidden" name="action" value="toggle"><input type="hidden" name="disabled" value="{{ x.disabled|default:'false' }}"><button class="btn btn-sm btn-outline-secondary">Toggle</button></form><form method="post" action="{% url 'ip_binding_action' %}">{% csrf_token %}<input type="hidden" name="router_id" value="{{ x.router_id }}"><input type="hidden" name="item_id" value="{{ x.id }}"><input type="hidden" name="action" value="delete"><button class="btn btn-sm btn-outline-danger">Delete</button></form></td></tr>
-   {% empty %}<tr><td colspan="6" class="empty-table">No live IP bindings returned.</td></tr>{% endfor %}</tbody></table></div>
+<div class="ib-top">
+  <div><h2 class="section-title mb-0">Router IP bindings</h2><span class="ib-live" id="ibLive">Kept in step with your routers by live sync.</span></div>
+  <div class="ib-tools">
+    <input class="form-control form-control-sm" id="ibQ" placeholder="Search name, MAC or IP" aria-label="Search bindings">
+    <select class="form-select form-select-sm" id="ibRouter" aria-label="Router"><option value="">All routers</option>{% for r in routers %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select>
+    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addModal"><i class="bi bi-plus-lg"></i> Add binding</button>
   </div>
-  {% if mirrored %}<div class="panel mt-4"><div class="panel-head"><div><h3>TapTap sync mirror</h3><p>Bindings remembered from previous syncs, including MikroTik-only records.</p></div></div><div class="table-responsive"><table class="table align-middle"><thead><tr><th>MAC / Address</th><th>Origin</th><th>Router</th><th>Sync</th><th>Last seen</th></tr></thead><tbody>{% for x in mirrored %}<tr><td><code>{{ x.mac_address|default:x.address|default:'—' }}</code></td><td><span class="badge {% if x.source == 'taptap' %}text-bg-primary{% else %}text-bg-secondary{% endif %}">{{ x.get_source_display }}</span></td><td>{{ x.router.name }}</td><td>{{ x.sync_status }}</td><td>{{ x.last_seen_at|date:'M j H:i' }}</td></tr>{% endfor %}</tbody></table></div></div>{% endif %}
- </div>
- <div class="col-xl-4">
-  <div class="panel form-panel"><h3>Add binding</h3><p>This is saved in TapTap first, then synchronized to the selected MikroTik.</p><form method="post">{% csrf_token %}<label>Router</label><select class="form-select" name="router_id" required>{% for r in routers %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select><label>MAC address</label><input class="form-control" name="mac_address" required placeholder="AA:BB:CC:DD:EE:FF"><label>IP address <span class="text-secondary">(optional)</span></label><input class="form-control" name="address" placeholder="172.16.0.25"><label>Hotspot server</label><input class="form-control" name="server" value="all"><label>Access type</label><select class="form-select" name="type"><option value="bypassed">bypassed</option><option value="blocked">blocked</option><option value="regular">regular</option></select><label>Comment</label><input class="form-control" name="comment" value="TapTap"><button class="btn btn-primary mt-3 w-100">Save & Sync Binding</button></form></div>
- </div>
 </div>
+<div class="ib-chips mb-2" id="ibChips" role="group" aria-label="Filter"></div>
+<div class="ib-legend">
+  <div><b><span class="ib-type bypassed" style="padding-right:.6rem">bypassed</span></b>Gets Internet without a voucher while <b class="d-inline text-success">Active</b>. Turn it off and the device must use a voucher again.</div>
+  <div><b><span class="ib-type blocked" style="padding-right:.6rem">blocked</span></b>Cannot use the hotspot at all while <b class="d-inline text-success">Active</b>. Turn it off to let the device in again.</div>
+  <div><b><span class="ib-type regular" style="padding-right:.6rem">regular</span></b>Normal login rules. Used to keep a device on a fixed IP address.</div>
+</div>
+{% if never_synced %}<div class="alert alert-info small"><i class="bi bi-info-circle"></i> Bindings appear here after the first live check (a few seconds), or press <b>Sync now</b> in the top bar.</div>{% endif %}
+<section class="panel p-0 overflow-hidden">
+  <div class="table-responsive"><table class="ib-table">
+    <thead><tr><th style="width:34px"><input type="checkbox" class="form-check-input" id="ibAll" aria-label="Select all"></th><th>State</th><th>Name</th><th>MAC</th><th class="ib-hide-sm">IP</th><th>Type</th><th class="ib-hide-sm">Router</th><th></th></tr></thead>
+    <tbody id="ibBody"></tbody>
+  </table></div>
+</section>
+<div class="ib-bulk" id="ibBulk"><b id="ibSelN"></b><span class="flex-grow-1"></span>
+  <button class="btn btn-sm btn-success" data-bulk="enable"><i class="bi bi-toggle-on"></i> Turn on</button>
+  <button class="btn btn-sm btn-light" data-bulk="disable"><i class="bi bi-toggle-off"></i> Turn off</button>
+  <button class="btn btn-sm btn-warning" data-bulk="timed" data-value="24">On for 24 h</button>
+  <button class="btn btn-sm btn-outline-light" data-bulk="delete"><i class="bi bi-trash"></i> Delete</button>
+  <button class="btn btn-sm btn-link text-white" id="ibClear">Clear</button>
+</div>
+<div class="ib-toast" id="ibToast" role="status" aria-live="polite"></div>
+
+<div class="modal fade" id="addModal" tabindex="-1" aria-labelledby="addTitle" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post">{% csrf_token %}
+  <div class="modal-header"><h5 class="modal-title" id="addTitle">Add binding</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body row g-3">
+    <div class="col-12"><label class="form-label">Name / comment</label><input class="form-control" name="comment" placeholder="e.g. Sonko tenant 19" required></div>
+    <div class="col-7"><label class="form-label">MAC address</label><input class="form-control" name="mac_address" required placeholder="AA:BB:CC:DD:EE:FF"></div>
+    <div class="col-5"><label class="form-label">IP <small class="text-secondary">(optional)</small></label><input class="form-control" name="address"></div>
+    <div class="col-6"><label class="form-label">Router</label><select class="form-select" name="router_id" required>{% for r in routers %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select></div>
+    <div class="col-6"><label class="form-label">Type</label><select class="form-select" name="type"><option value="bypassed">bypassed — free access</option><option value="blocked">blocked — no access</option><option value="regular">regular</option></select></div>
+    <div class="col-6"><label class="form-label">Hotspot server</label><input class="form-control" name="server" value="all"></div>
+    <div class="col-6"><label class="form-label">Turn off automatically after</label><select class="form-select" name="hours"><option value="">Never</option><option value="1">1 hour</option><option value="24">1 day</option><option value="168">1 week</option><option value="720">30 days</option></select></div>
+    <div class="col-12"><label class="form-check"><input class="form-check-input" type="checkbox" name="start_disabled"> <span class="form-check-label">Create it switched off</span></label></div>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Add and send to router</button></div>
+</form></div></div>
+{{ payload|json_script:"ibData" }}
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var data=JSON.parse(document.getElementById('ibData').textContent), filter='all', sel=new Set(), busy=new Set();
+  var body=document.getElementById('ibBody'), q=document.getElementById('ibQ'), rsel=document.getElementById('ibRouter'), token=document.querySelector('[name=csrfmiddlewaretoken]').value;
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function toast(msg,bad){var t=document.getElementById('ibToast');t.textContent=msg;t.className='ib-toast show'+(bad?' bad':'');clearTimeout(t._h);t._h=setTimeout(function(){t.className='ib-toast';},4500);}
+  function until(iso){if(!iso)return '';var d=new Date(iso),left=(d-new Date())/36e5;return '<span class="ib-until" title="Turns off automatically at '+d.toLocaleString()+'">until '+(left<24?d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):d.toLocaleDateString())+'</span>';}
+  function chips(){var c=data.counts;document.getElementById('ibChips').innerHTML=[['all','All',c.total,''],['active','Active',c.active,'act'],['disabled','Disabled',c.disabled,'dis'],['bypassed','Bypassed',c.bypassed,''],['blocked','Blocked',c.blocked,'']].map(function(x){return '<button class="ib-chip '+x[3]+(filter===x[0]?' on':'')+'" data-f="'+x[0]+'" aria-pressed="'+(filter===x[0])+'">'+x[1]+'<b>'+x[2]+'</b></button>';}).join('');
+    [].forEach.call(document.querySelectorAll('[data-f]'),function(b){b.onclick=function(){filter=b.dataset.f;draw();};});}
+  function visible(){var t=q.value.trim().toLowerCase(),r=rsel.value;return data.rows.filter(function(x){
+    if(r&&String(x.router_id)!==r)return false;
+    if((filter==='active'&&!x.active)||(filter==='disabled'&&x.active))return false;
+    if((filter==='bypassed'||filter==='blocked')&&x.type!==filter)return false;
+    return !t||[x.comment,x.mac,x.address,x.router].join(' ').toLowerCase().indexOf(t)>=0;});}
+  function draw(){chips();var rows=visible();
+    body.innerHTML=rows.map(function(x){var b=busy.has(x.id);return '<tr class="'+(x.active?'':'off')+(sel.has(x.id)?' sel':'')+'" data-id="'+x.id+'">'+
+      '<td><input type="checkbox" class="form-check-input" data-pick="'+x.id+'"'+(sel.has(x.id)?' checked':'')+' aria-label="Select '+esc(x.comment||x.mac)+'"></td>'+
+      '<td><button class="ib-sw'+(b?' busy':'')+'" role="switch" aria-checked="'+x.active+'" data-sw="'+x.id+'" title="'+(x.active?'Active on the router — click to turn off':'Disabled on the router — click to turn on')+'"><span class="ib-track"></span><span class="ib-lab">'+(b?'Saving…':(x.active?'Active':'Disabled'))+'</span></button></td>'+
+      '<td><b>'+esc(x.comment||'—')+'</b>'+until(x.until)+(x.error?'<span class="ib-err">'+esc(x.error)+'</span>':'')+'</td>'+
+      '<td><span class="ib-mac">'+esc(x.mac||'—')+'</span></td><td class="ib-hide-sm">'+esc(x.address||'—')+'</td>'+
+      '<td><select class="form-select form-select-sm ib-type '+x.type+'" data-type="'+x.id+'" aria-label="Type">'+['bypassed','regular','blocked'].map(function(t){return '<option'+(t===x.type?' selected':'')+'>'+t+'</option>';}).join('')+'</select></td>'+
+      '<td class="ib-hide-sm">'+esc(x.router)+'</td>'+
+      '<td class="text-end"><div class="dropdown"><button class="btn btn-sm btn-light" data-bs-toggle="dropdown" aria-label="More actions"><i class="bi bi-three-dots"></i></button><ul class="dropdown-menu dropdown-menu-end">'+
+        '<li><h6 class="dropdown-header">Turn on for a while</h6></li>'+[[1,'1 hour'],[24,'1 day'],[168,'1 week'],[720,'30 days']].map(function(h){return '<li><button class="dropdown-item" data-timed="'+x.id+'" data-h="'+h[0]+'">'+h[1]+'</button></li>';}).join('')+
+        '<li><hr class="dropdown-divider"></li><li><button class="dropdown-item" data-rename="'+x.id+'">Rename</button></li><li><button class="dropdown-item text-danger" data-del="'+x.id+'">Delete from router</button></li></ul></div></td></tr>';}).join('')||
+      '<tr><td colspan="8" class="text-center text-secondary py-4">'+(data.rows.length?'No binding matches this filter.':'No IP bindings on your routers yet.')+'</td></tr>';
+    bulkbar();}
+  function bulkbar(){var n=sel.size;document.getElementById('ibBulk').classList.toggle('show',n>0);document.getElementById('ibSelN').textContent=n+' selected';var v=visible();document.getElementById('ibAll').checked=n>0&&v.length>0&&v.every(function(x){return sel.has(x.id);});}
+  function send(ids,action,value){ids.forEach(function(i){busy.add(i);});draw();
+    var fd=new FormData();ids.forEach(function(i){fd.append('ids',i);});fd.append('action',action);if(value!=null)fd.append('value',value);
+    return fetch('{% url "ip_binding_set" %}',{method:'POST',body:fd,credentials:'same-origin',headers:{'X-CSRFToken':token}}).then(function(r){return r.json();}).then(function(d){
+      ids.forEach(function(i){busy.delete(i);});if(d.rows){data={rows:d.rows,counts:d.counts};}if(action==='delete')ids.forEach(function(i){sel.delete(i);});draw();toast(d.message,!d.ok);
+    }).catch(function(e){ids.forEach(function(i){busy.delete(i);});draw();toast('Could not reach TapTap: '+e.message,true);});}
+  function row(id){return data.rows.find(function(x){return x.id===id;});}
+  body.addEventListener('click',function(e){var t;
+    if((t=e.target.closest('[data-sw]'))){var id=+t.dataset.sw,r=row(id);if(busy.has(id))return;
+      if(!r.active&&r.type==='blocked'&&!confirm('Turning this on BLOCKS '+(r.comment||r.mac)+' from the hotspot. Continue?'))return;
+      send([id],r.active?'disable':'enable');}
+    else if((t=e.target.closest('[data-timed]'))){send([+t.dataset.timed],'timed',t.dataset.h);}
+    else if((t=e.target.closest('[data-del]'))){var r2=row(+t.dataset.del);if(confirm('Delete the binding for '+(r2.comment||r2.mac)+' from '+r2.router+'?'))send([r2.id],'delete');}
+    else if((t=e.target.closest('[data-rename]'))){var r3=row(+t.dataset.rename),n=prompt('New name for this binding',r3.comment||'');if(n!=null)send([r3.id],'comment',n);}
+  });
+  body.addEventListener('change',function(e){var t;
+    if((t=e.target.closest('[data-pick]'))){var id=+t.dataset.pick;if(t.checked)sel.add(id);else sel.delete(id);t.closest('tr').classList.toggle('sel',t.checked);bulkbar();}
+    else if((t=e.target.closest('[data-type]'))){if(t.value==='blocked'&&!confirm('Blocked devices cannot use the hotspot at all. Continue?')){draw();return;}send([+t.dataset.type],'type',t.value);}
+  });
+  document.getElementById('ibAll').onchange=function(){var on=this.checked;visible().forEach(function(x){if(on)sel.add(x.id);else sel.delete(x.id);});draw();};
+  document.getElementById('ibClear').onclick=function(){sel.clear();draw();};
+  [].forEach.call(document.querySelectorAll('[data-bulk]'),function(b){b.onclick=function(){var ids=Array.from(sel),a=b.dataset.bulk;
+    if(a==='delete'&&!confirm('Delete '+ids.length+' binding(s) from the router?'))return;send(ids,a,b.dataset.value);};});
+  q.oninput=draw;rsel.onchange=draw;
+  function refresh(){if(busy.size)return;fetch('{% url "ip_bindings_data" %}',{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.json();}).then(function(d){
+    var before=JSON.stringify(data.rows);data=d;if(JSON.stringify(d.rows)!==before)draw();document.getElementById('ibLive').textContent='Up to date with your routers · '+new Date().toLocaleTimeString();}).catch(function(){});}
+  window.addEventListener('taptap:live',refresh);setInterval(refresh,15000);
+  draw();
+})();
+</script>
 {% endblock %}

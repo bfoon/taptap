@@ -2,6 +2,22 @@
 {% block title %}Finance — TapTap{% endblock %}{% block heading %}Finance{% endblock %}
 {% block content %}
 {% with c=current_business.currency s=summary pq=period.as_dict %}
+{% if health.missing_count or health.unpriced or not health.auto %}
+<section class="sales-health mb-3">
+  <i class="bi bi-clipboard2-pulse"></i>
+  <div class="flex-grow-1">
+    <b>{% if health.missing_count %}{{ health.missing_count }} used voucher{{ health.missing_count|pluralize }} {{ health.missing_count|pluralize:"has,have" }} no sale recorded ({{ c }}{{ health.missing_value|floatformat:0 }}){% elif health.unpriced %}Some used vouchers have no price{% else %}Automatic sales recording is off{% endif %}</b>
+    <small>{% if health.missing_count %}Customers used these{% if health.oldest %} since {{ health.oldest|date:'d M Y' }}{% endif %} but they never reached Finance — usually vouchers used before live sync was running. Booking them puts each sale on the day it was first used, so charts stay accurate.{% endif %}
+      {% if health.unpriced %} {{ health.unpriced }} used voucher{{ health.unpriced|pluralize }} {{ health.unpriced|pluralize:"has,have" }} no price{% if health.unpriced_plans %} (plans: {{ health.unpriced_plans|join:", " }}){% endif %} — set the price on <a href="{% url 'plans' %}">Plans</a> and they can be booked too.{% endif %}
+      {% if not health.auto %} Turn on “Record sales automatically” in Finance settings so new activations are booked as they happen.{% endif %}</small>
+  </div>
+  {% if health.missing_count %}<form method="post" action="{% url 'finance_book_missing' %}" class="d-flex gap-2 align-items-center">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <input class="form-control form-control-sm" type="date" name="since" title="Only vouchers first used on or after this date (optional)" aria-label="Only from this date">
+    <button class="btn btn-sm btn-primary text-nowrap" onclick="return confirm('Record a sale for each used voucher without one, dated on its first use?')">Book {{ health.missing_count }} sale{{ health.missing_count|pluralize }}</button></form>{% endif %}
+</section>
+<style>.sales-health{display:flex;gap:.9rem;align-items:center;flex-wrap:wrap;background:#fff8e8;border:1px solid #f2d69a;border-radius:14px;padding:.8rem 1rem;color:#6d531f}
+.sales-health>i{font-size:1.4rem;color:#b7791f}.sales-health b{display:block;color:#4d3a12}.sales-health small{display:block;font-size:.78rem}.sales-health input{max-width:150px}</style>
+{% endif %}
 <div class="filter-bar">
   <div class="range-pills" role="group" aria-label="Period">
     {% for key,label in presets.items %}{% if key != 'custom' %}<a href="?tab={{ tab }}&range={{ key }}" class="{% if period.preset == key %}on{% endif %}">{{ label }}</a>{% endif %}{% endfor %}

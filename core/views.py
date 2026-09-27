@@ -651,7 +651,9 @@ def security(request):
         r.sec_score=pr['score'];r.sec_grade=pr['grade'];r.sec_counts=pr['counts']
         try: r.sec_scanned=r.config_snapshot.captured_at if r.config_snapshot.sections.get('IP services') else None
         except Exception: r.sec_scanned=None
-    return render(request,'core/security.html',{'summary':summary,'routers':routers,
+    incidents=list(business.session_incidents.select_related('router','voucher').filter(status__in=['open','ignored']).order_by('status','fix_due_at'))
+    recent_fixed=list(business.session_incidents.select_related('router').filter(status__in=['fixed','ended']).order_by('-fixed_at')[:12])
+    return render(request,'core/security.html',{'incidents':incidents,'recent_fixed':recent_fixed,'summary':summary,'routers':routers,
         'fix_labels':{k:v[3] for k,v in MikroTikService.SECURITY_FIXES.items()}})
 
 

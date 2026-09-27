@@ -194,7 +194,12 @@ def sell_from_stock(business, plan_name, quantity, **kwargs):
 
 def mark_activated(voucher, when=None):
     """Called by router sync the first time a voucher shows uptime. Auto-books revenue if enabled."""
-    when = when or timezone.now()
+    now = timezone.now()
+    when = min(when or now, now)
+    # A TapTap voucher cannot be used before it was printed. Router-made vouchers were created on the
+    # router before TapTap imported them, so their TapTap creation time is no lower bound.
+    if voucher.source == 'taptap' and voucher.created_at and when < voucher.created_at:
+        when = voucher.created_at
     if voucher.used_at:
         return False
     Voucher.objects.filter(pk=voucher.pk, used_at__isnull=True).update(used_at=when)

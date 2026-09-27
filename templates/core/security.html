@@ -24,6 +24,65 @@
   </div>
 </section>
 
+<section class="panel mb-3" id="incidents">
+  <div class="panel-head"><div><h3><i class="bi bi-broadcast-pin"></i> Sessions that should not be online</h3><p>Live sync watches every connected customer. When a voucher has run out or was disabled but the device is still online, it shows here{% if current_business.auto_enforce %} and is disconnected automatically after {{ current_business.enforce_grace_minutes }} minute{{ current_business.enforce_grace_minutes|pluralize }}{% endif %}.</p></div>
+    {% if incidents %}<form method="post" action="{% url 'incident_fix_all' %}">{% csrf_token %}<button class="btn btn-danger btn-sm" onclick="return confirm('Disconnect every session listed here and disable their vouchers on the router?')"><i class="bi bi-lightning-charge"></i> Fix all now</button></form>{% endif %}</div>
+  {% for i in incidents %}
+  <div class="inc-row {% if i.status == 'ignored' %}ignored{% endif %}">
+    <div class="inc-clock" {% if i.status == 'open' and current_business.auto_enforce and i.fix_due_at %}data-due="{{ i.fix_due_at|date:'c' }}" data-start="{{ i.first_seen|date:'c' }}"{% endif %}>
+      <svg viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="18" class="bg"/><circle cx="22" cy="22" r="18" class="fg" stroke-dasharray="113.1" stroke-dashoffset="0"/></svg>
+      <span>{% if i.status == 'ignored' %}<i class="bi bi-pause"></i>{% elif not current_business.auto_enforce %}<i class="bi bi-hand-index"></i>{% endif %}</span></div>
+    <div class="inc-main"><b>{{ i.username }}</b> <span class="inc-reason {{ i.reason }}">{{ i.get_reason_display }}</span>
+      <small>{{ i.detail }} · {{ i.router.name }}{% if i.mac_address %} · {{ i.mac_address }}{% endif %}{% if i.ip_address %} · {{ i.ip_address }}{% endif %}</small>
+      <small class="inc-when">{% if i.status == 'ignored' %}Allowed by you — will not be disconnected automatically{% elif current_business.auto_enforce and i.fix_due_at %}<span class="inc-count">Auto-fix {{ i.fix_due_at|timeuntil }}</span>{% else %}Automatic fixing is off{% endif %} · first seen {{ i.first_seen|timesince }} ago{% if i.error %} · <span class="text-danger">last try failed: {{ i.error }}</span>{% endif %}</small></div>
+    <div class="inc-act">
+      <form method="post" action="{% url 'incident_fix' i.id %}" class="inc-fix">{% csrf_token %}<button class="btn btn-sm btn-danger"><i class="bi bi-plug"></i> Fix now</button></form>
+      <form method="post" action="{% url 'incident_ignore' i.id %}">{% csrf_token %}<button class="btn btn-sm btn-light">{% if i.status == 'ignored' %}Stop allowing{% else %}Allow{% endif %}</button></form>
+    </div>
+  </div>
+  {% empty %}
+  <div class="inc-clear"><i class="bi bi-shield-check"></i> Every connected customer has a valid voucher.{% if recent_fixed %} {{ recent_fixed|length }} recent session{{ recent_fixed|length|pluralize }} handled below.{% endif %}</div>
+  {% endfor %}
+  {% if recent_fixed %}<details class="mt-2"><summary class="small text-secondary">Recently handled</summary>
+    {% for i in recent_fixed %}<div class="inc-hist"><i class="bi {% if i.status == 'fixed' %}bi-check2-circle text-success{% else %}bi-door-closed text-secondary{% endif %}"></i> <b>{{ i.username }}</b> on {{ i.router.name }} — {% if i.status == 'fixed' %}{% if i.fixed_by == 'auto' %}fixed automatically{% else %}fixed by {{ i.fixed_user.first_name|default:'you' }}{% endif %}{% else %}left on their own{% endif %} <small class="text-secondary">{{ i.fixed_at|timesince }} ago</small></div>{% endfor %}
+  </details>{% endif %}
+  <form method="post" action="{% url 'live_settings' %}" class="inc-settings" id="live-settings">{% csrf_token %}<input type="hidden" name="next" value="{% url 'security' %}#incidents">
+    <label class="form-check form-switch"><input class="form-check-input" type="checkbox" name="live_sync" {% if current_business.live_sync %}checked{% endif %}> <span class="form-check-label">Live sync with routers</span></label>
+    <label class="form-check form-switch"><input class="form-check-input" type="checkbox" name="auto_enforce" {% if current_business.auto_enforce %}checked{% endif %}> <span class="form-check-label">Fix automatically after</span></label>
+    <select class="form-select form-select-sm" name="enforce_grace_minutes" aria-label="Minutes before fixing automatically"><option value="0" {% if current_business.enforce_grace_minutes == 0 %}selected{% endif %}>immediately</option><option value="1" {% if current_business.enforce_grace_minutes == 1 %}selected{% endif %}>1 min</option><option value="2" {% if current_business.enforce_grace_minutes == 2 %}selected{% endif %}>2 min</option><option value="5" {% if current_business.enforce_grace_minutes == 5 %}selected{% endif %}>5 min</option><option value="10" {% if current_business.enforce_grace_minutes == 10 %}selected{% endif %}>10 min</option><option value="15" {% if current_business.enforce_grace_minutes == 15 %}selected{% endif %}>15 min</option><option value="30" {% if current_business.enforce_grace_minutes == 30 %}selected{% endif %}>30 min</option><option value="60" {% if current_business.enforce_grace_minutes == 60 %}selected{% endif %}>60 min</option></select>
+    <button class="btn btn-sm btn-outline-secondary">Save</button>
+  </form>
+</section>
+<style>
+.inc-row{display:grid;grid-template-columns:48px 1fr auto;gap:.8rem;align-items:center;padding:.7rem .2rem;border-bottom:1px solid #eef2f6}
+.inc-row.ignored{opacity:.65}
+.inc-clock{position:relative;width:44px;height:44px}.inc-clock svg{transform:rotate(-90deg)}.inc-clock circle{fill:none;stroke-width:4}
+.inc-clock .bg{stroke:#fde2e2}.inc-clock .fg{stroke:#d64545;stroke-linecap:round;transition:stroke-dashoffset 1s linear}
+.inc-clock span{position:absolute;inset:0;display:grid;place-items:center;font-size:.68rem;font-weight:800;color:#b42323;font-variant-numeric:tabular-nums}
+.inc-main b{font-family:ui-monospace,monospace}.inc-main small{display:block;font-size:.74rem;color:#6c7c90}
+.inc-reason{font-size:.66rem;font-weight:800;border-radius:999px;padding:.12rem .5rem;background:#fdeaea;color:#c02b2b;margin-left:.3rem}
+.inc-reason.disabled{background:#fff0e4;color:#d4631b}
+.inc-act{display:flex;gap:.3rem}
+.inc-clear{padding:.9rem;border-radius:12px;background:#e9f8f0;color:#146c46;font-size:.86rem}
+.inc-hist{font-size:.78rem;padding:.25rem 0}
+.inc-settings{display:flex;flex-wrap:wrap;gap:.8rem;align-items:center;margin-top:.8rem;padding-top:.8rem;border-top:1px solid #eef2f6;font-size:.82rem}
+.inc-settings .form-select{width:auto}
+</style>
+<script>
+(function(){
+  function tick(){document.querySelectorAll('.inc-clock[data-due]').forEach(function(c){
+    var due=new Date(c.dataset.due),start=new Date(c.dataset.start),left=(due-Date.now())/1000,total=Math.max(1,(due-start)/1000);
+    c.querySelector('.fg').setAttribute('stroke-dashoffset',(113.1*(1-Math.max(0,left)/total)).toFixed(1));
+    c.querySelector('span').textContent=left>0?(left>=60?Math.ceil(left/60)+'m':Math.ceil(left)+'s'):'now';
+    var w=c.parentNode.querySelector('.inc-count');if(w)w.textContent=left>0?'Auto-fix in '+(left>=60?Math.floor(left/60)+' min '+Math.floor(left%60)+' s':Math.ceil(left)+' s'):'Fixing on the next live check…';});}
+  tick();setInterval(tick,1000);
+  document.querySelectorAll('.inc-fix').forEach(function(f){f.addEventListener('submit',function(e){e.preventDefault();var b=f.querySelector('button');b.disabled=true;b.innerHTML='<span class="spinner-border spinner-border-sm"></span> Fixing…';
+    fetch(f.action,{method:'POST',body:new FormData(f),credentials:'same-origin',headers:{'x-requested-with':'fetch'}}).then(function(r){return r.json();}).then(function(d){
+      if(d.ok){var row=f.closest('.inc-row');row.style.transition='opacity .4s';row.style.opacity=0;setTimeout(function(){location.reload();},450);}else{b.disabled=false;b.innerHTML='<i class="bi bi-plug"></i> Try again';alert(d.message);}});});});
+  var has=document.querySelectorAll('.inc-row').length;window.addEventListener('taptap:live',function(e){if((e.detail.incidents||0)!==has)location.reload();});
+})();
+</script>
+
 {% if routers %}
 <div class="sec-routers">
   {% for r in routers %}

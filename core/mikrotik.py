@@ -333,6 +333,17 @@ class MikroTikService:
     def delete_binding(self, item_id):
         return self.resource('/ip/hotspot/ip-binding').remove(id=item_id)
 
+    def get_binding(self, item_id):
+        """Read one binding back from the router (to confirm a change really happened)."""
+        for row in self.resource('/ip/hotspot/ip-binding').get():
+            if str(row.get('id', '')) == str(item_id):
+                return row
+        return None
+
+    def set_binding(self, item_id, **fields):
+        clean = {k.replace('-', '_'): v for k, v in fields.items()}
+        return self.resource('/ip/hotspot/ip-binding').set(id=item_id, **clean)
+
     # ------------------------------ Topology -----------------------------
     def interfaces(self): return self.safe_get('/interface')
     def ethernet_interfaces(self): return self.safe_get('/interface/ethernet')

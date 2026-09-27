@@ -1,4 +1,5 @@
 import re
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from collections import defaultdict
 from django.utils import timezone
@@ -16,6 +17,31 @@ from .finance import mark_activated
 def _has_uptime(value):
     text = str(value or '').strip().lower()
     return bool(text) and text not in {'0', '0s', '00:00:00', 'none'} and any(ch.isdigit() and ch != '0' for ch in text)
+
+
+def _routeros_seconds(value):
+    """'1w2d3h4m5s' / '12:30:00' / '1d 02:00:00' -> seconds (0 when unknown)."""
+    text = str(value or '').strip().lower()
+    total = 0
+    for number, unit in re.findall(r'(\d+)(w|d|h|m|s)(?![a-z])', text):
+        total += int(number) * {'w': 604800, 'd': 86400, 'h': 3600, 'm': 60, 's': 1}[unit]
+    clock = re.search(r'(\d{1,2}):(\d{2}):(\d{2})', text)
+    if clock:
+        h, m, sec = (int(x) for x in clock.groups())
+        total += h * 3600 + m * 60 + sec
+    return total
+
+
+def first_use_estimate(uptime, now, created_at=None):
+    """When a voucher was probably first used: now minus its uptime, never before it was created.
+
+    With live sync running this is within seconds of the real login; for vouchers seen
+    late it is still far closer than "the moment someone pressed Sync".
+    """
+    when = now - timedelta(seconds=_routeros_seconds(uptime))
+    if created_at and when < created_at:
+        when = created_at
+    return min(when, now)
 
 
 def _clean(row):
@@ -250,7 +276,8 @@ def sync_router(router, progress=None):
                 existing_voucher.save(update_fields=list(dict.fromkeys(fields)))
                 if _has_uptime(row.get('uptime')) and not existing_voucher.used_at:
                     try:
-                        if mark_activated(existing_voucher, now): summary['activated_vouchers'] = summary.get('activated_vouchers', 0) + 1
+                        when = first_use_estimate(row.get('uptime'), now, existing_voucher.created_at if existing_voucher.source == 'taptap' else None)
+                        if mark_activated(existing_voucher, when): summary['activated_vouchers'] = summary.get('activated_vouchers', 0) + 1
                     except Exception as exc:
                         summary['errors'].append(f'Activation tracking for {username}: {exc}')
             else:
@@ -263,8 +290,13 @@ def sync_router(router, progress=None):
                     )
                     summary['pulled_vouchers'] += 1
                     if _has_uptime(row.get('uptime')):
-                        # Imported users that were already used before TapTap saw them: mark used, never back-book revenue.
-                        Voucher.objects.filter(pk=new_voucher.pk).update(used_at=now)
+                        when = first_use_estimate(row.get('uptime'), now)
+                        if router.sales_baseline_at:
+                            # Created and used on the router while TapTap was already watching it: a real sale.
+                            if mark_activated(new_voucher, when): summary['activated_vouchers'] = summary.get('activated_vouchers', 0) + 1
+                        else:
+                            # First import of an existing router: old history, mark used but never back-book revenue.
+                            Voucher.objects.filter(pk=new_voucher.pk).update(used_at=when)
                 except Exception as exc:
                     summary['errors'].append(f'Could not import RouterOS voucher {username}: {exc}')
 
@@ -347,6 +379,8 @@ def sync_router(router, progress=None):
             + (f'; {summary["prices_found"]} plan prices read from the router' if summary.get('prices_found') else '')
             + (f'; {summary["prices_repaired"]} voucher prices repaired' if summary.get('prices_repaired') else '')
             + (f'; no price found for: {", ".join(summary["plans_without_price"][:6])} — set it on the Plans page' if summary.get('plans_without_price') else ''))
+        if not router.sales_baseline_at:
+            type(router).objects.filter(pk=router.pk, sales_baseline_at__isnull=True).update(sales_baseline_at=timezone.now())
         notify(100, 'Synchronization complete')
         return summary
     finally:

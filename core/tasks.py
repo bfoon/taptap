@@ -76,3 +76,10 @@ def sync_router_task(self, job_id):
         job.finished_at = now
         job.save(update_fields=['status','phase','error','finished_at','updated_at'])
         raise
+
+
+@shared_task(ignore_result=True)
+def live_watch_all():
+    """Every LIVE_WATCH_SECONDS: quick voucher/session/binding pass over all routers."""
+    from .live import watch_all
+    watch_all()

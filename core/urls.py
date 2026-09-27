@@ -1,7 +1,7 @@
 from django.urls import path
 from . import views, views_business as vb, views_studio as vs, views_wan as vw, views_agents as va
 
-from . import views_ads, views_ports
+from . import views_ads, views_ports, views_live
 
 urlpatterns = [
     path('',views.home,name='home'), path('register/',views.register,name='register'), path('login/',views.login_view,name='login'), path('logout/',views.logout_view,name='logout'),
@@ -14,7 +14,7 @@ urlpatterns = [
     path('routers/<int:pk>/control/resource/',views.router_resource_api,name='router_resource_api'), path('routers/<int:pk>/control/apply/',views.router_config_apply,name='router_config_apply'),
     path('routers/<int:pk>/control/interface-role/',views.router_interface_role,name='router_interface_role'), path('routers/<int:pk>/control/recipe/',views.router_quick_recipe,name='router_quick_recipe'),
     path('routers/<int:pk>/telemetry/',views.router_telemetry,name='router_telemetry'),
-    path('active-users/',views.active_users,name='active_users'), path('active-users/disconnect/',views.disconnect_user,name='disconnect_user'), path('ip-bindings/',views.ip_bindings,name='ip_bindings'), path('ip-bindings/action/',views.ip_binding_action,name='ip_binding_action'),
+    path('active-users/',views.active_users,name='active_users'), path('active-users/disconnect/',views.disconnect_user,name='disconnect_user'), path('ip-bindings/',views_live.ip_bindings,name='ip_bindings'), path('ip-bindings/data/',views_live.ip_bindings_data,name='ip_bindings_data'), path('ip-bindings/set/',views_live.ip_binding_set,name='ip_binding_set'), path('ip-bindings/action/',views.ip_binding_action,name='ip_binding_action'),
     path('topology/',views.topology,name='topology'), path('topology/graph/',views.topology_graph,name='topology_graph'), path('topology/live/',views.topology_live,name='topology_live'), path('topology/refresh/<int:pk>/',views.topology_refresh,name='topology_refresh'), path('security/',views.security,name='security'), path('security/ack/',views.security_ack,name='security_ack'), path('security/rescan/<int:pk>/',views.security_rescan,name='security_rescan'), path('security/fix/<int:pk>/',views.security_fix,name='security_fix'), path('settings/',views.settings_view,name='settings'), path('support/',views.support,name='support'),
     # Internet lines (multi-WAN designer)
     path('routers/<int:pk>/internet/',vw.wan_designer,name='wan_designer'), path('routers/<int:pk>/internet/detect/',vw.wan_detect,name='wan_detect'),
@@ -45,4 +45,8 @@ urlpatterns = [
     path('p/device/<slug:slug>/',views_ads.device_beacon,name='device_beacon'),
     path('devices/',views_ads.devices,name='devices'), path('devices/<int:pk>/action/',views_ads.device_action,name='device_action'),
     path('routers/<int:pk>/port/',views_ports.router_port,name='router_port'),
+    path('live/tick/',views_live.live_tick,name='live_tick'), path('live/now/',views_live.live_now,name='live_now'), path('live/settings/',views_live.live_settings,name='live_settings'),
+    path('security/incident/<int:pk>/fix/',views_live.incident_fix,name='incident_fix'), path('security/incident/<int:pk>/ignore/',views_live.incident_ignore,name='incident_ignore'),
+    path('security/incidents/fix-all/',views_live.incident_fix_all,name='incident_fix_all'),
+    path('finance/book-missing/',views_live.finance_book_missing,name='finance_book_missing'),
 ]

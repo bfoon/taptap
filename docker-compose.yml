@@ -54,6 +54,18 @@ services:
     volumes:
       - static_volume:/app/staticfiles
 
+  live:
+    # Scheduler + live-sync worker: checks every router every LIVE_WATCH_SECONDS (default 15).
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    entrypoint: ["sh", "-c", "celery -A config worker -Q live -B --concurrency=2 --loglevel=INFO --schedule=/tmp/celerybeat-schedule"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   postgres_data:
   redis_data:
