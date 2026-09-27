@@ -23,10 +23,11 @@
     voucher: { n: 'Voucher box', i: 'bi-ticket-perforated', kinds: ['login'], def: { label: 'Voucher code', placeholder: 'Enter code', button: 'Connect', style: 'single', length: 8, show_hint: true },
       f: [['label', 'text', 'Label'], ['placeholder', 'text', 'Placeholder'], ['button', 'text', 'Button text'], ['style', 'seg', 'Input', { single: 'One field', boxes: 'Letter boxes' }],
           ['length', 'range', 'Number of boxes', [4, 12, 1, ''], function (b) { return b.style === 'boxes'; }], ['show_hint', 'check', 'Show the “not case-sensitive” hint']] },
-    plans: { n: 'Plans & prices', i: 'bi-tags', def: { title: 'Prices', style: 'cards', show_devices: true, highlight: '' },
+    plans: { n: 'Plans & prices', i: 'bi-tags', def: { title: 'Prices', style: 'cards', show_devices: true, highlight: '', visible_plans: null },
       f: [['title', 'text', 'Title'], ['style', 'seg', 'Style', { cards: 'Cards', list: 'List', chips: 'Chips' }], ['show_devices', 'check', 'Show number of devices'],
+          ['visible_plans', 'multi', 'Plans to show', function () { var o = {}; PLANS.forEach(function (p) { o[p.name] = p.name; }); return o; }],
           ['highlight', 'select', 'Mark as popular', function () { var o = { '': 'None' }; PLANS.forEach(function (p) { o[p.name] = p.name; }); return o; }]],
-      note: 'Plans and prices come from your active voucher plans.' },
+      note: 'Choose exactly which active voucher plans this block should show. This only affects the portal display — it does not disable or delete the plan.' },
     notice: { n: 'Notice', i: 'bi-megaphone', def: { text: 'Happy hour: double time on every voucher 5–7pm.', tone: 'promo', icon: 'gift' },
       f: [['text', 'textarea', 'Message'], ['tone', 'seg', 'Look', { info: 'Info', promo: 'Promo', warning: 'Warning' }], ['icon', 'select', 'Icon', ICONS]], tokens: true },
     image: { n: 'Image', i: 'bi-image', def: { src: '', alt: '', radius: 14, link: '' },
@@ -226,7 +227,15 @@
       else if (t === 'range') h += field(lab, '<div class="rng"><input type="range" data-bk="' + k + '" data-num="1" min="' + f[3][0] + '" max="' + f[3][1] + '" step="' + f[3][2] + '" value="' + (v || f[3][0]) + '"><output>' + v + f[3][3] + '</output></div>');
       else if (t === 'check') h += '<label class="chk"><input type="checkbox" data-bk="' + k + '"' + (v ? ' checked' : '') + '> ' + lab + '</label>';
       else if (t === 'lines') h += field(lab, '<textarea data-bk="' + k + '" data-lines="1" rows="4">' + esc((v || []).join('\n')) + '</textarea>');
-      else if (t === 'multi') h += field(lab, Object.keys(f[3]).map(function (o) { return '<label class="chk"><input type="checkbox" data-multi="' + k + '" value="' + o + '"' + ((v || []).indexOf(o) >= 0 ? ' checked' : '') + '> ' + f[3][o] + '</label>'; }).join(''));
+      else if (t === 'multi') {
+        var mo = typeof f[3] === 'function' ? f[3]() : f[3];
+        var mv = Array.isArray(v) ? v : (typeof f[3] === 'function' ? Object.keys(mo) : []);
+        var mh = Object.keys(mo).map(function (o) {
+          return '<label class="chk"><input type="checkbox" data-multi="' + k + '" value="' + esc(o) + '"' + (mv.indexOf(o) >= 0 ? ' checked' : '') + '> ' + esc(mo[o]) + '</label>';
+        }).join('');
+        if (!Object.keys(mo).length) mh = '<small class="text-secondary">No active voucher plans are available yet.</small>';
+        h += field(lab, mh);
+      }
       else if (t === 'pairs') h += field(lab, '<div class="list-ed">' + (v || []).map(function (m, i) { return '<div class="li"><input type="text" data-pair="' + i + '" data-pk="name" value="' + esc(m.name) + '" placeholder="Name" aria-label="Method name"><input type="text" data-pair="' + i + '" data-pk="detail" value="' + esc(m.detail) + '" placeholder="Details" aria-label="Method details"><button class="rm" data-rm="' + i + '" aria-label="Remove"><i class="bi bi-x-lg"></i></button></div>'; }).join('') + '<button class="btn btn-sm btn-light" data-addpair="1"><i class="bi bi-plus"></i> Add</button></div>');
       else if (t === 'image') h += field(lab, (v ? '<img class="upload-prev" src="' + esc(v) + '" alt="">' : '') + '<label class="upload-drop"><input type="file" accept="image/*" data-img="' + k + '" hidden><i class="bi bi-upload"></i> ' + (v ? 'Replace image' : 'Upload an image') + '</label>' + (v ? '<button class="btn btn-link btn-sm text-danger p-0 mt-1" data-clearimg="' + k + '">Remove image</button>' : '') + '<small class="text-secondary d-block mt-1">Resized automatically so the page stays fast.</small>');
     });

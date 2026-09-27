@@ -281,7 +281,16 @@
       (b.show_hint ? '<p class="tp-hint">Codes are not case-sensitive — spaces are ignored.</p>' : '') + '</form>';
   };
   B.plans = function (b, ctx) {
-    var ps = ctx.plans || []; if (!ps.length) return ctx.mode === 'preview' ? '<div class="tp-ph">Your active plans appear here</div>' : '';
+    var ps = ctx.plans || [];
+    if (Array.isArray(b.visible_plans)) {
+      var visible = {};
+      b.visible_plans.forEach(function (name) { visible[String(name)] = true; });
+      ps = ps.filter(function (p) { return visible[String(p.name)]; });
+    }
+    if (!ps.length) {
+      if (ctx.mode !== 'preview') return '';
+      return '<div class="tp-ph">' + (Array.isArray(b.visible_plans) ? 'No plans selected for this block' : 'Your active plans appear here') + '</div>';
+    }
     var t = b.title ? '<p class="tp-section-t">' + esc(b.title) + '</p>' : '', inner = '';
     ps.forEach(function (p) {
       var hot = b.highlight && p.name.toLowerCase() === String(b.highlight).toLowerCase();

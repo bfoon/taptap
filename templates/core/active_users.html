@@ -1,1 +1,528 @@
-{% extends 'core/base.html' %}{% block title %}Active Users — TapTap{% endblock %}{% block heading %}Live Active Connections{% endblock %}{% block content %}{% for e in errors %}<div class="alert alert-warning">{{ e }}</div>{% endfor %}<div class="panel"><div class="page-actions"><p>Live sessions reported directly by your MikroTik routers.</p><span class="live-badge"><i></i>{{ rows|length }} connected</span></div><div class="table-responsive"><table class="table align-middle"><thead><tr><th>User</th><th>IP Address</th><th>MAC Address</th><th>Uptime</th><th>Router</th><th></th></tr></thead><tbody>{% for x in rows %}<tr><td><b>{{ x.user|default:'—' }}</b></td><td>{{ x.address|default:'—' }}</td><td><code>{{ x.mac_address|default:'—' }}</code></td><td>{{ x.uptime|default:'—' }}</td><td>{{ x.router_name }}</td><td><form method="post" action="{% url 'disconnect_user' %}">{% csrf_token %}<input type="hidden" name="router_id" value="{{ x.router_id }}"><input type="hidden" name="item_id" value="{{ x.id }}"><button class="btn btn-sm btn-outline-danger">Disconnect</button></form></td></tr>{% empty %}<tr><td colspan="6" class="empty-table">No live sessions returned.</td></tr>{% endfor %}</tbody></table></div></div>{% endblock %}
+{% extends 'core/base.html' %}
+{% block title %}Active Users — TapTap{% endblock %}
+{% block heading %}Live Active Connections{% endblock %}
+
+{% block content %}
+<style>
+  .active-toolbar{
+    display:flex;
+    flex-wrap:wrap;
+    gap:.75rem;
+    align-items:center;
+    justify-content:space-between;
+    margin-bottom:1rem;
+  }
+  .active-toolbar-left{
+    display:flex;
+    flex-wrap:wrap;
+    gap:.65rem;
+    align-items:center;
+    flex:1 1 520px;
+  }
+  .active-search{
+    position:relative;
+    flex:1 1 320px;
+    max-width:520px;
+  }
+  .active-search i{
+    position:absolute;
+    left:.9rem;
+    top:50%;
+    transform:translateY(-50%);
+    color:#6c757d;
+    pointer-events:none;
+  }
+  .active-search input{
+    padding-left:2.5rem;
+  }
+  .usage-pill{
+    display:inline-flex;
+    align-items:center;
+    gap:.35rem;
+    border-radius:999px;
+    padding:.28rem .65rem;
+    background:rgba(13,110,253,.08);
+    color:#0d6efd;
+    font-weight:700;
+    white-space:nowrap;
+  }
+  .usage-pill small{
+    color:#6c757d;
+    font-weight:500;
+  }
+  .session-user{
+    display:flex;
+    align-items:center;
+    gap:.7rem;
+    min-width:180px;
+  }
+  .session-avatar{
+    width:36px;
+    height:36px;
+    border-radius:50%;
+    display:grid;
+    place-items:center;
+    flex:none;
+    background:rgba(13,110,253,.10);
+    color:#0d6efd;
+    font-weight:800;
+  }
+  .session-user small{
+    display:block;
+    color:#6c757d;
+    margin-top:.1rem;
+  }
+  .active-row{
+    cursor:pointer;
+  }
+  .active-row:hover{
+    background:rgba(13,110,253,.035);
+  }
+  .active-row.is-open{
+    background:rgba(13,110,253,.055);
+  }
+  .details-row td{
+    padding:0!important;
+    border-top:0!important;
+  }
+  .session-details{
+    margin:.15rem .75rem 1rem;
+    padding:1rem;
+    border:1px solid rgba(0,0,0,.08);
+    border-radius:14px;
+    background:rgba(248,249,250,.8);
+  }
+  .detail-grid{
+    display:grid;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+    gap:.75rem;
+  }
+  .detail-card{
+    padding:.8rem .9rem;
+    border-radius:12px;
+    background:#fff;
+    border:1px solid rgba(0,0,0,.07);
+    min-width:0;
+  }
+  .detail-card .label{
+    display:block;
+    color:#6c757d;
+    font-size:.76rem;
+    margin-bottom:.2rem;
+  }
+  .detail-card .value{
+    font-weight:700;
+    overflow-wrap:anywhere;
+  }
+  .traffic-cards{
+    display:grid;
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:.75rem;
+    margin-bottom:.9rem;
+  }
+  .traffic-card{
+    padding:1rem;
+    border-radius:14px;
+    background:#fff;
+    border:1px solid rgba(0,0,0,.07);
+  }
+  .traffic-card .traffic-value{
+    display:block;
+    font-size:1.25rem;
+    font-weight:800;
+  }
+  .traffic-card small{
+    color:#6c757d;
+  }
+  .details-actions{
+    display:flex;
+    justify-content:flex-end;
+    gap:.5rem;
+    margin-top:.9rem;
+  }
+  .result-info{
+    color:#6c757d;
+    font-size:.9rem;
+  }
+  .live-dot{
+    display:inline-block;
+    width:.55rem;
+    height:.55rem;
+    border-radius:50%;
+    background:#198754;
+    margin-right:.35rem;
+    box-shadow:0 0 0 .2rem rgba(25,135,84,.10);
+  }
+  @media(max-width:900px){
+    .detail-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  }
+  @media(max-width:600px){
+    .traffic-cards,.detail-grid{grid-template-columns:1fr}
+    .active-toolbar{align-items:stretch}
+    .active-toolbar-left{flex-basis:100%}
+  }
+</style>
+
+{% for e in errors %}
+  <div class="alert alert-warning">{{ e }}</div>
+{% endfor %}
+
+<div class="panel">
+  <div class="page-actions">
+    <div>
+      <p class="mb-1">Live sessions reported directly by your MikroTik routers.</p>
+      <div class="result-info">
+        <span class="live-dot"></span>
+        <span id="visibleCount">{{ rows|length }}</span> of {{ rows|length }} connected session{{ rows|length|pluralize }}
+      </div>
+    </div>
+    <span class="live-badge"><i></i>{{ rows|length }} connected</span>
+  </div>
+
+  <div class="active-toolbar">
+    <div class="active-toolbar-left">
+      <div class="active-search">
+        <i class="bi bi-search"></i>
+        <input
+          type="search"
+          id="activeSearch"
+          class="form-control"
+          placeholder="Search user, voucher, IP, MAC or router..."
+          autocomplete="off"
+          aria-label="Search active connections">
+      </div>
+      <button type="button" class="btn btn-outline-secondary" id="clearSearch" style="display:none">
+        <i class="bi bi-x-lg"></i> Clear
+      </button>
+    </div>
+
+    <button type="button" class="btn btn-outline-primary" onclick="window.location.reload()">
+      <i class="bi bi-arrow-clockwise"></i> Refresh live data
+    </button>
+  </div>
+
+  <div class="table-responsive">
+    <table class="table align-middle" id="activeUsersTable">
+      <thead>
+        <tr>
+          <th>User / Voucher</th>
+          <th>IP Address</th>
+          <th>MAC Address</th>
+          <th>Uptime</th>
+          <th>Usage since login</th>
+          <th>Router</th>
+          <th class="text-end">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for x in rows %}
+        <tr
+          class="active-row"
+          tabindex="0"
+          role="button"
+          aria-expanded="false"
+          data-detail-id="detail-{{ forloop.counter }}"
+          data-search="{{ x.user|default:'' }} {{ x.address|default:'' }} {{ x.mac_address|default:'' }} {{ x.router_name|default:'' }} {{ x.server|default:'' }} {{ x.login_by|default:'' }}">
+
+          <td>
+            <div class="session-user">
+              <span class="session-avatar">
+                {{ x.user|default:'?'|slice:":1"|upper }}
+              </span>
+              <div>
+                <b>{{ x.user|default:'—' }}</b>
+                <small>
+                  {% if x.login_by %}{{ x.login_by }}{% else %}HotSpot session{% endif %}
+                </small>
+              </div>
+            </div>
+          </td>
+
+          <td>{{ x.address|default:'—' }}</td>
+          <td><code>{{ x.mac_address|default:'—' }}</code></td>
+          <td>{{ x.uptime|default:'—' }}</td>
+
+          <td>
+            <span
+              class="usage-pill js-bytes-total"
+              data-in="{{ x.bytes_in|default:'0' }}"
+              data-out="{{ x.bytes_out|default:'0' }}">
+              <i class="bi bi-bar-chart-line"></i>
+              <span class="usage-value">—</span>
+            </span>
+          </td>
+
+          <td>{{ x.router_name }}</td>
+
+          <td class="text-end">
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-primary js-details-btn"
+              data-detail-id="detail-{{ forloop.counter }}">
+              <i class="bi bi-eye"></i> Details
+            </button>
+          </td>
+        </tr>
+
+        <tr class="details-row" id="detail-{{ forloop.counter }}" hidden>
+          <td colspan="7">
+            <div class="session-details">
+              <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+                <div>
+                  <h5 class="mb-1">{{ x.user|default:'Active user' }}</h5>
+                  <div class="text-secondary small">
+                    Live session on <b>{{ x.router_name }}</b>
+                  </div>
+                </div>
+                <span class="badge text-bg-success">Online now</span>
+              </div>
+
+              <div class="traffic-cards">
+                <div class="traffic-card">
+                  <small>Total usage since login</small>
+                  <span
+                    class="traffic-value js-bytes-total"
+                    data-in="{{ x.bytes_in|default:'0' }}"
+                    data-out="{{ x.bytes_out|default:'0' }}">—</span>
+                </div>
+
+                <div class="traffic-card">
+                  <small>Downloaded / received</small>
+                  <span
+                    class="traffic-value js-bytes"
+                    data-bytes="{{ x.bytes_in|default:'0' }}">—</span>
+                </div>
+
+                <div class="traffic-card">
+                  <small>Uploaded / sent</small>
+                  <span
+                    class="traffic-value js-bytes"
+                    data-bytes="{{ x.bytes_out|default:'0' }}">—</span>
+                </div>
+              </div>
+
+              <div class="detail-grid">
+                <div class="detail-card">
+                  <span class="label">User / voucher</span>
+                  <span class="value">{{ x.user|default:'—' }}</span>
+                </div>
+
+                <div class="detail-card">
+                  <span class="label">IP address</span>
+                  <span class="value">{{ x.address|default:'—' }}</span>
+                </div>
+
+                <div class="detail-card">
+                  <span class="label">MAC address</span>
+                  <span class="value"><code>{{ x.mac_address|default:'—' }}</code></span>
+                </div>
+
+                <div class="detail-card">
+                  <span class="label">Uptime</span>
+                  <span class="value">{{ x.uptime|default:'—' }}</span>
+                </div>
+
+                <div class="detail-card">
+                  <span class="label">Session time left</span>
+                  <span class="value">{{ x.session_time_left|default:'—' }}</span>
+                </div>
+
+                <div class="detail-card">
+                  <span class="label">Idle time</span>
+                  <span class="value">{{ x.idle_time|default:'—' }}</span>
+                </div>
+
+                <div class="detail-card">
+                  <span class="label">Login method</span>
+                  <span class="value">{{ x.login_by|default:'—' }}</span>
+                </div>
+
+                <div class="detail-card">
+                  <span class="label">HotSpot server</span>
+                  <span class="value">{{ x.server|default:'—' }}</span>
+                </div>
+
+                <div class="detail-card">
+                  <span class="label">Router</span>
+                  <span class="value">{{ x.router_name }}</span>
+                </div>
+
+                <div class="detail-card">
+                  <span class="label">Router session ID</span>
+                  <span class="value"><code>{{ x.id|default:'—' }}</code></span>
+                </div>
+
+                <div class="detail-card">
+                  <span class="label">Packets received</span>
+                  <span
+                    class="value js-number"
+                    data-number="{{ x.packets_in|default:'0' }}">—</span>
+                </div>
+
+                <div class="detail-card">
+                  <span class="label">Packets sent</span>
+                  <span
+                    class="value js-number"
+                    data-number="{{ x.packets_out|default:'0' }}">—</span>
+                </div>
+              </div>
+
+              <div class="details-actions">
+                <form method="post" action="{% url 'disconnect_user' %}" class="m-0">
+                  {% csrf_token %}
+                  <input type="hidden" name="router_id" value="{{ x.router_id }}">
+                  <input type="hidden" name="item_id" value="{{ x.id }}">
+                  <button
+                    class="btn btn-sm btn-outline-danger"
+                    onclick="return confirm('Disconnect {{ x.user|default:'this user'|escapejs }} from {{ x.router_name|escapejs }}?');">
+                    <i class="bi bi-wifi-off"></i> Disconnect user
+                  </button>
+                </form>
+              </div>
+            </div>
+          </td>
+        </tr>
+      {% empty %}
+        <tr>
+          <td colspan="7" class="empty-table">No live sessions returned.</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if rows %}
+    <div id="noSearchResults" class="empty-table py-4" style="display:none">
+      No active connection matches your search.
+    </div>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  function num(value) {
+    var n = Number(String(value == null ? 0 : value).replace(/[^0-9.-]/g, ''));
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+
+  function formatBytes(value) {
+    var bytes = num(value);
+    if (!bytes) return '0 B';
+
+    var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var index = Math.floor(Math.log(bytes) / Math.log(1024));
+    index = Math.max(0, Math.min(index, units.length - 1));
+
+    var amount = bytes / Math.pow(1024, index);
+    var decimals = index >= 3 ? 2 : (index === 2 ? 1 : 0);
+
+    return amount.toLocaleString(undefined, {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals
+    }) + ' ' + units[index];
+  }
+
+  document.querySelectorAll('.js-bytes').forEach(function (el) {
+    el.textContent = formatBytes(el.dataset.bytes);
+  });
+
+  document.querySelectorAll('.js-bytes-total').forEach(function (el) {
+    var total = num(el.dataset.in) + num(el.dataset.out);
+    var target = el.querySelector('.usage-value') || el;
+    target.textContent = formatBytes(total);
+    el.title = 'Received ' + formatBytes(el.dataset.in) +
+      ' + sent ' + formatBytes(el.dataset.out);
+  });
+
+  document.querySelectorAll('.js-number').forEach(function (el) {
+    el.textContent = num(el.dataset.number).toLocaleString();
+  });
+
+  function setExpanded(row, open) {
+    var id = row.dataset.detailId;
+    var detail = document.getElementById(id);
+    if (!detail) return;
+
+    detail.hidden = !open;
+    row.classList.toggle('is-open', open);
+    row.setAttribute('aria-expanded', open ? 'true' : 'false');
+
+    var button = row.querySelector('.js-details-btn');
+    if (button) {
+      button.innerHTML = open
+        ? '<i class="bi bi-eye-slash"></i> Hide'
+        : '<i class="bi bi-eye"></i> Details';
+    }
+  }
+
+  document.querySelectorAll('.active-row').forEach(function (row) {
+    row.addEventListener('click', function (event) {
+      if (event.target.closest('button, a, form, input')) return;
+      setExpanded(row, row.getAttribute('aria-expanded') !== 'true');
+    });
+
+    row.addEventListener('keydown', function (event) {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      if (event.target.closest('button, a, form, input')) return;
+      event.preventDefault();
+      setExpanded(row, row.getAttribute('aria-expanded') !== 'true');
+    });
+  });
+
+  document.querySelectorAll('.js-details-btn').forEach(function (button) {
+    button.addEventListener('click', function (event) {
+      event.stopPropagation();
+      var row = button.closest('.active-row');
+      if (!row) return;
+      setExpanded(row, row.getAttribute('aria-expanded') !== 'true');
+    });
+  });
+
+  var search = document.getElementById('activeSearch');
+  var clear = document.getElementById('clearSearch');
+  var visibleCount = document.getElementById('visibleCount');
+  var empty = document.getElementById('noSearchResults');
+
+  function filterRows() {
+    if (!search) return;
+
+    var query = search.value.trim().toLowerCase();
+    var visible = 0;
+
+    document.querySelectorAll('.active-row').forEach(function (row) {
+      var text = (row.dataset.search || '').toLowerCase();
+      var show = !query || text.indexOf(query) !== -1;
+      var detail = document.getElementById(row.dataset.detailId);
+
+      row.hidden = !show;
+      if (detail && !show) detail.hidden = true;
+
+      if (!show) {
+        row.classList.remove('is-open');
+        row.setAttribute('aria-expanded', 'false');
+        var button = row.querySelector('.js-details-btn');
+        if (button) button.innerHTML = '<i class="bi bi-eye"></i> Details';
+      }
+
+      if (show) visible += 1;
+    });
+
+    if (visibleCount) visibleCount.textContent = visible;
+    if (clear) clear.style.display = query ? '' : 'none';
+    if (empty) empty.style.display = visible === 0 ? '' : 'none';
+  }
+
+  if (search) {
+    search.addEventListener('input', filterRows);
+  }
+
+  if (clear) {
+    clear.addEventListener('click', function () {
+      search.value = '';
+      filterRows();
+      search.focus();
+    });
+  }
+})();
+</script>
+{% endblock %}
