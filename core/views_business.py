@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .finance import (
-    resolve_period, finance_summary, finance_charts, report_data, record_sale, sell_from_stock,
+    resolve_period, finance_summary, finance_charts, report_data, record_sale, sell_from_stock, AUTO,
     commission_for, PRESETS, CATEGORY_LABELS, METHOD_LABELS, d,
 )
 from .models import Agent, VoucherSale, Expense, CashCollection, EXPENSE_CATEGORIES, PAYMENT_METHODS
@@ -110,7 +110,9 @@ def finance(request):
 def finance_sale_add(request):
     business = _b(request)
     mode = request.POST.get('mode', 'stock')
-    agent = business.agents.filter(pk=request.POST.get('agent') or 0).first()
+    # '' = whoever holds the voucher (agent stock → that agent, shop stock → the shop); 'shop' = sold by the shop itself
+    raw_agent = request.POST.get('agent', '')
+    agent = None if raw_agent == 'shop' else (business.agents.filter(pk=raw_agent).first() if raw_agent.isdigit() else AUTO)
     common = dict(method=request.POST.get('method', 'cash'), agent=agent, customer_name=request.POST.get('customer_name', '')[:120],
                   customer_phone=request.POST.get('customer_phone', '')[:60], reference=request.POST.get('reference', '')[:120],
                   notes=request.POST.get('notes', '')[:255], discount=_dec(request.POST.get('discount')), user=request.user,
@@ -131,6 +133,7 @@ def finance_sale_add(request):
         amount = _dec(request.POST.get('amount'))
         if amount <= 0:
             messages.error(request, 'Enter an amount above zero.'); return _back(request, 'sales')
+        if common['agent'] is AUTO: common['agent'] = None
         sales = [record_sale(business, None, plan_name=request.POST.get('plan_name', 'Walk-in')[:120] or 'Walk-in', amount=amount, **common)]
     else:
         plan = business.plans.filter(pk=request.POST.get('plan') or 0).first()
@@ -230,7 +233,8 @@ def finance_collection_add(request):
                                   collected_at=_when(request.POST.get('collected_at')), recorded_by=request.user)
     log(business, 'Cash Collected', f'{agent.name}: {business.currency}{amount}')
     messages.success(request, f'Collected {business.currency}{amount:,.2f} from {agent.name}.')
-    return _back(request, 'agents')
+    nxt = request.POST.get('next', '')
+    return redirect(nxt) if nxt.startswith('/') else _back(request, 'agents')
 
 
 @login_required

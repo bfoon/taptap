@@ -1,0 +1,49 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}Internet lines — {{ router.name }}{% endblock %}{% block heading %}Internet lines · {{ router.name }}{% endblock %}
+{% block extra_head %}<link href="{% static 'css/wan.css' %}" rel="stylesheet">{% endblock %}
+{% block content %}
+<div class="wan-now"><span class="pill" id="nowMethod">{{ current.method|default:'Checking…' }}</span><p id="nowDesc">{{ current.description|default:'Reading how this router reaches the internet right now.' }}</p>
+  <a class="btn btn-sm btn-light" href="{% url 'router_control' router.id %}"><i class="bi bi-sliders"></i> Router control</a></div>
+<div id="banner"></div>
+
+<div class="row g-3">
+  <div class="col-xl-7">
+    <section class="step" id="step1"><header><span class="n">1</span><div><h3>Your internet lines</h3><p>Tick the connections customers should use. Give each a name you recognise and its speed — the speed decides how traffic is shared.</p></div></header>
+      <div id="lines"><div class="detect-state"><span class="spinner-border spinner-border-sm"></span> Asking {{ router.name }} which connections it has…</div></div>
+      <div class="d-flex gap-2 flex-wrap mt-1"><button class="btn btn-sm btn-light" id="addLine"><i class="bi bi-plus-lg"></i> Add a line by hand</button><button class="btn btn-sm btn-light" id="redetect"><i class="bi bi-arrow-repeat"></i> Detect again</button></div>
+      <datalist id="isps"><option value="Gamtel fibre"><option value="QCell 4G"><option value="Africell 4G"><option value="Comium"><option value="Netpage"><option value="Unique Solutions"><option value="Starlink"><option value="Backup 4G"><option value="Fibre"></datalist>
+    </section>
+
+    <section class="step" id="step2"><header><span class="n">2</span><div><h3>How should they work together?</h3><p>Every option with two or more lines also switches over automatically when a line fails.</p></div></header>
+      <div class="strats" id="strats"></div>
+      <div class="opts" id="opts"></div>
+      <details class="mt-3"><summary class="small fw-bold text-secondary">Advanced</summary>
+        <label class="chk d-flex gap-2 align-items-start mt-2 small"><input type="checkbox" id="health" checked style="margin-top:.2rem"> <span><b>Health checks</b> — each line regularly pings its own public address. A line is dropped when the internet behind it dies, not only when its cable is unplugged. Recommended.</span></label></details>
+    </section>
+
+    <section class="step" id="step3"><header><span class="n">3</span><div><h3>Review and apply</h3><p>Nothing changes on the router until you press Apply.</p></div></header>
+      <div id="review"><p class="text-secondary small">Choose your lines and a way of using them to see exactly what will happen.</p></div>
+      <div class="change-chips" id="chips"></div>
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <select class="form-select form-select-sm" id="undoMin" style="width:auto" aria-label="Safety timer"><option value="5" selected>Undo automatically in 5 min unless I confirm</option><option value="2">Undo in 2 min unless I confirm</option><option value="10">Undo in 10 min unless I confirm</option><option value="0">No safety timer</option></select>
+        <button class="btn btn-primary" id="applyBtn" disabled><i class="bi bi-lightning-charge"></i> Apply to {{ router.name }}</button>
+        <div class="dropdown"><button class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-terminal"></i> Script</button><ul class="dropdown-menu">
+          <li><button class="dropdown-item" id="showScript">Show RouterOS commands</button></li>
+          <li><a class="dropdown-item" id="dlScript" href="{% url 'wan_script' router.id %}?kind=setup">Download setup script (.rsc)</a></li>
+          <li><a class="dropdown-item" href="{% url 'wan_script' router.id %}?kind=undo">Download undo script (.rsc)</a></li></ul></div>
+      </div>
+      <p class="small text-secondary mt-2 mb-0" id="applyNote">With the safety timer on, the router puts everything back by itself if you don’t confirm — so a mistake can’t lock you out for good.</p>
+      <div class="script-box" id="script" hidden></div>
+    </section>
+  </div>
+
+  <div class="col-xl-5">
+    <div class="flow-card"><h3>What your customers get</h3><p class="sub" id="flowSub">Live preview</p>
+      <svg class="flow-svg" id="flow" viewBox="0 0 440 260" role="img" aria-label="Traffic flow diagram"></svg>
+      <ul class="flow-sum" id="flowSum"></ul><div id="flowMsgs"></div></div>
+  </div>
+</div>
+{{ state|json_script:"wanState" }}
+<script id="wanUrls" type="application/json">{"detect":"{% url 'wan_detect' router.id %}","preview":"{% url 'wan_preview' router.id %}","apply":"{% url 'wan_apply' router.id %}","confirm":"{% url 'wan_confirm' router.id %}","undo":"{% url 'wan_undo' router.id %}","status":"{% url 'wan_status' router.id %}","router":"{{ router.name|escapejs }}"}</script>
+{% endblock %}
+{% block scripts %}<script src="{% static 'js/wan-designer.js' %}"></script>{% endblock %}

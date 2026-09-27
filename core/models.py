@@ -56,6 +56,8 @@ class VoucherPlan(models.Model):
     source=models.CharField(max_length=20,choices=SOURCE,default='taptap')
     imported_from_router=models.ForeignKey('Router',on_delete=models.SET_NULL,null=True,blank=True,related_name='imported_plans')
     mikrotik_profile_name=models.CharField(max_length=120,blank=True)
+    # Where the price came from: '' (none yet), 'router' (Mikhmon script / comment) or 'manual' (typed in TapTap — never overwritten by sync).
+    price_source=models.CharField(max_length=20,blank=True,default='')
     class Meta: unique_together=('business','name')
     def __str__(self): return self.name
 
@@ -76,10 +78,16 @@ class Router(models.Model):
 
 
 class VoucherBatch(models.Model):
+    SETTLEMENT=[('credit','On credit — agent pays as vouchers sell'),('prepaid','Paid upfront — agent bought the batch')]
     business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='batches')
     name=models.CharField(max_length=120)
     plan=models.ForeignKey(VoucherPlan,on_delete=models.SET_NULL,null=True)
     quantity=models.PositiveIntegerField(default=1)
+    # Owner of the batch: blank = the shop's own stock, otherwise the agent holding these vouchers.
+    agent=models.ForeignKey('Agent',on_delete=models.SET_NULL,null=True,blank=True,related_name='batches')
+    settlement=models.CharField(max_length=20,choices=SETTLEMENT,default='credit')
+    issued_at=models.DateTimeField(null=True,blank=True)
+    note=models.CharField(max_length=255,blank=True)
     created_at=models.DateTimeField(auto_now_add=True)
 
 
@@ -100,6 +108,13 @@ class Voucher(models.Model):
     expires_at=models.DateTimeField(null=True,blank=True)
     used_at=models.DateTimeField(null=True,blank=True)
     sold_at=models.DateTimeField(null=True,blank=True)
+    # Who holds this voucher (inherited from its batch; can be reassigned). Sales of it are credited to this agent.
+    agent=models.ForeignKey('Agent',on_delete=models.SET_NULL,null=True,blank=True,related_name='vouchers')
+    # Standalone vouchers made for one person
+    customer_name=models.CharField(max_length=120,blank=True)
+    customer_phone=models.CharField(max_length=60,blank=True)
+    note=models.CharField(max_length=255,blank=True)
+    rate_limit=models.CharField(max_length=50,blank=True,help_text='Speed for a custom voucher with no plan, e.g. 5M/5M')
     mikrotik_sync_status=models.CharField(max_length=30,default='Pending')
     mikrotik_sync_error=models.TextField(blank=True)
     created_at=models.DateTimeField(auto_now_add=True)
@@ -445,3 +460,21 @@ class VoucherDesign(models.Model):
     updated_at=models.DateTimeField(auto_now=True)
     class Meta: ordering=['-is_default','-updated_at']
     def __str__(self): return self.name
+
+
+class WanSetup(models.Model):
+    """The owner's Internet Lines design for one router, and what TapTap last applied."""
+    STATUS=[('draft','Draft'),('pending','Applied — waiting for confirmation'),('active','Active'),('undone','Undone'),('failed','Failed')]
+    router=models.OneToOneField(Router,on_delete=models.CASCADE,related_name='wan_setup')
+    config=models.JSONField(default=dict,blank=True)
+    facts=models.JSONField(default=dict,blank=True)
+    run_id=models.CharField(max_length=12,blank=True)
+    status=models.CharField(max_length=20,choices=STATUS,default='draft')
+    original=models.JSONField(default=dict,blank=True,help_text='Router settings before TapTap changed them, used by undo')
+    last_result=models.JSONField(default=dict,blank=True)
+    applied_at=models.DateTimeField(null=True,blank=True)
+    confirm_by=models.DateTimeField(null=True,blank=True)
+    confirmed_at=models.DateTimeField(null=True,blank=True)
+    applied_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)
+    updated_at=models.DateTimeField(auto_now=True)
+    def __str__(self): return f'{self.router} — {self.config.get("strategy","draft")}'

@@ -175,3 +175,44 @@ Drag-and-drop card designer in millimetres: text with tokens (`{code}`, `{plan}`
 Set the Wi-Fi name, hotspot login address, help phone, logo and brand colour in **Settings** — both studios use them.
 
 Chart.js 4.4.4 and qrcode-generator 1.4.4 are vendored under `static/vendor/` so everything works on offline LAN installs.
+
+## Internet lines — load balancing, failover and single path (`/routers/<id>/internet/`)
+
+Open it from **Routers → Internet lines** or **Router control → Set up internet lines**.
+
+1. **Your internet lines** — TapTap detects DHCP, PPPoE, LTE and static uplinks. Name each (e.g. "Gamtel fibre", "Africell 4G") and give its speed.
+2. **How should they work together?**
+   - **One line** — everything on one connection.
+   - **Backup line** (failover) — main line plus ordered backups; switches back automatically.
+   - **Share the load** (PCC) — weighted by speed. "Each customer stays on one line" (`src-address` classifier) is recommended for HotSpots.
+   - **Combine lines** (ECMP).
+   - **Split by network** — e.g. HotSpot network on 4G, office on fibre (routing rules).
+   Every multi-line option also fails over, and replies always leave by the line they arrived on (port forwards and remote management keep working).
+3. **Review and apply** — plain-language summary, live flow diagram, the exact RouterOS commands, downloadable setup/undo `.rsc` scripts.
+
+**Health checks:** each line gets its own public check host (8.8.8.8, 1.1.1.1, …) reached through a recursive route with `check-gateway=ping`, so a dead ISP behind a working modem is detected.
+
+**Safety:** before changing anything TapTap installs a `TapTap-WAN-undo` scheduler on the router. If you don't press **Keep changes** within the chosen time (default 5 minutes) the router removes the TapTap setup and restores its original DHCP/PPPoE and route settings by itself. **Undo** is always available. Everything TapTap creates is commented `TapTap WAN #<run>` — your own rules are never touched. DHCP clients get a small script that keeps TapTap's routes pointed at the current gateway when the ISP hands out a new one.
+
+Works on RouterOS v6 and v7. If TapTap can't reach the router, design the setup and paste the downloaded script into WinBox → New Terminal (press Ctrl+X for Safe Mode first).
+
+## Voucher prices from MikroTik
+
+RouterOS has no price field, so sync reads prices from:
+- Mikhmon `on-login` scripts on HotSpot user profiles (`:put (",rem,5000,1d,6000,,Disable,")` → selling price 6000, validity 1 day),
+- profile or user comments such as `price: 10`, `D10`, `GMD 25`, `15 dalasi`,
+- the profile name when it carries a currency-prefixed price (e.g. `Night D25`).
+
+Vouchers previously imported at 0 are repaired on the next sync. On **Plans** you can edit any plan; a price typed there is kept even if the router later reports a different one, and saving fixes that plan's 0-priced vouchers (optionally re-pricing all unsold ones).
+
+## Agent batches and one-off vouchers
+
+**Batches belong to someone.** When generating, choose *Who is this batch for?* — the shop, or an agent:
+- **On credit** — the agent holds the vouchers; each one is booked as the agent's sale (with commission) when it is sold or first used on the router. What they owe grows as vouchers sell.
+- **Paid upfront** — the agent buys the whole batch now: every voucher is recorded as their sale and their payment as a hand-in, so they owe nothing for it.
+
+On **Batches** you can give a shop batch to an agent, transfer it between agents, or take unsold vouchers back. Already-sold vouchers stay credited to whoever sold them. Selling "from stock" as an agent takes from that agent's vouchers; selling as the shop never touches agent stock.
+
+Each agent has a statement page (**Finance → Agents & cash → Statement**): still to hand in, vouchers held, sales, commission, hand-ins, per-batch progress, print their stock, print the statement, and send their balance by WhatsApp.
+
+**One voucher for one person** (**Generate → One voucher for one person**, or **Vouchers → One voucher**): enter the customer's name and phone, pick a plan (optionally at a discount) or set a custom duration / devices / speed / price, optionally type a memorable code (e.g. `AWA2026`), and mark it paid. The voucher is pushed to the router immediately (or on the next sync if the router is offline), then shown as a printable card with a ready-to-send message — WhatsApp, SMS or copy — including a one-tap login link. Custom vouchers share a few router profiles (`taptap-2dev-5M-5M`, …) instead of creating one per customer.

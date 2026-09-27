@@ -26,7 +26,7 @@
 </div>
 
 <section class="panel mb-4" id="load-balancer">
-  <div class="panel-head"><div><h3><i class="bi bi-shuffle"></i> Live load balancing</h3><p>Every Internet path on this router, how traffic is split between them, and what is flowing right now.</p></div></div>
+  <div class="panel-head"><div><h3><i class="bi bi-shuffle"></i> Live load balancing</h3><p>Every Internet path on this router, how traffic is split between them, and what is flowing right now.</p></div><a class="btn btn-primary btn-sm" href="{% url 'wan_designer' router.id %}"><i class="bi bi-diagram-3"></i> Set up internet lines</a></div>
   {% include 'core/partials/lb_engine.html' with lb_config=lb_config %}
 </section>
 

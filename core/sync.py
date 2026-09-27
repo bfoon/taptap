@@ -1,4 +1,5 @@
 import re
+from decimal import Decimal, InvalidOperation
 from collections import defaultdict
 from django.utils import timezone
 
@@ -8,7 +9,7 @@ from .models import (
     SyncedIPBinding, RouterInterface, RouterNeighbor, RouterDevice,
     RouterInterfaceRole, RouterConfigSnapshot,
 )
-from .utils import duration_to_routeros, log
+from .utils import duration_to_routeros, log, voucher_profile
 from .finance import mark_activated
 
 
@@ -57,11 +58,67 @@ def _normalize_mac(value):
     return str(value or '').strip().upper().replace('-', ':')
 
 
+# ───────────── prices ─────────────
+# RouterOS has no price field. Operators keep it in one of these places:
+#  * Mikhmon on-login script:  :put (",rem,5000,1d,6000,,Disable,");  -> mode, price, validity, selling price, , lock
+#  * a comment:                "price: 10", "Price=10", "D10", "GMD 10", "10 GMD", "10 dalasi"
+MIKHMON_RE = re.compile(r'",\s*([a-z]*)\s*,\s*([\d.]+)\s*,\s*([0-9wdhms:]*)\s*,\s*([\d.]*)\s*,', re.I)
+PRICE_WORD_RE = re.compile(r'(?:price|prix|amount|cost|tarif)\s*[:=]?\s*(?:[A-Za-z$]{1,4}\s*)?(\d[\d,]*(?:\.\d+)?)', re.I)
+AMOUNT_UNIT_RE = re.compile(r'(\d[\d,]*(?:\.\d+)?)\s?(?:gmd|dalasis?)\b', re.I)
+
+
+def _num(text):
+    try:
+        value = Decimal(str(text).replace(',', ''))
+        return value if value > 0 else None
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def parse_mikhmon(script):
+    """Return (price, validity_hours) from a Mikhmon-style on-login script, or (None, None)."""
+    m = MIKHMON_RE.search(str(script or ''))
+    if not m:
+        return None, None
+    price = _num(m.group(4)) or _num(m.group(2))   # selling price wins over cost price
+    validity = _routeros_hours(m.group(3), 0) if m.group(3) else 0
+    return price, (validity or None)
+
+
+def price_from_text(text, currency='D'):
+    """Find a price written in free text (comment or profile name). Never guesses from bare numbers."""
+    text = str(text or '')
+    if not text:
+        return None
+    m = PRICE_WORD_RE.search(text) or AMOUNT_UNIT_RE.search(text)
+    if m:
+        return _num(m.group(1))
+    cur = re.escape(str(currency or 'D').strip())
+    if cur:  # currency written before the number, e.g. "D10" / "GMD 25" (case-sensitive so "1d" is never a price)
+        m = re.search(r'(?:(?<![A-Za-z])' + cur + r'|GMD)\s?(\d[\d,]*(?:\.\d+)?)(?![\d.]*\s*(?i:h|hr|hrs|hours?|d|days?|m|mins?|w|weeks?|mb|gb|mbps|kbps|k)\b)', text)
+        if m:
+            return _num(m.group(1))
+    return None
+
+
+def profile_price(row, currency='D'):
+    """(price, validity_hours, source) for a RouterOS HotSpot user profile."""
+    price, validity = parse_mikhmon(row.get('on-login', row.get('on_login', '')))
+    if price:
+        return price, validity, 'Mikhmon on-login script'
+    for key, label in (('comment', 'profile comment'), ('name', 'profile name')):
+        found = price_from_text(row.get(key, ''), currency)
+        if found:
+            return found, validity, label
+    return None, validity, ''
+
+
 def _profile_to_plan(router, row, summary, now):
     name = str(row.get('name', '')).strip()
     if not name:
         return None
     shared = max(1, _safe_int(row.get('shared-users', row.get('shared_users', 1))) or 1)
+    price, validity, price_source = profile_price(row, router.business.currency)
     rate = str(row.get('rate-limit', row.get('rate_limit', '')) or '')
     session = str(row.get('session-timeout', row.get('session_timeout', '')) or '')
     RouterHotspotProfile.objects.update_or_create(
@@ -82,18 +139,29 @@ def _profile_to_plan(router, row, summary, now):
         if plan.source == 'mikrotik':
             plan.max_devices = shared
             plan.speed_limit = rate
-            plan.duration_hours = _routeros_hours(session, plan.duration_hours or 24)
+            plan.duration_hours = _routeros_hours(session, validity or plan.duration_hours or 24)
             plan.mikrotik_profile_name = name
             if not plan.imported_from_router_id: plan.imported_from_router = router
-            plan.save(update_fields=['max_devices','speed_limit','duration_hours','mikrotik_profile_name','imported_from_router'])
+            fields = ['max_devices','speed_limit','duration_hours','mikrotik_profile_name','imported_from_router']
+            # The router is the source of truth for an imported plan's price — but a price the owner typed
+            # in TapTap is never wiped just because the router has none.
+            if price and plan.price != price and plan.price_source != 'manual':
+                plan.price = price; plan.price_source = 'router'; fields += ['price', 'price_source']
+                summary['prices_found'] = summary.get('prices_found', 0) + 1
+            plan.save(update_fields=fields)
+            if not plan.price: summary.setdefault('plans_without_price', []).append(name)
+        elif price and not plan.price:
+            plan.price = price; plan.price_source = 'router'; plan.save(update_fields=['price', 'price_source']); summary['prices_found'] = summary.get('prices_found', 0) + 1
         return plan
     plan = VoucherPlan.objects.create(
-        business=router.business, name=name, price=0,
-        duration_hours=_routeros_hours(session, 24), max_devices=shared,
+        business=router.business, name=name, price=price or 0, price_source='router' if price else '',
+        duration_hours=_routeros_hours(session, validity or 24), max_devices=shared,
         speed_limit=rate, active=True, source='mikrotik', imported_from_router=router,
         mikrotik_profile_name=name,
     )
     summary['pulled_plans'] += 1
+    if price: summary['prices_found'] = summary.get('prices_found', 0) + 1
+    else: summary.setdefault('plans_without_price', []).append(name)
     return plan
 
 
@@ -159,6 +227,8 @@ def sync_router(router, progress=None):
             )
             summary['pulled_users'] += 1
 
+            user_price = price_from_text(row.get('comment', ''), router.business.currency)
+            plan_price = plan.price if plan and plan.price else None
             if existing_voucher:
                 if existing_voucher.business_id != router.business_id:
                     summary['errors'].append(f'Voucher name {username} already belongs to another TapTap business; import skipped.')
@@ -173,6 +243,10 @@ def sync_router(router, progress=None):
                     existing_voucher.duration_hours=duration_hours; existing_voucher.max_devices=max_devices
                     existing_voucher.status='disabled' if disabled else 'active'
                     fields += ['mikrotik_id','plan_name','duration_hours','max_devices','status']
+                # Repair vouchers imported with no price (older TapTap versions always stored 0).
+                new_price = user_price or plan_price
+                if new_price and not existing_voucher.price and not existing_voucher.sold_at:
+                    existing_voucher.price = new_price; fields.append('price'); summary['prices_repaired'] = summary.get('prices_repaired', 0) + 1
                 existing_voucher.save(update_fields=list(dict.fromkeys(fields)))
                 if _has_uptime(row.get('uptime')) and not existing_voucher.used_at:
                     try:
@@ -183,7 +257,7 @@ def sync_router(router, progress=None):
                 try:
                     new_voucher = Voucher.objects.create(
                         business=router.business, router=router, code=username, plan_name=profile_name,
-                        price=plan.price if plan else 0, duration_hours=duration_hours, max_devices=max_devices,
+                        price=user_price or plan_price or 0, duration_hours=duration_hours, max_devices=max_devices,
                         status='disabled' if disabled else 'active', source='mikrotik', mikrotik_id=str(row.get('id','')),
                         mikrotik_sync_status='Synced', mikrotik_sync_error='',
                     )
@@ -200,9 +274,8 @@ def sync_router(router, progress=None):
         for voucher in router.vouchers.filter(source='taptap'):
             try:
                 plan = router.business.plans.filter(name__iexact=voucher.plan_name).first()
-                profile_name = plan.mikrotik_profile_name if plan and plan.mikrotik_profile_name else voucher.plan_name
-                if not profile_name: profile_name = f'taptap-{voucher.max_devices}-devices'
-                svc.ensure_hotspot_profile(profile_name, voucher.max_devices, plan.speed_limit if plan else '')
+                profile_name, shared, rate = voucher_profile(voucher, plan)
+                svc.ensure_hotspot_profile(profile_name, shared, rate)
                 action, item_id = svc.upsert_voucher(
                     voucher.code, profile_name, limit_uptime=duration_to_routeros(voucher.duration_hours),
                     comment=f'TapTap voucher {voucher.code}', disabled=(voucher.status != 'active'),
@@ -270,7 +343,10 @@ def sync_router(router, progress=None):
         notify(96, 'Finalizing database inventory')
         router.status='Online';router.last_error='';router.last_tested_at=now
         router.save(update_fields=['status','last_error','last_tested_at'])
-        log(router.business,'Router Sync',f'{router.name}: {summary["pulled_plans"]} new plans, {summary["pulled_vouchers"]} new vouchers, {summary["devices_discovered"]} devices; de-duplicated existing records')
+        log(router.business,'Router Sync',f'{router.name}: {summary["pulled_plans"]} new plans, {summary["pulled_vouchers"]} new vouchers, {summary["devices_discovered"]} devices; de-duplicated existing records'
+            + (f'; {summary["prices_found"]} plan prices read from the router' if summary.get('prices_found') else '')
+            + (f'; {summary["prices_repaired"]} voucher prices repaired' if summary.get('prices_repaired') else '')
+            + (f'; no price found for: {", ".join(summary["plans_without_price"][:6])} — set it on the Plans page' if summary.get('plans_without_price') else ''))
         notify(100, 'Synchronization complete')
         return summary
     finally:

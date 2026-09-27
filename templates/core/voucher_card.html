@@ -1,0 +1,51 @@
+{% extends 'core/base.html' %}{% load static taptap_extras %}
+{% block title %}Voucher {{ v.code }} — TapTap{% endblock %}{% block heading %}Voucher {{ grouped }}{% endblock %}
+{% block extra_head %}<style>
+.vc-stage{display:grid;place-items:center;background:repeating-linear-gradient(45deg,#eef2f7 0 12px,#f4f7fb 12px 24px);border-radius:18px;padding:2rem 1rem;min-height:260px}
+.vc-stage .tv-card{box-shadow:0 18px 40px -14px #0b223766}
+.share-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:.5rem}.share-grid .btn{padding:.7rem;font-weight:700}
+.msg{white-space:pre-wrap;background:#f6f8fb;border:1px solid var(--border);border-radius:12px;padding:.8rem;font-size:.86rem;max-height:260px;overflow:auto}
+.facts{display:grid;grid-template-columns:auto 1fr;gap:.35rem 1rem;font-size:.88rem;margin:0}.facts dt{color:var(--muted);font-weight:600}.facts dd{margin:0;font-weight:650}
+@media print{body *{visibility:hidden}.vc-stage,.vc-stage *{visibility:visible}.vc-stage{position:absolute;left:0;top:0;background:none;padding:10mm;display:block}.vc-stage>div{width:auto!important;height:auto!important}.vc-stage .tv-card{transform:none!important;box-shadow:none}}
+</style>{% endblock %}
+{% block content %}{% with c=current_business.currency %}
+<div class="row g-3">
+  <div class="col-xl-7">
+    <div class="vc-stage" id="stage"></div>
+    <div class="panel mt-3"><dl class="facts">
+      <dt>For</dt><dd>{{ v.customer_name|default:'—' }}{% if v.customer_phone %} · {{ v.customer_phone }}{% endif %}</dd>
+      <dt>Plan</dt><dd>{{ v.plan_name }} · {{ duration }} · {{ v.max_devices }} device{{ v.max_devices|pluralize }}{% if v.rate_limit %} · {{ v.rate_limit }}{% endif %}</dd>
+      <dt>Price</dt><dd>{{ v.price|money:c }}</dd>
+      <dt>Payment</dt><dd>{% if sale %}<span class="badge text-bg-success">Paid</span> {{ sale.amount|money:c }} · {{ sale.get_payment_method_display }}{% if sale.agent %} · sold by {{ sale.agent.name }}{% endif %}{% else %}<span class="badge text-bg-warning">Not paid yet</span>{% endif %}</dd>
+      <dt>Router</dt><dd>{% if v.router %}{{ v.router.name }} · {% if v.mikrotik_sync_status == 'Synced' %}<span class="text-success fw-bold">live</span>{% else %}<span class="text-warning fw-bold">waiting for sync</span>{% if v.mikrotik_sync_error %}<small class="d-block text-secondary">{{ v.mikrotik_sync_error|truncatechars:120 }}</small>{% endif %}{% endif %}{% else %}Not sent to a router{% endif %}</dd>
+      {% if v.agent %}<dt>Held by</dt><dd><a href="{% url 'agent_detail' v.agent.id %}">{{ v.agent.name }}</a></dd>{% endif %}
+      {% if v.note %}<dt>Note</dt><dd>{{ v.note }}</dd>{% endif %}
+      <dt>Status</dt><dd>{% if v.used_at %}Used since {{ v.used_at|date:'d M H:i' }}{% elif v.status == 'active' %}Ready to use{% else %}{{ v.get_status_display }}{% endif %}</dd></dl>
+      {% if not sale %}<form method="post" action="{% url 'finance_sale_add' %}" class="d-flex flex-wrap gap-2 mt-3 pt-3 border-top">{% csrf_token %}<input type="hidden" name="mode" value="code"><input type="hidden" name="codes" value="{{ v.code }}"><input type="hidden" name="next" value="{{ request.path }}">
+        <input type="hidden" name="customer_name" value="{{ v.customer_name }}"><input type="hidden" name="customer_phone" value="{{ v.customer_phone }}">
+        <select class="form-select form-select-sm" name="method" style="width:auto" aria-label="Paid with">{% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select>
+        <input class="form-control form-control-sm" name="reference" placeholder="Reference" style="max-width:180px" aria-label="Reference"><button class="btn btn-sm btn-success"><i class="bi bi-cash"></i> Record payment of {{ v.price|money:c }}</button></form>{% endif %}
+    </div>
+  </div>
+  <div class="col-xl-5"><div class="panel">
+    <h3>Send it to {{ v.customer_name|default:'the customer' }}</h3><p>The message has everything they need to connect.</p>
+    <div class="share-grid mt-3">
+      <a class="btn btn-success" target="_blank" rel="noopener" href="https://wa.me/{{ wa }}?text={{ wa_text }}"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+      <a class="btn btn-outline-primary" href="sms:{{ v.customer_phone }}?body={{ sms_text }}"><i class="bi bi-chat-dots"></i> SMS</a>
+      <button class="btn btn-outline-secondary" id="copyMsg"><i class="bi bi-clipboard"></i> Copy message</button>
+      <button class="btn btn-outline-secondary" onclick="window.print()"><i class="bi bi-printer"></i> Print card</button></div>
+    {% if not v.customer_phone %}<p class="small text-secondary mt-2 mb-0">No phone number saved — WhatsApp will ask who to send it to.</p>{% endif %}
+    <div class="msg mt-3" id="msg">{{ share_text }}</div>
+    <div class="d-flex gap-2 mt-3"><a class="btn btn-primary flex-grow-1" href="{% url 'single_voucher' %}"><i class="bi bi-plus-lg"></i> Another voucher</a><a class="btn btn-light" href="{% url 'vouchers' %}?holder=individual">All one-off vouchers</a></div>
+  </div></div>
+</div>
+{% endwith %}{% endblock %}
+{% block scripts %}
+<script src="{% static 'vendor/qrcode.js' %}"></script><script src="{% static 'studio/voucher-render.js' %}"></script>
+<script>
+(function(){const cfg={{ config_json|safe }},row={{ row_json|safe }},biz={{ business_json|safe }};
+const d=TapVoucher.sample({business:biz.name,ssid:biz.ssid,phone:biz.phone,currency:biz.currency,login_url:biz.login_url,logo:biz.logo});Object.assign(d,row);
+const st=document.getElementById('stage'),card=TapVoucher.renderCard(cfg,d),px=cfg.size.w*3.7795,s=Math.min(1.8,(st.clientWidth-40)/px);
+const w=document.createElement('div');w.style.cssText=`width:${px*s}px;height:${cfg.size.h*3.7795*s}px`;card.style.transform=`scale(${s})`;card.style.transformOrigin='0 0';w.appendChild(card);st.appendChild(w);
+document.getElementById('copyMsg').onclick=function(){navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('msg').textContent);this.innerHTML='<i class="bi bi-check2"></i> Copied';};})();
+</script>{% endblock %}

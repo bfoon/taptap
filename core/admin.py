@@ -82,3 +82,11 @@ class PortalPageAdmin(admin.ModelAdmin):
 @admin.register(VoucherDesign)
 class VoucherDesignAdmin(admin.ModelAdmin):
     list_display = ('name', 'business', 'template_key', 'is_default', 'updated_at')
+
+
+from .models import WanSetup
+
+
+@admin.register(WanSetup)
+class WanSetupAdmin(admin.ModelAdmin):
+    list_display = ('router', 'status', 'run_id', 'applied_at', 'confirmed_at'); list_filter = ('status',); readonly_fields = ('original', 'last_result', 'facts')

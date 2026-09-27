@@ -34,7 +34,7 @@
   }
 
   function fill(text, d) { return String(text || '').replace(/\{(\w+)\}/g, function (m, k) { return d[k] != null ? d[k] : m; }); }
-  function groupCode(code, g) { g = +g || 0; if (!g || g >= code.length) return code; var out = []; for (var i = 0; i < code.length; i += g) out.push(code.slice(i, i + g)); return out.join(' '); }
+  function groupCode(code, g) { g = +g || 0; if (!g || g >= code.length || code.length % g !== 0 || code.length < 8) return code; var out = []; for (var i = 0; i < code.length; i += g) out.push(code.slice(i, i + g)); return out.join(' '); }
   function loginLink(d) {
     var u = String(d.login_url || '').trim(); if (!u) return '';
     if (!/^https?:\/\//i.test(u)) u = 'http://' + u;

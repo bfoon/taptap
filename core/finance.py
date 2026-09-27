@@ -135,13 +135,24 @@ def pct_change(cur, prev):
 
 
 # ───────────────────────────── recording ─────────────────────────────
+def effective_price(voucher):
+    """A voucher's price, falling back to its plan's price when the voucher was stored at 0."""
+    if d(voucher.price) > 0:
+        return d(voucher.price)
+    plan = voucher.business.plans.filter(name=voucher.plan_name).only('price').first()
+    return d(plan.price) if plan else ZERO
+
+
 def commission_for(agent, amount):
     if not agent: return ZERO
     return (d(amount) * d(agent.commission_percent) / Decimal('100')).quantize(Decimal('0.01'))
 
 
+AUTO = object()   # "whoever holds the voucher" — the default seller for a voucher sale
+
+
 @transaction.atomic
-def record_sale(business, voucher=None, *, plan_name='', amount=None, method='cash', agent=None,
+def record_sale(business, voucher=None, *, plan_name='', amount=None, method='cash', agent=AUTO,
                 customer_name='', customer_phone='', reference='', notes='', discount=ZERO, user=None, when=None):
     when = when or timezone.now()
     if voucher is not None:
@@ -149,7 +160,12 @@ def record_sale(business, voucher=None, *, plan_name='', amount=None, method='ca
         if VoucherSale.objects.filter(voucher=voucher).exists():
             return None
         plan_name = plan_name or voucher.plan_name
-        amount = voucher.price if amount is None else amount
+        if amount is None:
+            amount = effective_price(voucher)
+            if d(voucher.price) == 0 and amount > 0:
+                Voucher.objects.filter(pk=voucher.pk).update(price=amount)
+    if agent is AUTO:
+        agent = getattr(voucher, 'agent', None) if voucher is not None else None
     gross = max(ZERO, d(amount) - d(discount))
     sale = VoucherSale.objects.create(
         business=business, voucher=voucher, router=getattr(voucher, 'router', None), agent=agent,
@@ -163,9 +179,12 @@ def record_sale(business, voucher=None, *, plan_name='', amount=None, method='ca
 
 
 def sell_from_stock(business, plan_name, quantity, **kwargs):
-    """Pick the oldest unsold active vouchers of a plan and record a sale for each."""
-    stock = list(business.vouchers.filter(plan_name=plan_name, status='active', sold_at__isnull=True, used_at__isnull=True)
-                 .order_by('created_at')[:quantity])
+    """Pick the oldest unsold active vouchers of a plan and record a sale for each.
+    Sold by an agent → take from that agent's stock; sold by the shop → take from the shop's own stock."""
+    agent = kwargs.get('agent', AUTO)
+    stock = business.vouchers.filter(plan_name=plan_name, status='active', sold_at__isnull=True, used_at__isnull=True)
+    stock = stock.filter(agent=agent) if agent not in (AUTO, None) else stock.filter(agent__isnull=True)
+    stock = list(stock.order_by('created_at')[:quantity])
     sales = []
     for v in stock:
         s = record_sale(business, v, **kwargs)
@@ -181,7 +200,7 @@ def mark_activated(voucher, when=None):
     Voucher.objects.filter(pk=voucher.pk, used_at__isnull=True).update(used_at=when)
     voucher.used_at = when
     business = voucher.business
-    if business.auto_record_sales and not voucher.sold_at and d(voucher.price) > 0 \
+    if business.auto_record_sales and not voucher.sold_at and effective_price(voucher) > 0 \
             and not VoucherSale.objects.filter(voucher=voucher).exists():
         record_sale(business, voucher, method='auto', notes='Auto-recorded on first router activation', when=when)
     return True
@@ -194,14 +213,17 @@ def agent_balances(business):
              .annotate(gross=Sum('amount'), comm=Sum('commission'), n=Count('id'))}
     cols = {r['agent']: r['v'] for r in business.collections.values('agent').annotate(v=Sum('amount'))}
     last_col = {r['agent']: r['last'] for r in business.collections.values('agent').annotate(last=models_max('collected_at'))}
+    held = {r['agent']: r for r in business.vouchers.filter(agent__isnull=False, status='active', sold_at__isnull=True, used_at__isnull=True)
+            .values('agent').annotate(n=Count('id'), v=Sum('price'))}
     out = []
     for a in business.agents.all():
-        s = sales.get(a.id, {})
+        s = sales.get(a.id, {}); h = held.get(a.id, {})
         gross, comm = d(s.get('gross')), d(s.get('comm'))
         owed = gross - comm; collected = d(cols.get(a.id))
         out.append({'agent': a, 'sold': s.get('n', 0), 'gross': gross, 'commission': comm, 'owed': owed,
                     'collected': collected, 'outstanding': owed - collected, 'last_collection': last_col.get(a.id),
-                    'collection_rate': round(float(collected / owed * 100), 1) if owed > 0 else 100.0})
+                    'collection_rate': round(float(collected / owed * 100), 1) if owed > 0 else 100.0,
+                    'holding': h.get('n', 0), 'holding_value': d(h.get('v'))})
     return sorted(out, key=lambda r: r['outstanding'], reverse=True)
 
 
@@ -396,3 +418,32 @@ def report_data(business, period, router_id=None, plan=None):
         'agents': {'labels': [r['agent__name'] for r in agents], 'values': [float(r['v']) for r in agents], 'counts': [r['n'] for r in agents]},
         'aging': aging, 'funnel': funnel, 'insights': insights,
     }
+
+
+# ───────────────────────────── agent batches ─────────────────────────────
+@transaction.atomic
+def assign_batch(batch, agent, settlement='credit', method='cash', user=None, reference=''):
+    """Hand a batch to an agent (or back to the shop when agent is None).
+
+    credit  — vouchers move to the agent; each is booked as the agent's sale when it is sold or first used.
+    prepaid — the agent buys every unsold voucher now: sales are recorded with commission and the agent's
+              payment is recorded as a hand-in, so they owe nothing for this batch.
+    Returns (moved_count, sales_recorded).
+    """
+    business = batch.business
+    unsold = batch.vouchers.filter(status='active', sold_at__isnull=True, used_at__isnull=True)
+    moved = unsold.update(agent=agent)
+    batch.agent = agent
+    batch.settlement = settlement if agent else 'credit'
+    batch.issued_at = timezone.now() if agent else None
+    batch.save(update_fields=['agent', 'settlement', 'issued_at'])
+    sales = []
+    if agent and settlement == 'prepaid':
+        for v in batch.vouchers.filter(agent=agent, status='active', sold_at__isnull=True, used_at__isnull=True).order_by('id'):
+            s = record_sale(business, v, method=method, agent=agent, user=user, reference=reference, notes=f'Bought upfront in batch {batch.name}')
+            if s: sales.append(s)
+        net = sum((s.amount - s.commission for s in sales), ZERO)
+        if net > 0:
+            CashCollection.objects.create(business=business, agent=agent, amount=net, payment_method=method, reference=reference,
+                                          note=f'Paid upfront for batch {batch.name} ({len(sales)} vouchers)', recorded_by=user)
+    return moved, sales

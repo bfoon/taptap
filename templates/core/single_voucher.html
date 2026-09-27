@@ -1,0 +1,66 @@
+{% extends 'core/base.html' %}{% load taptap_extras %}
+{% block title %}Voucher for one person — TapTap{% endblock %}{% block heading %}Voucher for one person{% endblock %}
+{% block extra_head %}<style>
+.sv-section{border-top:1px solid var(--border);padding-top:1rem;margin-top:1rem}.sv-section:first-of-type{border:0;margin:0;padding:0}
+.sv-section h4{font-size:.9rem;font-weight:800;margin:0 0 .6rem}
+.plan-pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:.5rem}
+.plan-pick label{border:1.5px solid var(--border);border-radius:12px;padding:.6rem .7rem;cursor:pointer;display:block}.plan-pick label:has(input:checked){border-color:var(--primary);background:#f3f8ff;box-shadow:0 0 0 3px #1769e01a}
+.plan-pick input{position:absolute;opacity:0}.plan-pick b{display:block;font-size:.88rem}.plan-pick strong{display:block;font-size:1.15rem;color:var(--primary)}.plan-pick small{color:var(--muted);font-size:.72rem}
+.seg-mode{display:inline-flex;background:#f2f5f9;border-radius:10px;padding:3px;margin-bottom:.8rem}.seg-mode label{padding:.35rem .8rem;border-radius:8px;font-size:.8rem;font-weight:700;color:#5b6d82;cursor:pointer;margin:0}.seg-mode input{display:none}.seg-mode label:has(input:checked){background:#fff;color:var(--ink);box-shadow:0 1px 3px #0002}
+.ticket{position:sticky;top:1rem;border-radius:20px;background:linear-gradient(150deg,#0b2237,#15406f);color:#fff;padding:1.3rem 1.3rem 1.1rem;overflow:hidden}
+.ticket .perf{border-top:2px dashed #ffffff30;margin:1.2rem -1.3rem 0}
+.ticket small{color:#9fbadb;font-size:.72rem;font-weight:600}.ticket .who{font-size:1.15rem;font-weight:800;margin:.1rem 0 1rem}
+.ticket .code{font:800 1.9rem/1 ui-monospace,Menlo,monospace;letter-spacing:.12em;background:#ffffff14;border-radius:12px;padding:.7rem .8rem;text-align:center}
+.ticket dl{display:grid;grid-template-columns:auto 1fr;gap:.25rem .8rem;margin:1rem 0 0;font-size:.85rem}.ticket dt{color:#9fbadb;font-weight:600}.ticket dd{margin:0;text-align:right;font-weight:700}
+.code-in{text-transform:uppercase;letter-spacing:.06em}.code-in::placeholder{text-transform:none;letter-spacing:0;font-family:system-ui,sans-serif}
+.recent a{display:flex;justify-content:space-between;gap:.6rem;padding:.5rem 0;border-bottom:1px solid var(--border);color:var(--ink);font-size:.84rem}.recent a:last-child{border:0}
+</style>{% endblock %}
+{% block content %}{% with c=current_business.currency %}
+<div class="d-flex gap-2 mb-3"><a class="btn btn-outline-dark btn-sm" href="{% url 'generate_vouchers' %}"><i class="bi bi-stack"></i> A batch</a><a class="btn btn-dark btn-sm" href="{% url 'single_voucher' %}"><i class="bi bi-person"></i> One voucher for one person</a></div>
+<form method="post" class="row g-3" id="sv">{% csrf_token %}
+<div class="col-xl-7"><div class="panel">
+  <div class="sv-section"><h4>Who is it for?</h4><div class="row g-2">
+    <div class="col-sm-6"><label class="form-label small fw-bold">Name</label><input class="form-control" name="customer_name" value="{{ form.customer_name|default:'' }}" placeholder="e.g. Awa Jallow" autocomplete="off"></div>
+    <div class="col-sm-6"><label class="form-label small fw-bold">Phone <span class="fw-normal text-secondary">(to send it by WhatsApp or SMS)</span></label><input class="form-control" name="customer_phone" value="{{ form.customer_phone|default:'' }}" placeholder="e.g. 700 1234" inputmode="tel"></div></div></div>
+
+  <div class="sv-section"><h4>What do they get?</h4>
+    <div class="seg-mode"><label><input type="radio" name="mode" value="plan" {% if form.mode != 'custom' %}checked{% endif %}>A plan</label><label><input type="radio" name="mode" value="custom" {% if form.mode == 'custom' %}checked{% endif %}>Custom</label></div>
+    <div data-mode="plan"><div class="plan-pick">{% for p in plans %}<label><input type="radio" name="plan" value="{{ p.id }}" data-name="{{ p.name }}" data-price="{{ p.price }}" data-hours="{{ p.duration_hours }}" data-devices="{{ p.max_devices }}" {% if form.plan == p.id|stringformat:'s' or forloop.first and not form.plan %}checked{% endif %}><b>{{ p.name }}</b><strong>{{ p.price|money:c }}</strong><small>{{ p.duration_hours|hours_text }} · {{ p.max_devices }} device{{ p.max_devices|pluralize }}</small></label>{% empty %}<p class="small text-secondary">No active plans — use Custom, or <a href="{% url 'plans' %}">create a plan</a>.</p>{% endfor %}</div>
+      <div class="row g-2 mt-1"><div class="col-sm-4"><label class="form-label small fw-bold">Price for this person</label><input class="form-control" type="number" step="0.01" min="0" name="price" id="planPrice" placeholder="Plan price" value="{{ form.price|default:'' }}"><small class="text-secondary">Leave blank for the plan price, or give a discount.</small></div></div></div>
+    <div data-mode="custom" hidden><div class="row g-2">
+      <div class="col-sm-6"><label class="form-label small fw-bold">Valid for</label><div class="input-group"><input class="form-control" type="number" min="1" name="duration_value" value="{{ form.duration_value|default:'3' }}"><select class="form-select" name="duration_unit" style="max-width:120px"><option value="h">hours</option><option value="d" selected>days</option><option value="w">weeks</option></select></div></div>
+      <div class="col-sm-3"><label class="form-label small fw-bold">Devices</label><input class="form-control" type="number" min="1" max="20" name="devices" value="{{ form.devices|default:'1' }}"></div>
+      <div class="col-sm-3"><label class="form-label small fw-bold">Speed</label><input class="form-control" name="rate_limit" value="{{ form.rate_limit|default:'' }}" placeholder="e.g. 5M/5M"></div>
+      <div class="col-sm-6"><label class="form-label small fw-bold">Name on the voucher</label><input class="form-control" name="custom_name" value="{{ form.custom_name|default:'' }}" placeholder="e.g. Guest room 4"></div>
+      <div class="col-sm-6"><label class="form-label small fw-bold">Price ({{ c }})</label><input class="form-control" type="number" step="0.01" min="0" name="price" id="customPrice" value="{{ form.price|default:'' }}" placeholder="0 for free"></div></div></div></div>
+
+  <div class="sv-section"><h4>Code</h4><div class="row g-2 align-items-end"><div class="col-sm-6"><input class="form-control font-monospace code-in" name="code" value="{{ form.code|default:'' }}" placeholder="Leave blank for a random code" maxlength="24" autocomplete="off" aria-label="Code"></div>
+    <div class="col-sm-6"><small class="text-secondary">Type your own (4–20 letters or numbers), e.g. <code>AWA2026</code> — easy to remember and to say over the phone.</small></div></div></div>
+
+  <div class="sv-section"><h4>Where and how it’s paid</h4><div class="row g-2">
+    <div class="col-sm-6"><label class="form-label small fw-bold">Router</label><select class="form-select" name="router">{% for r in routers %}<option value="{{ r.id }}" {% if forloop.first %}selected{% endif %}>{{ r.name }}</option>{% endfor %}<option value="">Don’t send to a router yet</option></select><small class="text-secondary">Sent to the router straight away.</small></div>
+    <div class="col-sm-6"><label class="form-label small fw-bold">Sold by</label><select class="form-select" name="agent"><option value="">Me (the shop)</option>{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></div>
+    <div class="col-12"><div class="form-check form-switch mt-1"><input class="form-check-input" type="checkbox" name="paid" id="paid" value="1" {% if form.paid %}checked{% endif %}><label class="form-check-label fw-bold" for="paid">Paid now</label></div></div>
+    <div class="col-sm-6" data-paid><select class="form-select" name="method" aria-label="Paid with">{% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-sm-6" data-paid><input class="form-control" name="reference" placeholder="Transaction ref (optional)" aria-label="Reference"></div>
+    <div class="col-12"><input class="form-control" name="note" value="{{ form.note|default:'' }}" placeholder="Note for yourself (optional)" aria-label="Note"></div></div></div>
+  <button class="btn btn-primary btn-lg mt-4"><i class="bi bi-ticket-perforated"></i> Create voucher</button>
+</div></div>
+<div class="col-xl-5">
+  <div class="ticket" aria-live="polite"><small>{{ current_business.business_name }}</small><div class="who" id="pvWho">For a customer</div>
+    <div class="code" id="pvCode">•••• ••••</div><div class="perf"></div>
+    <dl><dt>Plan</dt><dd id="pvPlan">—</dd><dt>Valid for</dt><dd id="pvDur">—</dd><dt>Devices</dt><dd id="pvDev">—</dd><dt>Price</dt><dd id="pvPrice">—</dd></dl></div>
+  {% if recent %}<div class="panel mt-3 recent"><h3 class="fs-6 fw-bold">Recent one-off vouchers</h3>{% for v in recent %}<a href="{% url 'voucher_card' v.id %}"><span><b>{{ v.customer_name|default:v.customer_phone }}</b><small class="d-block text-secondary">{{ v.plan_name }} · {{ v.created_at|date:'d M H:i' }}</small></span><code class="voucher-code">{{ v.code }}</code></a>{% endfor %}</div>{% endif %}
+</div></form>
+{% endwith %}{% endblock %}
+{% block scripts %}<script>
+(function(){const f=document.getElementById('sv'),cur='{{ current_business.currency|escapejs }}',$=id=>document.getElementById(id);
+const dur=h=>h<24?h+' hour'+(h==1?'':'s'):(h%168===0&&h<672?h/168+' week'+(h==168?'':'s'):Math.round(h/24)+' day'+(h==24?'':'s'));
+function upd(){const mode=f.querySelector('input[name=mode]:checked').value;f.querySelectorAll('[data-mode]').forEach(x=>{x.hidden=x.dataset.mode!==mode;x.querySelectorAll('input,select').forEach(i=>i.disabled=x.hidden);});
+ f.querySelectorAll('[data-paid]').forEach(x=>x.hidden=!f.elements.paid.checked);
+ const code=(f.elements.code.value||'').replace(/[\s-]/g,'').toUpperCase();$('pvCode').textContent=code?code.replace(/(.{4})(?=.)/g,'$1 '):'•••• ••••';
+ $('pvWho').textContent=f.elements.customer_name.value?'For '+f.elements.customer_name.value:'For a customer';
+ if(mode==='plan'){const p=f.querySelector('input[name=plan]:checked');if(p){$('pvPlan').textContent=p.dataset.name;$('pvDur').textContent=dur(+p.dataset.hours);$('pvDev').textContent=p.dataset.devices;$('pvPrice').textContent=cur+($('planPrice').value||p.dataset.price);}}
+ else{const h=(+f.elements.duration_value.value||1)*({h:1,d:24,w:168}[f.elements.duration_unit.value]);$('pvPlan').textContent=f.elements.custom_name.value||'Custom';$('pvDur').textContent=dur(h);$('pvDev').textContent=f.elements.devices.value+(f.elements.rate_limit.value?' · '+f.elements.rate_limit.value:'');$('pvPrice').textContent=cur+($('customPrice').value||'0');}}
+f.addEventListener('input',upd);f.addEventListener('change',upd);upd();})();
+</script>{% endblock %}

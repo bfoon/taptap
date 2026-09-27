@@ -19,6 +19,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
+from .models import PAYMENT_METHODS
 from .forms import RegisterForm, RouterForm, PlanForm
 from .models import (
     Business, Subscription, VoucherPlan, Router, VoucherBatch, Voucher, Activity,
@@ -100,20 +101,24 @@ def subscription_select(request,code):
 @login_required
 def vouchers(request):
     from django.core.paginator import Paginator
-    business=b(request);qs=business.vouchers.select_related('router','batch').order_by('-created_at')
+    business=b(request);qs=business.vouchers.select_related('router','batch','agent').order_by('-created_at')
     state=request.GET.get('state','');plan=request.GET.get('plan','');q=request.GET.get('q','').strip()
     if state=='unsold': qs=qs.filter(status='active',sold_at__isnull=True,used_at__isnull=True)
     elif state=='sold': qs=qs.filter(sold_at__isnull=False,used_at__isnull=True)
     elif state=='used': qs=qs.filter(used_at__isnull=False)
     elif state=='disabled': qs=qs.exclude(status='active')
     if plan: qs=qs.filter(plan_name=plan)
-    if q: qs=qs.filter(Q(code__icontains=q)|Q(batch__name__icontains=q))
+    holder=request.GET.get('holder','')
+    if holder=='shop': qs=qs.filter(agent__isnull=True)
+    elif holder=='individual': qs=qs.filter(batch__isnull=True,source='taptap')
+    elif holder.isdigit(): qs=qs.filter(agent_id=holder)
+    if q: qs=qs.filter(Q(code__icontains=q)|Q(batch__name__icontains=q)|Q(customer_name__icontains=q)|Q(customer_phone__icontains=q))
     counts=business.vouchers.aggregate(all=Count('id'),unsold=Count('id',filter=Q(status='active',sold_at__isnull=True,used_at__isnull=True)),
         sold=Count('id',filter=Q(sold_at__isnull=False,used_at__isnull=True)),used=Count('id',filter=Q(used_at__isnull=False)),disabled=Count('id',filter=~Q(status='active')))
     params=request.GET.copy();params.pop('page',None)
     state_tabs=[('','All',counts['all']),('unsold','In stock',counts['unsold']),('sold','Sold, not used',counts['sold']),('used','Used',counts['used']),('disabled','Disabled / expired',counts['disabled'])]
     return render(request,'core/vouchers.html',{'page_obj':Paginator(qs,100).get_page(request.GET.get('page')),'counts':counts,'state_tabs':state_tabs,'state':state,'plan':plan,'q':q,
-        'plans':business.vouchers.values_list('plan_name',flat=True).distinct().order_by('plan_name'),'agents':business.agents.filter(active=True),
+        'plans':business.vouchers.values_list('plan_name',flat=True).distinct().order_by('plan_name'),'agents':business.agents.filter(active=True),'all_agents':business.agents.all(),'holder':holder,
         'designs':business.voucher_designs.all(),'params':params.urlencode()})
 
 
@@ -122,11 +127,17 @@ def generate_vouchers(request):
     business=b(request); plans=business.plans.filter(active=True); routers=business.routers.all()
     if request.method=='POST':
         plan=get_object_or_404(plans,pk=request.POST.get('plan')); qty=max(1,min(500,int(request.POST.get('quantity','1')))); router=routers.filter(pk=request.POST.get('router')).first(); batch_name=request.POST.get('batch_name','').strip() or f'{plan.name} {timezone.localtime():%Y-%m-%d %H:%M}'
+        agent=business.agents.filter(pk=request.POST.get('owner') or 0).first()
         with transaction.atomic():
-            batch=VoucherBatch.objects.create(business=business,name=batch_name,plan=plan,quantity=qty); made=[]
+            batch=VoucherBatch.objects.create(business=business,name=batch_name,plan=plan,quantity=qty,note=request.POST.get('note','')[:255]); made=[]
             for _ in range(qty):
                 made.append(Voucher.objects.create(business=business,batch=batch,router=router,code=generate_code(),plan_name=plan.name,price=plan.price,duration_hours=plan.duration_hours,max_devices=plan.max_devices,source='taptap'))
-            log(business,'Voucher Generated',f'Batch {batch.name}: {qty} voucher(s)')
+            log(business,'Voucher Generated',f'Batch {batch.name}: {qty} voucher(s)'+(f' for {agent.name}' if agent else ''))
+            if agent:
+                from .finance import assign_batch
+                settlement=request.POST.get('settlement') if request.POST.get('settlement') in {'credit','prepaid'} else 'credit'
+                _,sales=assign_batch(batch,agent,settlement,request.POST.get('pay_method','cash'),request.user,request.POST.get('reference','')[:120])
+                messages.info(request,f'Batch issued to {agent.name}'+(f' — bought upfront for {business.currency}{sum(x.amount for x in sales):,.2f}.' if sales else ' on credit: each voucher is credited to them as it sells.'))
         if router:
             try:
                 _,created=enqueue_router_sync(router,request.user)
@@ -141,7 +152,8 @@ def generate_vouchers(request):
             design=request.POST.get('design','')
             return redirect(f"/studio/vouchers/print/?batch={batch.pk}"+(f"&design={design}" if design else ''))
         return redirect('vouchers')
-    return render(request,'core/generate_vouchers.html',{'plans':plans,'routers':routers,'designs':business.voucher_designs.all()})
+    return render(request,'core/generate_vouchers.html',{'plans':plans,'routers':routers,'designs':business.voucher_designs.all(),
+        'agents':business.agents.filter(active=True),'owner':request.GET.get('agent',''),'methods':[m for m in PAYMENT_METHODS if m[0]!='auto']})
 
 
 @login_required
@@ -169,7 +181,8 @@ def delete_expired(request):
 
 @login_required
 def batches(request):
-    return render(request,'core/batches.html',{'batches':b(request).batches.select_related('plan').annotate(actual=Count('vouchers'),
+    return render(request,'core/batches.html',{'agents':b(request).agents.filter(active=True),'methods':[m for m in PAYMENT_METHODS if m[0]!='auto'],
+        'batches':b(request).batches.select_related('plan','agent').annotate(actual=Count('vouchers'),left=Count('vouchers',filter=Q(vouchers__sold_at__isnull=True,vouchers__used_at__isnull=True,vouchers__status='active')),
         sold=Count('vouchers',filter=Q(vouchers__sold_at__isnull=False)),used=Count('vouchers',filter=Q(vouchers__used_at__isnull=False))).order_by('-created_at'),
         'designs':b(request).voucher_designs.all()})
 
@@ -178,8 +191,35 @@ def batches(request):
 def plans(request):
     business=b(request);form=PlanForm(request.POST or None)
     if request.method=='POST' and form.is_valid():
-        obj=form.save(commit=False);obj.business=business;obj.source='taptap';obj.save();messages.success(request,'Plan saved.');return redirect('plans')
-    return render(request,'core/plans.html',{'plans':business.plans.select_related('imported_from_router').all().order_by('name'),'form':form})
+        obj=form.save(commit=False);obj.business=business;obj.source='taptap';obj.price_source='manual';obj.save();messages.success(request,'Plan saved.');return redirect('plans')
+    plan_list=list(business.plans.select_related('imported_from_router').all().order_by('price','name'))
+    zero=business.vouchers.filter(price=0,sold_at__isnull=True).values('plan_name').annotate(n=Count('id'))
+    zero_map={r['plan_name']:r['n'] for r in zero}
+    for p in plan_list: p.zero_vouchers=zero_map.get(p.name,0)
+    return render(request,'core/plans.html',{'plans':plan_list,'form':form,'missing':[p for p in plan_list if not p.price]})
+
+
+@login_required
+def plan_update(request,pk):
+    """Edit a plan in place. A price typed here is 'manual' and survives future router syncs."""
+    from decimal import Decimal, InvalidOperation
+    business=b(request);plan=get_object_or_404(business.plans,pk=pk)
+    if request.method!='POST': return redirect('plans')
+    old_price=plan.price
+    try: price=max(Decimal('0'),Decimal(request.POST.get('price','0').replace(',','') or '0'))
+    except (InvalidOperation,ValueError): messages.error(request,'Enter a valid price.');return redirect('plans')
+    plan.price=price
+    if price!=old_price: plan.price_source='manual'
+    if request.POST.get('duration_hours','').isdigit(): plan.duration_hours=max(1,int(request.POST['duration_hours']))
+    if request.POST.get('max_devices','').isdigit(): plan.max_devices=max(1,int(request.POST['max_devices']))
+    plan.active=request.POST.get('active')=='1'
+    plan.save()
+    unsold=business.vouchers.filter(plan_name=plan.name,sold_at__isnull=True,used_at__isnull=True)
+    fixed=business.vouchers.filter(plan_name=plan.name,price=0,sold_at__isnull=True).update(price=price) if price else 0
+    moved=unsold.exclude(price=price).update(price=price) if request.POST.get('apply_unsold') and price else 0
+    msg=f'{plan.name} saved at {business.currency}{price}.'
+    if fixed or moved: msg+=f' {fixed+moved} voucher price{"s" if fixed+moved!=1 else ""} updated.'
+    messages.success(request,msg);return redirect('plans')
 
 
 @login_required

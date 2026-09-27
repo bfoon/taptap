@@ -44,3 +44,11 @@ def without(querydict, key):
     q = querydict.copy()
     q.pop(key, None)
     return q.urlencode()
+
+
+@register.filter
+def hours_text(hours):
+    """168 -> '1 week', 24 -> '1 day', 3 -> '3 hours'."""
+    from core.views_studio import duration_text
+    try: return duration_text(int(hours))
+    except (TypeError, ValueError): return hours

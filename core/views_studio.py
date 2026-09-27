@@ -378,7 +378,7 @@ def voucher_print_rows(business, qs):
     rows = []
     for v in qs.select_related('batch'):
         p = plans.get(v.plan_name)
-        rows.append({'code': v.code, 'plan': v.plan_name, 'price': _money(v.price), 'duration': duration_text(v.duration_hours),
+        rows.append({'code': v.code, 'plan': v.plan_name, 'price': _money(v.price or (p.price if p else 0)), 'duration': duration_text(v.duration_hours),
                      'devices': f'{v.max_devices} device{"s" if v.max_devices != 1 else ""}', 'speed': (p.speed_limit if p and p.speed_limit else 'Full speed'),
                      'data': (f'{p.data_limit_mb} MB' if p and p.data_limit_mb else 'Unlimited'), 'serial': f'{v.pk:06d}',
                      'batch': v.batch.name if v.batch else '', 'created': timezone.localtime(v.created_at).strftime('%d %b %Y')})
@@ -396,12 +396,15 @@ def voucher_print(request):
         batch = get_object_or_404(business.batches, pk=request.GET['batch']); qs = qs.filter(batch=batch); title = batch.name
     elif request.GET.get('ids'):
         ids = [int(x) for x in request.GET['ids'].split(',') if x.strip().isdigit()][:1000]; qs = qs.filter(pk__in=ids); title = f'{len(ids)} selected vouchers'
+    elif request.GET.get('agent'):
+        ag = get_object_or_404(business.agents, pk=request.GET['agent'])
+        qs = qs.filter(agent=ag, status='active', sold_at__isnull=True, used_at__isnull=True); title = f'Unsold vouchers held by {ag.name}'
     elif request.GET.get('plan'):
-        qs = qs.filter(plan_name=request.GET['plan'], status='active', sold_at__isnull=True, used_at__isnull=True); title = f'Unsold {request.GET["plan"]}'
+        qs = qs.filter(plan_name=request.GET['plan'], status='active', sold_at__isnull=True, used_at__isnull=True, agent__isnull=True); title = f'Unsold {request.GET["plan"]} (shop stock)'
     elif request.GET.get('sample'):
         qs = qs.none(); title = 'Test sheet'
     else:
-        qs = qs.filter(status='active', sold_at__isnull=True, used_at__isnull=True); title = 'All unsold vouchers'
+        qs = qs.filter(status='active', sold_at__isnull=True, used_at__isnull=True, agent__isnull=True); title = 'Unsold shop stock'
     limit = min(2000, int(request.GET.get('limit') or 1000))
     rows = voucher_print_rows(business, qs[:limit])
     return render(request, 'core/studio/voucher_print.html', {
