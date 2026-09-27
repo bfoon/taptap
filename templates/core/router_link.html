@@ -8,43 +8,31 @@
 .lk-diag{display:flex;align-items:center;gap:.6rem}
 .lk-node{flex:none;background:#ffffff10;border:1px solid #ffffff22;border-radius:14px;padding:.6rem .8rem;text-align:center;min-width:110px}
 .lk-node i{font-size:1.4rem;display:block;color:#7cc4ff}.lk-node b{display:block;font-size:.8rem}.lk-node small{color:#9fb3c8;font-size:.66rem}
-.lk-wire{flex:1;position:relative;height:28px}
-.lk-wire::before{content:"";position:absolute;left:0;right:0;top:50%;border-top:2px dashed #3d6b95}
+.lk-wire{flex:1;position:relative;height:28px}.lk-wire::before{content:"";position:absolute;left:0;right:0;top:50%;border-top:2px dashed #3d6b95}
 .lk-wire span{position:absolute;left:50%;top:-.2rem;transform:translateX(-50%);font-size:.62rem;color:#9fd8ff;white-space:nowrap;background:#0e1a2a;padding:0 .4rem}
-.lk-dot{position:absolute;top:50%;width:8px;height:8px;margin-top:-4px;border-radius:50%;background:#44c2ff;animation:lkMove 2.2s linear infinite}
-.lk-dot.back{background:#2fcf86;animation-direction:reverse;animation-delay:1.1s}
+.lk-dot{position:absolute;top:50%;width:8px;height:8px;margin-top:-4px;border-radius:50%;background:#44c2ff;animation:lkMove 2.2s linear infinite}.lk-dot.back{background:#2fcf86;animation-direction:reverse;animation-delay:1.1s}
 @keyframes lkMove{from{left:0}to{left:calc(100% - 8px)}}
 .lk-fw{flex:none;display:grid;place-items:center;width:34px;height:40px;border-radius:8px;background:#d6454522;color:#ff9d9d;border:1px solid #d6454555}
 .lk-status{background:#fff;border:1px solid var(--border);border-radius:20px;padding:1.1rem 1.2rem}
 .lk-state{display:inline-flex;align-items:center;gap:.4rem;font-weight:800;font-size:.84rem;border-radius:999px;padding:.3rem .8rem;background:#eef2f6;color:#51667b}
-.lk-state.on{background:#e4f7ee;color:#138453}.lk-state.off{background:#fdeaea;color:#c02b2b}.lk-state.wait{background:#fff4dc;color:#9a6200}
-.lk-state i{width:8px;height:8px;border-radius:50%;background:currentColor}
-.lk-facts{display:grid;grid-template-columns:1fr 1fr;gap:.1rem 1rem;margin-top:.8rem}
-.lk-facts div{display:flex;justify-content:space-between;font-size:.8rem;padding:.35rem 0;border-bottom:1px solid #eef2f6}.lk-facts span{color:var(--muted)}
+.lk-state.on{background:#e4f7ee;color:#138453}.lk-state.off{background:#fdeaea;color:#c02b2b}.lk-state.wait{background:#fff4dc;color:#9a6200}.lk-state i{width:8px;height:8px;border-radius:50%;background:currentColor}
+.lk-facts{display:grid;grid-template-columns:1fr 1fr;gap:.1rem 1rem;margin-top:.8rem}.lk-facts div{display:flex;justify-content:space-between;font-size:.8rem;padding:.35rem 0;border-bottom:1px solid #eef2f6}.lk-facts span{color:var(--muted)}
 .lk-meter{height:6px;border-radius:99px;background:#edf2f7;overflow:hidden;margin-top:.2rem}.lk-meter i{display:block;height:100%;background:linear-gradient(90deg,#1769e0,#14a3e2);transition:width .8s}
-.lk-script{position:relative;background:#0d1724;color:#d8e6f4;border-radius:14px;padding:1rem 1rem 1rem 1rem;font-size:.72rem;max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:0}
-.lk-steps{counter-reset:s;list-style:none;padding:0;margin:0 0 1rem}
-.lk-steps li{counter-increment:s;position:relative;padding:.35rem 0 .35rem 2.2rem;font-size:.86rem}
-.lk-steps li::before{content:counter(s);position:absolute;left:0;top:.25rem;width:1.6rem;height:1.6rem;border-radius:50%;background:#1769e0;color:#fff;font-weight:800;display:grid;place-items:center;font-size:.78rem}
-.lk-sec{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.6rem;margin-top:.8rem}
-.lk-sec div{background:#f6f9fc;border-radius:12px;padding:.65rem .75rem;font-size:.76rem;color:#3d5166}.lk-sec b{display:block;font-size:.8rem;color:var(--ink)}
-.lk-cmd td{font-size:.8rem;vertical-align:middle}
-.lk-pill{font-size:.68rem;font-weight:800;border-radius:999px;padding:.15rem .55rem}
-.lk-pill.done{background:#e4f7ee;color:#138453}.lk-pill.failed,.lk-pill.expired{background:#fdeaea;color:#c02b2b}.lk-pill.queued,.lk-pill.sent{background:#fff4dc;color:#9a6200}.lk-pill.cancelled{background:#eef2f6;color:#6c7c90}
-@media(max-width:1000px){.lk-hero{grid-template-columns:1fr}}
-@media(prefers-reduced-motion:reduce){.lk-dot{animation:none;display:none}}
+.lk-script{position:relative;background:#0d1724;color:#d8e6f4;border-radius:14px;padding:1rem;font-size:.72rem;max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:0}
+.lk-advanced{border:1px solid #f0c36d;background:#fff9ec;border-radius:14px;padding:1rem}.lk-advanced summary{cursor:pointer;font-weight:800;color:#8a5a00}.lk-advanced .lk-script{margin-top:1rem;background:#16130d;color:#f4e7c2}
+.lk-steps{counter-reset:s;list-style:none;padding:0;margin:0 0 1rem}.lk-steps li{counter-increment:s;position:relative;padding:.35rem 0 .35rem 2.2rem;font-size:.86rem}.lk-steps li::before{content:counter(s);position:absolute;left:0;top:.25rem;width:1.6rem;height:1.6rem;border-radius:50%;background:#1769e0;color:#fff;font-weight:800;display:grid;place-items:center;font-size:.78rem}
+.lk-sec{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.6rem;margin-top:.8rem}.lk-sec div{background:#f6f9fc;border-radius:12px;padding:.65rem .75rem;font-size:.76rem;color:#3d5166}.lk-sec b{display:block;font-size:.8rem;color:var(--ink)}
+.lk-cmd td{font-size:.8rem;vertical-align:middle}.lk-pill{font-size:.68rem;font-weight:800;border-radius:999px;padding:.15rem .55rem}.lk-pill.done{background:#e4f7ee;color:#138453}.lk-pill.failed,.lk-pill.expired{background:#fdeaea;color:#c02b2b}.lk-pill.queued,.lk-pill.sent{background:#fff4dc;color:#9a6200}.lk-pill.cancelled{background:#eef2f6;color:#6c7c90}
+@media(max-width:1000px){.lk-hero{grid-template-columns:1fr}}@media(prefers-reduced-motion:reduce){.lk-dot{animation:none;display:none}}
 </style>{% endblock %}
 {% block content %}
 <p class="mb-3"><a href="{% url 'routers' %}" class="text-decoration-none"><i class="bi bi-arrow-left"></i> Routers</a></p>
 <div class="lk-hero">
   <section class="lk-flow">
     <h2>Manage {{ router.name }} from anywhere</h2>
-    <p>The router calls TapTap every few seconds over HTTPS and picks up your commands. Nothing on the router is opened to the Internet — it works behind NAT, carrier-grade NAT, 4G/5G and strict firewalls.</p>
+    <p>The router calls TapTap every few seconds over HTTPS and picks up commands and inventory requests. No local IP, public API port or VPN is required.</p>
     <div class="lk-diag" aria-hidden="true">
-      <div class="lk-node"><i class="bi bi-router"></i><b>{{ router.name }}</b><small>behind NAT</small></div>
-      <div class="lk-fw"><i class="bi bi-bricks"></i></div>
-      <div class="lk-wire"><span>HTTPS, outbound only</span><i class="lk-dot"></i><i class="lk-dot back"></i></div>
-      <div class="lk-node"><i class="bi bi-cloud-check"></i><b>TapTap</b><small>{{ site|cut:'https://'|cut:'http://'|default:'your server' }}</small></div>
+      <div class="lk-node"><i class="bi bi-router"></i><b>{{ router.name }}</b><small>behind NAT</small></div><div class="lk-fw"><i class="bi bi-bricks"></i></div><div class="lk-wire"><span>HTTPS, outbound only</span><i class="lk-dot"></i><i class="lk-dot back"></i></div><div class="lk-node"><i class="bi bi-cloud-check"></i><b>TapTap</b><small>{{ site|cut:'https://'|cut:'http://'|default:'your server' }}</small></div>
     </div>
   </section>
   <section class="lk-status" id="lkStatus">
@@ -59,7 +47,7 @@
       </div>
     {% else %}
       <span class="lk-state"><i></i> {% if agent and agent.revoked %}Revoked{% else %}Not set up{% endif %}</span>
-      <p class="mt-3 mb-3 small text-secondary">Use TapTap Link when TapTap cannot reach this router directly — it has no public IP, sits behind your ISP's NAT, or you do not want to open the API port.</p>
+      <p class="mt-3 mb-3 small text-secondary">TapTap Link is the recommended cloud connection. When enabled, TapTap removes the saved local API IP/credentials and uses this outbound agent instead.</p>
       <form method="post" action="{% url 'router_link_action' router.id %}">{% csrf_token %}<button name="action" value="enroll" class="btn btn-success"><i class="bi bi-link-45deg"></i> Set up TapTap Link</button></form>
     {% endif %}
   </section>
@@ -67,18 +55,25 @@
 
 {% if script %}
 <section class="panel mb-3" id="setup">
-  <div class="panel-head"><div><h3>Install on the router</h3><p>This script contains the router's private token. It is shown only now — copy or download it before leaving this page.</p></div>
-    <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" id="lkCopy"><i class="bi bi-clipboard"></i> Copy script</button><button class="btn btn-outline-primary btn-sm" id="lkDownload"><i class="bi bi-download"></i> Download .rsc</button></div></div>
-  <ol class="lk-steps"><li>Open WinBox (or SSH) on {{ router.name }} and click <b>New Terminal</b>.</li><li>Paste the script and press Enter. (Or upload the .rsc under Files and run <code>/import taptap-link.rsc</code>.)</li><li>This page turns green within seconds when the router checks in.</li></ol>
-  {% if not https %}<div class="alert alert-warning small"><i class="bi bi-exclamation-triangle"></i> TapTap is not on HTTPS ({{ site|default:'SITE_URL not set' }}). The token would travel unencrypted. Put TapTap behind HTTPS and set <code>SITE_URL=https://…</code> before using this on a real router.</div>{% endif %}
+  <div class="panel-head"><div><h3>Quick install — WinBox / New Terminal</h3><p>This block contains the private router token and is shown only now. Copy the whole block.</p></div>
+    <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" id="lkCopy"><i class="bi bi-clipboard"></i> Copy quick install</button><button class="btn btn-outline-primary btn-sm" id="lkDownload"><i class="bi bi-download"></i> Download .rsc</button></div></div>
+  <ol class="lk-steps"><li>Open WinBox on {{ router.name }} and choose <b>New Terminal</b>.</li><li>Paste the complete quick-install block below and press Enter.</li><li>The page should turn green after the router checks in. A full inventory sync can then be run from Routers.</li></ol>
+  {% if not https %}<div class="alert alert-warning small"><i class="bi bi-exclamation-triangle"></i> TapTap is not on HTTPS ({{ site|default:'SITE_URL not set' }}). Put TapTap behind HTTPS and set <code>SITE_URL=https://…</code> before using Link.</div>{% endif %}
   <pre class="lk-script" id="lkScript">{{ script }}</pre>
+
+  <details class="lk-advanced mt-3">
+    <summary><i class="bi bi-tools"></i> Advanced / recovery install — use if quick install does not connect</summary>
+    <p class="small mt-3 mb-2">This is the recovery block based on the troubleshooting that fixed the real MikroTik connection: it stops stuck TapTap jobs, checks RouterOS certificate trust, performs a bounded HTTPS test, reinstalls the agent, and prints diagnostics.</p>
+    <div class="d-flex gap-2 mb-2"><button type="button" class="btn btn-warning btn-sm" id="lkCopyAdvanced"><i class="bi bi-clipboard-check"></i> Copy advanced recovery</button><button type="button" class="btn btn-outline-warning btn-sm" id="lkDownloadAdvanced"><i class="bi bi-download"></i> Download recovery .rsc</button></div>
+    <pre class="lk-script" id="lkAdvancedScript">{{ advanced_script }}</pre>
+  </details>
 </section>
 {% endif %}
 
 {% if agent and not agent.revoked %}
 <div class="row g-3 mb-3">
   <div class="col-lg-7"><section class="panel h-100">
-    <div class="panel-head"><div><h3>Commands</h3><p>What TapTap sent to the router and what the router answered. Updates by itself.</p></div>
+    <div class="panel-head"><div><h3>Commands</h3><p>Inventory, voucher delivery, tests, backups and other Link commands appear here.</p></div>
       <div class="d-flex gap-2 flex-wrap">
         <form method="post" action="{% url 'router_link_action' router.id %}">{% csrf_token %}<button name="action" value="ping" class="btn btn-sm btn-outline-primary"><i class="bi bi-broadcast"></i> Test</button></form>
         <form method="post" action="{% url 'router_link_action' router.id %}">{% csrf_token %}<button name="action" value="backup" class="btn btn-sm btn-outline-primary"><i class="bi bi-cloud-arrow-down"></i> Back up</button></form>
@@ -86,30 +81,27 @@
       </div></div>
     <div class="table-responsive"><table class="table lk-cmd mb-0"><thead><tr><th>When</th><th>Command</th><th>Status</th><th>Router said</th></tr></thead><tbody id="lkCmds">
       {% for c in commands %}<tr><td class="text-nowrap">{{ c.created_at|date:'d M H:i:s' }}</td><td>{{ c.label }}</td><td><span class="lk-pill {{ c.status }}">{{ c.get_status_display }}</span></td><td><small class="text-secondary">{{ c.result|truncatechars:80 }}</small></td></tr>
-      {% empty %}<tr><td colspan="4" class="empty-table">No commands yet. Vouchers, port changes, reboots and backups for this router go through here.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="4" class="empty-table">No commands yet.</td></tr>{% endfor %}
     </tbody></table></div>
   </section></div>
   <div class="col-lg-5"><section class="panel h-100">
     <div class="panel-head"><div><h3>Settings &amp; security</h3></div></div>
     <form method="post" action="{% url 'router_link_action' router.id %}" class="row g-2">{% csrf_token %}<input type="hidden" name="action" value="settings">
-      <div class="col-6"><label class="form-label small">Check in every</label><select class="form-select form-select-sm" name="poll_seconds"><option value="5" {% if agent.poll_seconds == 5 %}selected{% endif %}>5 s</option><option value="10" {% if agent.poll_seconds == 10 %}selected{% endif %}>10 s</option><option value="15" {% if agent.poll_seconds == 15 %}selected{% endif %}>15 s</option><option value="30" {% if agent.poll_seconds == 30 %}selected{% endif %}>30 s</option><option value="60" {% if agent.poll_seconds == 60 %}selected{% endif %}>60 s</option></select></div>
+      <div class="col-6"><label class="form-label small">Check in every</label><select class="form-select form-select-sm" name="poll_seconds"><option value="10" {% if agent.poll_seconds == 10 %}selected{% endif %}>10 s</option><option value="15" {% if agent.poll_seconds == 15 %}selected{% endif %}>15 s</option><option value="30" {% if agent.poll_seconds == 30 %}selected{% endif %}>30 s</option><option value="60" {% if agent.poll_seconds == 60 %}selected{% endif %}>60 s</option></select></div>
       <div class="col-6"><label class="form-label small">Only accept public IP <small class="text-secondary">(optional)</small></label><input class="form-control form-control-sm" name="pinned_ip" value="{{ agent.pinned_ip|default:'' }}" placeholder="{{ agent.last_ip|default:'e.g. 41.223.x.x' }}"></div>
       <div class="col-12"><label class="form-check"><input class="form-check-input" type="checkbox" name="allow_scripts" {% if agent.allow_scripts %}checked{% endif %}> <span class="form-check-label small">Allow custom scripts from TapTap <span class="text-secondary">(off: only built-in safe commands)</span></span></label></div>
       <div class="col-12"><button class="btn btn-sm btn-primary">Save</button></div>
     </form>
     <div class="lk-sec">
-      <div><b><i class="bi bi-shield-lock"></i> Encrypted</b>HTTPS with certificate checking; the token is sent in a header, never in a URL.</div>
-      <div><b><i class="bi bi-key"></i> Token {{ agent.token_hint }}…</b>Only a fingerprint is stored in TapTap. Rotate it any time.</div>
-      <div><b><i class="bi bi-list-check"></i> Safe commands only</b>Vouchers, ports, limits, bindings, reboot, backup{% if agent.allow_scripts %} — and custom scripts (on){% endif %}.</div>
-      <div><b><i class="bi bi-hourglass-split"></i> Commands expire</b>A reboot runs only within 5 minutes; nothing piles up while the router is offline.</div>
+      <div><b><i class="bi bi-shield-lock"></i> Encrypted</b>HTTPS certificate validation, bounded fetch timeouts and no inbound API port.</div>
+      <div><b><i class="bi bi-key"></i> Token {{ agent.token_hint }}…</b>Only its SHA-256 fingerprint is stored by TapTap. Rotate it after exposure.</div>
+      <div><b><i class="bi bi-database-down"></i> Agent inventory</b>Full sync is requested from the router itself instead of attempting its old local IP.</div>
+      <div><b><i class="bi bi-hourglass-split"></i> Overlap protected</b>The RouterOS script has a global lock plus fetch duration and idle timeout controls.</div>
     </div>
-    {% if agent.allow_scripts %}<form method="post" action="{% url 'router_link_action' router.id %}" class="mt-3">{% csrf_token %}<input type="hidden" name="action" value="script">
-      <label class="form-label small">Run a RouterOS script</label><textarea class="form-control form-control-sm font-monospace" name="source" rows="3" maxlength="2000" placeholder=':log info "hello from TapTap"'></textarea>
-      <button class="btn btn-sm btn-outline-danger mt-2" onclick="return confirm('Run this script on {{ router.name|escapejs }}?')">Queue script</button></form>{% endif %}
+    {% if agent.allow_scripts %}<form method="post" action="{% url 'router_link_action' router.id %}" class="mt-3">{% csrf_token %}<input type="hidden" name="action" value="script"><label class="form-label small">Run a RouterOS script</label><textarea class="form-control form-control-sm font-monospace" name="source" rows="3" maxlength="2000" placeholder=':log info "hello from TapTap"'></textarea><button class="btn btn-sm btn-outline-danger mt-2" onclick="return confirm('Run this script on {{ router.name|escapejs }}?')">Queue script</button></form>{% endif %}
     <hr>
     <div class="d-flex flex-wrap gap-2">
       <form method="post" action="{% url 'router_link_action' router.id %}" onsubmit="return confirm('Create a new token? The router stops working with TapTap until you paste the new script.')">{% csrf_token %}<button name="action" value="rotate" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-repeat"></i> Rotate token</button></form>
-      <form method="post" action="{% url 'router_link_action' router.id %}">{% csrf_token %}<input type="hidden" name="mode" value="{% if router.connection_mode == 'agent' %}api{% else %}agent{% endif %}"><button name="action" value="mode" class="btn btn-sm btn-outline-secondary">{% if router.connection_mode == 'agent' %}Use direct API instead{% else %}Use TapTap Link{% endif %}</button></form>
       <form method="post" action="{% url 'router_link_action' router.id %}" onsubmit="return confirm('Revoke TapTap Link for {{ router.name|escapejs }}? The router will be refused immediately.')">{% csrf_token %}<button name="action" value="revoke" class="btn btn-sm btn-outline-danger"><i class="bi bi-x-octagon"></i> Revoke</button></form>
     </div>
   </section></div>
@@ -119,12 +111,11 @@
 {% block scripts %}
 <script>
 (function(){
-  var sc=document.getElementById('lkScript');
-  if(sc){
-    document.getElementById('lkCopy').onclick=function(){var b=this;navigator.clipboard.writeText(sc.textContent).then(function(){b.innerHTML='<i class="bi bi-check2"></i> Copied';});};
-    document.getElementById('lkDownload').onclick=function(){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([sc.textContent],{type:'text/plain'}));a.download='taptap-link.rsc';a.click();};
-    window.addEventListener('beforeunload',function(e){if(!window._lkDone){e.preventDefault();e.returnValue='';}});
-  }
+  function copyButton(button, source, label){if(!button||!source)return;button.onclick=function(){var b=this;navigator.clipboard.writeText(source.textContent).then(function(){b.innerHTML='<i class="bi bi-check2"></i> '+label;});};}
+  function downloadButton(button, source, name){if(!button||!source)return;button.onclick=function(){var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([source.textContent],{type:'text/plain'}));a.download=name;a.click();setTimeout(function(){URL.revokeObjectURL(a.href);},1000);};}
+  var sc=document.getElementById('lkScript'), adv=document.getElementById('lkAdvancedScript');
+  if(sc){copyButton(document.getElementById('lkCopy'),sc,'Copied');downloadButton(document.getElementById('lkDownload'),sc,'taptap-link.rsc');window.addEventListener('beforeunload',function(e){if(!window._lkDone){e.preventDefault();e.returnValue='';}});}
+  if(adv){copyButton(document.getElementById('lkCopyAdvanced'),adv,'Recovery copied');downloadButton(document.getElementById('lkDownloadAdvanced'),adv,'taptap-link-recovery.rsc');}
   var st=document.getElementById('lkState'); if(!st) return;
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function ago(iso){if(!iso)return 'never';var s=(Date.now()-new Date(iso))/1000;return s<60?Math.round(s)+' s ago':s<3600?Math.round(s/60)+' min ago':new Date(iso).toLocaleString();}

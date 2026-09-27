@@ -1,4 +1,6 @@
-"""TapTap Link pages, the public agent endpoints, and email notification settings."""
+"""TapTap Link pages, public agent endpoints, agent registration and notifications."""
+import hmac
+import json
 from datetime import time as dtime
 
 from django.contrib import messages
@@ -24,7 +26,16 @@ def _client_ip(request):
     return request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')).split(',')[0].strip()
 
 
-# ─────────────────────────── public agent endpoints (called by routers) ───────────────────────────
+def _unauthorized():
+    # RouterOS expects a WWW-Authenticate header on HTTP 401; without it Fetch
+    # reports "401 should contain www-authenticate header" instead of a clean
+    # authentication failure.
+    response = HttpResponse('', status=401, content_type='text/plain')
+    response['WWW-Authenticate'] = 'Bearer realm="TapTap Link"'
+    return response
+
+
+# ─────────────────────────── public agent endpoints ───────────────────────────
 @csrf_exempt
 def agent_poll(request):
     if request.method != 'POST':
@@ -34,24 +45,33 @@ def agent_poll(request):
     token = auth[7:].strip() if auth.lower().startswith('bearer ') else ''
     agent = link.agent_for_token(token)
     if not agent:
-        # Count failures per IP; a revoked token trying to connect is worth telling the owner about.
         n = cache.get(f'tt:link:bad:{ip}', 0) + 1
         cache.set(f'tt:link:bad:{ip}', n, 600)
         revoked = RouterAgent.objects.select_related('router__business').filter(token_hash=link._hash(token), revoked=True).first() if token else None
         if revoked:
-            notify(revoked.router.business, 'link_rejected', f'Revoked TapTap Link token used for {revoked.router.name}',
-                   f'A router at {ip} tried to connect with the revoked token of {revoked.router.name}. It was refused.', key=f'link:revoked:{revoked.pk}')
-        return HttpResponse('', status=401, content_type='text/plain')
+            notify(
+                revoked.router.business,
+                'link_rejected',
+                f'Revoked TapTap Link token used for {revoked.router.name}',
+                f'A router at {ip} tried to connect with the revoked token of {revoked.router.name}. It was refused.',
+                key=f'link:revoked:{revoked.pk}',
+            )
+        return _unauthorized()
     if agent.pinned_ip and agent.pinned_ip != ip:
-        notify(agent.router.business, 'link_rejected', f'TapTap Link for {agent.router.name} refused from {ip}',
-               f'{agent.router.name} is pinned to {agent.pinned_ip}, but a connection came from {ip}. It was refused.', key=f'link:pin:{agent.pk}:{ip}')
+        notify(
+            agent.router.business,
+            'link_rejected',
+            f'TapTap Link for {agent.router.name} refused from {ip}',
+            f'{agent.router.name} is pinned to {agent.pinned_ip}, but a connection came from {ip}. It was refused.',
+            key=f'link:pin:{agent.pk}:{ip}',
+        )
         return HttpResponse('', status=403, content_type='text/plain')
     if not cache.add(f'tt:link:rate:{agent.pk}', 1, 2):
-        return HttpResponse('', content_type='text/plain')  # polling faster than every 2 s: ignore
+        return HttpResponse('', content_type='text/plain')
     if len(request.body or b'') > 200_000:
         return HttpResponse('', status=413, content_type='text/plain')
     data = request.POST if request.POST else {}
-    if not data:  # some RouterOS versions send without a form content type
+    if not data:
         from urllib.parse import parse_qsl
         data = dict(parse_qsl(request.body.decode('utf-8', 'ignore'), keep_blank_values=True))
     script = link.handle_poll(agent, data, ip, link.base_url(request))
@@ -68,20 +88,92 @@ def agent_ack(request):
     return HttpResponse('ok' if ok else '', status=200 if ok else 404, content_type='text/plain')
 
 
+@csrf_exempt
+def agent_inventory(request):
+    """Receive one signed/chunked RouterOS inventory section from TapTap Link."""
+    if request.method != 'POST':
+        return HttpResponse(status=405)
+    if len(request.body or b'') > 70_000:
+        return HttpResponse('payload too large', status=413, content_type='text/plain')
+    try:
+        cid = int(request.GET.get('c', '0'))
+        part = max(0, int(request.GET.get('part', '0')))
+    except ValueError:
+        return HttpResponse(status=400)
+    cmd = AgentCommand.objects.select_related('router__business').filter(pk=cid, kind='inventory_piece').first()
+    if not cmd:
+        return HttpResponse(status=404)
+    if not hmac.compare_digest(link.nonce(cmd), str(request.GET.get('n', ''))):
+        return HttpResponse(status=403)
+    if cmd.status in ('failed', 'expired', 'cancelled') or cmd.expires_at < timezone.now():
+        return HttpResponse(status=410)
+    try:
+        payload = json.loads((request.body or b'[]').decode('utf-8'))
+        if isinstance(payload, dict):
+            payload = [payload]
+        if not isinstance(payload, list):
+            raise ValueError('JSON array required')
+        from .agent_inventory import receive_inventory_chunk
+        result = receive_inventory_chunk(cmd, payload, part=part, final=request.GET.get('final') == '1')
+        return JsonResponse({'ok': True, **result})
+    except Exception as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)[:300]}, status=400)
+
+
 # ─────────────────────────── owner pages ───────────────────────────
+@login_required
+@require_POST
+def router_agent_register(request):
+    """Create a router that is agent-only: no local/private IP is required."""
+    name = (request.POST.get('router_name') or '').strip()[:120]
+    if not name:
+        messages.error(request, 'Enter a router name.')
+        return redirect('routers')
+    router = Router.objects.create(
+        business=_b(request),
+        name=name,
+        ip_address='',
+        username='',
+        password='',
+        api_port=8728,
+        use_ssl=False,
+        connection_mode='agent',
+        status='Waiting for TapTap Link',
+        last_error='',
+    )
+    token, _agent = link.new_token(router)
+    request.session[f'link_token_{router.pk}'] = token
+    try:
+        from .tasks import enqueue_router_sync
+        enqueue_router_sync(router, request.user)
+    except Exception as exc:
+        messages.warning(request, f'Router created, but initial inventory sync could not be queued yet: {exc}')
+    log(router.business, 'TapTap Link', f'{router.name}: registered as an agent-only router')
+    messages.success(request, 'Router created without an IP address. Copy the TapTap Link script into WinBox/New Terminal.')
+    return redirect('router_link', pk=router.pk)
+
+
 @login_required
 def router_link(request, pk):
     router = get_object_or_404(_b(request).routers, pk=pk)
-    agent = getattr(router, 'agent', None) if hasattr(router, 'agent') else None
     try:
         agent = router.agent
     except RouterAgent.DoesNotExist:
         agent = None
     token = request.session.pop(f'link_token_{router.pk}', None)
     script = link.enrollment_script(router, token, request) if token else ''
+    advanced_script = link.advanced_enrollment_script(router, token, request) if token else ''
     cmds = router.agent_commands.select_related('created_by').order_by('-created_at')[:40]
-    return render(request, 'core/router_link.html', {'router': router, 'agent': agent, 'token': token, 'script': script, 'commands': cmds,
-                                                     'site': link.base_url(request), 'https': link.base_url(request).startswith('https://')})
+    return render(request, 'core/router_link.html', {
+        'router': router,
+        'agent': agent,
+        'token': token,
+        'script': script,
+        'advanced_script': advanced_script,
+        'commands': cmds,
+        'site': link.base_url(request),
+        'https': link.base_url(request).startswith('https://'),
+    })
 
 
 @login_required
@@ -93,46 +185,71 @@ def router_link_action(request, pk):
         agent = router.agent
     except RouterAgent.DoesNotExist:
         agent = None
+
     if action in ('enroll', 'rotate'):
         token, agent = link.new_token(router)
         request.session[f'link_token_{router.pk}'] = token
         if action == 'enroll':
-            Router.objects.filter(pk=router.pk).update(connection_mode='agent')
+            # TapTap Link becomes authoritative. Never keep retrying a private IP
+            # from the cloud after the owner has chosen agent mode.
+            Router.objects.filter(pk=router.pk).update(
+                connection_mode='agent', ip_address='', username='', password='', use_ssl=False,
+                status='Waiting for TapTap Link', last_error='',
+            )
+            try:
+                from .tasks import enqueue_router_sync
+                enqueue_router_sync(router, request.user)
+            except Exception as exc:
+                messages.warning(request, f'Link created, but the initial full sync could not be queued yet: {exc}')
         log(router.business, 'TapTap Link', f'{router.name}: token {"created" if action == "enroll" else "rotated"}')
-        messages.success(request, 'New setup script ready — paste it into the router terminal. The token is shown only now.')
+        messages.success(request, 'New setup script ready — paste the whole block into the router terminal. The token is shown only now.')
+
     elif action == 'revoke' and agent:
-        agent.revoked = True; agent.save(update_fields=['revoked'])
-        router.agent_commands.filter(status__in=['queued', 'sent']).update(status='cancelled')
-        Router.objects.filter(pk=router.pk).update(connection_mode='api')
+        agent.revoked = True
+        agent.save(update_fields=['revoked'])
+        router.agent_commands.filter(status__in=['queued', 'sent']).update(status='cancelled', done_at=timezone.now())
+        Router.objects.filter(pk=router.pk).update(status='Not connected', last_error='TapTap Link revoked')
         log(router.business, 'TapTap Link', f'{router.name}: token revoked')
-        messages.success(request, 'TapTap Link revoked. The router can no longer connect. Remove the "taptap-link" script and scheduler from the router.')
+        messages.success(request, 'TapTap Link revoked. The router can no longer connect. Remove the taptap-link script/scheduler or rotate the token to reconnect.')
+
     elif action == 'settings' and agent:
         try:
-            agent.poll_seconds = max(5, min(120, int(request.POST.get('poll_seconds') or 10)))
+            agent.poll_seconds = max(10, min(120, int(request.POST.get('poll_seconds') or 10)))
         except ValueError:
             pass
         ip = request.POST.get('pinned_ip', '').strip()
         agent.pinned_ip = ip or None
         agent.allow_scripts = request.POST.get('allow_scripts') == 'on'
         agent.save(update_fields=['poll_seconds', 'pinned_ip', 'allow_scripts'])
-        messages.success(request, 'Saved. A new check-in interval needs a new setup script (use Rotate token) to change on the router.')
+        messages.success(request, 'Saved. Rotate the token and reinstall the generated script if you changed the check-in interval.')
+
     elif action == 'mode':
-        mode = 'agent' if request.POST.get('mode') == 'agent' and agent and not agent.revoked else 'api'
-        Router.objects.filter(pk=router.pk).update(connection_mode=mode)
-        messages.success(request, 'TapTap now manages this router through ' + ('TapTap Link.' if mode == 'agent' else 'the direct API.'))
+        requested = request.POST.get('mode')
+        if requested == 'api':
+            if not router.ip_address or not router.username:
+                messages.error(request, 'Direct API credentials were removed when TapTap Link became authoritative. Add the router again as Direct API if you want to switch transport.')
+            else:
+                Router.objects.filter(pk=router.pk).update(connection_mode='api')
+                messages.success(request, 'This router will use the direct RouterOS API.')
+        elif requested == 'agent' and agent and not agent.revoked:
+            Router.objects.filter(pk=router.pk).update(connection_mode='agent', ip_address='', username='', password='', use_ssl=False)
+            messages.success(request, 'This router now uses TapTap Link only.')
+
     elif action in ('ping', 'reboot', 'backup', 'script', 'cancel'):
         if not agent or agent.revoked:
-            messages.error(request, 'Set up TapTap Link first.'); return redirect('router_link', pk=pk)
+            messages.error(request, 'Set up TapTap Link first.')
+            return redirect('router_link', pk=pk)
         try:
             if action == 'cancel':
-                router.agent_commands.filter(pk=request.POST.get('cmd'), status='queued').update(status='cancelled')
+                router.agent_commands.filter(pk=request.POST.get('cmd'), status='queued').update(status='cancelled', done_at=timezone.now())
                 messages.success(request, 'Command cancelled.')
             elif action == 'ping':
                 link.queue(router, 'ping', label='Test connection', user=request.user)
                 messages.success(request, 'Test queued — it shows as Done within one check-in.')
             elif action == 'reboot':
                 if request.POST.get('confirm', '').strip() != router.name:
-                    messages.error(request, f'Type the router name “{router.name}” to confirm.'); return redirect('router_link', pk=pk)
+                    messages.error(request, f'Type the router name “{router.name}” to confirm.')
+                    return redirect('router_link', pk=pk)
                 link.queue(router, 'reboot', label='Reboot router', user=request.user, minutes=5)
                 messages.success(request, 'Reboot queued. It runs at the next check-in (only if within 5 minutes).')
             elif action == 'backup':
@@ -148,17 +265,47 @@ def router_link_action(request, pk):
 
 
 @login_required
+def router_test(request, pk):
+    """Use the Link for agent routers; never fall back to their old local IP."""
+    router = get_object_or_404(_b(request).routers, pk=pk)
+    if router.connection_mode != 'agent':
+        from . import views as direct_views
+        return direct_views.router_test(request, pk)
+    try:
+        agent = router.agent
+    except RouterAgent.DoesNotExist:
+        messages.error(request, 'TapTap Link has not been created for this router.')
+        return redirect('routers')
+    if agent.revoked:
+        messages.error(request, 'TapTap Link is revoked. Rotate/reinstall the token first.')
+        return redirect('routers')
+    link.queue(router, 'ping', label='Router connection test', user=request.user)
+    if agent.online:
+        messages.success(request, f'{router.name} is checking in through TapTap Link. A test command has been queued.')
+    else:
+        messages.warning(request, f'{router.name} has not checked in recently. The test will run when TapTap Link reconnects.')
+    return redirect('routers')
+
+
+@login_required
 def router_link_status(request, pk):
     router = get_object_or_404(_b(request).routers, pk=pk)
     try:
         a = router.agent
     except RouterAgent.DoesNotExist:
         return JsonResponse({'enrolled': False})
-    cmds = [{'id': c.id, 'label': c.label, 'status': c.status, 'status_label': c.get_status_display(), 'result': c.result,
-             'at': c.created_at.isoformat()} for c in router.agent_commands.order_by('-created_at')[:15]]
-    return JsonResponse({'enrolled': bool(a.enrolled_at), 'online': a.online, 'revoked': a.revoked, 'last_seen': a.last_seen_at.isoformat() if a.last_seen_at else None,
-                         'ip': a.last_ip, 'identity': a.identity, 'version': a.ros_version, 'board': a.board, 'uptime': a.uptime, 'cpu': a.cpu_load,
-                         'mem_free': a.memory_free, 'mem_total': a.memory_total, 'sessions': a.active_sessions, 'polls': a.polls, 'commands': cmds})
+    cmds = [
+        {'id': c.id, 'label': c.label, 'status': c.status, 'status_label': c.get_status_display(), 'result': c.result,
+         'at': c.created_at.isoformat()}
+        for c in router.agent_commands.order_by('-created_at')[:15]
+    ]
+    return JsonResponse({
+        'enrolled': bool(a.enrolled_at), 'online': a.online, 'revoked': a.revoked,
+        'last_seen': a.last_seen_at.isoformat() if a.last_seen_at else None,
+        'ip': a.last_ip, 'identity': a.identity, 'version': a.ros_version, 'board': a.board,
+        'uptime': a.uptime, 'cpu': a.cpu_load, 'mem_free': a.memory_free, 'mem_total': a.memory_total,
+        'sessions': a.active_sessions, 'polls': a.polls, 'commands': cmds,
+    })
 
 
 # ─────────────────────────── notifications ───────────────────────────
@@ -174,11 +321,14 @@ def notifications(request):
         except ValueError:
             pass
         s.extra_recipients = ', '.join(x.strip() for x in request.POST.get('extra_recipients', '').replace(';', ',').split(',') if '@' in x)[:500]
+
         def t(v):
             try:
-                h, m = (v or '').split(':')[:2]; return dtime(int(h), int(m))
+                h, m = (v or '').split(':')[:2]
+                return dtime(int(h), int(m))
             except (ValueError, TypeError):
                 return None
+
         s.quiet_start, s.quiet_end = t(request.POST.get('quiet_start')), t(request.POST.get('quiet_end'))
         s.events = {k: request.POST.get(f'ev_{k}') for k in EVENTS if request.POST.get(f'ev_{k}') in ('instant', 'digest', 'off')}
         s.save()
@@ -191,8 +341,10 @@ def notifications(request):
     groups = {}
     for key, (label, help_, default, sev, group) in EVENTS.items():
         groups.setdefault(group, []).append({'key': key, 'label': label, 'help': help_, 'mode': (s.events or {}).get(key) or default, 'severity': sev})
-    return render(request, 'core/notifications.html', {'s': s, 'groups': groups, 'to': recipients(business, s), 'configured': email_configured(),
-                                                       'recent': business.notifications.all()[:30], 'hours': range(24)})
+    return render(request, 'core/notifications.html', {
+        's': s, 'groups': groups, 'to': recipients(business, s), 'configured': email_configured(),
+        'recent': business.notifications.all()[:30], 'hours': range(24),
+    })
 
 
 @login_required
@@ -212,6 +364,7 @@ def notifications_off(request, token):
     if not s:
         return HttpResponse('This link is not valid any more.', status=404, content_type='text/plain')
     if request.method == 'POST':
-        s.enabled = False; s.save(update_fields=['enabled'])
+        s.enabled = False
+        s.save(update_fields=['enabled'])
         return HttpResponse(f'Email notifications for {s.business.business_name} are off. Turn them back on under Notifications in TapTap.', content_type='text/plain')
     return render(request, 'core/notifications_off.html', {'s': s})

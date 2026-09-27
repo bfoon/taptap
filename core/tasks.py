@@ -54,19 +54,14 @@ def sync_router_task(self, job_id):
             updated_at=timezone.now(),
         )
 
-    if router.connection_mode == 'agent':
-        # Behind NAT: TapTap cannot call the router. Vouchers go out through TapTap Link at the next check-ins.
-        from .agent import push_pending_vouchers
-        queued = push_pending_vouchers(router, limit=25)
-        pending = router.vouchers.filter(source='taptap').exclude(mikrotik_sync_status='Synced').count()
-        job.status, job.progress, job.phase = 'success', 100, 'Handed to TapTap Link'
-        job.summary = {'queued_vouchers': queued, 'waiting_vouchers': pending, 'errors': [],
-                       'note': 'This router uses TapTap Link: vouchers are delivered in batches at each check-in (every few seconds).'}
-        job.finished_at = timezone.now()
-        job.save(update_fields=['status', 'progress', 'phase', 'summary', 'finished_at', 'updated_at'])
-        return job.summary
-
     try:
+        if router.connection_mode == 'agent':
+            # A Link router is never contacted through its old/private IP.  The
+            # background task only prepares signed inventory commands; the
+            # router collects the data locally and POSTs it back over HTTPS.
+            from .agent_inventory import start_agent_inventory_sync
+            return start_agent_inventory_sync(job)
+
         summary = sync_router(router, progress=progress)
         warning_count = len(summary.get('errors') or [])
         job.status = 'success'
@@ -79,6 +74,8 @@ def sync_router_task(self, job_id):
         return summary
     except Exception as exc:
         now = timezone.now()
+        # Direct API failures mean unreachable/offline.  For agent mode we keep
+        # the transport label but still expose the failure on the router card.
         Router.objects.filter(pk=router.pk).update(
             status='Offline', last_error=str(exc), last_tested_at=now
         )
@@ -100,7 +97,6 @@ def live_watch_all():
     """Every LIVE_WATCH_SECONDS: quick voucher/session/binding pass over all routers."""
     from .live import watch_all
     watch_all()
-
 
 
 @shared_task(ignore_result=True)

@@ -28,35 +28,35 @@ from urllib.parse import quote
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import Q
 from django.utils import timezone
 
 from .models import AgentCommand, Router, RouterAgent, RouterBackup, Voucher
 from .utils import log
 
 logger = logging.getLogger('taptap.link')
-MAX_SCRIPT = 3600          # RouterOS 6 limits fetch output=user to ~4 KB; stay under it
+MAX_SCRIPT = 3600
 DEFAULT_EXPIRY = {'reboot': 5, 'port_restart': 5, 'interface_set': 15, 'port_off_for': 15, 'disconnect': 10}
-# Rights the router-side script runs with: enough for fetch (ftp), hotspot users with passwords and
-# backups (sensitive), port changes (write) and reboot. Deliberately NOT: policy, password, winbox,
-# ssh, telnet, web, api, romon, sniff — the script cannot change users or management access.
 POLICY = 'ftp,read,write,test,reboot,sensitive'
-SAFE_KINDS = {'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users', 'hotspot_user_set', 'hotspot_user_remove',
-              'disconnect', 'binding_set', 'binding_remove', 'limit', 'unlimit', 'reboot', 'backup'}
+SAFE_KINDS = {
+    'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
+    'hotspot_user_set', 'hotspot_user_remove', 'disconnect', 'binding_set',
+    'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece',
+}
 NAME_RE = re.compile(r'^[\w.@:+/<>-]{1,64}$')
 MAC_RE = re.compile(r'^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$')
 
 
-# ─────────────────────────── tokens & urls ───────────────────────────
 def _hash(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
 def new_token(router):
-    """Create (or rotate) the router's token. Returns the plain token — shown to the owner once."""
+    """Create (or rotate) the router token. The plain token is shown only once."""
     token = 'ttl_' + secrets.token_urlsafe(32)
-    agent, _ = RouterAgent.objects.update_or_create(router=router, defaults={
-        'token_hash': _hash(token), 'token_hint': token[:10], 'revoked': False})
+    agent, _ = RouterAgent.objects.update_or_create(
+        router=router,
+        defaults={'token_hash': _hash(token), 'token_hint': token[:10], 'revoked': False},
+    )
     return token, agent
 
 
@@ -81,7 +81,6 @@ def tls_flag(url):
     return 'yes-without-crl' if getattr(settings, 'AGENT_VERIFY_TLS', True) else 'no'
 
 
-# ─────────────────────────── RouterOS script building ───────────────────────────
 def rs(value):
     """Quote a value as a RouterOS string literal."""
     v = str(value).replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$').replace('\r', '').replace('\n', '\\n')
@@ -89,41 +88,36 @@ def rs(value):
 
 
 def agent_script(url, token, check):
-    """The script that lives on the router (runs every few seconds)."""
-    return f''':local url {rs(url + "/api/agent/v1")}
-:local tok {rs(token)}
-
-# Prevent overlapping TapTap Link jobs
-:if ([:len [/system script job find where script="taptap-link"]] > 1) do={{
+    """The resilient RouterOS heartbeat script installed as ``taptap-link``."""
+    return f''':global taptapLinkBusy
+:if ($taptapLinkBusy = true) do={{
   :log warning "TapTap Link: previous job still running, skipping"
   :return
 }}
-
-:local r [/system resource get]
-:local a ""
-:local n 0
-
-:foreach s in=[/ip hotspot active find] do={{
-  :if ($n < 300) do={{
-    :local e [/ip hotspot active get $s]
-    :set a ($a . ($e->"user") . "," . ($e->"mac-address") . "," . ($e->"address") . "," . ($e->"uptime") . "," . ($e->"bytes-in") . "," . ($e->"bytes-out") . "," . ($e->".id") . ";")
-    :set n ($n + 1)
-  }}
-}}
-
-:local body ("id=" . [/system identity get name] . "&ver=" . ($r->"version") . "&up=" . ($r->"uptime") . "&cpu=" . ($r->"cpu-load") . "&mf=" . ($r->"free-memory") . "&mt=" . ($r->"total-memory") . "&board=" . ($r->"board-name") . "&n=" . [:len [/ip hotspot active find]] . "&act=" . $a)
+:set taptapLinkBusy true
 
 :do {{
-  :local res [/tool fetch \
-      url=($url . "/poll") \
-      http-method=post \
-      http-data=$body \
-      http-header-field=("Authorization: Bearer " . $tok) \
-      output=user \
-      as-value \
-      check-certificate={check} \
-      duration=8s \
-      idle-timeout=5s]
+  :local url {rs(url + "/api/agent/v1")}
+  :local tok {rs(token)}
+  :local ver [/system resource get version]
+  :local up [/system resource get uptime]
+  :local cpu [/system resource get cpu-load]
+  :local mf [/system resource get free-memory]
+  :local mt [/system resource get total-memory]
+  :local board [/system resource get board-name]
+  :local a ""
+  :local n 0
+
+  :foreach s in=[/ip hotspot active find] do={{
+    :if ($n < 300) do={{
+      :local e [/ip hotspot active get $s]
+      :set a ($a . ($e->"user") . "," . ($e->"mac-address") . "," . ($e->"address") . "," . ($e->"uptime") . "," . ($e->"bytes-in") . "," . ($e->"bytes-out") . "," . ($e->".id") . ";")
+      :set n ($n + 1)
+    }}
+  }}
+
+  :local body ("id=" . [/system identity get name] . "&ver=" . $ver . "&up=" . $up . "&cpu=" . $cpu . "&mf=" . $mf . "&mt=" . $mt . "&board=" . $board . "&n=" . [:len [/ip hotspot active find]] . "&act=" . $a)
+  :local res [/tool fetch url=($url . "/poll") http-method=post http-data=$body http-header-field=("Authorization: Bearer " . $tok) output=user as-value check-certificate={check} duration=8s idle-timeout=5s]
 
   :if (($res->"status") = "finished") do={{
     :local cmd ($res->"data")
@@ -133,23 +127,33 @@ def agent_script(url, token, check):
     }}
   }}
 }} on-error={{
-  :log warning "TapTap Link: cannot reach TapTap"
+  :log warning "TapTap Link: cannot reach or process TapTap"
 }}
+
+:set taptapLinkBusy false
 '''
+
 
 def enrollment_script(router, token, request=None):
     url = base_url(request)
     check = tls_flag(url)
-    agent = getattr(router, 'agent', None)
-    secs = agent.poll_seconds if agent else 10
+    try:
+        agent = router.agent
+    except RouterAgent.DoesNotExist:
+        agent = None
+    secs = max(10, int(agent.poll_seconds if agent else 10))
     body = agent_script(url, token, check)
-    name = re.sub(r'[^\x20-\x7e]', '?', router.name)  # RouterOS terminals are ASCII
+    name = re.sub(r'[^\x20-\x7e]', '?', router.name)
     return f'''# --- TapTap Link for "{name}" ---
-# Paste into the router terminal (WinBox > New Terminal) or run: /import taptap-link.rsc
-# The router connects OUT to {url} - no port-forwarding, no public IP, no VPN needed.
-# Keep this token private. Rotate or revoke it any time in TapTap.
-/system scheduler remove [find name="taptap-link"]
-/system script remove [find name="taptap-link"]
+# Paste the whole block into WinBox > New Terminal.
+# The router connects OUT to {url}; no port-forwarding or public IP is required.
+# Keep the token private. Rotate it from TapTap if it is ever exposed.
+/system scheduler disable [find where name="taptap-link"]
+/system script job remove [find where trace~"scheduler:taptap-link"]
+/system scheduler remove [find where name="taptap-link"]
+/system script remove [find where name="taptap-link"]
+:global taptapLinkBusy
+:set taptapLinkBusy false
 /system script add name="taptap-link" policy={POLICY} comment="TapTap Link - do not edit" source={rs(body)}
 /system scheduler add name="taptap-link" interval={secs}s start-time=startup policy={POLICY} on-event="/system script run taptap-link" comment="TapTap Link"
 /system script run taptap-link
@@ -157,9 +161,54 @@ def enrollment_script(router, token, request=None):
 '''
 
 
+def advanced_enrollment_script(router, token, request=None):
+    """Recovery installer containing the checks that solved the real RouterOS setup."""
+    url = base_url(request)
+    install = enrollment_script(router, token, request)
+    return f'''# ================================================================
+# TapTap Link ADVANCED / RECOVERY setup for {router.name}
+# Use this block when the quick install does not check in.
+# It safely stops old TapTap jobs, checks HTTPS, then reinstalls Link.
+# ================================================================
+
+# 1) Stop an old scheduler and clear only stuck TapTap Link jobs.
+/system scheduler disable [find where name="taptap-link"]
+/system script job remove [find where trace~"scheduler:taptap-link"]
+:global taptapLinkBusy
+:set taptapLinkBusy false
+
+# 2) Show RouterOS and certificate/trust-store information.
+/system resource print
+/certificate settings print
+
+# 3) Verify that this MikroTik can reach TapTap with certificate validation.
+#    Expected: status=finished and code=200.
+:do {{
+  /tool fetch url={rs(url)} output=none check-certificate=yes-without-crl duration=8s idle-timeout=5s
+  :log info "TapTap Link HTTPS test passed"
+}} on-error={{
+  :log warning "TapTap Link HTTPS test failed. If the log says no trusted CA, update RouterOS stable and retry."
+}}
+
+# If RouterOS is old and reports 'no trusted CA certificate found', run these manually:
+# /system package update check-for-updates
+# /system package update install
+# After the reboot: /system routerboard upgrade
+# Then reboot once more and repeat the HTTPS test above.
+
+# 4) Clean install the current TapTap Link script.
+{install}
+
+# 5) Useful diagnostics after installation.
+/system scheduler print detail where name="taptap-link"
+/system script job print
+/log print where message~"TapTap Link"
+'''
+
+
 def _ack(url, cmd, status, check, result=''):
     q = f'{url}/api/agent/v1/ack?c={cmd.pk}&n={nonce(cmd)}&s={status}' + (f'&r={quote(result)}' if result else '')
-    return f'/tool fetch url={rs(q)} output=none check-certificate={check}'
+    return f'/tool fetch url={rs(q)} output=none check-certificate={check} duration=8s idle-timeout=5s'
 
 
 def command_body(cmd):
@@ -177,7 +226,6 @@ def command_body(cmd):
         mins = max(1, min(10080, int(p.get('minutes', 15))))
         sched = f'taptap-on-{p["name"]}'
         ev = f'/interface enable [find name="{p["name"]}"]; /system scheduler remove [find name="{sched}"]'
-        # A scheduler's first run is one interval after it is created: the port comes back by itself.
         return (f'/system scheduler remove [find name={rs(sched)}]; /system scheduler add name={rs(sched)} interval={mins}m '
                 f'policy={POLICY} on-event={rs(ev)} comment="TapTap automatic restore"; /interface disable [find name={name()}]')
     if k == 'hotspot_users':
@@ -219,19 +267,25 @@ def command_body(cmd):
 def wrap(cmd, url, check):
     """A command plus its acknowledgement, isolated so one failure never stops the rest."""
     if cmd.kind == 'reboot':
-        # Report success first — the reboot drops the connection.
         return f':do {{ {_ack(url, cmd, "ok", check)}; :delay 2s; /system reboot }} on-error={{}}'
-    body = command_body(cmd)
+    if cmd.kind == 'inventory_piece':
+        from .agent_inventory import inventory_piece_script
+        body = inventory_piece_script(cmd, url, check, nonce(cmd))
+    else:
+        body = command_body(cmd)
     result = f'{cmd.params.get("file")}.backup, {cmd.params.get("file")}.rsc' if cmd.kind == 'backup' else ''
-    return (f':do {{ {body}; {_ack(url, cmd, "ok", check, result)} }} on-error={{ :do {{ {_ack(url, cmd, "fail", check)} }} on-error={{}} }}')
+    return (f':do {{ {body}; {_ack(url, cmd, "ok", check, result)} }} '
+            f'on-error={{ :do {{ {_ack(url, cmd, "fail", check)} }} on-error={{}} }}')
 
 
-# ─────────────────────────── queueing ───────────────────────────
 def queue(router, kind, params=None, label='', user=None, minutes=None):
     if kind not in SAFE_KINDS and kind != 'script':
         raise ValueError('Not an allowed command.')
     if kind == 'script':
-        agent = getattr(router, 'agent', None)
+        try:
+            agent = router.agent
+        except RouterAgent.DoesNotExist:
+            agent = None
         if not agent or not agent.allow_scripts:
             raise ValueError('Custom scripts are switched off for this router (TapTap Link settings).')
         if len((params or {}).get('source', '')) > 2000:
@@ -242,15 +296,21 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
     if params and 'mac' in params and not MAC_RE.match(str(params['mac'])):
         raise ValueError('Invalid MAC address.')
     mins = minutes or DEFAULT_EXPIRY.get(kind, 60)
-    cmd = AgentCommand.objects.create(router=router, kind=kind, params=params or {}, label=label[:200] or kind, created_by=user,
-                                      expires_at=timezone.now() + timedelta(minutes=mins))
+    cmd = AgentCommand.objects.create(
+        router=router,
+        kind=kind,
+        params=params or {},
+        label=label[:200] or kind,
+        created_by=user,
+        expires_at=timezone.now() + timedelta(minutes=mins),
+    )
     if user:
         log(router.business, 'TapTap Link', f'{router.name}: queued {cmd.label}')
     return cmd
 
 
 def push_pending_vouchers(router, limit=25):
-    """Queue TapTap vouchers the router does not have yet (batched, so a poll response stays small)."""
+    """Queue TapTap vouchers the router does not have yet."""
     from .sync import voucher_profile
     from .utils import duration_to_routeros
     if AgentCommand.objects.filter(router=router, kind='hotspot_users', status__in=['queued', 'sent']).exists():
@@ -264,13 +324,12 @@ def push_pending_vouchers(router, limit=25):
         prof, shared, rate = voucher_profile(v, plan)
         profiles[prof] = {'name': prof, 'shared': shared, 'rate': rate}
         users.append({'n': v.code, 'prof': prof, 'lim': duration_to_routeros(v.duration_hours), 'dis': v.status != 'active', 'c': f'TapTap voucher {v.code}'})
-    cmd = queue(router, 'hotspot_users', {'users': users, 'profiles': list(profiles.values()), 'ids': [v.pk for v in todo]},
-                label=f'Send {len(users)} voucher(s) to the router', minutes=60 * 24)
+    queue(router, 'hotspot_users', {'users': users, 'profiles': list(profiles.values()), 'ids': [v.pk for v in todo]},
+          label=f'Send {len(users)} voucher(s) to the router', minutes=60 * 24)
     Voucher.objects.filter(pk__in=[v.pk for v in todo]).update(mikrotik_sync_status='Queued', mikrotik_sync_error='')
     return len(users)
 
 
-# ─────────────────────────── poll & ack handling ───────────────────────────
 def parse_sessions(raw):
     rows = []
     for rec in str(raw or '').split(';'):
@@ -281,16 +340,19 @@ def parse_sessions(raw):
 
 
 def handle_poll(agent, data, ip, url):
-    """Record the heartbeat, process live sessions and return the RouterOS script to run (may be empty)."""
+    """Record heartbeat/live sessions and return RouterOS commands to run."""
     from .notify import notify
     router = agent.router
     now = timezone.now()
     first = agent.enrolled_at is None
-    ip_changed = bool(agent.last_ip) and agent.last_ip != ip
+    old_ip = agent.last_ip
+    ip_changed = bool(old_ip) and old_ip != ip
     agent.polls += 1
     agent.last_seen_at, agent.last_ip = now, ip
-    agent.identity = str(data.get('id', ''))[:120]; agent.ros_version = str(data.get('ver', ''))[:60]
-    agent.board = str(data.get('board', ''))[:80]; agent.uptime = str(data.get('up', ''))[:40]
+    agent.identity = str(data.get('id', ''))[:120]
+    agent.ros_version = str(data.get('ver', ''))[:60]
+    agent.board = str(data.get('board', ''))[:80]
+    agent.uptime = str(data.get('up', ''))[:40]
     for f, key in (('cpu_load', 'cpu'), ('memory_free', 'mf'), ('memory_total', 'mt'), ('active_sessions', 'n')):
         try:
             setattr(agent, f, int(str(data.get(key, '')).strip() or 0))
@@ -299,21 +361,24 @@ def handle_poll(agent, data, ip, url):
     if first:
         agent.enrolled_at = now
     agent.save()
-    if router.status != 'Online' or router.connection_mode != 'agent':
-        was_offline = router.status == 'Offline'
-        Router.objects.filter(pk=router.pk).update(status='Online', last_error='', last_tested_at=now, connection_mode='agent', last_watch_at=now)
-        from .live import push_event
-        push_event(router.business_id, f'{router.name} connected through TapTap Link' if first else f'{router.name} is back online (TapTap Link)', 'good')
-        if was_offline and not first:
-            notify(router.business, 'router_online', f'{router.name} is back online', f'{router.name} reconnected through TapTap Link from {ip}.', key=f'router:{router.pk}:online')
-    else:
-        Router.objects.filter(pk=router.pk).update(last_watch_at=now, last_tested_at=now)
+
+    was_offline = router.status == 'Offline'
+    Router.objects.filter(pk=router.pk).update(
+        status='Online', last_error='', last_tested_at=now, last_watch_at=now,
+        connection_mode='agent', ip_address='', username='', password='', use_ssl=False,
+    )
+    from .live import push_event
+    if first:
+        push_event(router.business_id, f'{router.name} connected through TapTap Link', 'good')
+    elif was_offline:
+        push_event(router.business_id, f'{router.name} is back online (TapTap Link)', 'good')
+        notify(router.business, 'router_online', f'{router.name} is back online', f'{router.name} reconnected through TapTap Link from {ip}.', key=f'router:{router.pk}:online')
     if first:
         notify(router.business, 'link_connected', f'{router.name} connected with TapTap Link',
                f'{router.name} ({agent.board}, RouterOS {agent.ros_version}) is now managed through TapTap Link from {ip}.')
     elif ip_changed:
         notify(router.business, 'link_ip_change', f'{router.name} now connects from a new address',
-               f'TapTap Link for {router.name} moved from {agent.last_ip or "?"} to {ip}. This is normal after an ISP change or reconnect; '
+               f'TapTap Link for {router.name} moved from {old_ip or "?"} to {ip}. This is normal after an ISP change or reconnect; '
                f'if you did not expect it, revoke the token in TapTap.', key=f'link:{router.pk}:ip:{ip}')
 
     try:
@@ -331,7 +396,6 @@ def build_response(router, url):
     now = timezone.now()
     check = tls_flag(url)
     AgentCommand.objects.filter(router=router, status__in=['queued', 'sent'], expires_at__lt=now).update(status='expired', done_at=now)
-    # Sent but never acknowledged after 90 s → send once more.
     AgentCommand.objects.filter(router=router, status='sent', sent_at__lt=now - timedelta(seconds=90), attempts__lt=2).update(status='queued')
     AgentCommand.objects.filter(router=router, status='sent', sent_at__lt=now - timedelta(seconds=90), attempts__gte=2).update(
         status='failed', result='No answer from the router', done_at=now)
@@ -344,7 +408,8 @@ def build_response(router, url):
             continue
         if parts and size + len(chunk) > MAX_SCRIPT:
             break
-        parts.append(chunk); size += len(chunk) + 1
+        parts.append(chunk)
+        size += len(chunk) + 1
         AgentCommand.objects.filter(pk=cmd.pk).update(status='sent', sent_at=now, attempts=cmd.attempts + 1)
         if cmd.kind == 'reboot':
             break
@@ -358,7 +423,9 @@ def handle_ack(cmd_id, given_nonce, status, result=''):
     if not cmd or not hmac.compare_digest(nonce(cmd), str(given_nonce)) or cmd.status in ('done', 'failed', 'cancelled'):
         return False
     ok = status == 'ok'
-    cmd.status, cmd.done_at, cmd.result = ('done' if ok else 'failed'), timezone.now(), (result or ('OK' if ok else 'The router reported an error'))[:500]
+    cmd.status = 'done' if ok else 'failed'
+    cmd.done_at = timezone.now()
+    cmd.result = (result or ('OK' if ok else 'The router reported an error'))[:500]
     cmd.save(update_fields=['status', 'done_at', 'result'])
     r = cmd.router
     if cmd.kind == 'hotspot_users':
@@ -373,11 +440,13 @@ def handle_ack(cmd_id, given_nonce, status, result=''):
         Router.objects.filter(pk=r.pk).update(last_backup_at=timezone.now())
         notify(r.business, 'backup_done' if ok else 'backup_failed', f'Backup {"saved" if ok else "failed"} on {r.name}',
                f'{f}.backup and {f}.rsc are on the router (WinBox › Files).' if ok else f'The router could not save {f}.')
+    elif cmd.kind == 'inventory_piece':
+        from .agent_inventory import inventory_command_ack
+        inventory_command_ack(cmd, ok)
     push_event(r.business_id, f'{r.name}: {cmd.label} — {"done" if ok else "failed"}', 'info' if ok else 'bad')
     return True
 
 
-# ─────────────────────────── live sessions over the link ───────────────────────────
 def ingest_sessions(router, rows, now):
     """Same effect as live sync for API routers: sales timing, enforcement, consumption."""
     from .finance import mark_activated
@@ -386,29 +455,31 @@ def ingest_sessions(router, rows, now):
     from .sync import _routeros_seconds
     from .traffic import collect_sessions
     collect_sessions(router, rows, now)
-    codes = [r['user'] for r in rows if r['user'] and not r['user'].upper().startswith('T-')]
+    codes = [r['user'] for r in rows if r.get('user') and not r['user'].upper().startswith('T-')]
     vouchers = {v.code.upper(): v for v in Voucher.objects.filter(business=router.business, code__in=codes)}
     bad = {}
     for s in rows:
-        v = vouchers.get(s['user'].upper())
+        v = vouchers.get(str(s.get('user', '')).upper())
         if not v:
             continue
         if not v.used_at:
-            mark_activated(v, now - timedelta(seconds=_routeros_seconds(s['uptime'])))
+            mark_activated(v, now - timedelta(seconds=_routeros_seconds(s.get('uptime'))))
             v.refresh_from_db(fields=['used_at', 'expires_at', 'status'])
         if v.used_at and not v.expires_at and v.duration_hours:
             v.expires_at = v.used_at + timedelta(hours=v.duration_hours)
             Voucher.objects.filter(pk=v.pk, expires_at__isnull=True).update(expires_at=v.expires_at)
         problem = voucher_problem(v, now)
         if problem:
-            bad[(v.code.upper(), s['mac-address'].upper())] = (s, v, problem)
+            bad[(v.code.upper(), str(s.get('mac-address', '')).upper())] = (s, v, problem)
     business = router.business
     open_ = {(i.username.upper(), i.mac_address.upper()): i for i in SessionIncident.objects.filter(router=router, status__in=['open', 'ignored'])}
     grace = timedelta(minutes=business.enforce_grace_minutes or 0)
     for key, (s, v, (reason, detail)) in bad.items():
-        inc = open_.get(key) or SessionIncident.objects.create(business=business, router=router, voucher=v, username=v.code, mac_address=key[1],
-                                                              ip_address=s['address'], session_id=s.get('id', ''), reason=reason, detail=detail,
-                                                              first_seen=now, last_seen=now, fix_due_at=now + grace)
+        inc = open_.get(key) or SessionIncident.objects.create(
+            business=business, router=router, voucher=v, username=v.code, mac_address=key[1],
+            ip_address=s.get('address', ''), session_id=s.get('id', ''), reason=reason, detail=detail,
+            first_seen=now, last_seen=now, fix_due_at=now + grace,
+        )
         SessionIncident.objects.filter(pk=inc.pk).update(last_seen=now, detail=detail)
         if inc.status == 'open' and business.auto_enforce and inc.fix_due_at and inc.fix_due_at <= now and not cache.get(f'tt:linkfix:{inc.pk}'):
             cache.set(f'tt:linkfix:{inc.pk}', 1, 300)
@@ -445,5 +516,5 @@ def check_offline_agents():
             Router.objects.filter(pk=agent.router_id).update(status='Offline', last_error=f'No TapTap Link check-in for {int(silent)} s')
             push_event(agent.router.business_id, f'{agent.router.name} stopped calling in (TapTap Link)', 'bad')
             notify(agent.router.business, 'router_offline', f'{agent.router.name} is offline',
-                   f'{agent.router.name} has not checked in through TapTap Link since {timezone.localtime(agent.last_seen_at):%H:%M}. '
-                   f'Check its power and Internet connection.', severity='critical', key=f'router:{agent.router_id}:offline')
+                   f'{agent.router.name} has not checked in through TapTap Link since {timezone.localtime(agent.last_seen_at):%H:%M}. Check its power and Internet connection.',
+                   severity='critical', key=f'router:{agent.router_id}:offline')

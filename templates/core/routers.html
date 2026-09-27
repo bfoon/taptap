@@ -3,7 +3,7 @@
 {% block heading %}MikroTik Routers{% endblock %}
 {% block content %}
 <div class="page-actions">
-  <div><h2 class="section-title">Router control & synchronization</h2><p>Pull plans, vouchers, MAC inventory and RouterOS configuration; push TapTap records back safely.</p></div>
+  <div><h2 class="section-title">Router control & synchronization</h2><p>TapTap Link is recommended for cloud hosting: the MikroTik connects out over HTTPS, so no local IP or open API port is required.</p></div>
   {% if routers %}<form method="post" action="{% url 'routers_sync_all' %}">{% csrf_token %}<button class="btn btn-primary sync-btn" {% if not sync_schema_ready %}disabled title="Run database migrations first"{% endif %}><i class="bi bi-arrow-repeat"></i> Full sync all routers</button></form>{% endif %}
 </div>
 
@@ -11,19 +11,19 @@
 <div class="alert alert-warning d-flex align-items-start gap-2 mb-4" role="alert">
   <i class="bi bi-database-exclamation fs-4"></i>
   <div><strong>Database migration required.</strong><br>
-  The router page is available, but background synchronization is temporarily disabled because migration <code>0004_router_sync_jobs</code> has not been applied. Run <code>docker compose exec web python manage.py migrate</code>, then restart the web and worker containers.</div>
+  The router page is available, but background synchronization is temporarily disabled. Run <code>docker compose exec web python manage.py migrate</code>, then restart the web and worker containers.</div>
 </div>
 {% endif %}
 
 <div class="sync-explainer mb-4">
-  <div><i class="bi bi-cloud-arrow-down"></i><span><b>Pull everything useful</b><small>HotSpot profiles → plans, users → vouchers, IP bindings, MAC/device inventory, ports, neighbors and configuration snapshot.</small></span></div>
-  <div><i class="bi bi-copy"></i><span><b>De-duplicate</b><small>Existing plan names and voucher codes are matched and updated rather than recreated.</small></span></div>
-  <div><i class="bi bi-cpu"></i><span><b>Background worker</b><small>Synchronization runs in Redis/Celery so TapTap stays responsive while RouterOS is scanned.</small></span></div>
+  <div><i class="bi bi-link-45deg"></i><span><b>Agent first</b><small>TapTap Link routers call the cloud over HTTPS. TapTap never retries their old 192.168.x.x address.</small></span></div>
+  <div><i class="bi bi-cloud-arrow-down"></i><span><b>Full inventory</b><small>Plans, HotSpot users, IP bindings, interfaces, neighbors, devices, routes, firewall and RouterOS configuration are uploaded by the agent.</small></span></div>
+  <div><i class="bi bi-copy"></i><span><b>One data model</b><small>Direct API and TapTap Link both populate the same TapTap inventory, topology and voucher records.</small></span></div>
 </div>
 
 <section class="panel sync-monitor mb-4" id="syncMonitor" data-status-url="{% url 'router_sync_status' %}">
   <div class="panel-head">
-    <div><h3><i class="bi bi-arrow-repeat"></i> Background synchronization</h3><p>Jobs continue even if you leave this page. TapTap stores the result and final import counts.</p></div>
+    <div><h3><i class="bi bi-arrow-repeat"></i> Background synchronization</h3><p>Direct routers use RouterOS API. Link routers collect the same inventory locally and upload it to TapTap.</p></div>
     <span class="sync-monitor-count" id="activeSyncCount">0 active</span>
   </div>
   <div class="sync-job-list scroll-list" id="syncJobList">
@@ -40,24 +40,60 @@
 <div class="row g-4">
   <div class="col-xl-8">
     <div class="panel">
-      <div class="panel-head"><div><h3>Connected infrastructure</h3><p>Test, synchronize, design and configure RouterOS devices.</p></div><div class="d-flex gap-2"><a href="{% url 'router_inventory' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-database-check"></i> Inventory</a><a href="{% url 'topology' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-diagram-3"></i> Topology</a></div></div>
+      <div class="panel-head"><div><h3>Connected infrastructure</h3><p>Each router clearly shows whether it is managed through TapTap Link or Direct API.</p></div><div class="d-flex gap-2"><a href="{% url 'router_inventory' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-database-check"></i> Inventory</a><a href="{% url 'topology' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-diagram-3"></i> Topology</a></div></div>
       <div class="router-list-scroll scroll-list">
       {% for r in routers %}
       <div class="router-card router-card-rich" data-router-card="{{ r.id }}">
         <div class="router-symbol"><i class="bi bi-router"></i></div>
         <div class="router-main">
           <div class="router-title-line"><b>{{ r.name }}</b><span class="status-dot {% if r.status == 'Online' %}online{% endif %}">{{ r.status }}</span><span class="router-sync-pill {% if r.latest_sync_job.is_active %}active{% endif %}" id="routerSyncPill{{ r.id }}">{% if r.latest_sync_job %}{{ r.latest_sync_job.get_status_display }} {{ r.latest_sync_job.progress }}%{% else %}Ready{% endif %}</span></div>
-          <span>{{ r.ip_address }}:{{ r.api_port }} • {{ r.username }}</span>
+          {% if r.connection_mode == 'agent' %}
+            <span><i class="bi bi-link-45deg"></i> TapTap Link{% if r.agent.board %} • {{ r.agent.board }}{% endif %}{% if r.agent.ros_version %} • RouterOS {{ r.agent.ros_version }}{% endif %}</span>
+          {% else %}
+            <span><i class="bi bi-ethernet"></i> Direct API • {{ r.ip_address }}:{{ r.api_port }} • {{ r.username }}</span>
+          {% endif %}
           <div class="router-mini-stats"><span><i class="bi bi-ticket-perforated"></i>{{ r.hotspot_user_count }} users</span><span><i class="bi bi-shield-lock"></i>{{ r.binding_count }} bindings</span><span><i class="bi bi-broadcast-pin"></i>{{ r.online_neighbor_count }} neighbors</span><span><i class="bi bi-laptop"></i>{{ r.device_count }} devices</span></div>
           {% if r.last_error %}<small class="router-error">{{ r.last_error|truncatechars:100 }}</small>{% endif %}
         </div>
-        <div class="router-actions"><a class="btn btn-sm btn-dark" href="{% url 'router_control' r.id %}"><i class="bi bi-sliders"></i> Control</a><a class="btn btn-sm btn-outline-dark" href="{% url 'wan_designer' r.id %}" title="Load balancing, failover and single line"><i class="bi bi-diagram-3"></i> Internet lines</a><a class="btn btn-sm {% if r.connection_mode == 'agent' %}btn-success{% else %}btn-outline-success{% endif %}" href="{% url 'router_link' r.id %}" title="Manage a router behind NAT or a firewall"><i class="bi bi-link-45deg"></i> {% if r.connection_mode == 'agent' %}Link on{% else %}TapTap Link{% endif %}</a><form method="post" action="{% url 'router_sync' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary router-sync-button" data-router-id="{{ r.id }}" {% if not sync_schema_ready or r.latest_sync_job.is_active %}disabled{% endif %}><i class="bi bi-arrow-repeat"></i> <span>{% if r.latest_sync_job.is_active %}Syncing…{% else %}Sync{% endif %}</span></button></form><a class="btn btn-sm btn-outline-primary" href="{% url 'router_test' r.id %}"><i class="bi bi-activity"></i> Test</a><a class="btn btn-sm btn-outline-danger" href="{% url 'router_delete' r.id %}" onclick="return confirm('Delete this router from TapTap?')"><i class="bi bi-trash3"></i></a></div>
+        <div class="router-actions">
+          {% if r.connection_mode == 'agent' %}
+            <a class="btn btn-sm btn-success" href="{% url 'router_link' r.id %}"><i class="bi bi-link-45deg"></i> TapTap Link</a>
+            <a class="btn btn-sm btn-outline-secondary" href="{% url 'router_inventory' %}"><i class="bi bi-database-check"></i> Inventory</a>
+          {% else %}
+            <a class="btn btn-sm btn-dark" href="{% url 'router_control' r.id %}"><i class="bi bi-sliders"></i> Control</a>
+            <a class="btn btn-sm btn-outline-dark" href="{% url 'wan_designer' r.id %}" title="Load balancing, failover and single line"><i class="bi bi-diagram-3"></i> Internet lines</a>
+            <a class="btn btn-sm btn-outline-success" href="{% url 'router_link' r.id %}" title="Switch this router to outbound TapTap Link"><i class="bi bi-link-45deg"></i> TapTap Link</a>
+          {% endif %}
+          <form method="post" action="{% url 'router_sync' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary router-sync-button" data-router-id="{{ r.id }}" {% if not sync_schema_ready or r.latest_sync_job.is_active %}disabled{% endif %}><i class="bi bi-arrow-repeat"></i> <span>{% if r.latest_sync_job.is_active %}Syncing…{% else %}Sync{% endif %}</span></button></form>
+          <a class="btn btn-sm btn-outline-primary" href="{% url 'router_test' r.id %}"><i class="bi bi-activity"></i> Test</a>
+          <a class="btn btn-sm btn-outline-danger" href="{% url 'router_delete' r.id %}" onclick="return confirm('Delete this router from TapTap?')"><i class="bi bi-trash3"></i></a>
+        </div>
       </div>
       {% empty %}<div class="empty-mini">No routers connected yet.</div>{% endfor %}
       </div>
     </div>
   </div>
-  <div class="col-xl-4"><div class="panel form-panel sticky-xl-top" style="top:1rem"><div class="big-icon"><i class="bi bi-router"></i></div><h3>Add MikroTik</h3><p>RouterOS API must be enabled and reachable from the TapTap server.</p><form method="post">{% csrf_token %}{% for f in form %}<label>{{ f.label }}</label>{{ f }}{% endfor %}<button class="btn btn-primary w-100 mt-3">Add Router</button></form></div></div>
+
+  <div class="col-xl-4">
+    <div class="panel form-panel sticky-xl-top" style="top:1rem">
+      <div class="big-icon"><i class="bi bi-link-45deg"></i></div>
+      <h3>Register router via TapTap Link</h3>
+      <p class="text-secondary">Recommended for the cloud. No IP address, API username, password or port-forwarding is required.</p>
+      <form method="post" action="{% url 'router_agent_register' %}">
+        {% csrf_token %}
+        <label class="form-label">Router name</label>
+        <input class="form-control" name="router_name" maxlength="120" required placeholder="e.g. Main Office MikroTik">
+        <button class="btn btn-success w-100 mt-3"><i class="bi bi-link-45deg"></i> Create Router &amp; Generate Link</button>
+      </form>
+
+      <hr class="my-4">
+      <details>
+        <summary class="fw-semibold" style="cursor:pointer"><i class="bi bi-ethernet"></i> Direct API (advanced/local network)</summary>
+        <p class="small text-secondary mt-2">Use this only when the TapTap server can directly reach the MikroTik address. Private addresses such as 192.168.x.x normally do not work from a cloud server.</p>
+        <form method="post">{% csrf_token %}{% for f in form %}<label>{{ f.label }}</label>{{ f }}{% endfor %}<button class="btn btn-outline-primary w-100 mt-3">Add Direct API Router</button></form>
+      </details>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
