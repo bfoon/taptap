@@ -478,3 +478,93 @@ class WanSetup(models.Model):
     applied_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)
     updated_at=models.DateTimeField(auto_now=True)
     def __str__(self): return f'{self.router} — {self.config.get("strategy","draft")}'
+
+
+# ─────────────────────────────── Adverts ───────────────────────────────
+AD_PLACEMENTS=[('login','Login page'),('redirect','After login'),('status','Status page'),('voucher','Printed vouchers')]
+
+
+class Advert(models.Model):
+    """A campaign shown on portal pages and/or printed vouchers — yours or one you sell to a local business."""
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='adverts')
+    name=models.CharField(max_length=120,help_text='Internal name')
+    advertiser=models.CharField(max_length=120,blank=True,help_text='Who the ad is for (blank = your own promotion)')
+    advertiser_phone=models.CharField(max_length=60,blank=True)
+    headline=models.CharField(max_length=120,blank=True)
+    body=models.CharField(max_length=280,blank=True)
+    cta=models.CharField(max_length=40,blank=True,default='Learn more')
+    link=models.URLField(max_length=500,blank=True)
+    image=models.TextField(blank=True,help_text='Compressed image as a data: URL so it works offline on the router')
+    theme=models.JSONField(default=dict,blank=True,help_text='Colours for text-only ads')
+    placements=models.JSONField(default=list,blank=True)
+    weight=models.PositiveSmallIntegerField(default=1,help_text='Higher weight = shown more often')
+    starts_on=models.DateField(null=True,blank=True)
+    ends_on=models.DateField(null=True,blank=True)
+    active=models.BooleanField(default=True)
+    price=models.DecimalField(max_digits=10,decimal_places=2,default=0,help_text='What the advertiser pays for this campaign')
+    paid=models.BooleanField(default=False)
+    impressions=models.PositiveIntegerField(default=0)
+    clicks=models.PositiveIntegerField(default=0)
+    created_at=models.DateTimeField(auto_now_add=True)
+    updated_at=models.DateTimeField(auto_now=True)
+    class Meta: ordering=['-active','-updated_at']
+    def __str__(self): return self.name
+
+    def is_live(self, on=None):
+        on=on or timezone.localdate()
+        return self.active and (not self.starts_on or self.starts_on<=on) and (not self.ends_on or self.ends_on>=on)
+
+
+class AdStat(models.Model):
+    advert=models.ForeignKey(Advert,on_delete=models.CASCADE,related_name='stats')
+    day=models.DateField()
+    impressions=models.PositiveIntegerField(default=0)
+    clicks=models.PositiveIntegerField(default=0)
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['advert','day'],name='uniq_ad_stat_day')]
+
+
+# ─────────────────────────────── Device signatures ───────────────────────────────
+class DeviceSignature(models.Model):
+    """A device recognised from browser characteristics collected on the portal.
+
+    Phones randomise their MAC address; the signature stays the same, so one
+    device seen under several MACs is still one device, and one voucher used
+    on several signatures is being shared.
+    """
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='device_signatures')
+    fingerprint=models.CharField(max_length=64)
+    label=models.CharField(max_length=120,blank=True,help_text='Your own name for this device')
+    device_type=models.CharField(max_length=20,blank=True)
+    os=models.CharField(max_length=60,blank=True)
+    os_version=models.CharField(max_length=40,blank=True)
+    browser=models.CharField(max_length=60,blank=True)
+    model=models.CharField(max_length=80,blank=True)
+    user_agent=models.CharField(max_length=500,blank=True)
+    components=models.JSONField(default=dict,blank=True)
+    macs=models.JSONField(default=list,blank=True)
+    ips=models.JSONField(default=list,blank=True)
+    vouchers=models.JSONField(default=list,blank=True)
+    last_mac=models.CharField(max_length=32,blank=True)
+    last_ip=models.CharField(max_length=64,blank=True)
+    router=models.ForeignKey(Router,on_delete=models.SET_NULL,null=True,blank=True,related_name='device_signatures')
+    portal=models.ForeignKey('PortalPage',on_delete=models.SET_NULL,null=True,blank=True,related_name='device_signatures')
+    visits=models.PositiveIntegerField(default=1)
+    flagged=models.BooleanField(default=False)
+    note=models.CharField(max_length=255,blank=True)
+    first_seen=models.DateTimeField(default=timezone.now)
+    last_seen=models.DateTimeField(default=timezone.now,db_index=True)
+    class Meta:
+        ordering=['-last_seen']
+        constraints=[models.UniqueConstraint(fields=['business','fingerprint'],name='uniq_business_fingerprint')]
+    def __str__(self): return self.label or self.model or self.fingerprint[:10]
+
+    @property
+    def random_macs(self):
+        """MACs with the locally-administered bit set are randomised by the phone."""
+        out=[]
+        for m in self.macs or []:
+            try:
+                if int(str(m).replace('-',':').split(':')[0],16)&2: out.append(m)
+            except ValueError: pass
+        return out

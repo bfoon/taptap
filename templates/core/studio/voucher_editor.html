@@ -36,7 +36,7 @@
     </aside>
   </div>
 </div>
-{{ config|json_script:"cfgData" }}{{ gallery|json_script:"galleryData" }}{{ business_ctx|json_script:"bizData" }}{{ plans|json_script:"plansData" }}{{ fonts|json_script:"fontsData" }}{{ sizes|json_script:"sizesData" }}{{ papers|json_script:"papersData" }}{{ tokens|json_script:"tokensData" }}
+{{ config|json_script:"cfgData" }}{{ gallery|json_script:"galleryData" }}{{ business_ctx|json_script:"bizData" }}{{ plans|json_script:"plansData" }}{{ fonts|json_script:"fontsData" }}{{ sizes|json_script:"sizesData" }}{{ papers|json_script:"papersData" }}{{ tokens|json_script:"tokensData" }}{{ ads|json_script:"adsData" }}
 <script id="designData" type="application/json">{"id":{{ design.id }},"is_default":{{ design.is_default|yesno:"true,false" }}}</script>
 {% endblock %}
 {% block scripts %}<script src="{% static 'vendor/qrcode.js' %}"></script><script src="{% static 'studio/voucher-render.js' %}"></script><script src="{% static 'studio/voucher-editor.js' %}"></script>{% endblock %}

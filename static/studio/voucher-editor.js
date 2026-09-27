@@ -20,10 +20,12 @@
   /* sample data */
   var planSel = $('#samplePlan');
   planSel.innerHTML = PLANS.map(function (p, i) { return '<option value="' + i + '">' + esc(p.name) + '</option>'; }).join('') || '<option value="">Example plan</option>';
+  var VADS = document.getElementById('adsData') ? JSON.parse(document.getElementById('adsData').textContent) : [];
   function data() {
     var p = PLANS[+planSel.value] || {};
     return TapVoucher.sample({ business: BIZ.name, ssid: BIZ.ssid, phone: BIZ.phone, currency: BIZ.currency, login_url: BIZ.login_url, logo: BIZ.logo,
-      plan: p.name, price: p.price, duration: p.duration, devices: p.devices, speed: p.speed, data: p.data });
+      plan: p.name, price: p.price, duration: p.duration, devices: p.devices, speed: p.speed, data: p.data,
+      ad: VADS[0] || { headline: 'Your advert here', body: 'Sell this space to a local business', image: '' } });
   }
   planSel.onchange = draw;
 
@@ -142,13 +144,18 @@
     ['rect', 'Box', 'bi-square', { w: 30, h: 12 }],
     ['ellipse', 'Circle', 'bi-circle', { w: 14, h: 14 }],
     ['line', 'Line', 'bi-dash-lg', { w: 40, h: .1 }],
-    ['icon', 'Icon', 'bi-wifi', { w: 7, h: 7 }]
+    ['icon', 'Icon', 'bi-wifi', { w: 7, h: 7 }],
+    ['image', 'Picture', 'bi-image', { w: 20, h: 14 }],
+    ['barcode', 'Barcode', 'bi-upc-scan', { w: 40, h: 10 }],
+    ['advert', 'Advert slot', 'bi-badge-ad', { w: 60, h: 9 }]
   ];
   var DEFAULTS = {
     text: { text: 'Your text', size: 9, weight: 600, color: '#102033', align: 'left', font: '', spacing: 0, upper: false, italic: false, bg: '', radius: 0 },
     code: { text: '{code}', size: 16, weight: 800, color: '#102033', align: 'center', font: '', spacing: 2, group: 4, upper: false, italic: false, bg: '', border: '#102033', border_width: .4, radius: 2 },
     qr: { content: 'login', color: '#102033', bg: '#ffffff', margin: 1 }, rect: { fill: '#1769e0', stroke: '', stroke_width: 0, radius: 1 }, ellipse: { fill: '#1769e0', stroke: '', stroke_width: 0 },
-    line: { stroke: '#102033', stroke_width: .3, dash: 'solid' }, logo: { shape: 'rounded', color: '#ffffff', bg: '#1769e0' }, icon: { icon: 'wifi', color: '#1769e0' }
+    line: { stroke: '#102033', stroke_width: .3, dash: 'solid' }, logo: { shape: 'rounded', color: '#ffffff', bg: '#1769e0' }, icon: { icon: 'wifi', color: '#1769e0' },
+    image: { src: '', fit: 'cover', radius: 1 }, barcode: { text: '{code}', color: '#000000', bg: '#ffffff', show_text: true },
+    advert: { show: 'both', size: 6, color: '#102033', bg: '#f3f6fa', radius: 1, label: 'Ad' }
   };
   var QUICK = [['Business name', '{business}', 11, 800], ['Price', '{currency}{price}', 14, 800], ['Plan & duration', '{plan} · {duration}', 7.5, 600], ['Wi-Fi name', 'Wi-Fi: {ssid}', 7, 600],
     ['How to connect', 'Join {ssid}, open any web page and type the code.', 6, 500], ['Serial number', '#{serial}', 6, 600], ['Help line', 'Help: {phone}', 6, 600], ['Devices & speed', '{devices} · {speed}', 6.5, 600]];
@@ -165,8 +172,8 @@
   function dup(id) { var e = el(id); if (!e) return; var c = clone(e); c.id = uid(); c.x = r1(c.x + 2); c.y = r1(c.y + 2); cfg.elements.splice(ix(id) + 1, 0, c); sel = c.id; commit(true); renderProps(); }
   function removeEl(id) { var i = ix(id); if (i < 0) return; cfg.elements.splice(i, 1); sel = null; rtab = 'card'; commit(true); renderProps(); }
   function order(id, d) { var i = ix(id), j = d === 'top' ? cfg.elements.length - 1 : d === 'bottom' ? 0 : i + d; if (j < 0 || j >= cfg.elements.length || i === j) return; var e = cfg.elements.splice(i, 1)[0]; cfg.elements.splice(j, 0, e); commit(true); }
-  var TYPE_ICON = { text: 'bi-fonts', code: 'bi-upc', qr: 'bi-qr-code', logo: 'bi-person-badge', rect: 'bi-square', ellipse: 'bi-circle', line: 'bi-dash-lg', icon: 'bi-wifi' };
-  function label(e) { return e.type === 'text' ? (e.text || 'Text') : ({ code: 'Voucher code', qr: 'QR code', logo: 'Logo', rect: 'Box', ellipse: 'Circle', line: 'Line', icon: 'Icon · ' + e.icon }[e.type]); }
+  var TYPE_ICON = { text: 'bi-fonts', code: 'bi-upc', qr: 'bi-qr-code', logo: 'bi-person-badge', rect: 'bi-square', ellipse: 'bi-circle', line: 'bi-dash-lg', icon: 'bi-wifi', image: 'bi-image', barcode: 'bi-upc-scan', advert: 'bi-badge-ad' };
+  function label(e) { return e.type === 'text' ? (e.text || 'Text') : ({ code: 'Voucher code', qr: 'QR code', logo: 'Logo', rect: 'Box', ellipse: 'Circle', line: 'Line', icon: 'Icon · ' + e.icon, image: 'Picture', barcode: 'Barcode', advert: 'Advert slot' }[e.type]); }
   function renderLayers() {
     var L = $('#layers'); if (!L) return;
     L.innerHTML = cfg.elements.slice().reverse().map(function (e) {
@@ -237,6 +244,16 @@
     } else if (e.type === 'logo') {
       h += seg('Shape', 'shape', e.shape, { circle: 'Circle', rounded: 'Rounded', square: 'Square' }) + color('Background (no logo yet)', 'bg', e.bg) + color('Initials colour', 'color', e.color);
       h += '<div class="fit-note">' + (BIZ.logo ? 'Showing your uploaded logo.' : 'Showing your initials. <a href="/settings/">Upload a logo</a> to use it on every card.') + '</div>';
+    } else if (e.type === 'image') {
+      h += f('Picture', '<input type="file" accept="image/*" data-img="1" aria-label="Upload picture"><small class="text-secondary d-block">Resized in your browser so sheets print fast.</small>' + (e.src ? '<button class="btn btn-sm btn-link text-danger p-0" data-imgclear="1">Remove picture</button>' : ''));
+      h += seg('Fit', 'fit', e.fit || 'cover', { cover: 'Fill', contain: 'Fit inside' }) + rng('Corners', 'radius', e.radius || 0, 0, 10, .5, 'mm');
+    } else if (e.type === 'barcode') {
+      h += f('Content', '<input type="text" data-p="text" value="' + esc(e.text || '{code}') + '">') + '<small class="text-secondary d-block mb-2">Code 128 — most USB and phone scanners read it. Keep it at least 35 mm wide.</small>';
+      h += color('Bars', 'color', e.color) + color('Background', 'bg', e.bg) + '<label class="chk"><input type="checkbox" data-p="show_text"' + (e.show_text !== false ? ' checked' : '') + '> Print the code under the bars</label>';
+    } else if (e.type === 'advert') {
+      h += '<div class="fit-note">Each printed card shows one of your live adverts marked <b>Printed vouchers</b>, rotating through them. <a href="/ads/">Manage adverts</a>.</div>';
+      h += seg('Show', 'show', e.show || 'both', { both: 'Picture + text', image: 'Picture', text: 'Text' }) + '<div class="fld"><label>Headline size (pt)</label><input type="number" step=".5" min="3" max="14" data-p="size" data-num="1" value="' + (e.size || 6) + '"></div>';
+      h += color('Text', 'color', e.color) + color('Background', 'bg', e.bg, true) + rng('Corners', 'radius', e.radius || 0, 0, 6, .5, 'mm') + f('Corner label', '<input type="text" data-p="label" value="' + esc(e.label || '') + '" placeholder="e.g. Ad or Sponsored">');
     } else if (e.type === 'icon') {
       var io = {}; TapVoucher.ICONS.forEach(function (n) { io[n] = n.charAt(0).toUpperCase() + n.slice(1); });
       h += sel_('Icon', 'icon', e.icon, io) + color('Colour', 'color', e.color);
@@ -283,7 +300,20 @@
   function setPath(o, path, v) { var p = path.split('.'); while (p.length > 1) { var k = p.shift(); o = o[k] = o[k] || {}; } o[p[0]] = v; }
   function readImage(file, cb) { var r = new FileReader(); r.onload = function () { var img = new Image(); img.onload = function () { var s = Math.min(1, 1100 / img.width), c = document.createElement('canvas'); c.width = img.width * s; c.height = img.height * s; c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); cb(c.toDataURL('image/jpeg', .85)); }; img.src = r.result; }; r.readAsDataURL(file); }
 
+  function shrinkImage(file, maxPx, cb) {
+    var r = new FileReader();
+    r.onload = function () { var im = new Image(); im.onload = function () {
+      var k = Math.min(1, maxPx / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+      var g = c.getContext('2d'); g.drawImage(im, 0, 0, c.width, c.height);
+      var png = /png|gif|svg/.test(file.type), out = c.toDataURL(png ? 'image/png' : 'image/jpeg', .82);
+      if (png && out.length > 350000) out = c.toDataURL('image/jpeg', .8);
+      cb(out); }; im.src = r.result; };
+    r.readAsDataURL(file);
+  }
+  window.TapShrinkImage = shrinkImage;
   function bind(p, target) {
+    $$('[data-img]', p).forEach(function (inp) { inp.addEventListener('change', function () { var file = inp.files && inp.files[0]; if (!file) return; shrinkImage(file, 700, function (url) { target.src = url; commit(true); renderProps(); }); }); });
+    $$('[data-imgclear]', p).forEach(function (b) { b.onclick = function () { target.src = ''; commit(true); renderProps(); }; });
     $$('[data-p]', p).forEach(function (inp) {
       var ev = inp.type === 'checkbox' || inp.tagName === 'SELECT' ? 'change' : 'input';
       inp.addEventListener(ev, function () {

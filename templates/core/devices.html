@@ -1,0 +1,91 @@
+{% extends 'core/base.html' %}
+{% block title %}Devices — TapTap{% endblock %}
+{% block heading %}Devices{% endblock %}
+{% block extra_head %}<style>
+.dv-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.8rem;margin-bottom:1rem}
+.dv-kpi{background:#fff;border:1px solid var(--border);border-radius:16px;padding:.9rem 1rem;text-decoration:none;color:inherit}
+.dv-kpi:hover{border-color:#b9cbe0}.dv-kpi.on{border-color:#102033;box-shadow:0 0 0 1px #102033}
+.dv-kpi span{display:block;font-size:.74rem;color:var(--muted);font-weight:600}.dv-kpi strong{font-size:1.45rem;font-variant-numeric:tabular-nums}
+.dv-kpi.warn strong{color:#b45309}
+.dv-row{display:grid;grid-template-columns:44px 1.4fr 1.2fr 1fr 1fr auto;gap:.8rem;align-items:center;padding:.75rem .9rem;border-bottom:1px solid #edf1f5}
+.dv-ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:#eef4ff;color:#1769e0;font-size:1.2rem}
+.dv-ic.android{background:#e8f7ee;color:#18a66a}.dv-ic.ios,.dv-ic.ipados{background:#f1f1f4;color:#333}.dv-ic.windows{background:#e6f1fb;color:#0a64c4}
+.dv-row b{display:block;font-size:.9rem}.dv-row small{display:block;font-size:.72rem;color:var(--muted)}
+.dv-tags{display:flex;flex-wrap:wrap;gap:.25rem}.dv-tags span{font-size:.64rem;font-weight:700;border-radius:999px;padding:.12rem .45rem;background:#eef2f6;color:#4e6479}
+.dv-tags .rand{background:#efe8ff;color:#5b34b8}.dv-tags .flag{background:#fdeaea;color:#c02b2b}
+.dv-mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.74rem}
+.dv-share{background:#fff;border:1px solid #f3c4c4;border-left:4px solid #d64545;border-radius:14px;padding:.8rem 1rem;margin-bottom:.6rem}
+.dv-share b{font-size:.9rem}.dv-share small{color:var(--muted)}
+.dv-howto{background:#f3f7fb;border-radius:14px;padding:1rem 1.1rem;font-size:.84rem;color:#3d5166}
+@media(max-width:1000px){.dv-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.dv-row{grid-template-columns:44px 1fr auto}.dv-row .hide-sm{display:none}}
+</style>{% endblock %}
+{% block content %}
+<div class="page-actions">
+  <div><h2 class="section-title">Know every device, even when its MAC changes</h2><p>Your login pages record a device signature — model, system, screen and browser traits — next to its MAC address and voucher. Modern phones switch MAC addresses; the signature stays the same.</p></div>
+  <form class="d-flex gap-2" method="get"><input type="hidden" name="view" value="{{ view }}"><input class="form-control" name="q" value="{{ q }}" placeholder="Model, MAC, IP or voucher" aria-label="Search devices"><button class="btn btn-dark"><i class="bi bi-search"></i></button></form>
+</div>
+
+{% if not collecting and not stats.total %}
+<div class="dv-howto mb-3"><b><i class="bi bi-lightbulb"></i> How to start collecting</b><br>Publish a login page in <a href="{% url 'portal_studio' %}">Portal Studio</a> (hosted, or export it to your router). Device identification is on by default under <i>Page › Device identification</i>. For router-served pages, import the walled-garden line included in the export so phones can report to TapTap before they log in.</div>
+{% endif %}
+
+<div class="dv-kpis">
+  <a class="dv-kpi {% if view == 'all' %}on{% endif %}" href="?view=all"><span>Devices recognised</span><strong>{{ stats.total }}</strong></a>
+  <a class="dv-kpi {% if view == 'today' %}on{% endif %}" href="?view=today"><span>Seen in 24 hours</span><strong>{{ stats.today }}</strong></a>
+  <a class="dv-kpi {% if view == 'multimac' %}on{% endif %}" href="?view=multimac"><span>Changed MAC address</span><strong>{{ stats.multimac }}</strong></a>
+  <a class="dv-kpi {% if stats.shared %}warn{% endif %} {% if view == 'shared' %}on{% endif %}" href="?view=shared"><span>Vouchers shared</span><strong>{{ stats.shared }}</strong></a>
+  <a class="dv-kpi {% if view == 'flagged' %}on{% endif %}" href="?view=flagged"><span>Flagged by you</span><strong>{{ stats.flagged }}</strong></a>
+</div>
+
+{% if shared %}
+<section class="panel mb-3"><div class="panel-head"><div><h3>Vouchers used on more devices than they allow</h3><p>Same code, different device signatures — usually a shared or resold voucher.</p></div></div>
+  {% for code,sigs,allowed in shared|slice:':12' %}
+  <div class="dv-share"><b class="dv-mono">{{ code }}</b> <small>· {{ sigs|length }} devices, plan allows {{ allowed }}</small>
+    <div class="dv-tags mt-1">{% for s in sigs|slice:':8' %}<span>{{ s.label|default:s.model|default:s.os|default:s.fingerprint|truncatechars:24 }}</span>{% endfor %}</div></div>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if view != 'shared' %}
+<section class="panel p-0 overflow-hidden">
+  {% for d in devices %}
+  <div class="dv-row">
+    <span class="dv-ic {{ d.os|lower }}"><i class="bi {% if d.device_type == 'phone' %}bi-phone{% elif d.device_type == 'tablet' %}bi-tablet{% else %}bi-laptop{% endif %}"></i></span>
+    <div><b>{{ d.label|default:d.model|default:d.os|default:'Unknown device' }}</b><small>{{ d.os }} {{ d.os_version }}{% if d.browser %} · {{ d.browser }}{% endif %}{% if d.components.screen %} · {{ d.components.screen }}{% endif %}</small>
+      <div class="dv-tags mt-1">{% if d.flagged %}<span class="flag">Flagged</span>{% endif %}{% if d.random_macs %}<span class="rand" title="The phone generates random MAC addresses">Random MAC</span>{% endif %}{% if d.macs|length > 1 %}<span>{{ d.macs|length }} MACs</span>{% endif %}<span class="dv-mono" title="Device signature">{{ d.fingerprint|slice:':10' }}</span></div></div>
+    <div class="hide-sm"><small>Last MAC · IP</small><span class="dv-mono">{{ d.last_mac|default:'—' }}</span><small>{{ d.last_ip|default:'' }}{% if d.router %} · {{ d.router.name }}{% endif %}</small></div>
+    <div class="hide-sm"><small>Vouchers</small><div class="dv-tags">{% for v in d.vouchers|slice:':4' %}<span class="dv-mono">{{ v }}</span>{% empty %}<span>none yet</span>{% endfor %}{% if d.vouchers|length > 4 %}<span>+{{ d.vouchers|length|add:'-4' }}</span>{% endif %}</div></div>
+    <div class="hide-sm"><small>Seen</small><span class="small">{{ d.last_seen|timesince }} ago</span><small>{{ d.visits }} visit{{ d.visits|pluralize }} since {{ d.first_seen|date:'d M' }}</small></div>
+    <div class="d-flex gap-1">
+      <button class="btn btn-sm btn-light" data-bs-toggle="modal" data-bs-target="#dv{{ d.id }}" aria-label="Details"><i class="bi bi-three-dots"></i></button>
+    </div>
+  </div>
+  <div class="modal fade" id="dv{{ d.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">{{ d.label|default:d.model|default:'Device' }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-body small">
+      <form method="post" action="{% url 'device_action' d.id %}" class="mb-3">{% csrf_token %}<input type="hidden" name="action" value="label"><input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <label class="form-label">Your name for it</label><div class="d-flex gap-2"><input class="form-control" name="label" value="{{ d.label }}" placeholder="e.g. Lamin's phone"><button class="btn btn-primary">Save</button></div>
+        <input class="form-control mt-2" name="note" value="{{ d.note }}" placeholder="Note (optional)"></form>
+      <dl class="row mb-0">
+        <dt class="col-4">Signature</dt><dd class="col-8 dv-mono">{{ d.fingerprint }}</dd>
+        <dt class="col-4">System</dt><dd class="col-8">{{ d.os }} {{ d.os_version }} · {{ d.browser|default:'—' }}</dd>
+        <dt class="col-4">Screen</dt><dd class="col-8">{{ d.components.screen|default:'—' }} @{{ d.components.dpr|default:'1' }}x · {{ d.components.cores|default:'?' }} cores{% if d.components.mem %} · {{ d.components.mem }} GB{% endif %}</dd>
+        <dt class="col-4">Graphics</dt><dd class="col-8">{{ d.components.gpu|default:'—' }}</dd>
+        <dt class="col-4">Language · zone</dt><dd class="col-8">{{ d.components.lang|default:'—' }} · {{ d.components.tz|default:'—' }}</dd>
+        <dt class="col-4">MAC addresses</dt><dd class="col-8 dv-mono">{% for m in d.macs %}{{ m }}{% if m in d.random_macs %} <span class="text-secondary">(random)</span>{% endif %}<br>{% empty %}—{% endfor %}</dd>
+        <dt class="col-4">IP addresses</dt><dd class="col-8 dv-mono">{{ d.ips|join:', '|default:'—' }}</dd>
+        <dt class="col-4">Vouchers</dt><dd class="col-8 dv-mono">{{ d.vouchers|join:', '|default:'—' }}</dd>
+        <dt class="col-4">Browser text</dt><dd class="col-8 text-secondary" style="word-break:break-all">{{ d.user_agent|default:'—' }}</dd>
+      </dl>
+    </div>
+    <div class="modal-footer"><form method="post" action="{% url 'device_action' d.id %}" class="d-flex gap-2">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button name="action" value="flag" class="btn btn-outline-warning btn-sm">{% if d.flagged %}Remove flag{% else %}<i class="bi bi-flag"></i> Flag device{% endif %}</button>
+      <button name="action" value="delete" class="btn btn-outline-danger btn-sm" onclick="return confirm('Forget this device? It will be recognised again next time it visits.')">Forget</button></form></div>
+  </div></div></div>
+  {% empty %}
+  <div class="p-4 text-center text-secondary">{% if q %}No device matches “{{ q }}”.{% else %}No devices recorded yet. They appear as customers open your login page.{% endif %}</div>
+  {% endfor %}
+</section>
+{% endif %}
+<p class="small text-secondary mt-3"><i class="bi bi-shield-lock"></i> Signatures identify devices, not people, and are kept only in your TapTap account. The login page shows a short notice you can edit in Portal Studio.</p>
+{% endblock %}

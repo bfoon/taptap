@@ -2,7 +2,7 @@
 (function () {
   var J = function (id) { return JSON.parse(document.getElementById(id).textContent); };
   var $ = function (s, r) { return (r || document).querySelector(s); }, $$ = function (s, r) { return [].slice.call((r || document).querySelectorAll(s)); };
-  var PAGE = J('pageData'), BIZ = J('bizData'), PLANS = J('plansData'), FONTS = J('fontsData'), GALLERY = J('galleryData');
+  var ADS = document.getElementById('adsData') ? J('adsData') : {}; var PAGE = J('pageData'), BIZ = J('bizData'), PLANS = J('plansData'), FONTS = J('fontsData'), GALLERY = J('galleryData');
   var cfg = J('cfgData'); cfg.theme = cfg.theme || {}; cfg.blocks = cfg.blocks || []; cfg.settings = cfg.settings || {};
   var sel = null, rtab = 'style', dirty = false, published = PAGE.published, isDefault = PAGE.is_default, device = 'phone', frameReady = false;
   var hist = [], hi = -1;
@@ -43,6 +43,18 @@
       f: [['text', 'text', 'Label'], ['url', 'url', 'Link (blank = where the customer was going)'], ['style', 'seg', 'Style', { solid: 'Solid', outline: 'Outline' }]] },
     terms: { n: 'Terms checkbox', i: 'bi-check2-square', kinds: ['login'], def: { text: 'I agree to use this network fairly and legally.', required: true },
       f: [['text', 'textarea', 'Text'], ['required', 'check', 'Must be ticked to connect']] },
+    ads: { n: 'Advert', i: 'bi-badge-ad', def: { style: 'card', label: 'Sponsored', rotate: 6, skip: 5 },
+      f: [['style', 'seg', 'Show as', { card: 'Card', banner: 'Banner', carousel: 'Carousel', interstitial: 'Full screen' }], ['label', 'text', 'Small label above (blank = none)'],
+          ['rotate', 'range', 'Change slide every', [3, 20, 1, 's'], function (b) { return b.style === 'carousel'; }],
+          ['skip', 'range', 'Skip button appears after', [2, 15, 1, 's'], function (b) { return b.style === 'interstitial'; }]],
+      note: 'Shows your live campaigns from Adverts for this kind of page, rotating by weight. Views and taps are counted.' },
+    trial: { n: 'Free trial', i: 'bi-hourglass-top', kinds: ['login'], def: { text: 'Try free for 5 minutes', note: 'One free trial per phone per day.' },
+      f: [['text', 'text', 'Button text'], ['note', 'text', 'Small print']],
+      note: 'Uses the RouterOS HotSpot trial. Turn on “Trial” in IP › HotSpot › Server Profiles › Login and set the trial time there.' },
+    faq: { n: 'Questions & answers', i: 'bi-question-circle', def: { title: 'Questions', items: [{ name: 'Where do I buy a voucher?', detail: 'At the counter or from our agents.' }, { name: 'Can I use it on two phones?', detail: 'Only if your plan allows more than one device.' }] },
+      f: [['title', 'text', 'Title'], ['items', 'pairs', 'Question and answer']] },
+    ticker: { n: 'News ticker', i: 'bi-broadcast', def: { items: ['Happy hour 5–7pm: double time on every voucher', 'New: weekly passes now available'], icon: 'bell' },
+      f: [['items', 'lines', 'Messages, one per line'], ['icon', 'select', 'Icon', ICONS]], tokens: true },
     session: { n: 'Session info', i: 'bi-hourglass-split', kinds: ['redirect', 'status'], def: { show: ['time_left', 'uptime', 'data'] },
       f: [['show', 'multi', 'Show', { plan: 'Voucher', time_left: 'Time left', uptime: 'Online for', ip: 'IP address', mac: 'Device', data: 'Data used' }]],
       note: 'Filled in by the router. The preview shows example values.' },
@@ -80,7 +92,7 @@
     if (d.tp === 'select') { select(d.id); }
   });
   var paintT;
-  function paint() { clearTimeout(paintT); paintT = setTimeout(function () { if (!frameReady) return; frame.contentWindow.postMessage({ tp: 'render', cfg: cfg, ctx: { mode: 'preview', kind: PAGE.kind, business: BIZ, plans: PLANS, mt: {} }, sel: sel }, '*'); }, 40); }
+  function paint() { clearTimeout(paintT); paintT = setTimeout(function () { if (!frameReady) return; frame.contentWindow.postMessage({ tp: 'render', cfg: cfg, ctx: { mode: 'preview', kind: PAGE.kind, business: BIZ, plans: PLANS, mt: {}, ads: ADS }, sel: sel }, '*'); }, 40); }
 
   var SIZES = { phone: [390, 780], tablet: [768, 1024], desktop: [1280, 800] };
   function fit() {
@@ -250,6 +262,9 @@
     if (PAGE.kind === 'login') {
       h += '<div class="side-h">After login</div>' + field('Send customers to', '<input type="url" data-sk="redirect_url" value="' + esc(s.redirect_url || '') + '" placeholder="Blank = the site they were trying to open">');
       h += '<label class="chk"><input type="checkbox" data-sk="case_sensitive"' + (s.case_sensitive ? ' checked' : '') + '> Codes are case-sensitive</label><small class="text-secondary d-block">Leave off for TapTap codes. Turn on only if your router has lowercase codes.</small>';
+      h += '<div class="side-h">Device identification</div><label class="chk"><input type="checkbox" data-sk="collect_device"' + (s.collect_device !== false ? ' checked' : '') + '> Recognise returning devices</label>';
+      h += '<small class="text-secondary d-block mb-2">Records a device signature (model, screen, browser traits) with the MAC and voucher so you can spot shared vouchers and phones that change MAC. See <a href="/devices/">Devices</a>.</small>';
+      h += field('Notice shown under the voucher box', '<input type="text" data-sk="device_notice" value="' + esc(s.device_notice == null ? 'We note basic details of your device to keep your voucher safe from misuse.' : s.device_notice) + '" placeholder="Leave empty to hide">');
     } else {
       h += '<div class="side-h">Redirect</div>' + field('Destination', '<input type="url" data-sk="redirect_url" value="' + esc(s.redirect_url || '') + '" placeholder="Blank = the site they were trying to open">');
       h += field('Wait before continuing', '<div class="rng"><input type="range" data-sk="redirect_delay" data-num="1" min="0" max="30" step="1" value="' + (s.redirect_delay == null ? 5 : s.redirect_delay) + '"><output>' + (s.redirect_delay == null ? 5 : s.redirect_delay) + 's</output></div>');

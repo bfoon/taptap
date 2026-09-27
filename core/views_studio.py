@@ -24,6 +24,7 @@ from .studio_presets import (
     VOUCHER_TEMPLATES, CARD_SIZES, PAPERS, VOUCHER_TOKENS,
 )
 from .utils import log
+from .ads import ads_for, record_device
 
 MAX_CONFIG_BYTES = 1_500_000
 STATIC_DIR = Path(settings.BASE_DIR) / 'static'
@@ -127,6 +128,7 @@ def portal_editor(request, pk):
         'gallery': [g for g in portal_gallery() if g['kind'] == page.kind],
         'business_ctx': business_ctx(business), 'plans_ctx': plans_ctx(business), 'fonts': {k: v[0] for k, v in FONTS.items()},
         'public_url': public_url, 'renderer_url': '/static/studio/portal-render.js',
+        'ads_ctx': {k: ads_for(business, k) for k in ('login', 'redirect', 'status')},
     })
 
 
@@ -163,8 +165,10 @@ def _public_ctx(request, page, mode):
     # Only allow router login targets that look like a hotspot login URL — never an arbitrary POST target.
     if mt['linkLoginOnly'] and not mt['linkLoginOnly'].startswith(('http://', 'https://')):
         mt['linkLoginOnly'] = ''
+    base = request.build_absolute_uri('/').rstrip('/')
     return {'mode': mode, 'kind': page.kind, 'business': business_ctx(business), 'plans': plans_ctx(business),
-            'mt': mt, 'checkUrl': f'/p/{page.slug}/check/'}
+            'mt': mt, 'checkUrl': f'/p/{page.slug}/check/', 'deviceUrl': f'/p/device/{page.slug}/',
+            'ads': {page.kind: ads_for(business, page.kind, base)}}
 
 
 def portal_public(request, slug):
@@ -202,6 +206,12 @@ def portal_check(request, slug):
     if v.status != 'active': return JsonResponse({'success': False, 'message': 'This voucher has been disabled. Ask staff for help.'}, status=403)
     if v.expires_at and v.expires_at <= timezone.now(): return JsonResponse({'success': False, 'message': 'This voucher has expired.'}, status=403)
     PortalPage.objects.filter(pk=page.pk).update(connects=page.connects + 1)
+    if data.get('fp'):
+        try:
+            record_device(page.business, data.get('fp'), data.get('c') or {}, request.META.get('HTTP_USER_AGENT', ''),
+                          mac=data.get('mac', ''), ip=data.get('ip') or ip, code=v.code, portal=page)
+        except Exception:
+            pass  # identification must never block a customer from logging in
     return JsonResponse({'success': True, 'code': v.code, 'plan': v.plan_name, 'duration': duration_text(v.duration_hours), 'devices': v.max_devices})
 
 
@@ -213,10 +223,11 @@ MT_VARS = {
 MT_VARS['status'] = MT_VARS['redirect']
 
 
-def _export_html(page):
+def _export_html(page, base=''):
     renderer = (STATIC_DIR / 'studio' / 'portal-render.js').read_text(encoding='utf-8')
     business = page.business
-    ctx = {'mode': 'mikrotik', 'kind': page.kind, 'business': business_ctx(business), 'plans': plans_ctx(business)}
+    ctx = {'mode': 'mikrotik', 'kind': page.kind, 'business': business_ctx(business), 'plans': plans_ctx(business),
+           'ads': {page.kind: ads_for(business, page.kind, base)}, 'deviceUrl': f'{base}/p/device/{page.slug}/' if base else ''}
     # Values that may contain quotes go through the DOM, not a JS string literal.
     hidden = '<div id="tp-err" hidden>$(error)</div><div id="tp-orig" hidden>$(link-orig)</div>' if page.kind == 'login' else ''
     refresh = '<meta http-equiv="refresh" content="60">' if page.kind == 'status' else ''
@@ -267,6 +278,7 @@ def portal_export(request, pk):
     business = _b(request); page = get_object_or_404(business.portal_pages, pk=pk)
     mode = request.GET.get('mode', 'offline')
     host = request.get_host().split(':')[0]
+    base = request.build_absolute_uri('/').rstrip('/')
     buf = io.BytesIO()
     redirect_page = business.portal_pages.filter(kind='redirect', is_default=True).first() or business.portal_pages.filter(kind='redirect').first()
     status_page = business.portal_pages.filter(kind='status', is_default=True).first()
@@ -287,11 +299,13 @@ def portal_export(request, pk):
                        f'# The hosted page logs in with a plain password, so allow PAP alongside CHAP:\n'
                        f'# /ip hotspot profile set [find] login-by=http-chap,http-pap\n')
         else:
-            z.writestr(fname, _export_html(page))
-            if page.kind == 'login' and redirect_page: z.writestr('alogin.html', _export_html(redirect_page))
-            if page.kind == 'login' and status_page: z.writestr('status.html', _export_html(status_page))
+            z.writestr(fname, _export_html(page, base))
+            if page.kind == 'login' and redirect_page: z.writestr('alogin.html', _export_html(redirect_page, base))
+            if page.kind == 'login' and status_page: z.writestr('status.html', _export_html(status_page, base))
             z.writestr('taptap-fonts-walled-garden.rsc',
                        '# Optional: lets the custom fonts load before login. Without it the page uses system fonts.\n'
+                       f'# The TapTap line lets device identification and advert statistics reach TapTap before login.\n'
+                       f'/ip hotspot walled-garden add dst-host={host} comment="TapTap device id and ads"\n'
                        '/ip hotspot walled-garden add dst-host=fonts.googleapis.com comment="TapTap portal fonts"\n'
                        '/ip hotspot walled-garden add dst-host=fonts.gstatic.com comment="TapTap portal fonts"\n')
         z.writestr('README.txt', f'''TapTap Portal Studio export — "{page.name}" ({business.business_name})
@@ -351,6 +365,7 @@ def voucher_design_editor(request, pk):
         'design': dsg, 'config': dsg.config or voucher_template(dsg.template_key), 'gallery': voucher_gallery(),
         'business_ctx': business_ctx(business), 'plans': plans, 'fonts': {k: v[0] for k, v in FONTS.items()},
         'sizes': {k: list(v) for k, v in CARD_SIZES.items()}, 'papers': {k: list(v) for k, v in PAPERS.items()}, 'tokens': VOUCHER_TOKENS,
+        'ads': ads_for(business, 'voucher'),
     })
 
 
@@ -411,5 +426,6 @@ def voucher_print(request):
         'title': title, 'design': dsg, 'designs': business.voucher_designs.all(), 'config_json': _safe_json(config),
         'rows_json': _safe_json(rows), 'business_json': _safe_json(business_ctx(business)), 'count': len(rows),
         'sample': bool(request.GET.get('sample')), 'papers_json': _safe_json({k: list(v) for k, v in PAPERS.items()}),
+        'ads_json': _safe_json(ads_for(business, 'voucher')),
         'query': request.GET.urlencode(),
     })

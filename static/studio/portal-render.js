@@ -104,6 +104,23 @@
   }
 
   /* ---------- CSS ---------- */
+
+  var EXTRA_CSS = '.tp-ad{position:relative}.tp-ad-in{display:block;text-decoration:none;color:inherit;border-radius:var(--tp-r,16px);overflow:hidden;border:1px solid rgba(127,127,127,.18);background:rgba(127,127,127,.06)}' +
+    '.tp-ad-img{display:block;width:100%;height:auto;max-height:260px;object-fit:cover}.tp-ad-banner .tp-ad-img{max-height:120px}' +
+    '.tp-ad-txt{display:flex;flex-wrap:wrap;align-items:center;gap:.25rem .6rem;padding:.7rem .85rem}.tp-ad-txt b{flex-basis:100%;font-size:1rem}.tp-ad-txt span{flex-basis:100%;font-size:.86rem;opacity:.85}' +
+    '.tp-ad-cta{font-style:normal;font-weight:800;font-size:.8rem;margin-top:.2rem;padding:.35rem .75rem;border-radius:999px;background:rgba(127,127,127,.18)}' +
+    '.tp-ad-lab{display:block;font-size:.66rem;letter-spacing:.06em;text-transform:uppercase;opacity:.6;margin:0 0 .3rem}' +
+    '.tp-ad-empty{display:flex;gap:.6rem;align-items:center;border:1.5px dashed rgba(127,127,127,.4);border-radius:14px;padding:.8rem;font-size:.82rem;opacity:.8}' +
+    '.tp-ad-car{position:relative}.tp-ad-car .tp-ad{display:none}.tp-ad-car .tp-ad.on{display:block;animation:tpFade .5s}.tp-ad-dots{display:flex;justify-content:center;gap:6px;margin-top:.5rem}' +
+    '.tp-ad-dots i{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.25;cursor:pointer}.tp-ad-dots i.on{opacity:.8}@keyframes tpFade{from{opacity:0}to{opacity:1}}' +
+    '.tp-ad-over{position:fixed;inset:0;z-index:50;background:rgba(5,10,20,.78);display:grid;place-items:center;padding:1rem}.tp-ad-box{width:min(420px,100%);background:#fff;color:#102033;border-radius:18px;padding:.8rem;box-shadow:0 20px 60px rgba(0,0,0,.4)}' +
+    '.tp-ad-skip{display:block;margin:.7rem auto 0;border:0;border-radius:999px;padding:.5rem 1.1rem;font-weight:800;background:#102033;color:#fff}.tp-ad-skip:disabled{opacity:.55}' +
+    '.tp-trial{text-align:center}.tp-faq details{border-bottom:1px solid rgba(127,127,127,.2);padding:.55rem 0}.tp-faq summary{cursor:pointer;font-weight:700}.tp-faq p{margin:.4rem 0 0;opacity:.8;font-size:.9rem}' +
+    '.tp-ticker{display:flex;align-items:center;gap:.5rem;border-radius:12px;padding:.45rem .7rem;background:rgba(127,127,127,.1);overflow:hidden}.tp-tk-w{overflow:hidden;flex:1}' +
+    '.tp-tk-r{display:inline-flex;white-space:nowrap;animation:tpTick var(--tk,20s) linear infinite}.tp-tk-r span{padding-right:2.5rem}.tp-tk-r i{font-style:normal;opacity:.5;margin:0 .7rem}' +
+    '@keyframes tpTick{from{transform:translateX(0)}to{transform:translateX(-50%)}}@media(prefers-reduced-motion:reduce){.tp-tk-r{animation:none;white-space:normal}.tp-tk-r span+span{display:none}}' +
+    '.tp-privacy{font-size:.72rem;opacity:.6;margin:.5rem 0 0;text-align:center}';
+
   function css(t) {
     var bg = t.bg || {}, F = FONT_STACKS[t.font] || FONT_STACKS.system, HF = FONT_STACKS[t.heading_font] || F;
     var patColor = isDark(bg.color1) ? '#ffffff' : '#000000';
@@ -201,6 +218,54 @@
   };
   B.heading = function (b, ctx) { return '<div class="tp-h-' + (b.size || 'md') + '"><h1>' + esc(tok(b.title, ctx)) + '</h1>' + (b.subtitle ? '<p class="tp-sub">' + esc(tok(b.subtitle, ctx)) + '</p>' : '') + '</div>'; };
   B.text = function (b, ctx) { return '<p class="tp-text" style="text-align:' + (b.align || 'inherit') + ';margin:0">' + esc(tok(b.text, ctx)) + '</p>'; };
+
+  /* ---------- adverts ---------- */
+  function pickAds(ctx, max) {
+    var list = ((ctx.ads || {})[ctx.kind] || []).slice(), out = [];
+    while (list.length && out.length < (max || 6)) {   // weighted shuffle
+      var total = list.reduce(function (a, x) { return a + (x.weight || 1); }, 0), r = Math.random() * total, i = 0;
+      for (; i < list.length; i++) { r -= (list[i].weight || 1); if (r <= 0) break; }
+      out.push(list.splice(Math.min(i, list.length - 1), 1)[0]);
+    }
+    return out;
+  }
+  function adInner(a, style) {
+    var th = a.theme || {}, href = a.click || a.link || '';
+    var img = a.image ? '<img class="tp-ad-img" src="' + esc(a.image) + '" alt="' + esc(a.headline || a.advertiser || 'Advert') + '" loading="lazy">' : '';
+    var text = (a.headline ? '<b>' + esc(a.headline) + '</b>' : '') + (a.body && style !== 'banner' ? '<span>' + esc(a.body) + '</span>' : '');
+    var cta = href && a.cta ? '<em class="tp-ad-cta">' + esc(a.cta) + '</em>' : '';
+    var body = img + (text || cta ? '<div class="tp-ad-txt"' + (!a.image ? ' style="background:' + esc(th.bg || '#102033') + ';color:' + esc(th.fg || '#fff') + '"' : '') + '>' + text + cta + '</div>' : '');
+    return (href ? '<a class="tp-ad-in" href="' + esc(href) + '" target="_blank" rel="noopener sponsored" data-ad="' + a.id + '">' : '<div class="tp-ad-in" data-ad="' + a.id + '">') + body + (href ? '</a>' : '</div>');
+  }
+  B.ads = function (b, ctx) {
+    var style = b.style || 'card', ads = pickAds(ctx, style === 'carousel' ? 8 : 1);
+    if (!ads.length) return ctx.mode === 'preview' ? '<div class="tp-ad-empty">' + icon('gift') + '<span>Your live adverts appear here. Create one under <b>Adverts</b> and tick “' + esc(ctx.kind === 'login' ? 'Login page' : ctx.kind === 'status' ? 'Status page' : 'After login') + '”.</span></div>' : '';
+    var label = b.label ? '<small class="tp-ad-lab">' + esc(b.label) + '</small>' : '';
+    if (style === 'interstitial') {
+      return '<div class="tp-ad-over" data-skip="' + (+b.skip || 5) + '" role="dialog" aria-label="Advert"><div class="tp-ad-box">' + label + adInner(ads[0], 'card') +
+        '<button type="button" class="tp-ad-skip" disabled>Skip in <span>' + (+b.skip || 5) + '</span></button></div></div>';
+    }
+    if (style === 'carousel' && ads.length > 1) {
+      return label + '<div class="tp-ad-car" data-rotate="' + (+b.rotate || 6) + '">' + ads.map(function (a, i) { return '<div class="tp-ad tp-ad-card' + (i ? '' : ' on') + '">' + adInner(a, 'card') + '</div>'; }).join('') +
+        '<div class="tp-ad-dots">' + ads.map(function (a, i) { return '<i' + (i ? '' : ' class="on"') + '></i>'; }).join('') + '</div></div>';
+    }
+    return label + '<div class="tp-ad tp-ad-' + (style === 'banner' ? 'banner' : 'card') + '">' + adInner(ads[0], style) + '</div>';
+  };
+  B.trial = function (b, ctx) {
+    return '<div class="tp-trial"><button type="button" class="tp-btn outline tp-trial-btn">' + icon('clock') + '<span>' + esc(b.text || 'Try free for a few minutes') + '</span></button>' +
+      (b.note ? '<p class="tp-hint">' + esc(tok(b.note, ctx)) + '</p>' : '') + '<div class="tp-trial-out" aria-live="polite"></div></div>';
+  };
+  B.faq = function (b) {
+    return (b.title ? '<p class="tp-section-t">' + esc(b.title) + '</p>' : '') + '<div class="tp-faq">' + (b.items || []).map(function (x) {
+      return '<details><summary>' + esc(x.name) + '</summary><p>' + esc(x.detail) + '</p></details>'; }).join('') + '</div>';
+  };
+  B.ticker = function (b, ctx) {
+    var items = (b.items || []).filter(Boolean).map(function (x) { return esc(tok(x, ctx)); });
+    if (!items.length) return '';
+    var run = items.join('<i>•</i>');
+    return '<div class="tp-ticker" style="--tk:' + Math.max(8, items.join(' ').length / 5) + 's">' + icon(b.icon || 'bell') + '<div class="tp-tk-w"><div class="tp-tk-r"><span>' + run + '</span><span aria-hidden="true">' + run + '</span></div></div></div>';
+  };
+
   B.voucher = function (b, ctx) {
     var id = 'v' + b.id, n = +b.length || 8, field;
     if (b.style === 'boxes') {
@@ -304,6 +369,7 @@
         if (ctx.mode === 'mikrotik') {
           var pw = code;
           if (ctx.mt.chapId) pw = md5(ctx.mt.chapId + code + ctx.mt.chapChallenge);
+          sendDevice(ctx, code);
           btn.disabled = true; postForm(ctx.mt.linkLoginOnly, { username: code, password: pw, dst: dst, popup: 'true' }); return;
         }
         // hosted
@@ -317,7 +383,77 @@
           else { btn.disabled = false; say('ok', '<b>' + esc(d.plan) + '</b> voucher is valid' + (d.duration ? ' (' + esc(d.duration) + ')' : '') + '. Join <b>' + esc(ctx.business.ssid || 'our Wi-Fi') + '</b> and enter it on the login page to go online.'); }
         };
         xhr.onerror = function () { btn.disabled = false; say('err', 'Could not reach the server. Check you are connected to ' + esc(ctx.business.ssid || 'the Wi-Fi') + '.'); };
-        xhr.send(JSON.stringify({ code: code }));
+        var dv = (ctx.settings && ctx.settings.collect_device === false) ? {} : deviceSignature();
+        xhr.send(JSON.stringify({ code: code, fp: dv.fp || '', c: dv.c || {}, mac: (ctx.mt && ctx.mt.mac) || '', ip: (ctx.mt && ctx.mt.ip) || '' }));
+      });
+    });
+  }
+
+
+  /* ---------- device signature (identifies a phone even when it randomises its MAC) ---------- */
+  var DEV = null;
+  function deviceSignature() {
+    if (DEV) return DEV;
+    var n = navigator || {}, sc = screen || {}, c = {};
+    try { c.platform = n.platform || ''; c.lang = (n.languages || [n.language]).slice(0, 3).join(','); } catch (e) {}
+    try { c.tz = Intl.DateTimeFormat().resolvedOptions().timeZone || String(new Date().getTimezoneOffset()); } catch (e) { c.tz = String(new Date().getTimezoneOffset()); }
+    c.screen = [sc.width, sc.height].sort(function (a, b) { return b - a; }).join('x'); c.dpr = String(window.devicePixelRatio || 1); c.depth = String(sc.colorDepth || '');
+    c.cores = String(n.hardwareConcurrency || ''); c.mem = String(n.deviceMemory || ''); c.touch = String(n.maxTouchPoints || 0);
+    try { var cv = document.createElement('canvas'); cv.width = 220; cv.height = 40; var g = cv.getContext('2d'); g.textBaseline = 'top'; g.font = '14px Arial'; g.fillStyle = '#f60'; g.fillRect(100, 1, 62, 20);
+      g.fillStyle = '#069'; g.fillText('TapTap ✓ Wi-Fi 🇬🇲', 2, 15); g.fillStyle = 'rgba(102,204,0,.7)'; g.fillText('TapTap ✓ Wi-Fi 🇬🇲', 4, 17); c.canvas = md5(cv.toDataURL()); } catch (e) { c.canvas = ''; }
+    try { var gl = document.createElement('canvas').getContext('webgl'), ext = gl && gl.getExtension('WEBGL_debug_renderer_info');
+      if (ext) { c.vendor = gl.getParameter(ext.UNMASKED_VENDOR_WEBGL); c.gpu = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL); } } catch (e) {}
+    var fp = md5([c.platform, c.tz, c.screen, c.dpr, c.depth, c.cores, c.mem, c.touch, c.canvas, c.gpu, c.vendor, (n.userAgent || '').replace(/[\d.]+/g, '')].join('|'));
+    DEV = { fp: fp, c: c }; return DEV;
+  }
+  function sendDevice(ctx, code) {
+    if (!ctx.deviceUrl || ctx.mode === 'preview' || ctx.mode === 'thumb' || (ctx.settings && ctx.settings.collect_device === false)) return;
+    try {
+      var d = deviceSignature(), body = JSON.stringify({ fp: d.fp, c: d.c, mac: (ctx.mt && ctx.mt.mac) || '', ip: (ctx.mt && ctx.mt.ip) || '', code: code || '' });
+      // text/plain avoids a CORS pre-flight, so it also works from pages served by the router
+      if (navigator.sendBeacon && navigator.sendBeacon(ctx.deviceUrl, new Blob([body], { type: 'text/plain' }))) return;
+      var x = new XMLHttpRequest(); x.open('POST', ctx.deviceUrl, true); x.setRequestHeader('Content-Type', 'text/plain'); x.send(body);
+    } catch (e) {}
+  }
+
+  function wireAds(root, ctx) {
+    if (ctx.mode !== 'preview' && ctx.mode !== 'thumb') {
+      var seen = {};
+      [].forEach.call(root.querySelectorAll('[data-ad]'), function (el) {
+        var id = el.getAttribute('data-ad'), ad = ((ctx.ads || {})[ctx.kind] || []).filter(function (a) { return String(a.id) === id; })[0];
+        if (ad && ad.beacon && !seen[id]) { seen[id] = 1; try { new Image().src = ad.beacon + '?t=' + Date.now(); } catch (e) {} }
+      });
+    }
+    [].forEach.call(root.querySelectorAll('.tp-ad-car'), function (car) {
+      var slides = car.querySelectorAll('.tp-ad'), dots = car.querySelectorAll('.tp-ad-dots i'), i = 0, secs = +car.getAttribute('data-rotate') || 6;
+      function show(n) { i = (n + slides.length) % slides.length; [].forEach.call(slides, function (s, k) { s.classList.toggle('on', k === i); }); [].forEach.call(dots, function (s, k) { s.classList.toggle('on', k === i); }); }
+      [].forEach.call(dots, function (d, k) { d.addEventListener('click', function () { show(k); }); });
+      if (!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) setInterval(function () { show(i + 1); }, secs * 1000);
+    });
+    var over = root.querySelector('.tp-ad-over');
+    if (over && ctx.mode !== 'preview' && ctx.mode !== 'thumb') {
+      // A transformed ancestor (entrance animation) would trap position:fixed, so lift it to <body>.
+      var old = document.querySelectorAll('body > .tp-ad-over'); [].forEach.call(old, function (o) { o.remove(); });
+      over.style.fontFamily = getComputedStyle(root).fontFamily;
+      document.body.appendChild(over);
+    }
+    if (over) {
+      var left = +over.getAttribute('data-skip') || 5, btn = over.querySelector('.tp-ad-skip'), span = btn.querySelector('span');
+      var t = setInterval(function () { left--; if (left <= 0) { clearInterval(t); btn.disabled = false; btn.textContent = 'Close ✕'; } else span.textContent = left; }, 1000);
+      btn.addEventListener('click', function () { over.remove(); });
+    }
+  }
+  function wireTrial(root, ctx) {
+    [].forEach.call(root.querySelectorAll('.tp-trial-btn'), function (btn) {
+      var out = btn.parentNode.querySelector('.tp-trial-out');
+      btn.addEventListener('click', function () {
+        var mac = ctx.mt && ctx.mt.mac, login = ctx.mt && ctx.mt.linkLoginOnly;
+        if (ctx.mode === 'preview' || ctx.mode === 'thumb') { out.innerHTML = '<p class="tp-hint">Preview: the router would start a free trial for this phone.</p>'; return; }
+        if (!login || !mac) { out.innerHTML = '<p class="tp-hint">Free trial is only available on the hotspot login page.</p>'; return; }
+        sendDevice(ctx, 'TRIAL');
+        btn.disabled = true;
+        // RouterOS HotSpot trial: username "T-<mac>" with an empty password (enable trial on the server profile).
+        postForm(login, { username: 'T-' + mac, password: '', dst: (ctx.settings && ctx.settings.redirect_url) || ctx.mt.linkOrig || '', popup: 'true' });
       });
     });
   }
@@ -346,7 +482,7 @@
     [t.font, t.heading_font].forEach(function (f) { if (FONT_QUERY[f] && q.indexOf(FONT_QUERY[f]) < 0) q.push(FONT_QUERY[f]); });
     var fl = document.getElementById('tp-fonts');
     if (q.length) { if (!fl) { fl = h('link', { id: 'tp-fonts', rel: 'stylesheet' }); document.head.appendChild(fl); } fl.href = 'https://fonts.googleapis.com/css2?family=' + q.join('&family=') + '&display=swap'; }
-    var st = document.getElementById('tp-style'); if (!st) { st = h('style', { id: 'tp-style' }); document.head.appendChild(st); } st.textContent = css(t);
+    var st = document.getElementById('tp-style'); if (!st) { st = h('style', { id: 'tp-style' }); document.head.appendChild(st); } st.textContent = css(t) + EXTRA_CSS;
 
     var blocks = (cfg.blocks || []).filter(function (b) { return !b.hidden && B[b.type]; });
     function html(b) { var inner = B[b.type](b, ctx); if (!inner) return ''; return '<div class="tp-b tp-b-' + b.type + '"' + (ctx.mode === 'preview' ? ' data-bid="' + esc(b.id) + '"' : '') + '>' + inner + '</div>'; }
@@ -359,7 +495,11 @@
     root.className = 'tp l-' + layout + (ctx.mode === 'preview' ? ' tp-pv' : '');
     root.innerHTML = body;
 
-    wireBoxes(root); wireVoucher(root, cfg, ctx); wireCountdown(root, cfg, ctx);
+    if (ctx.kind === 'login' && ctx.settings.collect_device !== false && ctx.settings.device_notice !== '' && root.querySelector('.tp-vform')) {
+      root.querySelector('.tp-vform').insertAdjacentHTML('beforeend', '<p class="tp-privacy">' + esc(ctx.settings.device_notice || 'We note basic details of your device to keep your voucher safe from misuse.') + '</p>');
+    }
+    wireBoxes(root); wireVoucher(root, cfg, ctx); wireCountdown(root, cfg, ctx); wireAds(root, ctx); wireTrial(root, ctx);
+    if (ctx.kind === 'login') sendDevice(ctx, '');
     if (ctx.mode === 'preview') {
       root.addEventListener('click', function (e) {
         var el = e.target.closest('[data-bid]'); if (!el) return;

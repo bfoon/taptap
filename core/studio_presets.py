@@ -201,6 +201,60 @@ def _login_templates():
             _b('plans', title='Prices', style='list', show_devices=True, highlight=''),
             _b('footer', text='Powered by TapTap'),
         ]}
+    T['spotlight'] = {
+        'label': 'Sponsored Spotlight', 'kind': 'login', 'venue': 'Earn from local advertisers',
+        'theme': _theme(font='sora', heading_font='sora', width=440,
+                        bg={'type': 'gradient', 'color1': '#0f2a4a', 'color2': '#071524', 'angle': 170, 'pattern': 'dots', 'pattern_opacity': .18},
+                        accent='#ffb020', accent_text='#1a1300', radius=20),
+        'blocks': [
+            _b('logo', mode='initials', size=56, shape='rounded'),
+            _b('heading', title='{business} Wi-Fi', subtitle='Type your voucher to connect.', size='lg'),
+            _b('voucher', label='Voucher code', placeholder='8 characters', button='Connect', style='single', show_hint=True),
+            _b('ads', style='carousel', label='Sponsored', rotate=6, skip=5),
+            _b('plans', title='Prices', style='chips', show_devices=False, highlight=''),
+            _b('footer', text='Powered by TapTap'),
+        ]}
+    T['freebie'] = {
+        'label': 'Free Taster', 'kind': 'login', 'venue': 'Let people try before they buy',
+        'theme': _theme(font='nunito', heading_font='bricolage',
+                        bg={'type': 'gradient', 'color1': '#16a34a', 'color2': '#064e3b', 'angle': 160, 'pattern': 'leaves', 'pattern_opacity': .14},
+                        accent='#16a34a', text='#0f2418', muted='#4d6b58', radius=22, input_bg='#eefaf2', border='#cfe9d8'),
+        'blocks': [
+            _b('heading', title='Try it free, then stay online', subtitle='5 free minutes on us. Like it? Grab a voucher.', size='lg'),
+            _b('trial', text='Start my free 5 minutes', note='One free trial per phone per day.'),
+            _b('voucher', label='Have a voucher?', placeholder='Voucher code', button='Connect', style='single', show_hint=True),
+            _b('plans', title='Vouchers', style='cards', show_devices=True, highlight=''),
+            _b('faq', title='Questions', items=[{'name': 'Where do I buy a voucher?', 'detail': 'At the counter or from our agents nearby.'},
+                                                {'name': 'Can I share it?', 'detail': 'A voucher works on the number of devices printed on it.'}]),
+            _b('footer', text='Powered by TapTap'),
+        ]}
+    T['tabaski'] = {
+        'label': 'Festive Greetings', 'kind': 'login', 'venue': 'Tabaski · Koriteh · Christmas · New Year',
+        'theme': _theme(font='outfit', heading_font='dmserif', layout='full',
+                        bg={'type': 'gradient', 'color1': '#5b1a7a', 'color2': '#1a0b2e', 'angle': 145, 'pattern': 'dots', 'pattern_opacity': .2},
+                        surface='#fffaf2', accent='#c8961e', accent_text='#1a0b2e', text='#2a1438', muted='#7a6488', radius=24, shadow='glow'),
+        'blocks': [
+            _b('logo', mode='initials', size=62, shape='circle'),
+            _b('heading', title='Season’s greetings from {business}', subtitle='Stay close to family with fast Wi-Fi.', size='lg'),
+            _b('ticker', items=['Festive offer: extra time on every weekly pass', 'Share the joy — gift a voucher'], icon='gift'),
+            _b('voucher', label='Voucher code', placeholder='Voucher code', button='Connect', style='single', show_hint=True),
+            _b('ads', style='card', label='Festive offer', rotate=6, skip=5),
+            _b('footer', text='Powered by TapTap'),
+        ]}
+    T['kiosk'] = {
+        'label': 'Self-Serve Kiosk', 'kind': 'login', 'venue': 'Unattended sites · buy by mobile money',
+        'theme': _theme(font='grotesk', heading_font='grotesk', align='left',
+                        bg={'type': 'solid', 'color1': '#0b1220', 'pattern': 'grid', 'pattern_opacity': .12},
+                        surface='#111a2e', accent='#22d3ee', accent_text='#06202a', text='#e7f0ff', muted='#93a4c3', radius=14, input_bg='#18243d', border='#26375a'),
+        'blocks': [
+            _b('heading', title='No attendant? No problem.', subtitle='Pay by mobile money, then type your code.', size='md'),
+            _b('steps', title='3 steps', items=['Pick a plan below', 'Pay by Wave, QMoney or Afrimoney', 'Type the code from your SMS']),
+            _b('plans', title='Plans', style='list', show_devices=True, highlight=''),
+            _b('payment', title='Pay to', methods=[{'name': 'Wave', 'detail': 'Send to 000 0000'}, {'name': 'QMoney', 'detail': 'Send to 000 0000'}], note='Your code arrives by SMS within a minute.'),
+            _b('voucher', label='Your code', placeholder='Code from SMS', button='Connect', style='boxes', show_hint=False),
+            _b('contact', phone='', whatsapp='', email='', hours='Help 8:00 – 22:00'),
+            _b('footer', text='Powered by TapTap'),
+        ]}
     return T
 
 
@@ -274,6 +328,35 @@ def _redirect_templates():
         'blocks': [
             _b('heading', title='You’re online', subtitle='Your session at a glance.', size='md'),
             _b('session', show=['plan', 'time_left', 'uptime', 'data', 'ip']),
+            _b('plans', title='Need more time?', style='chips', show_devices=False, highlight=''),
+            _b('button', text='Log out', url='{logout}', style='outline'),
+        ]}
+    T['sponsor'] = {
+        'label': 'Sponsor Moment', 'kind': 'redirect', 'venue': 'Full-screen advert with a skip button',
+        'theme': _theme(font='sora', heading_font='sora', bg={'type': 'gradient', 'color1': '#0f2a4a', 'color2': '#071524'}, accent='#ffb020', accent_text='#1a1300'),
+        'blocks': [
+            _b('ads', style='interstitial', label='A word from our sponsor', rotate=6, skip=5),
+            _b('heading', title='You’re connected', subtitle='Thanks for choosing {business}.', size='md'),
+            _b('countdown', text='Continuing in', style='bar'),
+            _b('button', text='Continue', url='', style='solid'),
+        ]}
+    T['adwall'] = {
+        'label': 'Offers Wall', 'kind': 'redirect', 'venue': 'Rotate several advertisers after login',
+        'theme': _theme(font='rubik', heading_font='archivo', bg={'type': 'solid', 'color1': '#fff4d6', 'pattern': 'stripes', 'pattern_opacity': .08},
+                        accent='#e4572e', text='#1d1d1f', muted='#6a5f4a', radius=16),
+        'blocks': [
+            _b('heading', title='You’re online!', subtitle='Deals from businesses near you:', size='md'),
+            _b('ads', style='carousel', label='', rotate=5, skip=5),
+            _b('ticker', items=['Advertise here — ask {business} at the counter'], icon='bell'),
+            _b('countdown', text='Opening your page in', style='number'),
+        ]}
+    T['status_promo'] = {
+        'label': 'Status + Offer', 'kind': 'status', 'venue': 'Session info with a sponsor card',
+        'theme': _theme(font='outfit', bg={'type': 'gradient', 'color1': '#1769e0', 'color2': '#0b2237'}),
+        'blocks': [
+            _b('heading', title='You’re online', subtitle='Your session at a glance.', size='md'),
+            _b('session', show=['plan', 'time_left', 'uptime', 'data']),
+            _b('ads', style='banner', label='Sponsored', rotate=6, skip=5),
             _b('plans', title='Need more time?', style='chips', show_devices=False, highlight=''),
             _b('button', text='Log out', url='{logout}', style='outline'),
         ]}
@@ -396,7 +479,7 @@ def _voucher_templates():
             _el('text', 2, 69, 50, 4, text='#{serial} · {created}', size=5.5, weight=500, color='#000000', align='center'),
             _el('text', 2, 73, 50, 4, text='Help {phone}', size=5.5, weight=500, color='#000000', align='center'),
         ])}
-    T['compact'] = {'label': 'Pocket Slip', 'note': 'Fits 40 per A4 sheet — cheapest to print',
+    T['compact'] = {'label': 'Pocket Slip', 'note': '36 per A4 sheet — cheap to print',
         'config': _card(font='grotesk', size={'w': 48, 'h': 28, 'preset': 'compact'}, page={'paper': 'A4', 'margin': 6, 'gap': 1.5, 'cut_marks': True},
                         border={'width': .25, 'color': '#9aa8b8', 'radius': 1.5, 'style': 'dashed'}, elements=[
             _el('text', 2.5, 2, 30, 4, text='{business}', size=6.5, weight=700, color='#102033'),
@@ -472,13 +555,84 @@ def _voucher_templates():
             _el('code', 4, 45, 52, 8, size=13, color='#ffffff', border_width=0, spacing=2),
             _el('text', 4, 53.5, 52, 4, text='{plan} · {currency}{price}', size=6, weight=600, color='#e8e4ff', align='center'),
         ])}
+    # ── Dense / tiny formats: more vouchers per sheet ──
+    T['micro'] = {'label': 'Micro Slip', 'note': '65 per A4 — smallest readable card',
+        'config': _card(font='grotesk', size={'w': 38, 'h': 21, 'preset': 'micro'}, page={'paper': 'A4', 'margin': 5, 'gap': 1, 'cut_marks': True},
+                        border={'width': .2, 'color': '#9aa8b8', 'radius': 1, 'style': 'dashed'}, elements=[
+            _el('text', 1.5, 1.2, 24, 3.2, text='{business}', size=5.2, weight=700, color='#102033'),
+            _el('text', 24, 1.2, 12.5, 3.2, text='{currency}{price}', size=5.8, weight=800, color='#1769e0', align='right'),
+            _el('code', 1.5, 5.2, 35, 7.5, size=11, color='#102033', border_width=0, bg='#eef4ff', radius=1, spacing=1.5),
+            _el('text', 1.5, 13.6, 35, 3, text='{plan} · {duration}', size=4.6, weight=600, color='#465a70'),
+            _el('text', 1.5, 16.8, 35, 3, text='Wi-Fi: {ssid}', size=4.3, weight=500, color='#8a9aab'),
+        ])}
+    T['strip'] = {'label': 'Code Strip', 'note': '69 per A4 — one line per voucher, cut into strips',
+        'config': _card(font='mono', size={'w': 64, 'h': 11, 'preset': 'strip'}, page={'paper': 'A4', 'margin': 6, 'gap': 1, 'cut_marks': True},
+                        border={'width': .2, 'color': '#b8c2cc', 'radius': 0, 'style': 'dashed'}, elements=[
+            _el('icon', 1.2, 2.5, 6, 6, icon='scissors', color='#9aa8b8'),
+            _el('code', 8, 1.5, 32, 8, size=12, color='#000000', border_width=0, spacing=1.5, group=4),
+            _el('text', 41, 1.3, 21.5, 4, text='{plan}', size=5.2, weight=700, color='#000000', align='right'),
+            _el('text', 41, 5.6, 21.5, 4, text='{currency}{price} · {ssid}', size=4.6, weight=500, color='#555555', align='right'),
+        ])}
+    T['miniqr'] = {'label': 'Mini QR', 'note': '42 per A4 — scan to log in, code underneath',
+        'config': _card(font='grotesk', size={'w': 30, 'h': 38, 'preset': 'miniqr'}, page={'paper': 'A4', 'margin': 6, 'gap': 1.5, 'cut_marks': True},
+                        border={'width': .2, 'color': '#c9d3de', 'radius': 1.5}, elements=[
+            _el('text', 1, 1, 28, 3.2, text='{business}', size=5, weight=800, color='#102033', align='center'),
+            _el('qr', 5, 4.6, 20, 20),
+            _el('code', 1, 25.5, 28, 6, size=9, color='#102033', border_width=0, spacing=.8, group=4),
+            _el('text', 1, 32, 28, 4.5, text='{plan} · {currency}{price}', size=4.6, weight=600, color='#465a70', align='center'),
+        ])}
+    T['label21'] = {'label': 'Sticker Labels (L7160)', 'note': '21 per A4 on standard 63.5×38.1 mm label sheets',
+        'config': _card(font='outfit', size={'w': 63.5, 'h': 38.1, 'preset': 'l7160'}, page={'paper': 'A4', 'margin': 7, 'gap': 2.5, 'cut_marks': False},
+                        border={'width': 0, 'radius': 2}, elements=[
+            _el('rect', 0, 0, 63.5, 9, fill='#1769e0'),
+            _el('text', 3, 1.8, 40, 5.5, text='{business}', size=8.5, weight=800, color='#ffffff'),
+            _el('text', 42, 1.8, 18.5, 5.5, text='{currency}{price}', size=9, weight=800, color='#ffffff', align='right'),
+            _el('code', 3, 12, 38, 10, size=14, color='#102033', border='#1769e0', border_width=.35, radius=1.5),
+            _el('qr', 44, 11, 16.5, 16.5),
+            _el('text', 3, 24, 38, 4, text='{plan} · {duration}', size=6, weight=600, color='#465a70'),
+            _el('text', 3, 29.5, 57, 6, text='Join {ssid}, open any page and type the code.', size=5.2, weight=500, color='#65758a'),
+        ])}
+    T['scratch'] = {'label': 'Scratch Card', 'note': 'Silver code panel like airtime cards',
+        'config': _card(font='rubik', bg={'type': 'gradient', 'color1': '#0b3d91', 'color2': '#061a3a', 'angle': 125, 'pattern': 'circuit', 'pattern_opacity': .15},
+                        border={'width': 0, 'radius': 3}, elements=[
+            _el('icon', 4, 4, 7, 7, icon='wifi', color='#ffd23f'),
+            _el('text', 13, 4, 45, 7, text='{business}', size=10, weight=800, color='#ffffff'),
+            _el('text', 55, 3.5, 26, 8, text='{currency}{price}', size=15, weight=800, color='#ffd23f', align='right'),
+            _el('rect', 4, 16, 77, 15, fill='#c9ced6', radius=2, stroke='#eef1f5', stroke_width=.4),
+            _el('text', 4, 16.6, 77, 3.4, text='SCRATCH GENTLY TO REVEAL', size=4.6, weight=700, color='#6b7280', align='center', spacing=1),
+            _el('code', 6, 20, 73, 10, size=17, color='#111827', border_width=0, spacing=3),
+            _el('text', 4, 35, 50, 5, text='{plan} · {duration} · {devices}', size=6.5, weight=600, color='#dbe7ff'),
+            _el('text', 4, 42, 60, 8, text='Join {ssid}, open your browser and enter the code. Help {phone}', size=5.5, weight=500, color='#9fb4dc'),
+            _el('text', 62, 45, 19, 5, text='#{serial}', size=5, weight=600, color='#9fb4dc', align='right'),
+        ])}
+    T['pos'] = {'label': 'Shop Barcode', 'note': 'Barcode for till scanners + code for customers',
+        'config': _card(font='grotesk', size={'w': 70, 'h': 40, 'preset': 'pos'}, border={'width': .3, 'color': '#102033', 'radius': 1.5}, elements=[
+            _el('text', 3, 2.5, 44, 5, text='{business}', size=8, weight=800, color='#102033'),
+            _el('text', 46, 2.5, 21, 5, text='{currency}{price}', size=9, weight=800, color='#102033', align='right'),
+            _el('text', 3, 7.5, 64, 4, text='{plan} · {duration} · {devices}', size=5.8, weight=600, color='#465a70'),
+            _el('code', 3, 12.5, 64, 9, size=15, color='#102033', border_width=0, bg='#f1f5f9', radius=1),
+            _el('barcode', 3, 23, 64, 12, text='{code}', color='#000000', bg='#ffffff', show_text=False),
+            _el('text', 3, 35.5, 64, 3.5, text='Wi-Fi {ssid} · #{serial}', size=4.8, weight=500, color='#8a9aab', align='center'),
+        ])}
+    T['sponsored'] = {'label': 'Sponsored Card', 'note': 'Business card with a paid advert strip',
+        'config': _card(elements=[
+            _el('logo', 4, 3, 9, 9, shape='circle'),
+            _el('text', 15, 3.2, 44, 5, text='{business}', size=9.5, weight=800, color='#102033'),
+            _el('text', 15, 8, 44, 4, text='{plan} · {duration}', size=6.5, weight=600, color='#465a70'),
+            _el('text', 58, 3, 23, 8, text='{currency}{price}', size=14, weight=800, color='#1769e0', align='right'),
+            _el('code', 4, 15, 52, 11, size=17, border='#1769e0', border_width=.4, radius=2, color='#102033'),
+            _el('qr', 60, 13, 21, 21),
+            _el('text', 4, 28, 52, 6, text='Join {ssid} and type the code.', size=5.8, weight=500, color='#65758a'),
+            _el('advert', 3, 38, 79, 13, show='both', size=7, color='#102033', bg='#fff6df', radius=1.5, label='Sponsored'),
+        ])}
     return T
 
 
 VOUCHER_TEMPLATES = _voucher_templates()
 CARD_SIZES = {'card': ('Business card 85×54', 85, 54), 'compact': ('Pocket slip 48×28', 48, 28), 'ticket': ('Ticket 90×45', 90, 45),
               'square': ('Square 60×60', 60, 60), 'a7': ('A7 portrait 74×105', 74, 105), 'thermal58': ('58 mm receipt', 54, 78),
-              'thermal80': ('80 mm receipt', 72, 90)}
+              'thermal80': ('80 mm receipt', 72, 90), 'micro': ('Micro slip 38×21', 38, 21), 'strip': ('Code strip 64×11', 64, 11),
+              'miniqr': ('Mini QR 30×38', 30, 38), 'l7160': ('Label L7160 63.5×38.1', 63.5, 38.1), 'pos': ('Shop barcode 70×40', 70, 40)}
 PAPERS = {'A4': (210, 297), 'Letter': (216, 279), 'A5': (148, 210), 'thermal58': (58, 0), 'thermal80': (80, 0)}
 VOUCHER_TOKENS = [('business', 'Business name'), ('plan', 'Plan'), ('price', 'Price'), ('currency', 'Currency'), ('duration', 'Duration'),
                   ('devices', 'Devices'), ('speed', 'Speed'), ('data', 'Data cap'), ('code', 'Voucher code'), ('serial', 'Serial no.'),

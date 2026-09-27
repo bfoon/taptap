@@ -298,6 +298,17 @@ def audit_business(business):
             audit.add(f'r{router.id}:unmanaged-routers', 'low', 'Network', f'{len(rogue)} unmanaged router(s) on the LAN',
                       'Routers you did not add to TapTap are advertising on customer ports. They may be rogue DHCP servers or resold connections.',
                       router, evidence=[f'{n.identity or n.board} {n.address} on {n.interface_name}' for n in rogue], link='topology')
+    # ---- device signatures: one voucher, several physical devices ----
+    try:
+        from .ads import shared_vouchers
+        shared = shared_vouchers(business, limit=40)
+    except Exception:
+        shared = []
+    if shared:
+        audit.add('sig:voucher-sharing', 'medium', 'Hotspot abuse', f'{len(shared)} voucher(s) used on more devices than paid for',
+                  'Device signatures from your login pages show the same code on different phones or laptops — even when MAC addresses change. '
+                  'Usually a shared or resold voucher.', None,
+                  evidence=[f'{code}: {len(sigs)} devices (plan allows {allowed})' for code, sigs, allowed in shared], link='devices')
     return audit.findings
 
 

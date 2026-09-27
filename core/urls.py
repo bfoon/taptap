@@ -1,6 +1,8 @@
 from django.urls import path
 from . import views, views_business as vb, views_studio as vs, views_wan as vw, views_agents as va
 
+from . import views_ads, views_ports
+
 urlpatterns = [
     path('',views.home,name='home'), path('register/',views.register,name='register'), path('login/',views.login_view,name='login'), path('logout/',views.logout_view,name='logout'),
     path('dashboard/',views.dashboard,name='dashboard'), path('subscription/',views.subscription,name='subscription'), path('subscription/select/<str:code>/',views.subscription_select,name='subscription_select'),
@@ -38,4 +40,9 @@ urlpatterns = [
     # Public customer portal
     path('p/<slug:slug>/',vs.portal_public,name='portal_public'), path('p/<slug:slug>/check/',vs.portal_check,name='portal_check'),
     path('api/business/<int:business_id>/subscription-warning/',views.api_subscription_warning,name='api_subscription_warning'), path('api/voucher/login/',views.api_voucher_login,name='api_voucher_login'),
+    path('ads/',views_ads.ads,name='ads'), path('ads/save/',views_ads.ad_save,name='ad_save'), path('ads/<int:pk>/action/',views_ads.ad_action,name='ad_action'),
+    path('p/ad/<int:pk>/seen/',views_ads.ad_seen,name='ad_seen'), path('p/ad/<int:pk>/go/',views_ads.ad_go,name='ad_go'),
+    path('p/device/<slug:slug>/',views_ads.device_beacon,name='device_beacon'),
+    path('devices/',views_ads.devices,name='devices'), path('devices/<int:pk>/action/',views_ads.device_action,name='device_action'),
+    path('routers/<int:pk>/port/',views_ports.router_port,name='router_port'),
 ]

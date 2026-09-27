@@ -1,0 +1,142 @@
+{% extends 'core/base.html' %}
+{% load static %}
+{% block title %}Adverts — TapTap{% endblock %}
+{% block heading %}Adverts{% endblock %}
+{% block extra_head %}<link href="{% static 'css/business.css' %}" rel="stylesheet"><style>
+.ad-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.8rem;margin-bottom:1rem}
+.ad-kpi{background:#fff;border:1px solid var(--border);border-radius:16px;padding:.9rem 1rem}.ad-kpi span{display:block;font-size:.74rem;color:var(--muted);font-weight:600}
+.ad-kpi strong{display:block;font-size:1.45rem;font-variant-numeric:tabular-nums}.ad-kpi small{color:var(--muted);font-size:.72rem}
+.ad-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1rem}
+.ad-card{background:#fff;border:1px solid var(--border);border-radius:18px;overflow:hidden;display:flex;flex-direction:column}
+.ad-card.off{opacity:.62}
+.ad-thumb{aspect-ratio:16/7;background:#eef2f6 center/cover no-repeat;display:grid;place-items:center;color:#8a9aab;position:relative}
+.ad-thumb.txt{padding:1rem;text-align:center;font-weight:800;font-size:1.05rem}
+.ad-state{position:absolute;top:.6rem;left:.6rem;font-size:.68rem;font-weight:800;border-radius:999px;padding:.2rem .55rem;background:#fff;color:#51667b}
+.ad-state.live{background:#18a66a;color:#fff}.ad-state.ended{background:#d64545;color:#fff}
+.ad-body{padding:.85rem 1rem;flex:1;display:flex;flex-direction:column;gap:.45rem}
+.ad-body h4{font-size:.98rem;font-weight:800;margin:0}.ad-body p{margin:0;font-size:.8rem;color:var(--muted)}
+.ad-chips{display:flex;flex-wrap:wrap;gap:.3rem}.ad-chips span{font-size:.66rem;font-weight:700;border-radius:999px;padding:.15rem .5rem;background:#eef2f6;color:#4e6479}
+.ad-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:.4rem;border-top:1px solid #edf1f5;padding-top:.55rem;margin-top:auto}
+.ad-stats b{display:block;font-size:1rem;font-variant-numeric:tabular-nums}.ad-stats small{font-size:.66rem;color:var(--muted)}
+.ad-foot{display:flex;gap:.3rem;flex-wrap:wrap;padding:.6rem 1rem;border-top:1px solid #edf1f5;background:#fafcfd}
+.ad-empty{background:#fff;border:1.5px dashed var(--border);border-radius:18px;padding:2.5rem 1rem;text-align:center}
+.ad-empty i{font-size:2rem;color:#1769e0}
+.ad-pv{border:1px solid var(--border);border-radius:16px;overflow:hidden;background:#f7f9fb}
+.ad-pv img{display:block;width:100%;max-height:200px;object-fit:cover}.ad-pv .t{padding:.7rem .85rem}.ad-pv b{display:block}.ad-pv span{font-size:.85rem;opacity:.85}
+.ad-pv em{display:inline-block;font-style:normal;font-weight:800;font-size:.78rem;margin-top:.4rem;padding:.3rem .7rem;border-radius:999px;background:rgba(127,127,127,.18)}
+.ad-place{display:flex;flex-wrap:wrap;gap:.4rem}.ad-place label{border:1px solid var(--border);border-radius:10px;padding:.35rem .6rem;font-size:.8rem;display:flex;gap:.35rem;align-items:center;cursor:pointer}
+.ad-chart{height:220px;position:relative}
+@media(max-width:1100px){.ad-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>{% endblock %}
+{% block content %}
+<div class="page-actions">
+  <div><h2 class="section-title">Earn from your login pages and vouchers</h2><p>Run your own promotions or sell space to shops, restaurants and events near your hotspots. Every view and tap is counted.</p></div>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#adModal" data-new="1"><i class="bi bi-plus-lg"></i> New advert</button>
+</div>
+
+<div class="ad-kpis">
+  <div class="ad-kpi"><span>Live now</span><strong>{{ totals.live }}</strong><small>of {{ ads|length }} campaign{{ ads|length|pluralize }}</small></div>
+  <div class="ad-kpi"><span>Views</span><strong>{{ totals.impressions }}</strong><small>all time</small></div>
+  <div class="ad-kpi"><span>Taps</span><strong>{{ totals.clicks }}</strong><small>{{ totals.ctr }}% tap rate</small></div>
+  <div class="ad-kpi"><span>Advertising income</span><strong>{{ current_business.currency|default:'D' }}{{ totals.income|floatformat:0 }}</strong><small>paid campaigns</small></div>
+  <div class="ad-kpi"><span>To collect</span><strong class="{% if totals.owed %}text-warning{% endif %}">{{ current_business.currency|default:'D' }}{{ totals.owed|floatformat:0 }}</strong><small>unpaid campaigns</small></div>
+</div>
+
+{% if ads %}
+<section class="panel mb-3"><div class="panel-head"><div><h3>Last 30 days</h3><p>Views and taps across all campaigns.</p></div></div><div class="ad-chart"><canvas id="adChart" aria-label="Advert views and taps, last 30 days"></canvas></div></section>
+<div class="ad-list">
+  {% for a in ads %}
+  <article class="ad-card {% if not a.live %}off{% endif %}">
+    <div class="ad-thumb {% if not a.image %}txt{% endif %}" {% if a.image %}style="background-image:url('{{ a.image }}')"{% else %}style="background:{{ a.theme.bg|default:'#102033' }};color:{{ a.theme.fg|default:'#ffffff' }}"{% endif %}>
+      {% if not a.image %}{{ a.headline|default:a.name }}{% endif %}
+      <span class="ad-state {% if a.live %}live{% elif a.ends_on and a.days_left < 0 %}ended{% endif %}">{% if a.live %}Live{% elif not a.active %}Paused{% elif a.days_left is not None and a.days_left < 0 %}Ended{% else %}Scheduled{% endif %}</span>
+    </div>
+    <div class="ad-body">
+      <h4>{{ a.name }}</h4>
+      <p>{% if a.advertiser %}{{ a.advertiser }}{% if a.advertiser_phone %} · {{ a.advertiser_phone }}{% endif %}{% else %}Your own promotion{% endif %}</p>
+      <div class="ad-chips">{% for p in a.placements %}<span>{% if p == 'login' %}Login page{% elif p == 'redirect' %}After login{% elif p == 'status' %}Status page{% else %}Printed vouchers{% endif %}</span>{% endfor %}<span>weight {{ a.weight }}</span>
+        {% if a.starts_on or a.ends_on %}<span>{{ a.starts_on|date:'d M'|default:'now' }} → {{ a.ends_on|date:'d M'|default:'open' }}</span>{% endif %}
+        {% if a.price %}<span class="{% if a.paid %}text-success{% else %}text-warning{% endif %}">{{ current_business.currency|default:'D' }}{{ a.price|floatformat:0 }} {% if a.paid %}paid{% else %}unpaid{% endif %}</span>{% endif %}</div>
+      <div class="ad-stats"><div><b>{{ a.impressions }}</b><small>views</small></div><div><b>{{ a.clicks }}</b><small>taps</small></div><div><b>{{ a.ctr }}%</b><small>tap rate</small></div></div>
+    </div>
+    <div class="ad-foot">
+      <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#adModal" data-ad='{{ a.json }}'><i class="bi bi-pencil"></i> Edit</button>
+      <form method="post" action="{% url 'ad_action' a.id %}" class="d-flex gap-1 flex-wrap">{% csrf_token %}
+        <button name="action" value="toggle" class="btn btn-sm btn-light">{% if a.active %}<i class="bi bi-pause"></i> Pause{% else %}<i class="bi bi-play"></i> Resume{% endif %}</button>
+        {% if a.price and not a.paid %}<button name="action" value="paid" class="btn btn-sm btn-light"><i class="bi bi-cash-coin"></i> Mark paid</button>{% endif %}
+        <button name="action" value="duplicate" class="btn btn-sm btn-light" title="Duplicate" aria-label="Duplicate"><i class="bi bi-copy"></i></button>
+        <button name="action" value="delete" class="btn btn-sm btn-light text-danger" onclick="return confirm('Delete this advert and its statistics?')" aria-label="Delete"><i class="bi bi-trash"></i></button>
+      </form>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<div class="ad-empty"><i class="bi bi-badge-ad"></i><h3 class="h5 mt-2">No adverts yet</h3><p class="text-secondary mb-3">Create one, then add an <b>Advert</b> block to a portal page or an <b>Advert slot</b> to a voucher design.</p>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#adModal" data-new="1">Create your first advert</button></div>
+{% endif %}
+
+<div class="alert alert-info small mt-3"><i class="bi bi-info-circle"></i> Hosted portal pages show changes instantly. Pages running from the router (offline export) include adverts from the moment you export — download the router files again after changing campaigns. Tap tracking works once customers are online; the TapTap walled-garden line in the export lets views be counted before login.</div>
+
+<div class="modal fade" id="adModal" tabindex="-1" aria-labelledby="adTitle" aria-hidden="true"><div class="modal-dialog modal-lg"><form class="modal-content" method="post" action="{% url 'ad_save' %}" id="adForm">{% csrf_token %}
+  <input type="hidden" name="id"><input type="hidden" name="image">
+  <div class="modal-header"><h5 class="modal-title" id="adTitle">New advert</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body"><div class="row g-3">
+    <div class="col-md-7 row g-3 m-0 p-0">
+      <div class="col-12"><label class="form-label">Headline</label><input class="form-control" name="headline" maxlength="120" placeholder="e.g. Fresh bread every morning"></div>
+      <div class="col-12"><label class="form-label">Message</label><textarea class="form-control" name="body" rows="2" maxlength="280" placeholder="One or two short lines"></textarea></div>
+      <div class="col-6"><label class="form-label">Button text</label><input class="form-control" name="cta" maxlength="40" value="Learn more"></div>
+      <div class="col-6"><label class="form-label">Link (optional)</label><input class="form-control" name="link" placeholder="https://… or wa.me/220…"></div>
+      <div class="col-12"><label class="form-label">Picture</label><input class="form-control" type="file" accept="image/*" id="adImg"><small class="text-secondary">Resized in your browser (under 300 KB) so it loads fast and works offline. Wide pictures (about 16:7) look best.</small>
+        <button type="button" class="btn btn-sm btn-link text-danger p-0 d-none" id="adImgClear">Remove picture</button></div>
+      <div class="col-6"><label class="form-label">Text-ad background</label><input class="form-control form-control-color w-100" type="color" name="theme_bg" value="#102033"></div>
+      <div class="col-6"><label class="form-label">Text-ad text colour</label><input class="form-control form-control-color w-100" type="color" name="theme_fg" value="#ffffff"></div>
+    </div>
+    <div class="col-md-5"><label class="form-label">Preview</label><div class="ad-pv" id="adPv"></div></div>
+    <div class="col-12"><label class="form-label">Show on</label><div class="ad-place">{% for k,v in placements %}<label><input type="checkbox" name="placements" value="{{ k }}"> {{ v }}</label>{% endfor %}</div></div>
+    <div class="col-md-4"><label class="form-label">Start</label><input class="form-control" type="date" name="starts_on"></div>
+    <div class="col-md-4"><label class="form-label">End</label><input class="form-control" type="date" name="ends_on"></div>
+    <div class="col-md-4"><label class="form-label">Weight <small class="text-secondary">1–10</small></label><input class="form-control" type="number" name="weight" min="1" max="10" value="1"></div>
+    <div class="col-12"><hr class="my-1"><b class="small">Who is paying</b></div>
+    <div class="col-md-4"><label class="form-label">Advertiser</label><input class="form-control" name="advertiser" placeholder="Blank = your own promotion"></div>
+    <div class="col-md-3"><label class="form-label">Phone</label><input class="form-control" name="advertiser_phone"></div>
+    <div class="col-md-3"><label class="form-label">Price ({{ current_business.currency|default:'D' }})</label><input class="form-control" name="price" inputmode="decimal" value="0"></div>
+    <div class="col-md-2 d-flex align-items-end"><label class="form-check"><input class="form-check-input" type="checkbox" name="paid"> <span class="form-check-label">Paid</span></label></div>
+    <div class="col-md-8"><label class="form-label">Internal name</label><input class="form-control" name="name" placeholder="Defaults to the headline"></div>
+    <div class="col-md-4 d-flex align-items-end"><label class="form-check"><input class="form-check-input" type="checkbox" name="active" checked> <span class="form-check-label">Active</span></label></div>
+  </div></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save advert</button></div>
+</form></div></div>
+{{ chart|json_script:"adChartData" }}
+{% endblock %}
+{% block scripts %}
+<script src="{% static 'vendor/chart.umd.min.js' %}"></script>
+<script>
+(function(){
+  var f=document.getElementById('adForm'), pv=document.getElementById('adPv'), imgIn=document.getElementById('adImg'), clr=document.getElementById('adImgClear'), current='';
+  function esc(s){return String(s||'').replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function paint(){var img=current&&current!=='clear'?current:'';
+    pv.innerHTML=(img?'<img src="'+img+'" alt="">':'')+'<div class="t" style="'+(img?'':'background:'+f.theme_bg.value+';color:'+f.theme_fg.value)+'"><b>'+esc(f.headline.value||'Your headline')+'</b><span>'+esc(f.body.value)+'</span>'+(f.link.value&&f.cta.value?'<br><em>'+esc(f.cta.value)+'</em>':'')+'</div>';
+    clr.classList.toggle('d-none',!img);}
+  ['headline','body','cta','link','theme_bg','theme_fg'].forEach(function(n){f[n].addEventListener('input',paint);});
+  imgIn.addEventListener('change',function(){var file=imgIn.files[0];if(!file)return;var r=new FileReader();r.onload=function(){var im=new Image();im.onload=function(){
+    var k=Math.min(1,900/Math.max(im.width,im.height)),c=document.createElement('canvas');c.width=Math.round(im.width*k);c.height=Math.round(im.height*k);c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+    var q=.82,out=c.toDataURL('image/jpeg',q);while(out.length>420000&&q>.4){q-=.1;out=c.toDataURL('image/jpeg',q);}
+    current=out;f.image.value=out;paint();};im.src=r.result;};r.readAsDataURL(file);});
+  clr.addEventListener('click',function(){current='clear';f.image.value='clear';imgIn.value='';paint();});
+  document.getElementById('adModal').addEventListener('show.bs.modal',function(ev){
+    var b=ev.relatedTarget, a=b&&b.dataset.ad?JSON.parse(b.dataset.ad):null; f.reset(); imgIn.value=''; f.image.value=''; current=a&&a.image?a.image:'';
+    document.getElementById('adTitle').textContent=a?'Edit advert':'New advert'; f.id.value=a?a.id:'';
+    if(a){['name','advertiser','advertiser_phone','headline','body','cta','link','weight','starts_on','ends_on','price'].forEach(function(k){f[k].value=a[k]==null?'':a[k];});
+      f.paid.checked=!!a.paid;f.active.checked=!!a.active;f.theme_bg.value=(a.theme&&a.theme.bg)||'#102033';f.theme_fg.value=(a.theme&&a.theme.fg)||'#ffffff';}
+    [].forEach.call(f.querySelectorAll('[name=placements]'),function(c){c.checked=a?a.placements.indexOf(c.value)>=0:c.value==='login';});
+    paint();});
+  var el=document.getElementById('adChart');
+  if(el&&window.Chart){var d=JSON.parse(document.getElementById('adChartData').textContent);
+    new Chart(el,{data:{labels:d.labels,datasets:[{type:'bar',label:'Views',data:d.impressions,backgroundColor:'#bcd5fb',borderRadius:4,maxBarThickness:18,yAxisID:'y'},
+      {type:'line',label:'Taps',data:d.clicks,borderColor:'#f59e0b',backgroundColor:'#f59e0b',tension:.3,pointRadius:0,borderWidth:2.2,yAxisID:'y1'}]},
+      options:{maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{labels:{usePointStyle:true,boxWidth:8}}},
+        scales:{x:{grid:{display:false},ticks:{maxTicksLimit:10}},y:{beginAtZero:true,grid:{color:'#edf1f6'},ticks:{precision:0}},y1:{beginAtZero:true,position:'right',grid:{display:false},ticks:{precision:0}}}}});}
+})();
+</script>
+{% endblock %}

@@ -15,6 +15,14 @@
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>', devices: '<rect x="2" y="5" width="14" height="10" rx="1.5"/><path d="M6 19h6"/><rect x="17" y="9" width="5" height="11" rx="1"/>',
     star: '<path d="M12 3l2.8 5.8 6.2.9-4.5 4.4 1 6.3L12 17.5 6.5 20.4l1-6.3L3 9.7l6.2-.9z"/>', bolt: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
     scissors: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.5 7.5L20 18M8.5 16.5L20 6"/>', lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+    whatsapp: '<path d="M4 20l1.3-3.9A8 8 0 1 1 8 19z"/><path d="M9 9.5c.3 1.8 1.7 3.4 3.5 4.3l1.2-1 1.8.8c-.3 1-1.2 1.6-2.2 1.4A7 7 0 0 1 8 10c-.2-1 .4-1.9 1.4-2.2l.8 1.8z"/>',
+    gift: '<rect x="3" y="9" width="18" height="12" rx="1"/><path d="M3 13h18M12 9v12M12 9C10 5 6 5 6.5 7.5S12 9 12 9zm0 0c2-4 6-4 5.5-1.5S12 9 12 9z"/>',
+    ticket: '<path d="M3 8a2 2 0 0 0 0 4v4h18v-4a2 2 0 0 1 0-4V4H3z"/><path d="M14 4v16" stroke-dasharray="2 2"/>',
+    globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+    pin: '<path d="M12 21s7-6.2 7-12a7 7 0 0 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+    heart: '<path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z"/>',
+    music: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+    bed: '<path d="M3 18V7M3 14h18v4M21 14v-3a3 3 0 0 0-3-3h-7v6"/><circle cx="7" cy="11" r="2"/>',
     cup: '<path d="M4 10h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M17 12h1.5a2.5 2.5 0 0 1 0 5H17"/>', ball: '<circle cx="12" cy="12" r="9"/><path d="M12 7l4 3-1.5 5h-5L8 10z"/>'
   };
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -48,6 +56,19 @@
     for (var r = 0; r < n; r++) for (var c = 0; c < n; c++) if (q.isDark(r, c)) p += 'M' + (c + m) + ' ' + (r + m) + 'h1v1h-1z';
     return '<svg viewBox="0 0 ' + size + ' ' + size + '" width="100%" height="100%" shape-rendering="crispEdges" preserveAspectRatio="xMidYMid meet"><rect width="' + size + '" height="' + size + '" fill="' + (bg || '#fff') + '"/><path d="' + p + '" fill="' + (color || '#000') + '"/></svg>';
   }
+  /* Code 128-B barcode — lets shop staff scan a voucher at the till. */
+  var C128 = '212222 222122 222221 121223 121322 131222 122213 122312 132212 221213 221312 231212 112232 122132 122231 113222 123122 123221 223211 221132 221231 213212 223112 312131 311222 321122 321221 312212 322112 322211 212123 212321 232121 111323 131123 131321 112313 132113 132311 211313 231113 231311 112133 112331 132131 113123 113321 133121 313121 211331 231131 213113 213311 213131 311123 311321 331121 312113 312311 332111 314111 221411 431111 111224 111422 121124 121421 141122 141221 112214 112412 122114 122411 142112 142211 241211 221114 413111 241112 134111 111242 121142 121241 114212 124112 124211 411212 421112 421211 212141 214121 412121 111143 111341 131141 114113 114311 411113 411311 113141 114131 311141 411131 211412 211214 211232 2331112'.split(' ');
+  function barcodeSvg(text, color, bg, showText, font) {
+    var vals = [104], sum = 104, str = String(text || '').replace(/[^\x20-\x7e]/g, '');
+    for (var i = 0; i < str.length; i++) { var v = str.charCodeAt(i) - 32; vals.push(v); sum += v * (i + 1); }
+    vals.push(sum % 103); vals.push(106);
+    var x = 10, bars = '';
+    vals.forEach(function (v) { var p = C128[v]; for (var k = 0; k < p.length; k++) { var w = +p.charAt(k); if (k % 2 === 0) bars += 'M' + x + ' 0h' + w + 'v40h-' + w + 'z'; x += w; } });
+    var W = x + 10, H = showText ? 52 : 40;
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="100%" preserveAspectRatio="none" shape-rendering="crispEdges"><rect width="' + W + '" height="' + H + '" fill="' + (bg || '#fff') + '"/><path d="' + bars + '" fill="' + (color || '#000') + '"/>' +
+      (showText ? '<text x="' + W / 2 + '" y="50" text-anchor="middle" font-size="10" font-family="' + (font || 'monospace').replace(/"/g, "'") + '" fill="' + (color || '#000') + '" letter-spacing="1">' + esc(str) + '</text>' : '') + '</svg>';
+  }
+
   function initials(name) { return String(name || 'W').split(/\s+/).filter(Boolean).slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase(); }
 
   function element(e, cfg, d, editable) {
@@ -74,6 +95,22 @@
       var rad = e.shape === 'circle' ? '50%' : (e.shape === 'rounded' ? '22%' : '0');
       st += 'border-radius:' + rad + ';overflow:hidden;display:grid;place-items:center;background:' + (d.logo ? 'transparent' : e.bg) + ';color:' + e.color + ';font-family:' + font + ';font-weight:800;font-size:' + (Math.min(e.w, e.h) * 1.15) + 'pt;';
       el.innerHTML = d.logo ? '<img src="' + esc(d.logo) + '" style="width:100%;height:100%;object-fit:cover" alt="">' : esc(initials(d.business));
+    } else if (e.type === 'image') {
+      st += 'overflow:hidden;border-radius:' + (e.radius || 0) + 'mm;';
+      el.innerHTML = e.src ? '<img src="' + esc(e.src) + '" alt="" style="width:100%;height:100%;object-fit:' + (e.fit || 'cover') + ';display:block">' :
+        '<div style="width:100%;height:100%;display:grid;place-items:center;background:repeating-linear-gradient(45deg,#eef2f6 0 2mm,#f7f9fb 2mm 4mm);color:#8a9aab;font:600 6pt system-ui">Image</div>';
+    } else if (e.type === 'barcode') {
+      el.innerHTML = barcodeSvg(fill(e.text || '{code}', d), e.color, e.bg, e.show_text !== false, font);
+    } else if (e.type === 'advert') {
+      var ad = d.ad || null, show = e.show || 'both';
+      st += 'overflow:hidden;border-radius:' + (e.radius || 0) + 'mm;background:' + (e.bg || 'transparent') + ';display:flex;align-items:center;gap:1mm;font-family:' + font + ';color:' + (e.color || '#102033') + ';';
+      if (!ad) { el.innerHTML = '<span style="font-size:5pt;opacity:.6;margin:auto">' + (editable ? 'Advert slot' : '') + '</span>'; }
+      else {
+        var img = ad.image && show !== 'text' ? '<img src="' + esc(ad.image) + '" alt="" style="height:100%;' + (show === 'image' ? 'width:100%;object-fit:cover' : 'max-width:45%;object-fit:cover') + ';display:block">' : '';
+        var txt = show !== 'image' ? '<div style="min-width:0;padding:0 1mm;line-height:1.1"><div style="font-size:' + (e.size || 6) + 'pt;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(ad.headline || ad.advertiser || '') + '</div>' +
+          (ad.body ? '<div style="font-size:' + Math.max(4, (e.size || 6) - 1.5) + 'pt;opacity:.8;overflow:hidden;max-height:2.3em">' + esc(ad.body) + '</div>' : '') + '</div>' : '';
+        el.innerHTML = (e.label ? '<span style="position:absolute;top:.4mm;right:.8mm;font-size:3.6pt;opacity:.55;text-transform:uppercase;letter-spacing:.3pt">' + esc(e.label) + '</span>' : '') + img + txt;
+      }
     } else if (e.type === 'icon') {
       st += 'color:' + e.color + ';';
       el.innerHTML = '<svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[e.icon] || ICONS.wifi) + '</svg>';
@@ -100,7 +137,7 @@
 
   function sample(extra) {
     var d = { business: 'Kairaba Wi-Fi', plan: '24 Hours', price: '40', currency: 'D', duration: '1 day', devices: '1 device', speed: '5 Mbps', data: 'Unlimited',
-      code: 'K7Q2M9XP', serial: '000128', ssid: 'Kairaba-WiFi', login_url: 'wifi.local', phone: '+220 700 0000', batch: 'Batch 12', created: new Date().toLocaleDateString(), logo: '' };
+      code: 'K7Q2M9XP', serial: '000128', ad: null, ssid: 'Kairaba-WiFi', login_url: 'wifi.local', phone: '+220 700 0000', batch: 'Batch 12', created: new Date().toLocaleDateString(), logo: '' };
     for (var k in (extra || {})) if (extra[k] != null && extra[k] !== '') d[k] = extra[k];
     return d;
   }
