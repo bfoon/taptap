@@ -1,7 +1,7 @@
 from django.urls import path
 from . import views, views_business as vb, views_studio as vs, views_wan as vw, views_agents as va
 
-from . import views_ads, views_ports, views_live, views_traffic, views_missing
+from . import views_ads, views_ports, views_live, views_traffic, views_missing, views_link
 
 urlpatterns = [
     path('',views.home,name='home'), path('register/',views.register,name='register'), path('login/',views.login_view,name='login'), path('logout/',views.logout_view,name='logout'),
@@ -57,4 +57,9 @@ urlpatterns = [
     path('vouchers/missing/report/',views_missing.report_missing_vouchers,name='report_missing_vouchers'),
     path('vouchers/missing/<int:pk>/resolve/',views_missing.resolve_missing_report,name='resolve_missing_report'),
     path('batches/<int:pk>/missing/report/',views_missing.report_missing_batch,name='report_missing_batch'),
+    path('api/agent/v1/poll',views_link.agent_poll,name='agent_poll'), path('api/agent/v1/ack',views_link.agent_ack,name='agent_ack'),
+    path('routers/<int:pk>/link/',views_link.router_link,name='router_link'), path('routers/<int:pk>/link/action/',views_link.router_link_action,name='router_link_action'),
+    path('routers/<int:pk>/link/status/',views_link.router_link_status,name='router_link_status'),
+    path('notifications/',views_link.notifications,name='notifications'), path('notifications/test/',views_link.notifications_test,name='notifications_test'),
+    path('n/off/<str:token>/',views_link.notifications_off,name='notifications_off'),
 ]

@@ -115,3 +115,24 @@ else:
 LOGGING = {'version': 1, 'disable_existing_loggers': False,
            'handlers': {'console': {'class': 'logging.StreamHandler'}},
            'root': {'handlers': ['console'], 'level': os.getenv('LOG_LEVEL', 'INFO')}}
+
+
+# ─── Email (notifications) ───────────────────────────────────────────────
+# Without EMAIL_HOST emails are only written to the log (console backend).
+EMAIL_HOST = os.getenv('EMAIL_HOST', '')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = env_bool('EMAIL_USE_TLS', EMAIL_PORT == 587)
+EMAIL_USE_SSL = env_bool('EMAIL_USE_SSL', EMAIL_PORT == 465)
+EMAIL_TIMEOUT = int(os.getenv('EMAIL_TIMEOUT', '15'))
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', EMAIL_HOST_USER or 'TapTap <no-reply@localhost>')
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.smtp.EmailBackend' if EMAIL_HOST else 'django.core.mail.backends.console.EmailBackend')
+
+# Public address of this TapTap (used in emails and in the TapTap Link router script).
+SITE_URL = os.getenv('SITE_URL', '').rstrip('/')
+# TapTap Link: routers verify the server certificate (turn off only for testing with self-signed certificates).
+AGENT_VERIFY_TLS = env_bool('AGENT_VERIFY_TLS', True)
+
+CELERY_BEAT_SCHEDULE['taptap-notifications'] = {'task': 'core.tasks.deliver_notifications', 'schedule': 60.0, 'options': {'expires': 120}}
+CELERY_TASK_ROUTES['core.tasks.deliver_notifications'] = {'queue': 'live'}

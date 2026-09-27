@@ -173,6 +173,8 @@ def port_action(request, pk):
     action = request.POST.get('action', '')
     if not NAME_RE.match(name) or '..' in name or not router.interfaces.filter(name=name).exists():
         return JsonResponse({'ok': False, 'message': 'Unknown port.'}, status=400)
+    if router.connection_mode == 'agent':
+        return _port_action_via_link(request, router, name, action)
     risk = port_risk(router, name)
     if action in ('disable', 'restart', 'off_for') and request.POST.get('confirm') != name:
         try:
@@ -250,12 +252,46 @@ def port_action(request, pk):
         return JsonResponse({'ok': False, 'message': str(exc)[:300]}, status=502)
 
 
+def _port_action_via_link(request, router, name, action):
+    """Routers behind NAT: queue the change; the router applies it at its next check-in."""
+    from . import agent as link
+    risk = port_risk(router, name)
+    if action in ('disable', 'restart', 'off_for') and risk and request.POST.get('confirm') != name:
+        return JsonResponse({'ok': False, 'needs_confirm': True, 'message': RISK_TEXT[risk] + f' Type {name} to confirm.'}, status=409)
+    try:
+        if action == 'enable':
+            link.queue(router, 'interface_set', {'name': name, 'enabled': True}, label=f'Turn on {name}', user=request.user)
+        elif action == 'disable':
+            link.queue(router, 'interface_set', {'name': name, 'enabled': False}, label=f'Turn off {name}', user=request.user)
+        elif action == 'restart':
+            link.queue(router, 'port_restart', {'name': name, 'seconds': int(_num(request.POST.get('seconds'), 2, 30, 5))}, label=f'Restart {name}', user=request.user)
+        elif action == 'off_for':
+            mins = int(_num(request.POST.get('minutes'), 1, 10080, 15))
+            link.queue(router, 'port_off_for', {'name': name, 'minutes': mins}, label=f'Turn off {name} for {mins} min', user=request.user)
+        elif action == 'limit':
+            down, up = _num(request.POST.get('down'), 0, 100000, 0), _num(request.POST.get('up'), 0, 100000, 0)
+            link.queue(router, 'limit', {'name': name, 'down': down, 'up': up}, label=f'Limit {name} to {down:g}/{up:g} Mb/s', user=request.user)
+            PortRule.objects.update_or_create(router=router, interface=name, kind='limit', defaults={'limit_down_mbps': down, 'limit_up_mbps': up, 'active': True, 'queue_name': f'TapTap limit {name}'})
+        elif action == 'unlimit':
+            link.queue(router, 'unlimit', {'name': name}, label=f'Remove limit on {name}', user=request.user)
+            router.port_rules.filter(interface=name, kind='limit').delete()
+        else:
+            return JsonResponse({'ok': False, 'message': 'The traffic guard needs a direct API connection — it measures the port every few seconds. Use a speed limit instead.'}, status=400)
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'message': str(exc)}, status=400)
+    return JsonResponse({'ok': True, 'message': 'Sent through TapTap Link — the router applies it at its next check-in (a few seconds).', 'control': _control_state(router, name)})
+
+
 @login_required
 @require_POST
 def router_reboot(request, pk):
     router = get_object_or_404(request.user.business.routers, pk=pk)
     if request.POST.get('confirm', '').strip() != router.name:
         return JsonResponse({'ok': False, 'message': f'Type the router name “{router.name}” to confirm.'}, status=400)
+    if router.connection_mode == 'agent':
+        from . import agent as link
+        link.queue(router, 'reboot', label='Reboot router', user=request.user, minutes=5)
+        return JsonResponse({'ok': True, 'message': f'Reboot sent through TapTap Link — {router.name} reboots at its next check-in.'})
     try:
         with MikroTikService(router, timeout=getattr(settings, 'MIKROTIK_TIMEOUT', 10)) as svc:
             do_reboot(svc)
@@ -274,6 +310,11 @@ def router_backups(request, pk):
         if request.POST.get('action') == 'auto':
             router.auto_backup = request.POST.get('on') == '1'; router.save(update_fields=['auto_backup'])
             return JsonResponse({'ok': True, 'message': 'Nightly backups are ' + ('on (between 02:00 and 05:00).' if router.auto_backup else 'off.'), 'auto_backup': router.auto_backup})
+        if router.connection_mode == 'agent':
+            from . import agent as link
+            f = f'taptap-{router.name}-{timezone.localtime():%Y%m%d-%H%M}'.replace(' ', '-')[:60]
+            link.queue(router, 'backup', {'file': f}, label='Back up configuration', user=request.user)
+            return JsonResponse({'ok': True, 'message': 'Backup sent through TapTap Link. The files are saved on the router (WinBox › Files).'})
         try:
             with MikroTikService(router, timeout=getattr(settings, 'MIKROTIK_TIMEOUT', 10)) as svc:
                 rec = do_backup(svc, router, user=request.user)

@@ -1,0 +1,17 @@
+{% autoescape off %}{{ heading }} — {{ business.business_name }}
+{% if intro %}{{ intro }}
+{% endif %}{% if summary %}
+Sales yesterday: {{ summary.currency }}{{ summary.sales|floatformat:0 }} ({{ summary.sales_count }} vouchers{% if summary.vs_last_week is not None %}, {{ summary.vs_last_week }}% vs last week{% endif %})
+{% if summary.top_plan %}Best-selling plan: {{ summary.top_plan.plan_name }} ({{ summary.top_plan.c }})
+{% endif %}Data used: {{ summary.data_gb }} GB by {{ summary.users }} users
+{% if summary.peak %}Busiest hour: {{ summary.peak }}
+{% endif %}Routers online: {{ summary.routers_online }} of {{ summary.routers }}{% if summary.offline_routers %} ({{ summary.offline_routers|join:', ' }} offline){% endif %}
+Devices that dropped off: {{ summary.device_alerts }} · Expired vouchers disconnected: {{ summary.enforced }}
+{% endif %}{% for it in items %}
+• {{ it.subject }}  [{{ it.label }}, {{ it.when|date:'D d M H:i' }}]
+  {{ it.body }}{% if it.link %}
+  {{ it.link }}{% endif %}
+{% endfor %}
+Choose which emails you get: {{ manage_url }}
+Turn off all emails: {{ unsubscribe_url }}
+{% endautoescape %}

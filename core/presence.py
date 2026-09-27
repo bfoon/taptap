@@ -155,6 +155,9 @@ def scan(router):
             alerted[k] = {'since': entry['since'], 'rule': rule.pk, 'info': entry['info']}
             pending.pop(k)
             push_event(business.pk, f'{info["name"]} ({info["ip"] or info["mac"]}) went offline on {router.name}', 'bad')
+            from .notify import notify
+            notify(business, 'device_offline', f'{info["name"]} went offline', f'{info["name"]} ({info["ip"] or info["mac"]}) on {router.name} '
+                   f'has not been seen for {rule.min_offline_minutes} minutes.', link='/alerts/', key=f'dev:{router.pk}:{k}:off')
             out['offline'] += 1
     for k in list(alerted):
         if k in after:
@@ -166,6 +169,9 @@ def scan(router):
                 DeviceAlert.objects.create(business=business, router=router, rule=rule, subject=info['subject'], device_key=k, name=info['name'][:180],
                                            ip_address=info['ip'] or '', mac_address=info['mac'] or '', kind=info['kind'], event='online', offline_since=since)
                 push_event(business.pk, f'{info["name"]} is back online on {router.name} after {mins} min', 'good')
+                from .notify import notify
+                notify(business, 'device_online', f'{info["name"]} is back online', f'{info["name"]} on {router.name} returned after {mins} minutes.',
+                       link='/alerts/', key=f'dev:{router.pk}:{k}:on')
                 out['online'] += 1
     cache.set(pkey, pending, 86400 * 3)
     cache.set(akey, alerted, 86400 * 30)

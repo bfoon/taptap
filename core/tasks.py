@@ -54,6 +54,18 @@ def sync_router_task(self, job_id):
             updated_at=timezone.now(),
         )
 
+    if router.connection_mode == 'agent':
+        # Behind NAT: TapTap cannot call the router. Vouchers go out through TapTap Link at the next check-ins.
+        from .agent import push_pending_vouchers
+        queued = push_pending_vouchers(router, limit=25)
+        pending = router.vouchers.filter(source='taptap').exclude(mikrotik_sync_status='Synced').count()
+        job.status, job.progress, job.phase = 'success', 100, 'Handed to TapTap Link'
+        job.summary = {'queued_vouchers': queued, 'waiting_vouchers': pending, 'errors': [],
+                       'note': 'This router uses TapTap Link: vouchers are delivered in batches at each check-in (every few seconds).'}
+        job.finished_at = timezone.now()
+        job.save(update_fields=['status', 'progress', 'phase', 'summary', 'finished_at', 'updated_at'])
+        return job.summary
+
     try:
         summary = sync_router(router, progress=progress)
         warning_count = len(summary.get('errors') or [])
@@ -75,6 +87,11 @@ def sync_router_task(self, job_id):
         job.error = str(exc)
         job.finished_at = now
         job.save(update_fields=['status','phase','error','finished_at','updated_at'])
+        try:
+            from .notify import notify
+            notify(router.business, 'sync_failed', f'Sync failed for {router.name}', f'{router.name}: {str(exc)[:300]}', link='/routers/', key=f'sync:{router.pk}')
+        except Exception:
+            pass
         raise
 
 
@@ -83,3 +100,11 @@ def live_watch_all():
     """Every LIVE_WATCH_SECONDS: quick voucher/session/binding pass over all routers."""
     from .live import watch_all
     watch_all()
+
+
+
+@shared_task(ignore_result=True)
+def deliver_notifications():
+    """Every minute: send instant emails, hourly digests and the morning summary."""
+    from .notify import deliver
+    deliver()

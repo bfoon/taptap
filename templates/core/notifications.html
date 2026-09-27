@@ -1,0 +1,78 @@
+{% extends 'core/base.html' %}
+{% block title %}Email notifications — TapTap{% endblock %}
+{% block heading %}Email notifications{% endblock %}
+{% block extra_head %}<style>
+.nt-top{display:grid;grid-template-columns:1.3fr 1fr;gap:1rem;margin-bottom:1rem}
+.nt-card{background:#fff;border:1px solid var(--border);border-radius:18px;padding:1.1rem 1.2rem}
+.nt-master{display:flex;align-items:center;gap:1rem}
+.nt-master .form-switch .form-check-input{width:3rem;height:1.6rem}
+.nt-to{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.5rem}.nt-to span{background:#eef4ff;color:#1558b8;border-radius:999px;padding:.2rem .6rem;font-size:.76rem;font-weight:700}
+.nt-group{margin-bottom:1rem}.nt-group h4{font-size:.8rem;font-weight:800;color:#8a9aab;text-transform:uppercase;letter-spacing:.05em;margin:0 0 .4rem}
+.nt-ev{display:grid;grid-template-columns:1fr auto;gap:1rem;align-items:center;padding:.65rem 0;border-bottom:1px solid #eef2f6}
+.nt-ev b{font-size:.88rem;display:block}.nt-ev small{color:var(--muted);font-size:.76rem}
+.nt-sev{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:.35rem;vertical-align:middle}
+.nt-sev.critical{background:#d64545}.nt-sev.warning{background:#f59e0b}.nt-sev.info{background:#1769e0}
+.nt-seg{display:inline-flex;background:#f1f5f9;border-radius:10px;padding:.2rem}
+.nt-seg input{display:none}.nt-seg label{padding:.3rem .65rem;border-radius:8px;font-size:.74rem;font-weight:700;color:#51667b;cursor:pointer}
+.nt-seg input:checked+label{background:#fff;color:#102033;box-shadow:0 1px 3px #0001}
+.nt-seg input[value=off]:checked+label{color:#b42323}
+.nt-log td{font-size:.8rem}.nt-st{font-size:.68rem;font-weight:800;border-radius:999px;padding:.12rem .5rem}
+.nt-st.sent{background:#e4f7ee;color:#138453}.nt-st.failed{background:#fdeaea;color:#c02b2b}.nt-st.queued,.nt-st.digest{background:#fff4dc;color:#9a6200}.nt-st.skipped{background:#eef2f6;color:#6c7c90}
+.nt-off .nt-body{opacity:.45;pointer-events:none}
+.nt-save{position:sticky;bottom:.8rem;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:1rem;background:#102033;color:#dbe7f3;border-radius:14px;padding:.6rem .8rem .6rem 1rem;margin-bottom:1rem;box-shadow:0 10px 30px #0b223733;font-size:.84rem}
+@media(max-width:1000px){.nt-top{grid-template-columns:1fr}.nt-ev{grid-template-columns:1fr}}
+</style>{% endblock %}
+{% block content %}
+{% if not configured %}<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> <b>No email server is set up yet</b> — messages are only written to the server log. Add <code>EMAIL_HOST</code>, <code>EMAIL_HOST_USER</code>, <code>EMAIL_HOST_PASSWORD</code> (and <code>EMAIL_PORT</code>) to your <code>.env</code>, then restart. Gmail, Zoho, Outlook and your web host's SMTP all work.</div>{% endif %}
+<form method="post" id="ntForm" class="{% if not s.enabled %}nt-off{% endif %}">{% csrf_token %}
+<div class="nt-top">
+  <section class="nt-card">
+    <div class="nt-master"><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" name="enabled" id="ntEnabled" {% if s.enabled %}checked{% endif %}></div>
+      <div><b>Email notifications are <span id="ntOnOff">{% if s.enabled %}on{% else %}off{% endif %}</span></b><br><small class="text-secondary">Turn everything off here, or choose per event below.</small></div></div>
+    <div class="nt-body mt-3">
+      <label class="form-label small fw-bold">Business email</label>
+      <input class="form-control" type="email" name="business_email" value="{{ current_business.email }}" placeholder="{{ request.user.email }}">
+      <label class="form-label small fw-bold mt-2">Also send to</label>
+      <input class="form-control" name="extra_recipients" value="{{ s.extra_recipients }}" placeholder="manager@example.com, tech@example.com">
+      <div class="nt-to">{% for e in to %}<span><i class="bi bi-envelope"></i> {{ e }}</span>{% empty %}<small class="text-danger">No address yet — add a business email.</small>{% endfor %}</div>
+    </div>
+  </section>
+  <section class="nt-card nt-body">
+    <label class="form-check form-switch"><input class="form-check-input" type="checkbox" name="daily_summary" {% if s.daily_summary %}checked{% endif %}> <span class="form-check-label"><b>Morning summary</b> — yesterday's sales, data, busiest hour, router health</span></label>
+    <div class="d-flex align-items-center gap-2 mt-2"><small>Send at</small><select class="form-select form-select-sm w-auto" name="summary_hour">{% for h in hours %}<option value="{{ h }}" {% if h == s.summary_hour %}selected{% endif %}>{{ h|stringformat:'02d' }}:00</option>{% endfor %}</select></div>
+    <hr>
+    <b class="small">Quiet hours</b><p class="small text-secondary mb-2">Non-critical alerts wait for the next digest. A router going offline still wakes you.</p>
+    <div class="d-flex align-items-center gap-2"><input class="form-control form-control-sm w-auto" type="time" name="quiet_start" value="{{ s.quiet_start|time:'H:i' }}"> <small>to</small> <input class="form-control form-control-sm w-auto" type="time" name="quiet_end" value="{{ s.quiet_end|time:'H:i' }}"></div>
+    <hr>
+    <button type="submit" formaction="{% url 'notifications_test' %}" class="btn btn-sm btn-outline-primary" {% if not to %}disabled{% endif %}><i class="bi bi-send"></i> Send a test email</button>
+  </section>
+</div>
+
+<section class="nt-card nt-body mb-3">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"><h3 class="h6 fw-bold m-0">What to email you about</h3>
+    <div class="d-flex gap-1"><button type="button" class="btn btn-sm btn-light" data-all="instant">All instant</button><button type="button" class="btn btn-sm btn-light" data-all="digest">All in digest</button><button type="button" class="btn btn-sm btn-light" data-all="off">All off</button></div></div>
+  <p class="small text-secondary">Instant: right away (several at once arrive as one email). Digest: bundled into one email per hour. Off: never emailed — it still shows in TapTap.</p>
+  {% for group, events in groups.items %}<div class="nt-group"><h4>{{ group }}</h4>
+    {% for e in events %}<div class="nt-ev"><div><b><span class="nt-sev {{ e.severity }}"></span>{{ e.label }}</b><small>{{ e.help }}</small></div>
+      <div class="nt-seg" role="radiogroup" aria-label="{{ e.label }}">
+        <input type="radio" name="ev_{{ e.key }}" id="{{ e.key }}_i" value="instant" {% if e.mode == 'instant' %}checked{% endif %}><label for="{{ e.key }}_i">Instant</label>
+        <input type="radio" name="ev_{{ e.key }}" id="{{ e.key }}_d" value="digest" {% if e.mode == 'digest' %}checked{% endif %}><label for="{{ e.key }}_d">Digest</label>
+        <input type="radio" name="ev_{{ e.key }}" id="{{ e.key }}_o" value="off" {% if e.mode == 'off' %}checked{% endif %}><label for="{{ e.key }}_o">Off</label></div></div>{% endfor %}
+  </div>{% endfor %}
+</section>
+<div class="nt-save"><span id="ntSaveNote">Changes apply as soon as you save.</span><button class="btn btn-primary">Save notification settings</button></div>
+</form>
+
+<section class="nt-card"><h3 class="h6 fw-bold">Recent notifications</h3>
+  <div class="table-responsive"><table class="table nt-log mb-0"><thead><tr><th>When</th><th>What</th><th>Status</th><th>Sent to</th></tr></thead><tbody>
+  {% for n in recent %}<tr><td class="text-nowrap">{{ n.created_at|date:'d M H:i' }}</td><td><span class="nt-sev {{ n.severity }}"></span>{{ n.subject }}</td><td><span class="nt-st {{ n.status }}" title="{{ n.error }}">{{ n.get_status_display }}</span></td><td><small class="text-secondary">{{ n.recipients|default:n.error|truncatechars:60 }}</small></td></tr>
+  {% empty %}<tr><td colspan="4" class="empty-table">Nothing yet. Notifications appear here as things happen.</td></tr>{% endfor %}
+  </tbody></table></div></section>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById('ntEnabled').addEventListener('change',function(){document.getElementById('ntForm').classList.toggle('nt-off',!this.checked);document.getElementById('ntOnOff').textContent=this.checked?'on':'off';
+  document.getElementById('ntSaveNote').textContent=this.checked?'Save to turn email notifications on.':'Save to stop all email notifications (they still show in TapTap).';});
+document.querySelectorAll('[data-all]').forEach(function(b){b.onclick=function(){document.querySelectorAll('.nt-seg input[value='+b.dataset.all+']').forEach(function(r){r.checked=true;});};});
+</script>
+{% endblock %}

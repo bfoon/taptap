@@ -324,6 +324,10 @@ def _trigger_guard(svc, router, r, speed, now):
     r.times_triggered += 1; r.last_error = ''
     r.save(update_fields=['active', 'triggered_at', 'restore_at', 'scheduler_name', 'times_triggered', 'last_error'])
     push_event(router.business_id, f'Traffic guard: {router.name} {r.interface} reached {speed / 1e6:.1f} Mb/s — {what} for {r.hold_minutes} min', 'bad')
+    from .notify import notify
+    notify(router.business, 'traffic_guard', f'Traffic guard on {router.name} {r.interface}',
+           f'{r.interface} reached {speed / 1e6:.1f} Mb/s and was {what} for {r.hold_minutes} minutes. It is restored automatically.',
+           link='/topology/', key=f'guard:{r.pk}')
 
 
 # ─────────────────────────── reboot & backup ───────────────────────────
@@ -407,6 +411,11 @@ def backup(svc, router, user=None, automatic=False):
             pass
     rec.error = '; '.join(errors)[:255]
     rec.save()
+    from .notify import notify
+    ok = bool(rec.backup_file or rec.export_file)
+    notify(router.business, 'backup_done' if ok else 'backup_failed', f'Backup {"saved" if ok else "failed"} on {router.name}',
+           (f'{rec.backup_file or "no .backup"} and {rec.export_file or "no export"} saved on the router' + ('; the export is also stored in TapTap.' if rec.content else '.'))
+           if ok else f'The backup could not be saved: {rec.error}', link='/topology/')
     type(router).objects.filter(pk=router.pk).update(last_backup_at=timezone.now())
     # keep the latest 30 per router
     old = list(router.backups.order_by('-created_at').values_list('pk', flat=True)[30:])

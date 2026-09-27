@@ -735,6 +735,9 @@ def settings_view(request):
         business.wifi_ssid=f.get('wifi_ssid','').strip()[:80]
         business.hotspot_url=f.get('hotspot_url','').strip()[:200]
         business.support_phone=f.get('support_phone','').strip()[:60]
+        if 'business_email' in f:
+            em=f.get('business_email','').strip()
+            business.email=em if re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+',em) else ''
         business.currency=(f.get('currency','D').strip() or 'D')[:8]
         color=f.get('brand_color','#1769e0').strip()
         if re.fullmatch(r'#[0-9a-fA-F]{6}',color): business.brand_color=color

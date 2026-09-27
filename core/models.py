@@ -18,6 +18,7 @@ class Business(models.Model):
     wifi_ssid=models.CharField(max_length=80,blank=True)
     hotspot_url=models.CharField(max_length=200,blank=True,help_text='e.g. http://wifi.local/login')
     support_phone=models.CharField(max_length=60,blank=True)
+    email=models.EmailField(blank=True,help_text='Business email for notifications (blank = your login email)')
     brand_color=models.CharField(max_length=20,default='#1769e0')
     logo_data=models.TextField(blank=True,help_text='Small logo as a data: URL')
     currency=models.CharField(max_length=8,default='D')
@@ -82,6 +83,7 @@ class Router(models.Model):
     sales_baseline_at=models.DateTimeField(null=True,blank=True)
     last_watch_at=models.DateTimeField(null=True,blank=True)
     auto_backup=models.BooleanField(default=False,help_text='Back up the configuration automatically every night')
+    connection_mode=models.CharField(max_length=10,choices=[('api','Direct API'),('agent','TapTap Link (router connects out)')],default='api')
     last_backup_at=models.DateTimeField(null=True,blank=True)
     created_at=models.DateTimeField(auto_now_add=True)
     def __str__(self): return self.name
@@ -739,6 +741,87 @@ class RouterBackup(models.Model):
     error=models.CharField(max_length=255,blank=True)
     created_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)
     created_at=models.DateTimeField(auto_now_add=True)
+    class Meta: ordering=['-created_at']
+
+
+# ─────────────────────────────── TapTap Link (router agent) ───────────────────────────────
+class RouterAgent(models.Model):
+    """Outbound-only link: the router calls TapTap over HTTPS, so it works behind NAT and firewalls."""
+    router=models.OneToOneField(Router,on_delete=models.CASCADE,related_name='agent')
+    token_hash=models.CharField(max_length=64,unique=True)
+    token_hint=models.CharField(max_length=12,blank=True,help_text='First characters of the token, to recognise it')
+    poll_seconds=models.PositiveSmallIntegerField(default=10)
+    allow_scripts=models.BooleanField(default=False,help_text='Allow custom RouterOS scripts from TapTap (off = only the built-in safe commands)')
+    pinned_ip=models.GenericIPAddressField(null=True,blank=True,help_text='Only accept this public IP (optional)')
+    revoked=models.BooleanField(default=False)
+    created_at=models.DateTimeField(auto_now_add=True)
+    enrolled_at=models.DateTimeField(null=True,blank=True)
+    last_seen_at=models.DateTimeField(null=True,blank=True,db_index=True)
+    last_ip=models.CharField(max_length=64,blank=True)
+    identity=models.CharField(max_length=120,blank=True)
+    ros_version=models.CharField(max_length=60,blank=True)
+    board=models.CharField(max_length=80,blank=True)
+    uptime=models.CharField(max_length=40,blank=True)
+    cpu_load=models.PositiveSmallIntegerField(null=True,blank=True)
+    memory_free=models.BigIntegerField(null=True,blank=True)
+    memory_total=models.BigIntegerField(null=True,blank=True)
+    active_sessions=models.PositiveIntegerField(default=0)
+    polls=models.PositiveBigIntegerField(default=0)
+    def __str__(self): return f'Link for {self.router}'
+    @property
+    def online(self):
+        from datetime import timedelta
+        return bool(self.last_seen_at) and not self.revoked and timezone.now()-self.last_seen_at < timedelta(seconds=max(45,self.poll_seconds*4))
+
+
+class AgentCommand(models.Model):
+    STATUS=[('queued','Waiting for the router'),('sent','Sent to the router'),('done','Done'),('failed','Failed'),('expired','Expired'),('cancelled','Cancelled')]
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='agent_commands')
+    kind=models.CharField(max_length=40)
+    params=models.JSONField(default=dict,blank=True)
+    label=models.CharField(max_length=200,blank=True)
+    status=models.CharField(max_length=12,choices=STATUS,default='queued',db_index=True)
+    attempts=models.PositiveSmallIntegerField(default=0)
+    result=models.TextField(blank=True)
+    created_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True)
+    created_at=models.DateTimeField(auto_now_add=True)
+    sent_at=models.DateTimeField(null=True,blank=True)
+    done_at=models.DateTimeField(null=True,blank=True)
+    expires_at=models.DateTimeField()
+    class Meta:
+        ordering=['created_at']
+        indexes=[models.Index(fields=['router','status'],name='agentcmd_router_status_idx')]
+
+
+# ─────────────────────────────── Email notifications ───────────────────────────────
+class NotificationSettings(models.Model):
+    business=models.OneToOneField(Business,on_delete=models.CASCADE,related_name='notification_settings')
+    enabled=models.BooleanField(default=True)
+    extra_recipients=models.CharField(max_length=500,blank=True,help_text='More addresses, separated by commas')
+    events=models.JSONField(default=dict,blank=True,help_text='event → instant | digest | off')
+    quiet_start=models.TimeField(null=True,blank=True)
+    quiet_end=models.TimeField(null=True,blank=True)
+    daily_summary=models.BooleanField(default=True)
+    summary_hour=models.PositiveSmallIntegerField(default=8)
+    last_digest_at=models.DateTimeField(null=True,blank=True)
+    last_summary_on=models.DateField(null=True,blank=True)
+    unsubscribe_token=models.CharField(max_length=40,blank=True)
+
+
+class Notification(models.Model):
+    STATUS=[('queued','Queued'),('sent','Sent'),('skipped','Not sent (turned off)'),('failed','Failed'),('digest','Waiting for digest')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='notifications')
+    event=models.CharField(max_length=40)
+    severity=models.CharField(max_length=10,default='info')
+    subject=models.CharField(max_length=200)
+    body=models.TextField()
+    link=models.CharField(max_length=300,blank=True)
+    dedupe_key=models.CharField(max_length=200,blank=True,db_index=True)
+    status=models.CharField(max_length=10,choices=STATUS,default='queued',db_index=True)
+    recipients=models.CharField(max_length=600,blank=True)
+    error=models.CharField(max_length=300,blank=True)
+    created_at=models.DateTimeField(auto_now_add=True,db_index=True)
+    sent_at=models.DateTimeField(null=True,blank=True)
     class Meta: ordering=['-created_at']
 
 

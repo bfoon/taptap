@@ -171,6 +171,52 @@ def collect(router, svc, active, now=None):
         cache.set(key, cur, 3600)
 
     # 2) hotspot sessions → per user consumption + "right now"
+    out['user_bytes'] = collect_sessions(router, active, now)
+
+    # 3) apps & sites, once a minute
+    if cache.add(f'tt:tr:app:gate:{router.pk}', 1, APP_EVERY):
+        try:
+            out['apps'] = collect_apps(router, svc, now)
+        except Exception as exc:
+            logger.info('app sampling %s: %s', router, exc)
+    return out
+
+
+def _dns_map(router, svc):
+    key = f'tt:tr:dns:{router.pk}'
+    m = cache.get(key)
+    if m is not None:
+        return m
+    m = {}
+    try:
+        for r in svc.safe_get('/ip/dns/cache'):
+            name = str(r.get('name', ''))
+            addr = str(r.get('address') or (r.get('data') if str(r.get('type', 'A')).upper() in {'A', 'AAAA'} else '') or '')
+            if name and addr and addr not in m:
+                m[addr] = name.rstrip('.')
+    except Exception as exc:
+        logger.info('dns cache %s: %s', router, exc)
+    cache.set(key, m, 600)
+    return m
+
+
+def _connections(svc):
+    res = svc.resource('/ip/firewall/connection')
+    try:
+        rows = res.call('print', {'.proplist': '.id,src-address,dst-address,reply-src-address,protocol,orig-bytes,repl-bytes'})
+        if rows is not None:
+            return rows
+    except Exception:
+        pass
+    return res.get() or []
+
+
+def collect_sessions(router, active, now=None):
+    """Per-user consumption and the "right now" list from hotspot session counters.
+    Used by live sync (API routers) and TapTap Link (routers behind NAT). Returns bytes counted."""
+    now = now or timezone.now()
+    bucket, hour = floor_bucket(now), floor_hour(now)
+    ts = now.timestamp()
     skey = f'tt:tr:ss:{router.pk}'
     prev = cache.get(skey) or {}
     cur, per_user, now_list = {}, defaultdict(lambda: [0, 0, 0]), []
@@ -210,47 +256,10 @@ def collect(router, svc, active, now=None):
             UsageRecord.objects.filter(pk=obj.pk).update(download=F('download') + dn, upload=F('upload') + up, peak_bps=Greatest('peak_bps', peak))
     if tot_down or tot_up:
         _add_sample(router, '*users', bucket, tot_down, tot_up, int(tot_down * 8 / dt_all) if dt_all else 0, int(tot_up * 8 / dt_all) if dt_all else 0)
-    out['user_bytes'] = tot_down + tot_up
     now_list.sort(key=lambda x: -(x['down_bps'] + x['up_bps']))
     cache.set(f'tt:tr:now:{router.pk}', {'at': now.isoformat(), 'sessions': now_list[:25], 'count': len(now_list),
                                          'down_bps': sum(x['down_bps'] for x in now_list), 'up_bps': sum(x['up_bps'] for x in now_list)}, 600)
-
-    # 3) apps & sites, once a minute
-    if cache.add(f'tt:tr:app:gate:{router.pk}', 1, APP_EVERY):
-        try:
-            out['apps'] = collect_apps(router, svc, now)
-        except Exception as exc:
-            logger.info('app sampling %s: %s', router, exc)
-    return out
-
-
-def _dns_map(router, svc):
-    key = f'tt:tr:dns:{router.pk}'
-    m = cache.get(key)
-    if m is not None:
-        return m
-    m = {}
-    try:
-        for r in svc.safe_get('/ip/dns/cache'):
-            name = str(r.get('name', ''))
-            addr = str(r.get('address') or (r.get('data') if str(r.get('type', 'A')).upper() in {'A', 'AAAA'} else '') or '')
-            if name and addr and addr not in m:
-                m[addr] = name.rstrip('.')
-    except Exception as exc:
-        logger.info('dns cache %s: %s', router, exc)
-    cache.set(key, m, 600)
-    return m
-
-
-def _connections(svc):
-    res = svc.resource('/ip/firewall/connection')
-    try:
-        rows = res.call('print', {'.proplist': '.id,src-address,dst-address,reply-src-address,protocol,orig-bytes,repl-bytes'})
-        if rows is not None:
-            return rows
-    except Exception:
-        pass
-    return res.get() or []
+    return tot_down + tot_up
 
 
 def collect_apps(router, svc, now):

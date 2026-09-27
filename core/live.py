@@ -94,6 +94,9 @@ def fix_incident(incident, svc=None, user=None, by='user'):
         msg = f'{"Auto-fixed" if by == "auto" else "Fixed"}: disconnected {incident.username} on {incident.router.name} ({incident.get_reason_display().lower()})'
         log(incident.business, 'Session Enforced', msg)
         push_event(incident.business_id, msg, 'fix')
+        if by == 'auto':
+            from .notify import notify
+            notify(incident.business, 'session_enforced', f'Expired voucher disconnected on {incident.router.name}', msg, link='/security/#incidents')
         return True, msg
     except Exception as exc:
         incident.error = str(exc)[:255]
@@ -119,6 +122,9 @@ def watch_router(router, force=False):
         if router.status != 'Offline':
             Router.objects.filter(pk=router.pk).update(status='Offline', last_error=str(exc)[:2000], last_tested_at=now)
             push_event(business.pk, f'{router.name} went offline', 'bad')
+            from .notify import notify
+            notify(business, 'router_offline', f'{router.name} is offline', f'TapTap cannot reach {router.name}: {str(exc)[:240]}',
+                   severity='critical', link='/routers/', key=f'router:{router.pk}:offline')
         cache.delete(lock)
         return {**summary, 'error': str(exc)[:300]}
     try:
@@ -322,6 +328,9 @@ def watch_router(router, force=False):
         if router.status != 'Online':
             updates.update(status='Online', last_error='')
             push_event(business.pk, f'{router.name} is back online', 'good')
+            if router.status == 'Offline':
+                from .notify import notify
+                notify(business, 'router_online', f'{router.name} is back online', f'{router.name} answers again.', key=f'router:{router.pk}:online')
         if not baseline:
             updates['sales_baseline_at'] = now
         Router.objects.filter(pk=router.pk).update(**updates)
@@ -357,7 +366,7 @@ def watch_business(business, force=False):
     if not business.live_sync and not force:
         return []
     ids = []
-    for r in business.routers.all():
+    for r in business.routers.exclude(connection_mode='agent'):  # Link routers report in by themselves
         # Offline routers are retried once a minute, not every pass.
         if r.status == 'Offline' and not force and not cache.add(f'tt:watch:retry:{r.pk}', 1, 60):
             continue
@@ -385,6 +394,11 @@ def watch_all():
                 prune()
             except Exception as exc:
                 logger.info('traffic prune: %s', exc)
+        try:
+            from .agent import check_offline_agents
+            check_offline_agents()
+        except Exception as exc:
+            logger.info('link heartbeat check: %s', exc)
         results = []
         for business in Business.objects.filter(live_sync=True, routers__isnull=False).distinct():
             if not business.has_access:

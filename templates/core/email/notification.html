@@ -1,0 +1,48 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ heading }}</title></head>
+<body style="margin:0;padding:0;background:#f3f6fa;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#102033">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f6fa;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:580px">
+  <tr><td style="padding:0 4px 14px"><table role="presentation" cellpadding="0" cellspacing="0"><tr>
+    <td style="width:34px;height:34px;border-radius:9px;background:#1769e0;color:#fff;font-weight:800;text-align:center;font-size:15px">T</td>
+    <td style="padding-left:10px;font-weight:800;font-size:16px">{{ business.business_name }} <span style="color:#8a9aab;font-weight:600">· TapTap</span></td></tr></table></td></tr>
+  <tr><td style="background:#ffffff;border:1px solid #e3e9f1;border-radius:16px;padding:22px 22px 8px">
+    <h1 style="margin:0 0 6px;font-size:20px;line-height:1.3">{{ heading }}</h1>
+    {% if intro %}<p style="margin:0 0 14px;color:#51667b;font-size:14px">{{ intro }}</p>{% endif %}
+
+    {% if summary %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:6px 0 14px">
+      <tr>
+        <td style="background:#102033;color:#fff;border-radius:12px;padding:14px"><div style="font-size:12px;color:#9fb3c8">Sales yesterday</div>
+          <div style="font-size:24px;font-weight:800">{{ summary.currency }}{{ summary.sales|floatformat:0 }}</div>
+          <div style="font-size:12px;color:#9fb3c8">{{ summary.sales_count }} voucher{{ summary.sales_count|pluralize }}{% if summary.vs_last_week is not None %} · {% if summary.vs_last_week >= 0 %}▲{% else %}▼{% endif %} {{ summary.vs_last_week }}% vs last week{% endif %}</div></td>
+      </tr>
+    </table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;margin-bottom:12px">
+      {% if summary.top_plan %}<tr><td style="padding:7px 0;border-bottom:1px solid #eef2f6;color:#51667b">Best-selling plan</td><td align="right" style="padding:7px 0;border-bottom:1px solid #eef2f6;font-weight:700">{{ summary.top_plan.plan_name }} ({{ summary.top_plan.c }})</td></tr>{% endif %}
+      <tr><td style="padding:7px 0;border-bottom:1px solid #eef2f6;color:#51667b">Data used by customers</td><td align="right" style="padding:7px 0;border-bottom:1px solid #eef2f6;font-weight:700">{{ summary.data_gb }} GB · {{ summary.users }} users</td></tr>
+      {% if summary.peak %}<tr><td style="padding:7px 0;border-bottom:1px solid #eef2f6;color:#51667b">Busiest hour</td><td align="right" style="padding:7px 0;border-bottom:1px solid #eef2f6;font-weight:700">{{ summary.peak }}</td></tr>{% endif %}
+      <tr><td style="padding:7px 0;border-bottom:1px solid #eef2f6;color:#51667b">Routers online</td><td align="right" style="padding:7px 0;border-bottom:1px solid #eef2f6;font-weight:700;color:{% if summary.offline_routers %}#d64545{% else %}#18a66a{% endif %}">{{ summary.routers_online }} of {{ summary.routers }}{% if summary.offline_routers %} — {{ summary.offline_routers|join:', ' }} offline{% endif %}</td></tr>
+      <tr><td style="padding:7px 0;border-bottom:1px solid #eef2f6;color:#51667b">Devices that dropped off</td><td align="right" style="padding:7px 0;border-bottom:1px solid #eef2f6;font-weight:700">{{ summary.device_alerts }}</td></tr>
+      <tr><td style="padding:7px 0;color:#51667b">Expired vouchers disconnected</td><td align="right" style="padding:7px 0;font-weight:700">{{ summary.enforced }}</td></tr>
+    </table>
+    {% endif %}
+
+    {% for it in items %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 12px;border:1px solid #e8edf3;border-left:4px solid {% if it.severity == 'critical' %}#d64545{% elif it.severity == 'warning' %}#f59e0b{% elif it.severity == 'good' %}#18a66a{% else %}#1769e0{% endif %};border-radius:12px">
+      <tr><td style="padding:12px 14px">
+        <div style="font-size:11px;font-weight:700;color:#8a9aab;text-transform:uppercase;letter-spacing:.04em">{{ it.label }} · {{ it.when|date:'D d M, H:i' }}</div>
+        <div style="font-size:15px;font-weight:800;margin:3px 0 4px">{{ it.subject }}</div>
+        <div style="font-size:14px;color:#3d5166;line-height:1.5">{{ it.body }}</div>
+        {% if it.link %}<div style="margin-top:8px"><a href="{{ it.link }}" style="color:#1769e0;font-weight:700;font-size:13px;text-decoration:none">Open in TapTap →</a></div>{% endif %}
+      </td></tr>
+    </table>
+    {% endfor %}
+    {% if site %}<p style="margin:6px 0 16px"><a href="{{ site }}/dashboard/" style="display:inline-block;background:#1769e0;color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:10px 16px;border-radius:10px">Open TapTap</a></p>{% endif %}
+  </td></tr>
+  <tr><td style="padding:14px 6px;color:#8a9aab;font-size:12px;line-height:1.5;text-align:center">
+    You get this because email notifications are on for {{ business.business_name }}.<br>
+    <a href="{{ manage_url }}" style="color:#51667b">Choose which emails you get</a> · <a href="{{ unsubscribe_url }}" style="color:#51667b">Turn off all emails</a>
+  </td></tr>
+</table></td></tr></table>
+</body></html>
