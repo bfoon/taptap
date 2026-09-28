@@ -21,7 +21,7 @@
 <div class="panel">
   <form class="d-flex gap-2 mb-3" method="get">
     <input type="hidden" name="tab" value="{{ tab }}">
-    <input class="form-control form-control-sm" style="max-width:320px" name="q" value="{{ q }}" placeholder="Search code, plan, batch or reason" aria-label="Search the bin">
+    <input class="form-control form-control-sm" style="max-width:320px" name="q" value="{{ q }}" placeholder="Code, plan, batch or reason · C* *C *C*" title="Use * in a code: C* starts with C, *C ends with C, *C* contains C" aria-label="Search the bin">
     <button class="btn btn-sm btn-outline-secondary">Search</button>{% if q %}<a class="btn btn-sm btn-link" href="?tab={{ tab }}">Clear</a>{% endif %}
   </form>
 

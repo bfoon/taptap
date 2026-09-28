@@ -32,7 +32,7 @@ from .mikrotik import MikroTikService, MikroTikError, redact
 from .sync import sync_router, refresh_router_topology, snapshot_from_database
 from .tasks import enqueue_router_sync
 from .utils import (generate_codes, code_format_from_post, code_format_ctx, describe_format, portal_code_length, CodeFormatError,
-                    duration_to_routeros, log)
+                    duration_to_routeros, log, code_search_q)
 from .portal_deploy import default_pages
 
 import logging
@@ -124,7 +124,7 @@ def vouchers(request):
     if holder=='shop': qs=qs.filter(agent__isnull=True)
     elif holder=='individual': qs=qs.filter(batch__isnull=True,source='taptap')
     elif holder.isdigit(): qs=qs.filter(agent_id=holder)
-    if q: qs=qs.filter(Q(code__icontains=q)|Q(batch__name__icontains=q)|Q(customer_name__icontains=q)|Q(customer_phone__icontains=q))
+    if q: qs=qs.filter(code_search_q(q,'code',('batch__name','customer_name','customer_phone')))
     counts=business.vouchers.aggregate(all=Count('id'),unsold=Count('id',filter=Q(status='active',sold_at__isnull=True,used_at__isnull=True)),
         sold=Count('id',filter=Q(sold_at__isnull=False,used_at__isnull=True)),used=Count('id',filter=Q(used_at__isnull=False)),disabled=Count('id',filter=~Q(status='active')))
     params=request.GET.copy();params.pop('page',None)

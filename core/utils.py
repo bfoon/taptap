@@ -153,3 +153,29 @@ def code_format_from_post(post, business):
     """Validated code format from a submitted form (raises CodeFormatError)."""
     return code_format(post.get('code_length') or None, post.get('code_charset', 'mixed'),
                        post.get('code_prefix', ''), post.get('code_suffix', ''), business)
+
+
+# ─────────────────────────── Voucher search ───────────────────────────
+def code_search_q(q, field='code', others=()):
+    """Search filter with * wildcards on the voucher code (case-insensitive):
+         C*   codes that START with C       *C   codes that END with C
+         *C*  codes that CONTAIN C          C*9  start with C and end with 9
+    Without a * it is the usual "contains" search over the code and `others`
+    (batch name, customer…). Spaces and dashes are ignored, as at login."""
+    from django.db.models import Q
+    q = (q or '').strip()
+    if '*' not in q:
+        cond = Q(**{f'{field}__icontains': q})
+        for f in others:
+            cond |= Q(**{f'{f}__icontains': q})
+        return cond
+    pattern = re.sub(r'[\s-]', '', q)
+    pattern = re.sub(r'\*+', '*', pattern)
+    if pattern.strip('*') == '':
+        return Q()                     # just "*": everything
+    regex = '^' + '.*'.join(re.escape(part) for part in pattern.split('*')) + '$'
+    return Q(**{f'{field}__iregex': regex})
+
+
+def is_wildcard(q):
+    return '*' in (q or '')

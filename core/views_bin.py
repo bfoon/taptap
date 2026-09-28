@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
 from .models import Voucher, VoucherBatch
+from .utils import code_search_q
 from .voucher_bin import BinError, delete_batch, delete_vouchers
 
 
@@ -102,7 +103,7 @@ def voucher_bin(request):
     batches = (VoucherBatch.all_objects.binned().filter(business=business)
                .select_related('deleted_by', 'plan', 'agent').order_by('-deleted_at'))
     if q:
-        vouchers = vouchers.filter(Q(code__icontains=q) | Q(plan_name__icontains=q) | Q(delete_reason__icontains=q) | Q(batch__name__icontains=q))
+        vouchers = vouchers.filter(code_search_q(q, 'code', ('plan_name', 'delete_reason', 'batch__name')))
         batches = batches.filter(Q(name__icontains=q) | Q(delete_reason__icontains=q))
     counts = {'vouchers': vouchers.count(), 'batches': batches.count()}
     page = Paginator(vouchers if tab == 'vouchers' else batches, 50).get_page(request.GET.get('page'))
