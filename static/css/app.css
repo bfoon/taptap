@@ -43,3 +43,6 @@
 /* v5 — every long list scrolls inside its own box, like Topology's device lists */
 .scroll-list.scroll-short{max-height:min(40vh,360px)}
 .vd-tl.scroll-list{padding-right:.5rem}
+
+/* Rows inside a scrolling list keep their natural height (flex lists such as Security findings were squashed) */
+.scroll-list>*{flex-shrink:0}
