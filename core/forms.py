@@ -54,6 +54,10 @@ class PlanForm(forms.ModelForm):
    try: data['duration_minutes']=to_minutes(data.get('duration_value'),data.get('duration_unit'))
    except ValueError as e: self.add_error('duration_value',str(e))
   if data.get('is_free') or data.get('price') is None: data['price']=0
+  name=(data.get('name') or '').strip()
+  biz=getattr(self.instance,'business',None) if self.instance.business_id else None
+  if name and biz and VoucherPlan.objects.filter(business=biz,name__iexact=name).exclude(pk=self.instance.pk).exists():
+   self.add_error('name','You already have a plan with this name.')  # deleted plans don't count
   return data
  def save(self,commit=True):
   obj=super().save(commit=False)

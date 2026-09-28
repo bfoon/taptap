@@ -34,7 +34,8 @@ def _roles_you_can_assign(request):
 
 def _extras_you_can_grant(request):
     """Owners may add any extra permission except billing; admins only what they have, minus team management."""
-    blocked = {'subscription.manage'} | (set() if _is_owner(request) else {'team.manage'})
+    # Deleting plans with used vouchers stays with Owner and Admin: it is never handed out as an extra.
+    blocked = {'subscription.manage', 'plans.delete_used'} | (set() if _is_owner(request) else {'team.manage'})
     return [(k, v) for k, v in PERMISSIONS.items() if k not in blocked and k in request.tt_perms]
 
 

@@ -6,9 +6,9 @@ from django.db.models import Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from .models import Voucher, VoucherBatch
+from .models import Voucher, VoucherBatch, VoucherPlan
 from .utils import code_search_q
-from .voucher_bin import BinError, delete_batch, delete_vouchers
+from .voucher_bin import BinError, delete_batch, delete_plan, delete_vouchers
 
 
 def _b(request): return request.user.business
@@ -93,19 +93,41 @@ def batch_delete(request, pk):
 
 
 @login_required
+@require_POST
+def plan_delete(request, pk):
+    business = _b(request)
+    plan = get_object_or_404(business.plans, pk=pk)
+    try:
+        s = delete_plan(plan, user=request.user, reason=request.POST.get('reason', ''), perms=getattr(request, 'tt_perms', frozenset()))
+    except BinError as e:
+        messages.error(request, str(e)); return redirect('plans')
+    _report(request, s, f'unused voucher(s) of {plan.name}')
+    msg = f'Plan {plan.name} is in the bin.'
+    if s['kept_used']:
+        msg += f' Its {s["kept_used"]} used voucher(s) stay as history and keep working until their time runs out.'
+    if s['batches_binned']:
+        msg += f' {len(s["batches_binned"])} empty batch(es) went to the bin with it.'
+    messages.success(request, msg)
+    from .portal_deploy import schedule_redeploy; schedule_redeploy(business)
+    return redirect('plans')
+
+
+@login_required
 def voucher_bin(request):
     """Everything deleted: read-only. Nothing here can be deleted again or restored."""
     business = _b(request)
-    tab = 'batches' if request.GET.get('tab') == 'batches' else 'vouchers'
+    tab = request.GET.get('tab') if request.GET.get('tab') in ('batches', 'plans') else 'vouchers'
     q = request.GET.get('q', '').strip()
     vouchers = (Voucher.all_objects.binned().filter(business=business)
                 .select_related('deleted_by', 'router', 'batch').order_by('-deleted_at'))
     batches = (VoucherBatch.all_objects.binned().filter(business=business)
                .select_related('deleted_by', 'plan', 'agent').order_by('-deleted_at'))
+    plans = VoucherPlan.all_objects.binned().filter(business=business).select_related('deleted_by').order_by('-deleted_at')
     if q:
         vouchers = vouchers.filter(code_search_q(q, 'code', ('plan_name', 'delete_reason', 'batch__name')))
         batches = batches.filter(Q(name__icontains=q) | Q(delete_reason__icontains=q))
-    counts = {'vouchers': vouchers.count(), 'batches': batches.count()}
-    page = Paginator(vouchers if tab == 'vouchers' else batches, 50).get_page(request.GET.get('page'))
+        plans = plans.filter(Q(name__icontains=q) | Q(delete_reason__icontains=q))
+    counts = {'vouchers': vouchers.count(), 'batches': batches.count(), 'plans': plans.count()}
+    page = Paginator({'vouchers': vouchers, 'batches': batches, 'plans': plans}[tab], 50).get_page(request.GET.get('page'))
     return render(request, 'core/voucher_bin.html', {'tab': tab, 'q': q, 'page_obj': page, 'counts': counts,
                                                      'pending': Voucher.all_objects.binned().filter(business=business, router_removal__in=['queued', 'failed']).count()})

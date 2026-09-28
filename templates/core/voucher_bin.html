@@ -3,7 +3,7 @@
 {% block content %}{% with c=current_business.currency %}
 <div class="page-actions">
   <div>
-    <h2 class="section-title">Deleted vouchers and batches</h2>
+    <h2 class="section-title">Deleted vouchers, batches and plans</h2>
     <p>A permanent, read-only record. Items here are off your routers and out of your voucher and finance reports.
        They cannot be deleted again or restored, and their codes are never issued again.</p>
   </div>
@@ -16,6 +16,7 @@
 <nav class="fin-tabs">
   <a href="?tab=vouchers{% if q %}&q={{ q|urlencode }}{% endif %}" class="{% if tab == 'vouchers' %}on{% endif %}">Vouchers <span class="count">{{ counts.vouchers }}</span></a>
   <a href="?tab=batches{% if q %}&q={{ q|urlencode }}{% endif %}" class="{% if tab == 'batches' %}on{% endif %}">Batches <span class="count">{{ counts.batches }}</span></a>
+  <a href="?tab=plans{% if q %}&q={{ q|urlencode }}{% endif %}" class="{% if tab == 'plans' %}on{% endif %}">Plans <span class="count">{{ counts.plans }}</span></a>
 </nav>
 
 <div class="panel">
@@ -53,6 +54,26 @@
         </tr>
       {% endwith %}{% empty %}
         <tr><td colspan="8" class="empty-table">{% if q %}Nothing in the bin matches “{{ q }}”.{% else %}The bin is empty.{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% elif tab == 'plans' %}
+    <table class="table align-middle">
+      <thead><tr><th>Plan</th><th>Price / length</th><th>Vouchers</th><th>Sales removed</th><th>Router profile</th><th>Deleted</th><th>Reason</th></tr></thead>
+      <tbody>
+      {% for x in page_obj %}{% with i=x.delete_info %}
+        <tr class="text-secondary">
+          <td><b class="text-decoration-line-through">{{ x.name }}</b><small class="d-block">{{ x.get_source_display }} plan</small></td>
+          <td>{% if i.free %}Free{% else %}{{ c }}{{ i.price }}{% endif %}<small class="d-block">{{ i.duration }} · {{ i.devices }} device{{ i.devices|pluralize }}</small></td>
+          <td>{{ i.vouchers_deleted|default:0 }} unused deleted<small class="d-block">{{ i.used_kept|default:0 }} used kept as history</small>
+            {% if i.vouchers_deleted %}<a class="d-block small" href="?tab=vouchers&q={{ x.name|urlencode }}">See deleted vouchers</a>{% endif %}</td>
+          <td>{% if i.sales_removed %}{{ i.sales_removed }} · <b class="text-dark">{{ c }}{{ i.sales_amount }}</b>{% else %}—{% endif %}</td>
+          <td>{% if i.profile %}{{ i.profile }}<small class="d-block">left on {{ i.router|default:'the router' }}</small>{% else %}—{% endif %}</td>
+          <td class="text-nowrap">{{ x.deleted_at|date:'d M Y H:i' }}<small class="d-block">{{ x.deleted_by.get_full_name|default:x.deleted_by.username|default:'—' }}</small></td>
+          <td style="max-width:260px">{{ x.delete_reason }}</td>
+        </tr>
+      {% endwith %}{% empty %}
+        <tr><td colspan="7" class="empty-table">{% if q %}No deleted plan matches “{{ q }}”.{% else %}No deleted plans.{% endif %}</td></tr>
       {% endfor %}
       </tbody>
     </table>

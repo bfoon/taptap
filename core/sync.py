@@ -161,6 +161,10 @@ def _profile_to_plan(router, row, summary, now):
         },
     )
     plan = VoucherPlan.objects.filter(business=router.business, name__iexact=name).first()
+    if not plan and VoucherPlan.all_objects.binned().filter(business=router.business, name__iexact=name).exists():
+        # Deleted in TapTap: the profile stays on the router for vouchers in use, but it is not imported back.
+        summary['deleted_plans_skipped'] = summary.get('deleted_plans_skipped', 0) + 1
+        return None
     if plan:
         summary['duplicate_plans_skipped'] += 1
         # A MikroTik-imported plan follows RouterOS; a native TapTap plan keeps its commercial settings.

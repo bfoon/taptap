@@ -306,7 +306,7 @@ def batches(request):
 
 @login_required
 def plans(request):
-    business=b(request);form=PlanForm(request.POST or None)
+    business=b(request);form=PlanForm(request.POST or None,instance=VoucherPlan(business=business))
     if request.method=='POST' and form.is_valid():
         obj=form.save(commit=False);obj.business=business;obj.source='taptap';obj.price_source='manual';obj.save();messages.success(request,'Plan saved.')
         from .portal_deploy import schedule_redeploy; schedule_redeploy(business)
@@ -314,7 +314,13 @@ def plans(request):
     plan_list=list(business.plans.select_related('imported_from_router').all().order_by('price','name'))
     zero=business.vouchers.filter(price=0,sold_at__isnull=True).values('plan_name').annotate(n=Count('id'))
     zero_map={r['plan_name']:r['n'] for r in zero}
-    for p in plan_list: p.zero_vouchers=zero_map.get(p.name,0)
+    usage={r['plan_name']:r for r in business.vouchers.values('plan_name').annotate(total=Count('id'),used=Count('id',filter=Q(used_at__isnull=False)),
+        unused=Count('id',filter=Q(used_at__isnull=True)),sold_unused=Count('id',filter=Q(used_at__isnull=True,sold_at__isnull=False)))}
+    perms=getattr(request,'tt_perms',frozenset())
+    for p in plan_list:
+        p.zero_vouchers=zero_map.get(p.name,0); u=usage.get(p.name,{})
+        p.v_total,p.v_used,p.v_unused,p.v_sold_unused=u.get('total',0),u.get('used',0),u.get('unused',0),u.get('sold_unused',0)
+        p.can_delete=not p.v_used or 'plans.delete_used' in perms
     return render(request,'core/plans.html',{'plans':plan_list,'form':form,'missing':[p for p in plan_list if not p.price and not p.is_free]})
 
 

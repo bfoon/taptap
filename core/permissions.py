@@ -19,7 +19,8 @@ PERMISSIONS = {
     'vouchers.create': 'Generate vouchers, single vouchers, assign batches, print',
     'vouchers.support': 'Voucher support: enable/disable, reset MAC, active users, missing-voucher reports',
     'vouchers.manage': 'Change voucher codes, delete unused vouchers and batches (to the bin) and expired vouchers',
-    'plans.manage': 'Create and edit plans and prices',
+    'plans.manage': 'Create and edit plans and prices; delete plans whose vouchers were never used (to the bin)',
+    'plans.delete_used': 'Delete plans whose vouchers have been used (to the bin) — Owner and Admin only',
     'reports.view': 'Voucher & sales reports',
     'finance.view': 'Full finance: overview, sales, expenses, profit & loss',
     'finance.manage': 'Record/void sales, expenses, agents and finance settings',
@@ -33,6 +34,8 @@ PERMISSIONS = {
     'subscription.manage': 'Pay for / renew the TapTap subscription',
 }
 ALL_PERMISSIONS = frozenset(PERMISSIONS)
+# Permissions that only come with a role, never as an extra on top of one.
+NEVER_EXTRA = frozenset({'plans.delete_used'})
 
 # ── roles ───────────────────────────────────────────────────────────────────
 # (label, description, permissions, landing url name)
@@ -77,7 +80,7 @@ URL_PERMS = {
     'voucher_freeze': 'vouchers.support', 'vouchers_freeze': 'vouchers.manage', 'batch_freeze': 'vouchers.manage',
     'shared_resolve': 'vouchers.support', 'shared_settings': 'vouchers.manage', 'vouchers_delete': 'vouchers.manage', 'batch_delete': 'vouchers.manage',
     'voucher_bin': 'vouchers.view',
-    'plans': 'plans.manage', 'plan_update': 'plans.manage',
+    'plans': 'plans.manage', 'plan_update': 'plans.manage', 'plan_delete': 'plans.manage',
     'reports': 'reports.view', 'reports_data': 'reports.view', 'reports_export': 'reports.view',
     'finance': ('finance.view', 'finance.agents'), 'finance_export': ('finance.view', 'finance.agents'),
     'agent_detail': ('agents.view', 'finance.view'),
@@ -107,7 +110,7 @@ LANDING_ORDER = ['dashboard', 'sales_daily', 'reports', 'finance', 'vouchers', '
 
 def role_permissions(role, extra=()):
     base = ROLES.get(role, ROLES['viewer'])[2]
-    return frozenset(base) | (frozenset(extra or ()) & ALL_PERMISSIONS)
+    return frozenset(base) | ((frozenset(extra or ()) & ALL_PERMISSIONS) - NEVER_EXTRA)
 
 
 def allowed(perms, url_name):

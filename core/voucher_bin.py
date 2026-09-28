@@ -64,7 +64,7 @@ def _snapshot(v, sale, currency):
     return {k: val for k, val in info.items() if val not in ('', None)}
 
 
-def delete_vouchers(business, vouchers, user=None, reason='', via_batch=None):
+def delete_vouchers(business, vouchers, user=None, reason='', via_batch=None, via_plan=None):
     """Move the unused vouchers among `vouchers` to the bin and off their routers.
 
     Returns a summary dict: deleted, skipped (with reasons), sales_removed, sales_amount, router (per-router messages)."""
@@ -100,6 +100,8 @@ def delete_vouchers(business, vouchers, user=None, reason='', via_batch=None):
             info = _snapshot(v, sale, business.currency)
             if via_batch is not None:
                 info['deleted_with_batch'] = via_batch.name
+            if via_plan is not None:
+                info['deleted_with_plan'] = via_plan.name
             if sale:
                 summary['sales_removed'] += 1
                 summary['sales_amount'] += float(sale.amount)
@@ -121,7 +123,8 @@ def delete_vouchers(business, vouchers, user=None, reason='', via_batch=None):
             events.append(VoucherEvent(business=business, voucher=v, voucher_code=v.code, event='deleted', source='user',
                                        user=user if getattr(user, 'is_authenticated', False) else None, reason=reason,
                                        status_before=before, status_after='deleted',
-                                       detail={'text': 'Moved to the bin' + (f' with batch {via_batch.name}' if via_batch else ''),
+                                       detail={'text': 'Moved to the bin' + (f' with batch {via_batch.name}' if via_batch else '')
+                                               + (f' with plan {via_plan.name}' if via_plan else ''),
                                                'plan': v.plan_name, 'price': str(v.price)}))
             summary['deleted'] += 1
             if v.router_id:
@@ -135,7 +138,7 @@ def delete_vouchers(business, vouchers, user=None, reason='', via_batch=None):
         summary['router'].append((router.name, ok, msg))
 
     from .utils import log
-    what = f'batch {via_batch.name}: ' if via_batch else ''
+    what = f'batch {via_batch.name}: ' if via_batch else (f'plan {via_plan.name}: ' if via_plan else '')
     log(business, 'Voucher Deleted', f'{what}{summary["deleted"]} voucher(s) to the bin — {reason}')
     return summary
 
@@ -162,6 +165,84 @@ def delete_batch(batch, user=None, reason=''):
         batch.save(update_fields=['deleted_at', 'deleted_by', 'delete_reason', 'delete_info'])
         summary['batch_binned'] = True
     summary['kept_used'] = left
+    return summary
+
+
+# ─────────────────────────────── plans ───────────────────────────────
+
+def plan_usage(plan):
+    """What deleting this plan would touch (live vouchers only)."""
+    from django.db.models import Count, Q, Sum
+    vs = Voucher.objects.filter(business=plan.business, plan_name=plan.name)
+    c = vs.aggregate(total=Count('pk'), used=Count('pk', filter=Q(used_at__isnull=False)),
+                     unused=Count('pk', filter=Q(used_at__isnull=True)),
+                     sold_unused=Count('pk', filter=Q(used_at__isnull=True, sold_at__isnull=False)))
+    c['sales_at_risk'] = VoucherSale.objects.filter(voucher__in=vs.filter(used_at__isnull=True)).aggregate(v=Sum('amount'))['v'] or 0
+    c['batches'] = plan.voucherbatch_set.count()
+    return c
+
+
+def can_delete_plan(plan, perms):
+    """(allowed, reason). Plans whose vouchers were never used: anyone who manages plans.
+    Plans with used vouchers: Owner and Admin only ('plans.delete_used')."""
+    if plan.deleted_at:
+        return False, 'This plan is already in the bin.'
+    if 'plans.manage' not in perms:
+        return False, 'Your role cannot delete plans.'
+    used = Voucher.objects.filter(business=plan.business, plan_name=plan.name, used_at__isnull=False).exists()
+    if used and 'plans.delete_used' not in perms:
+        return False, 'Vouchers of this plan have been used — only an Owner or Admin can delete it.'
+    return True, ''
+
+
+def delete_plan(plan, user=None, reason='', perms=frozenset()):
+    """Move a plan to the bin.
+
+    * Its UNUSED vouchers go to the bin too (and off the routers); if they were sold, the sale leaves finance.
+    * USED vouchers stay exactly as they are — they are real history, keep their plan name and keep working
+      until their own time runs out.
+    * Batches of the plan that end up with no voucher left go to the bin as well.
+    * The HotSpot profile stays on the router (vouchers in use still depend on it); a router sync will not
+      import it back as a plan while it is in the bin.
+    """
+    reason = (reason or '').strip()[:255]
+    if not reason:
+        raise BinError('Give a reason for deleting — it is kept with the plan in the bin.')
+    ok, why = can_delete_plan(plan, perms)
+    if not ok:
+        raise BinError(why)
+    business = plan.business
+    usage = plan_usage(plan)
+    unused = list(Voucher.objects.filter(business=business, plan_name=plan.name, used_at__isnull=True)
+                  .select_related('router', 'agent', 'batch'))
+    summary = {'deleted': 0, 'skipped': [], 'sales_removed': 0, 'sales_amount': 0, 'router': []}
+    if unused:
+        summary = delete_vouchers(business, unused, user=user, reason=reason, via_plan=plan)
+    now = timezone.now()
+    who = user if getattr(user, 'is_authenticated', False) else None
+    binned_batches = []
+    for batch in VoucherBatch.objects.filter(business=business, plan=plan):
+        if not batch.vouchers.exists():
+            batch.deleted_at, batch.deleted_by = now, who
+            batch.delete_reason = reason
+            batch.delete_info = {'plan': plan.name, 'deleted_with_plan': plan.name, 'quantity': batch.quantity,
+                                 'agent': batch.agent.name if batch.agent_id and batch.agent else ''}
+            batch.save(update_fields=['deleted_at', 'deleted_by', 'delete_reason', 'delete_info'])
+            binned_batches.append(batch.name)
+    kept = Voucher.objects.filter(business=business, plan_name=plan.name).count()
+    plan.deleted_at, plan.deleted_by, plan.delete_reason, plan.active = now, who, reason, False
+    plan.delete_info = {
+        'price': str(plan.price), 'free': plan.is_free, 'duration': plan.duration_text, 'devices': plan.max_devices,
+        'speed': plan.speed_limit, 'source': plan.source, 'profile': plan.mikrotik_profile_name,
+        'router': plan.imported_from_router.name if plan.imported_from_router_id and plan.imported_from_router else '',
+        'vouchers_total': usage['total'], 'vouchers_deleted': summary['deleted'], 'used_kept': kept,
+        'sales_removed': summary['sales_removed'], 'sales_amount': round(summary['sales_amount'], 2),
+        'batches_binned': binned_batches,
+    }
+    plan.save(update_fields=['deleted_at', 'deleted_by', 'delete_reason', 'active', 'delete_info'])
+    from .utils import log
+    log(business, 'Plan Deleted', f'{plan.name} to the bin — {summary["deleted"]} unused voucher(s) deleted, {kept} used kept — {reason}')
+    summary.update({'kept_used': kept, 'batches_binned': binned_batches})
     return summary
 
 
