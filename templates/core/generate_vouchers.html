@@ -1,9 +1,34 @@
 {% extends 'core/base.html' %}{% load taptap_extras %}{% block title %}Generate Vouchers — TapTap{% endblock %}{% block heading %}Generate Vouchers{% endblock %}{% block content %}
 <div class="d-flex gap-2 mb-3"><a class="btn btn-dark btn-sm" href="{% url 'generate_vouchers' %}"><i class="bi bi-stack"></i> A batch</a><a class="btn btn-outline-dark btn-sm" href="{% url 'single_voucher' %}"><i class="bi bi-person"></i> One voucher for one person</a></div>
-<div class="row g-4"><div class="col-lg-7"><div class="panel form-panel"><h3>Create voucher batch</h3><p>Generate up to 500 secure 8-character vouchers at once.</p><form method="post" id="genForm">{% csrf_token %}
+<div class="row g-4"><div class="col-lg-7"><div class="panel form-panel"><h3>Create voucher batch</h3><p>Generate up to 500 secure vouchers at once, in the code format you choose.</p><form method="post" id="genForm">{% csrf_token %}
 <label>Plan</label><select class="form-select" name="plan" required>{% for p in plans %}<option value="{{ p.id }}" data-price="{{ p.price }}">{{ p.name }} — {{ current_business.currency }}{{ p.price }} / {{ p.duration_minutes|minutes_text }} / {{ p.max_devices }} device{{ p.max_devices|pluralize }}</option>{% endfor %}</select>
 <div class="row g-3"><div class="col-md-6"><label>Quantity</label><input class="form-control" type="number" name="quantity" min="1" max="500" value="1"></div><div class="col-md-6"><label>Batch name</label><input class="form-control" name="batch_name" placeholder="Optional"></div></div>
 <label>MikroTik router</label><select class="form-select" name="router"><option value="">Create locally only</option>{% for r in routers %}<option value="{{ r.id }}">{{ r.name }} — {% if r.connection_mode == 'agent' %}TapTap Link{% else %}{{ r.ip_address }}{% endif %}</option>{% endfor %}</select>
+
+<div class="border rounded-3 p-3 mt-4" id="codeFmt">
+  <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2"><label class="m-0 fw-bold">Voucher code</label>
+    <small class="text-secondary">{% if has_portal %}Your customer portal shows <b>{{ portal_len }}</b> letter boxes{% else %}No customer portal yet — {{ portal_len }} characters by default{% endif %}</small></div>
+  <div class="row g-3 mt-0">
+    <div class="col-md-5"><label class="small" for="codeLen">Token size <span class="text-secondary fw-normal">(characters typed)</span></label>
+      <input class="form-control" type="number" id="codeLen" name="code_length" min="{{ len_min }}" max="{{ len_max }}" step="1" value="{{ form.code_length|default:portal_len }}" required>
+      <div class="d-flex flex-wrap gap-1 mt-2" id="lenChips"></div></div>
+    <div class="col-md-7"><label class="small">Characters</label>
+      <div class="btn-group w-100 flex-wrap" role="group" aria-label="Characters">{% for k,l in code_formats %}
+        <input type="radio" class="btn-check" name="code_charset" id="cs-{{ k }}" value="{{ k }}" {% if form.code_charset == k or not form.code_charset and k == 'mixed' %}checked{% endif %}>
+        <label class="btn btn-outline-secondary btn-sm" for="cs-{{ k }}">{{ l }}</label>{% endfor %}</div></div>
+    <div class="col-6"><label class="small" for="codePre">Prefix <span class="text-secondary fw-normal">(optional)</span></label>
+      <input class="form-control text-uppercase" id="codePre" name="code_prefix" maxlength="{{ affix_max }}" pattern="[A-Za-z0-9]*" placeholder="e.g. TT" value="{{ form.code_prefix|default:'' }}" autocomplete="off"></div>
+    <div class="col-6"><label class="small" for="codeSuf">Suffix <span class="text-secondary fw-normal">(optional)</span></label>
+      <input class="form-control text-uppercase" id="codeSuf" name="code_suffix" maxlength="{{ affix_max }}" pattern="[A-Za-z0-9]*" placeholder="e.g. 26" value="{{ form.code_suffix|default:'' }}" autocomplete="off"></div>
+  </div>
+  <div class="mt-3 p-2 rounded-3 bg-light d-flex flex-wrap align-items-center gap-2">
+    <span class="small text-secondary">Example</span>
+    <code class="fs-5 fw-bold text-dark" id="codeEx" style="letter-spacing:.12em"></code>
+    <small class="ms-auto" id="codeInfo"></small>
+  </div>
+  <small class="d-block mt-2" id="codeWarn" role="status"></small>
+  <small class="text-secondary d-block mt-1">The token size counts every character, prefix and suffix included — it is exactly what the customer types. Letters and numbers codes skip look-alikes (0/O, 1/I).</small>
+</div>
 
 <label class="mt-3">Who is this batch for?</label>
 <select class="form-select" name="owner" id="owner"><option value="">The shop — my own stock</option>{% for a in agents %}<option value="{{ a.id }}" data-comm="{{ a.commission_percent }}" {% if owner == a.id|stringformat:'s' %}selected{% endif %}>{{ a.name }}{% if a.location %} · {{ a.location }}{% endif %} ({{ a.commission_percent|pct }}% commission)</option>{% endfor %}</select>
@@ -20,7 +45,7 @@
 <div class="border rounded-3 p-3 mt-4"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="print_after" id="printAfter" value="1" checked><label class="form-check-label fw-bold" for="printAfter">Open the print sheet afterwards</label></div>
 <div class="d-flex gap-2 align-items-center mt-2"><select class="form-select form-select-sm" name="design" style="max-width:260px" aria-label="Print design">{% for d in designs %}<option value="{{ d.id }}" {% if d.is_default %}selected{% endif %}>{{ d.name }}{% if d.is_default %} (default){% endif %}</option>{% empty %}<option value="">Classic Blue</option>{% endfor %}</select><a class="small" href="{% url 'voucher_designs' %}">{% if designs %}Manage designs{% else %}Design your own card{% endif %}</a></div></div>
 <button class="btn btn-primary btn-lg mt-4"><i class="bi bi-stars"></i> Generate Vouchers</button></form></div></div>
-<div class="col-lg-5"><div class="panel soft-panel"><span class="big-icon"><i class="bi bi-ticket-detailed"></i></span><h3>Safer voucher flow</h3><p>Each code is generated with a cryptographically secure random generator, excludes confusing characters and can be synchronized to a selected MikroTik router.</p><ul class="clean-list"><li>Unique 8-character code</li><li>Batches for your shop or for an agent</li><li>Agent commission and cash tracking</li><li>Printable cards with scan-to-login QR</li><li>MAC reset support</li></ul>
+<div class="col-lg-5"><div class="panel soft-panel"><span class="big-icon"><i class="bi bi-ticket-detailed"></i></span><h3>Safer voucher flow</h3><p>Each code is generated with a cryptographically secure random generator, excludes confusing characters and can be synchronized to a selected MikroTik router.</p><ul class="clean-list"><li>Unique codes, 4–16 characters, matched to your portal</li><li>Batches for your shop or for an agent</li><li>Agent commission and cash tracking</li><li>Printable cards with scan-to-login QR</li><li>MAC reset support</li></ul>
 <a class="btn btn-outline-primary btn-sm mt-2" href="{% url 'single_voucher' %}"><i class="bi bi-person-plus"></i> Need just one for a customer?</a></div></div></div>
 {% endblock %}
 {% block scripts %}<script>
@@ -29,4 +54,30 @@ function upd(){box.hidden=!o.value;const pre=f.querySelector('input[name=settlem
  const opt=o.selectedOptions[0],pl=f.elements.plan.selectedOptions[0];if(!opt||!pl)return;const q=+f.elements.quantity.value||0,price=+pl.dataset.price||0,c=+(opt.dataset.comm||0);
  const gross=q*price,comm=gross*c/100;sum.innerHTML=`${q} × ${cur}${price} = <b>${cur}${gross.toLocaleString()}</b> in sales · commission ${cur}${comm.toLocaleString(undefined,{maximumFractionDigits:2})} · agent pays <b>${cur}${(gross-comm).toLocaleString(undefined,{maximumFractionDigits:2})}</b>`;}
 f.addEventListener('input',upd);f.addEventListener('change',upd);upd();})();
+
+(function(){
+  const PORTAL={{ portal_len }},HAS_PORTAL={{ has_portal|yesno:"true,false" }},MIN={{ len_min }},MAX={{ len_max }},RMIN={{ random_min }};
+  const SETS={mixed:'ABCDEFGHJKLMNPQRSTUVWXYZ23456789',letters:'ABCDEFGHJKLMNPQRSTUVWXYZ',numbers:'0123456789'};
+  const f=document.getElementById('genForm'),len=f.elements.code_length,pre=f.elements.code_prefix,suf=f.elements.code_suffix,
+        ex=document.getElementById('codeEx'),info=document.getElementById('codeInfo'),warn=document.getElementById('codeWarn'),chips=document.getElementById('lenChips');
+  chips.innerHTML=[4,5,6,7,8,10,12].map(n=>`<button type="button" class="btn btn-sm ${n===PORTAL?'btn-outline-primary':'btn-outline-secondary'}" data-n="${n}">${n}${n===PORTAL&&HAS_PORTAL?' · portal':''}</button>`).join('');
+  chips.onclick=e=>{const b=e.target.closest('button[data-n]');if(b){len.value=b.dataset.n;upd();}};
+  const clean=el=>{const v=el.value.replace(/[^A-Za-z0-9]/g,'').toUpperCase();if(v!==el.value)el.value=v;return v;};
+  const rnd=(a,n)=>{let s='';const b=new Uint32Array(n);crypto.getRandomValues(b);for(let i=0;i<n;i++)s+=a[b[i]%a.length];return s;};
+  function upd(){
+    const cs=f.querySelector('input[name=code_charset]:checked').value,p=clean(pre),x=clean(suf),n=+len.value||0,r=n-p.length-x.length,qty=+f.elements.quantity.value||1;
+    [].forEach.call(chips.children,b=>b.classList.toggle('active',+b.dataset.n===n));
+    warn.className='d-block mt-2';warn.textContent='';
+    if(n<MIN||n>MAX){ex.textContent='—';info.textContent='';warn.classList.add('text-danger');warn.textContent=`Token size must be between ${MIN} and ${MAX}.`;return;}
+    if(r<RMIN){ex.textContent='—';info.textContent='';warn.classList.add('text-danger');warn.textContent=`The prefix and suffix leave ${Math.max(r,0)} random character(s) — keep at least ${RMIN}.`;return;}
+    let body=rnd(SETS[cs],r);if(cs==='mixed'&&r>=2&&!(/\d/.test(body)&&/[A-Z]/.test(body)))body=body.slice(0,-2)+'7K';
+    ex.innerHTML=(p?`<span class="text-primary">${p}</span>`:'')+body+(x?`<span class="text-primary">${x}</span>`:'');
+    const combos=Math.pow(SETS[cs].length,r);
+    info.innerHTML=`${n} characters · ${combos>=1e9?'billions of':combos.toLocaleString()} possible codes`;
+    if(qty*3>combos){warn.classList.add('text-danger');warn.textContent=`Too few possible codes for ${qty} vouchers — use a bigger token or add letters.`;}
+    else if(combos<1e6){warn.classList.add('text-warning-emphasis');warn.textContent='Short codes are easy to guess. Fine for low-value vouchers; use 6+ characters for longer plans.';}
+    else if(HAS_PORTAL&&n!==PORTAL){warn.classList.add('text-warning-emphasis');warn.textContent=`Your customer portal shows ${PORTAL} letter boxes. Codes will still work, but change the boxes to ${n} in Portal Studio so they match.`;}
+  }
+  f.addEventListener('input',upd);f.addEventListener('change',upd);upd();
+})();
 </script>{% endblock %}

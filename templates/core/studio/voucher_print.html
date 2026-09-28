@@ -19,10 +19,11 @@
 .codesheet{font-family:"JetBrains Mono",ui-monospace,monospace;width:100%;border-collapse:collapse;font-size:8pt}
 .codesheet caption{caption-side:top;text-align:left;font:700 9pt Inter,system-ui,sans-serif;padding:0 0 2mm}
 .cs-grid{display:grid;gap:0 5mm}.cs-row{display:grid;grid-template-columns:11mm 1fr auto 5mm;gap:1.5mm;align-items:center;height:5.4mm;border-bottom:.15mm solid #d5dde6;font-size:7.6pt}
-.cs-row b{letter-spacing:.6pt;font-size:9pt}.cs-row small{color:#6c7c90;font-size:6.4pt}.cs-row i{width:3.2mm;height:3.2mm;border:.2mm solid #8a9aab;border-radius:.6mm}
+.cs-row>*{min-width:0}.cs-row b{letter-spacing:.6pt;font-size:9pt;white-space:nowrap;overflow:hidden}.cs-row small{color:#6c7c90;font-size:6.4pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cs-row i{width:3.2mm;height:3.2mm;border:.2mm solid #8a9aab;border-radius:.6mm}
 .cs-head{display:flex;justify-content:space-between;font:700 9pt Inter,system-ui,sans-serif;margin-bottom:2mm;border-bottom:.3mm solid #102033;padding-bottom:1.5mm}.cs-head small{font-weight:500;color:#6c7c90}
 .empty{max-width:520px;margin:4rem auto;text-align:center;background:#fff;border-radius:16px;padding:2rem}
-@media print{.bar,.note{display:none!important}body{background:#fff}.sheets{padding:0;gap:0;display:block}.sheet{box-shadow:none;break-after:page}.sheet:last-child{break-after:auto}}
+@media print{html,body{margin:0!important;padding:0!important;background:#fff}.bar,.note{display:none!important}.sheets{padding:0;gap:0;display:block}
+.sheet{box-shadow:none;margin:0;break-after:page;page-break-after:always;break-inside:avoid;page-break-inside:avoid}.sheet:last-child{break-after:auto;page-break-after:auto}.cell{break-inside:avoid;page-break-inside:avoid}}
 </style></head><body>
 <div class="bar">
   <a href="javascript:history.back()"><i class="bi bi-arrow-left"></i> Back</a>
@@ -33,24 +34,25 @@
   <label>Layout <select id="layout"><option value="cards">Cards</option><option value="sheet">Code sheet (list)</option></select></label>
   <label class="cards-only">Size <select id="scale"><option value="1">100%</option><option value=".9">90%</option><option value=".8">80%</option><option value=".7">70%</option><option value=".6">60%</option><option value=".5">50%</option><option value=".45">45%</option><option value=".4">40%</option><option value="fit">Fit a number per sheet…</option></select></label>
   <label class="cards-only" id="fitWrap" style="display:none">Per sheet <input type="number" id="fitN" min="1" max="400" step="1" value="60" style="width:70px"></label>
-  <label class="cards-only">Margin <input type="range" id="margin" min="0" max="15" step=".5" style="width:70px"><output id="marginO"></output></label>
+  <label class="cards-only">Margin <input type="range" id="margin" min="3" max="15" step=".5" style="width:70px"><output id="marginO"></output></label>
   <label class="cards-only">Gap <input type="range" id="gap" min="0" max="8" step=".5" style="width:70px"><output id="gapO"></output></label>
   <label class="cards-only"><input type="checkbox" id="noqr"> Hide QR</label>
   <label><input type="checkbox" id="cut"> Cutting lines</label>
   {% if design %}<a href="{% url 'voucher_design_editor' design.id %}"><i class="bi bi-palette"></i> Edit design</a>{% else %}<a href="{% url 'voucher_designs' %}"><i class="bi bi-palette"></i> Create a design</a>{% endif %}
-  <button class="primary" onclick="window.print()"><i class="bi bi-printer"></i> Print</button>
+  <button class="primary" onclick="window.print()" title="In the print window choose Scale 100% (Actual size), Margins None and turn off Headers and footers"><i class="bi bi-printer"></i> Print</button>
 </div>
 <div class="note" id="qrNote" hidden></div>
+<div class="note" id="printTip"><b>Printing tip:</b> in the print window set <b>Scale 100%</b> (or “Actual size”), <b>Margins: None</b>, and untick <b>Headers and footers</b>. “Fit to page” or default margins shrink or push the cards off the sheet.</div>
 {% if sample %}<div class="note">This is a test sheet with example codes. Print it once to check sizes and colours before printing real vouchers.</div>{% endif %}
 <div class="sheets" id="sheets"></div>
 <script src="{% static 'vendor/qrcode.js' %}"></script><script src="{% static 'studio/voucher-render.js' %}"></script>
 <script>
 (function(){
-  var cfg={{ config_json|safe }}, rows={{ rows_json|safe }}, biz={{ business_json|safe }}, PAPERS={{ papers_json|safe }}, sample={{ sample|yesno:"true,false" }}, ADS={{ ads_json|safe }};
+  var SAMPLE_LEN={{ sample_len|default:8 }}, cfg={{ config_json|safe }}, rows={{ rows_json|safe }}, biz={{ business_json|safe }}, PAPERS={{ papers_json|safe }}, sample={{ sample|yesno:"true,false" }}, ADS={{ ads_json|safe }};
   cfg.page=cfg.page||{paper:'A4',margin:8,gap:3,cut_marks:true};
   var paper=document.getElementById('paper'), cut=document.getElementById('cut'), sheets=document.getElementById('sheets');
   paper.value=cfg.page.paper||'A4'; cut.checked=!!cfg.page.cut_marks;
-  if(sample){ rows=[]; var L='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; for(var i=0;i<24;i++){var c='';for(var j=0;j<8;j++)c+=L[Math.floor(Math.random()*L.length)];rows.push({code:c,serial:String(i+1).padStart(6,'0')});} }
+  if(sample){ rows=[]; var L='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; for(var i=0;i<24;i++){var c='';for(var j=0;j<SAMPLE_LEN;j++)c+=L[Math.floor(Math.random()*L.length)];rows.push({code:c,serial:String(i+1).padStart(6,'0')});} }
   var FQ={outfit:'Outfit:wght@400;600;800',sora:'Sora:wght@400;600;800',grotesk:'Space+Grotesk:wght@400;600;700',bricolage:'Bricolage+Grotesque:opsz,wght@12..96,400;12..96,700;12..96,800',syne:'Syne:wght@500;700;800',archivo:'Archivo+Black',fraunces:'Fraunces:opsz,wght@9..144,400;9..144,700',dmserif:'DM+Serif+Display',nunito:'Nunito:wght@400;700;900',rubik:'Rubik:wght@400;600;800',mono:'JetBrains+Mono:wght@400;700;800',caveat:'Caveat:wght@500;700',bebas:'Bebas+Neue'};
   var used=[cfg.font].concat((cfg.elements||[]).map(function(e){return e.font;})).filter(function(f,i,a){return FQ[f]&&a.indexOf(f)===i;});
   if(used.length){var l=document.createElement('link');l.rel='stylesheet';l.href='https://fonts.googleapis.com/css2?family='+used.map(function(f){return FQ[f];}).join('&family=')+'&display=swap';document.head.appendChild(l);}
@@ -58,17 +60,22 @@
   var KEY='tt-print-'+({{ design.id|default:0 }});
   try{var saved=JSON.parse(localStorage.getItem(KEY)||'{}');['layout','scale','fitN','margin','gap'].forEach(function(k){if(saved[k]!=null)$(k).value=saved[k];});if(saved.noqr)noqr.checked=true;if(saved.paper)paper.value=saved.paper;}catch(e){}
   if(mIn.value==='' || !localStorage.getItem(KEY)){mIn.value=cfg.page.margin==null?6:cfg.page.margin;gIn.value=cfg.page.gap==null?3:cfg.page.gap;}
+  if(+mIn.value<3) mIn.value=3;
   function remember(){try{localStorage.setItem(KEY,JSON.stringify({layout:layoutSel.value,scale:scaleSel.value,fitN:fitN.value,margin:mIn.value,gap:gIn.value,noqr:noqr.checked,paper:paper.value}));}catch(e){}}
+  // Printers cannot print the outer few millimetres, and a sheet exactly as tall as the paper spills a sliver
+  // onto an extra page. Cards are laid out inside a slightly smaller safe area so nothing is cut or pushed over.
+  var MIN_MARGIN=3, SAFE=1.2;
   function grid(W,H,m,g,cw,ch){var cols=Math.max(0,Math.floor((W-2*m+g)/(cw+g))), rws=H?Math.max(0,Math.floor((H-2*m+g)/(ch+g))):Infinity;return {cols:cols,rows:rws,per:H?cols*rws:Infinity};}
   function cardData(r,i){var d=TapVoucher.sample({business:biz.name,ssid:biz.ssid,phone:biz.phone,currency:biz.currency,login_url:biz.login_url,logo:biz.logo});for(var k in r) if(r[k]!=null&&r[k]!=='') d[k]=r[k];d.ad=ADS.length?ADS[i%ADS.length]:null;return d;}
   function layout(){
     remember();
-    var pk=paper.value, pp=PAPERS[pk]||PAPERS.A4, W=pp[0], H=pp[1], roll=!H, m=roll?2:(+mIn.value||0), g=+gIn.value||0;
+    var pk=paper.value, pp=PAPERS[pk]||PAPERS.A4, roll=!pp[1], W=roll?pp[0]:pp[0]-SAFE, H=roll?0:pp[1]-SAFE, m=roll?2:Math.max(MIN_MARGIN,+mIn.value||0), g=+gIn.value||0;
     $('marginO').textContent=m+'mm';$('gapO').textContent=g+'mm';
     var sheetMode=layoutSel.value==='sheet';
     [].forEach.call(document.querySelectorAll('.cards-only'),function(e){e.style.display=sheetMode?'none':'';});
     $('fitWrap').style.display=(sheetMode||scaleSel.value!=='fit')?'none':'';
-    document.getElementById('pageRule').textContent='@page{size:'+(roll?W+'mm auto':W+'mm '+H+'mm')+';margin:0}';
+    document.getElementById('pageRule').textContent='@page{size:'+(roll?pp[0]+'mm auto':pp[0]+'mm '+pp[1]+'mm')+';margin:0}';
+    $('printTip').hidden=roll;
     sheets.innerHTML='';
     if(!rows.length){sheets.innerHTML='<div class="empty"><h2>Nothing to print</h2><p>There are no vouchers matching this selection. Generate a batch or choose different vouchers.</p></div>';return;}
     if(sheetMode) return codeSheet(W,H,roll);
@@ -76,6 +83,7 @@
     if(scaleSel.value==='fit'){ var want=Math.max(1,+fitN.value||1); s=1; while(s>.25 && grid(W,H,m,g,cw0*s,ch0*s).per<want) s=Math.round((s-.01)*100)/100; }
     else s=+scaleSel.value||1;
     var cw=cw0*s, ch=ch0*s, G=grid(W,H,m,g,cw,ch), cols=Math.max(1,G.cols), per=roll?Infinity:Math.max(1,G.per);
+    if(!roll && G.rows<1){sheets.innerHTML='<div class="empty"><h2>The card is taller than the paper</h2><p>Pick a smaller size, a bigger paper or a smaller margin.</p></div>';return;}
     if(cw>W-2*m){sheets.innerHTML='<div class="empty"><h2>The card is wider than the paper</h2><p>Pick a smaller size, a wider paper or a smaller margin.</p></div>';return;}
     var smallQr=(cfg.elements||[]).filter(function(e){return e.type==='qr'&&!e.hidden&&Math.min(e.w,e.h)*s<12;}).length;
     var qn=$('qrNote'); qn.hidden=!(smallQr&&!noqr.checked); qn.innerHTML='At '+Math.round(s*100)+'% the QR code is under 12 mm and many phones will not scan it. Tick <b>Hide QR</b> or choose a larger size.';
@@ -84,7 +92,7 @@
     for(var p=0;p<pages;p++){
       var sh=document.createElement('div');sh.className='sheet'+(cut.checked?' cut':'');
       var slice=roll?rows:rows.slice(p*per,(p+1)*per);
-      sh.style.cssText='width:'+W+'mm;'+(roll?'':'height:'+H+'mm;')+'padding:'+m+'mm';
+      sh.style.cssText='width:'+W+'mm;'+(roll?'':'height:'+H+'mm;')+'padding:'+m+'mm;margin-left:auto;margin-right:auto';
       var gr=document.createElement('div');gr.className='grid';gr.style.cssText='grid-template-columns:repeat('+cols+','+cw+'mm);grid-auto-rows:'+ch+'mm;gap:'+g+'mm';
       slice.forEach(function(r,i){
         var cell=document.createElement('div');cell.className='cell';cell.style.cssText='width:'+cw+'mm;height:'+ch+'mm;overflow:hidden';
@@ -96,7 +104,7 @@
     $('summary').textContent=rows.length+' voucher'+(rows.length===1?'':'s')+(roll?' on a continuous roll':' · '+pages+' sheet'+(pages===1?'':'s')+' · '+per+' per sheet ('+cols+' × '+G.rows+')')+(s!==1?' · '+Math.round(s*100)+'% size':'');
   }
   function codeSheet(W,H,roll){
-    var m=8, rowH=5.4, cols=W>=200?3:(W>=140?2:1), head=9, rowsPer=roll?Infinity:Math.floor((H-2*m-head)/rowH), per=roll?Infinity:cols*rowsPer, pages=roll?1:Math.ceil(rows.length/per);
+    var m=8, rowH=5.4, cols=W>=200?3:(W>=140?2:1), head=10, rowsPer=roll?Infinity:Math.floor((H-2*m-head)/rowH), per=roll?Infinity:cols*rowsPer, pages=roll?1:Math.ceil(rows.length/per);
     for(var p=0;p<pages;p++){
       var sh=document.createElement('div');sh.className='sheet';sh.style.cssText='width:'+W+'mm;'+(roll?'':'height:'+H+'mm;')+'padding:'+m+'mm';
       var slice=roll?rows:rows.slice(p*per,(p+1)*per), colLen=roll?slice.length:Math.ceil(slice.length/cols);

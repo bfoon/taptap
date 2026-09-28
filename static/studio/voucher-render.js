@@ -69,6 +69,23 @@
       (showText ? '<text x="' + W / 2 + '" y="50" text-anchor="middle" font-size="10" font-family="' + (font || 'monospace').replace(/"/g, "'") + '" fill="' + (color || '#000') + '" letter-spacing="1">' + esc(str) + '</text>' : '') + '</svg>';
   }
 
+  // Longer codes (bigger token size, prefix/suffix) shrink to fit their box instead of being cut off.
+  var measureCtx = null;
+  function fitCodeSize(txt, e, font) {
+    txt = String(txt || ''); var n = txt.length, size = +e.size || 10; if (!n) return size;
+    var PT = 0.3528, room = e.w - 1.5, spacing = +e.spacing || 0, textPt;   // mm available (a little inner padding)
+    try {
+      measureCtx = measureCtx || document.createElement('canvas').getContext('2d');
+      measureCtx.font = (e.weight || 800) + ' ' + size + 'pt ' + font;
+      textPt = measureCtx.measureText(e.upper ? txt.toUpperCase() : txt).width * 0.75;   // px → pt
+    } catch (err) { textPt = n * size * 0.74; }
+    var full = (textPt + n * spacing) * PT;          // width in mm at the design size
+    if (full <= room) return size;
+    // letter-spacing does not scale with the font, so solve for the size that fits exactly
+    var fit = size * (room / PT - n * spacing) / textPt;
+    return Math.max(4, Math.floor(fit * 0.97 * 10) / 10);
+  }
+
   function initials(name) { return String(name || 'W').split(/\s+/).filter(Boolean).slice(0, 2).map(function (w) { return w.charAt(0); }).join('').toUpperCase(); }
 
   function element(e, cfg, d, editable) {
@@ -79,7 +96,7 @@
     if (e.type === 'text' || e.type === 'code') {
       var txt = fill(e.text, d); if (e.type === 'code') txt = groupCode(txt, e.group);
       st += 'display:flex;align-items:center;justify-content:' + ({ left: 'flex-start', center: 'center', right: 'flex-end' }[e.align] || 'flex-start') + ';text-align:' + (e.align || 'left') + ';';
-      st += 'font-family:' + font + ';font-size:' + e.size + 'pt;font-weight:' + e.weight + ';color:' + e.color + ';letter-spacing:' + (e.spacing || 0) + 'pt;line-height:1.15;white-space:' + (e.type === 'code' ? 'nowrap' : 'normal') + ';overflow:hidden;';
+      st += 'font-family:' + font + ';font-size:' + (e.type === 'code' ? fitCodeSize(txt, e, font) : e.size) + 'pt;font-weight:' + e.weight + ';color:' + e.color + ';letter-spacing:' + (e.spacing || 0) + 'pt;line-height:1.15;white-space:' + (e.type === 'code' ? 'nowrap' : 'normal') + ';overflow:hidden;';
       if (e.upper) st += 'text-transform:uppercase;'; if (e.italic) st += 'font-style:italic;';
       if (e.bg) st += 'background:' + e.bg + ';'; if (e.radius) st += 'border-radius:' + e.radius + 'mm;';
       if (e.type === 'code') st += 'font-variant-numeric:tabular-nums;' + (e.border_width ? 'border:' + e.border_width + 'mm solid ' + e.border + ';' : '');

@@ -31,7 +31,9 @@ from .security import audit_business, summarize
 from .mikrotik import MikroTikService, MikroTikError, redact
 from .sync import sync_router, refresh_router_topology, snapshot_from_database
 from .tasks import enqueue_router_sync
-from .utils import generate_code, duration_to_routeros, log
+from .utils import (generate_codes, code_format, describe_format, portal_code_length, CodeFormatError,
+                    CODE_FORMATS, CODE_LENGTH_MIN, CODE_LENGTH_MAX, CODE_AFFIX_MAX, CODE_RANDOM_MIN, duration_to_routeros, log)
+from .portal_deploy import default_pages
 
 import logging
 
@@ -135,14 +137,30 @@ def vouchers(request):
 @login_required
 def generate_vouchers(request):
     business=b(request); plans=business.plans.filter(active=True); routers=business.routers.all()
+    portal_len=portal_code_length(business)
+    ctx={'plans':plans,'routers':routers,'designs':business.voucher_designs.all(),
+         'agents':business.agents.filter(active=True),'owner':request.GET.get('agent',''),'methods':[m for m in PAYMENT_METHODS if m[0]!='auto'],
+         'portal_len':portal_len,'has_portal':'login' in default_pages(business),'code_formats':CODE_FORMATS,
+         'len_min':CODE_LENGTH_MIN,'len_max':CODE_LENGTH_MAX,'affix_max':CODE_AFFIX_MAX,'random_min':CODE_RANDOM_MIN,
+         'form':{'code_length':portal_len,'code_charset':'mixed','code_prefix':'','code_suffix':''}}
     if request.method=='POST':
-        plan=get_object_or_404(plans,pk=request.POST.get('plan')); qty=max(1,min(500,int(request.POST.get('quantity','1')))); router=routers.filter(pk=request.POST.get('router')).first(); batch_name=request.POST.get('batch_name','').strip() or f'{plan.name} {timezone.localtime():%Y-%m-%d %H:%M}'
+        plan=get_object_or_404(plans,pk=request.POST.get('plan'))
+        try: qty=max(1,min(500,int(request.POST.get('quantity','1'))))
+        except ValueError: qty=1
+        router=routers.filter(pk=request.POST.get('router')).first(); batch_name=request.POST.get('batch_name','').strip() or f'{plan.name} {timezone.localtime():%Y-%m-%d %H:%M}'
         agent=business.agents.filter(pk=request.POST.get('owner') or 0).first()
+        try:
+            fmt=code_format(request.POST.get('code_length') or portal_len,request.POST.get('code_charset','mixed'),
+                            request.POST.get('code_prefix',''),request.POST.get('code_suffix',''),business)
+            codes=generate_codes(qty,fmt['length'],fmt['charset'],fmt['prefix'],fmt['suffix'],business)
+        except CodeFormatError as e:
+            messages.error(request,str(e)); ctx['form']=request.POST
+            return render(request,'core/generate_vouchers.html',ctx,status=400)
         with transaction.atomic():
-            batch=VoucherBatch.objects.create(business=business,name=batch_name,plan=plan,quantity=qty,note=request.POST.get('note','')[:255]); made=[]
-            for _ in range(qty):
-                made.append(Voucher.objects.create(business=business,batch=batch,router=router,code=generate_code(),plan_name=plan.name,price=plan.price,duration_minutes=plan.duration_minutes,max_devices=plan.max_devices,source='taptap'))
-            log(business,'Voucher Generated',f'Batch {batch.name}: {qty} voucher(s)'+(f' for {agent.name}' if agent else ''))
+            batch=VoucherBatch.objects.create(business=business,name=batch_name,plan=plan,quantity=qty,note=request.POST.get('note','')[:255])
+            for c in codes:
+                Voucher.objects.create(business=business,batch=batch,router=router,code=c,plan_name=plan.name,price=plan.price,duration_minutes=plan.duration_minutes,max_devices=plan.max_devices,source='taptap')
+            log(business,'Voucher Generated',f'Batch {batch.name}: {qty} voucher(s), {describe_format(fmt)}'+(f' for {agent.name}' if agent else ''))
             if agent:
                 from .finance import assign_batch
                 settlement=request.POST.get('settlement') if request.POST.get('settlement') in {'credit','prepaid'} else 'credit'
@@ -158,12 +176,14 @@ def generate_vouchers(request):
             except Exception as e:
                 messages.warning(request,f'Vouchers were created in TapTap, but the router background sync could not be queued: {e}')
         messages.success(request,f'{qty} voucher(s) created successfully.')
+        if fmt['length']!=portal_len and 'login' in default_pages(business):
+            messages.warning(request,f'These codes have {fmt["length"]} characters but your default customer portal shows {portal_len} letter boxes. '
+                                     f'Customers can still log in, but set the boxes to {fmt["length"]} in Portal Studio if you want them to match.')
         if request.POST.get('print_after'):
             design=request.POST.get('design','')
             return redirect(f"/studio/vouchers/print/?batch={batch.pk}"+(f"&design={design}" if design else ''))
         return redirect('vouchers')
-    return render(request,'core/generate_vouchers.html',{'plans':plans,'routers':routers,'designs':business.voucher_designs.all(),
-        'agents':business.agents.filter(active=True),'owner':request.GET.get('agent',''),'methods':[m for m in PAYMENT_METHODS if m[0]!='auto']})
+    return render(request,'core/generate_vouchers.html',ctx)
 
 
 @login_required

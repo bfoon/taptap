@@ -139,7 +139,7 @@ def single_voucher(request):
         ctx['form'] = f
         return render(request, 'core/single_voucher.html', ctx, status=400)
     with transaction.atomic():
-        v = Voucher.objects.create(business=business, router=router, code=code or generate_code(), plan_name=plan_name, price=price,
+        v = Voucher.objects.create(business=business, router=router, code=code or generate_code(business=business), plan_name=plan_name, price=price,
                                    duration_minutes=minutes, max_devices=devices, rate_limit=rate, source='taptap', agent=agent,
                                    customer_name=name, customer_phone=phone, note=(f.get('note') or '')[:255])
         if f.get('paid'):

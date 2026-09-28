@@ -23,7 +23,7 @@ from .studio_presets import (
     portal_template, portal_gallery, PORTAL_TEMPLATES, FONTS, voucher_template, voucher_gallery,
     VOUCHER_TEMPLATES, CARD_SIZES, PAPERS, VOUCHER_TOKENS,
 )
-from .utils import log
+from .utils import log, portal_code_length
 from .ads import ads_for, record_device
 
 MAX_CONFIG_BYTES = 1_500_000
@@ -444,7 +444,7 @@ def voucher_print(request):
         'rows_json': _safe_json(rows), 'business_json': _safe_json(business_ctx(business)), 'count': len(rows),
         'sample': bool(request.GET.get('sample')), 'papers_json': _safe_json({k: list(v) for k, v in PAPERS.items()}),
         'ads_json': _safe_json(ads_for(business, 'voucher')),
-        'query': request.GET.urlencode(),
+        'query': request.GET.urlencode(), 'sample_len': portal_code_length(business),
     })
 
 
