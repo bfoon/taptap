@@ -37,7 +37,7 @@
       {% for x in batches %}
         <tr>
           <td>
-            <b>{{ x.name }}</b>
+            <a class="fw-bold text-decoration-none" href="{% url 'batch_detail' x.id %}">{{ x.name }}</a>
             {% if x.note %}<small class="d-block text-secondary">{{ x.note }}</small>{% endif %}
           </td>
 
@@ -55,7 +55,7 @@
             {% endif %}
           </td>
 
-          <td>{{ x.plan|default:'—' }}</td>
+          <td>{% if x.plan %}<a class="text-decoration-none" href="{% url 'plan_detail' x.plan.id %}">{{ x.plan }}</a>{% else %}—{% endif %}</td>
           <td>{{ x.actual }}</td>
           <td>{{ x.sold }}{% if x.actual %} <small class="text-secondary">({% widthratio x.sold x.actual 100 %}%)</small>{% endif %}</td>
           <td>{{ x.used }}</td>

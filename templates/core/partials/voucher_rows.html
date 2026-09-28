@@ -1,0 +1,9 @@
+{% for r in rows %}{% with v=r.v %}<tr>
+  <td><a class="fw-semibold font-monospace" href="{% url 'voucher_detail' v.id %}">{{ v.code }}</a></td>
+  <td><span class="vd-state {{ r.key }}">{{ r.label }}</span></td>
+  <td>{% if v.agent %}{{ v.agent.name }}{% elif v.customer_name %}{{ v.customer_name }}{% else %}Shop{% endif %}</td>
+  <td>{{ v.sold_at|date:'d M H:i'|default:'—' }}</td>
+  <td>{{ v.used_at|date:'d M H:i'|default:'—' }}</td>
+  <td>{% if r.ends_at %}{{ r.ends_at|date:'d M H:i' }}{% else %}—{% endif %}</td>
+  <td class="text-end">{% if r.left %}{{ r.left }}{% elif tab == 'remaining' %}{{ v.duration_text }}{% else %}—{% endif %}</td>
+</tr>{% endwith %}{% empty %}<tr class="vl-empty"><td colspan="7" class="empty-table">No vouchers here.</td></tr>{% endfor %}

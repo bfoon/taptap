@@ -65,7 +65,7 @@ voucher_design_editor voucher_design_action ads ad_save ad_action'''.split()
 URL_PERMS = {
     'dashboard': 'dashboard.view',
     'sales_daily': ('sales.daily', 'finance.view'),
-    'vouchers': 'vouchers.view', 'voucher_detail': 'vouchers.view', 'voucher_card': 'vouchers.view', 'batches': 'vouchers.view',
+    'vouchers': 'vouchers.view', 'voucher_detail': 'vouchers.view', 'voucher_card': 'vouchers.view', 'batches': 'vouchers.view', 'batch_detail': 'vouchers.view', 'plan_detail': ('vouchers.view', 'plans.manage'),
     'generate_vouchers': 'vouchers.create', 'single_voucher': 'vouchers.create', 'batch_assign': 'vouchers.create',
     'voucher_print': 'vouchers.create',
     'disable_voucher': 'vouchers.support', 'enable_voucher': 'vouchers.support', 'reset_mac': 'vouchers.support',

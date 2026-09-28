@@ -1,0 +1,54 @@
+{% extends 'core/base.html' %}{% load taptap_extras %}{% block title %}{{ plan.name }} — TapTap{% endblock %}{% block heading %}Plan details{% endblock %}
+{% block extra_head %}<style>
+.dt-head{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;justify-content:space-between;margin-bottom:1rem}.dt-head h2{font-size:1.25rem;font-weight:800;margin:0}
+.dt-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.75rem}.dt-kpi{background:#fff;border:1px solid #e3e9f1;border-radius:14px;padding:.75rem .9rem}
+.dt-kpi small{display:block;font-size:.7rem;font-weight:700;color:#8a9aab;text-transform:uppercase;letter-spacing:.04em}.dt-kpi strong{display:block;font-size:1.35rem;color:#102033}.dt-kpi em{font-style:normal;font-size:.75rem;color:#6b7c8f}
+.dt-bar{display:flex;height:12px;border-radius:6px;overflow:hidden;background:#eef2f6;margin:.4rem 0}.dt-bar i{display:block}
+.dt-info{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.4rem 1.2rem;font-size:.88rem}.dt-info span{color:#6b7c8f;display:block;font-size:.75rem}
+.lg{display:inline-flex;align-items:center;gap:.3rem;font-size:.78rem;margin-right:.8rem}.lg i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.bt-scroll{max-height:320px;overflow:auto;border:1px solid #eef2f6;border-radius:12px}.bt-scroll thead th{position:sticky;top:0;background:#f7f9fc;z-index:1}
+</style>{% endblock %}
+{% block content %}{% with c=current_business.currency %}
+<div class="dt-head">
+  <div>{% if 'plans.manage' in tt_perms %}<a class="small text-decoration-none" href="{% url 'plans' %}"><i class="bi bi-arrow-left"></i> All plans</a>{% endif %}
+    <h2>{{ plan.name }} {% if not plan.active %}<span class="badge text-bg-secondary align-middle">Inactive</span>{% endif %}</h2>
+    <span class="text-secondary small">{{ plan.price|money:c }} · {{ plan.duration_text }} · {{ plan.max_devices }} device{{ plan.max_devices|pluralize }}</span></div>
+  <div class="d-flex flex-wrap gap-2">
+    {% if 'vouchers.create' in tt_perms and plan.active %}<a class="btn btn-sm btn-primary" href="{% url 'generate_vouchers' %}?plan={{ plan.id }}"><i class="bi bi-plus-circle"></i> Generate vouchers</a>{% endif %}
+    {% if 'vouchers.view' in tt_perms %}<a class="btn btn-sm btn-light" href="{% url 'vouchers' %}?plan={{ plan.name|urlencode }}"><i class="bi bi-ticket-perforated"></i> Open in Vouchers</a>{% endif %}
+  </div>
+</div>
+
+<div class="dt-kpis">
+  <div class="dt-kpi"><small>Vouchers</small><strong>{{ counts.total }}</strong><em>{{ batches|length }} batch{{ batches|length|pluralize:"es" }}{% if individual %} · {{ individual }} single{% endif %}</em></div>
+  <div class="dt-kpi"><small>Remaining</small><strong>{{ counts.remaining }}</strong><em>{{ counts.sold_unused }} sold, not used yet</em></div>
+  <div class="dt-kpi"><small>In use</small><strong>{{ counts.in_use }}</strong><em>time still running</em></div>
+  <div class="dt-kpi"><small>Expired</small><strong>{{ counts.expired }}</strong><em>time ran out</em></div>
+  <div class="dt-kpi"><small>Sales (30 days)</small><strong>{{ sales_30.v|default:0|money:c }}</strong><em>{{ sales_30.n }} sold</em></div>
+  <div class="dt-kpi"><small>Sales (all time)</small><strong>{{ sales.v|default:0|money:c }}</strong><em>{{ sales.n }} sold</em></div>
+</div>
+
+<div class="row g-4 mt-1">
+  <div class="col-xl-5"><div class="panel h-100"><div class="panel-head"><div><h3>Plan settings</h3></div></div>
+    <div class="dt-info">
+      <div><span>Price</span>{{ plan.price|money:c }}{% if plan.price_source == 'manual' %} <small class="text-secondary">(set in TapTap)</small>{% elif plan.price_source == 'router' %} <small class="text-secondary">(from router)</small>{% endif %}</div>
+      <div><span>Duration</span>{{ plan.duration_text }}</div>
+      <div><span>Devices per voucher</span>{{ plan.max_devices }}</div>
+      <div><span>Speed limit</span>{{ plan.speed_limit|default:'None' }}</div>
+      <div><span>Data limit</span>{% if plan.data_limit_mb %}{{ plan.data_limit_mb }} MB{% else %}None{% endif %}</div>
+      <div><span>Source</span>{{ plan.get_source_display }}{% if plan.imported_from_router %} · {{ plan.imported_from_router.name }}{% endif %}</div>
+      {% if plan.mikrotik_profile_name %}<div><span>MikroTik profile</span>{{ plan.mikrotik_profile_name }}</div>{% endif %}
+      <div><span>First / last use</span>{{ counts.first_use|date:'d M Y'|default:'—' }}{% if counts.last_use %} → {{ counts.last_use|date:'d M Y' }}{% endif %}</div>
+    </div>
+    <div class="dt-bar mt-3" aria-hidden="true"><i style="width:{{ pct.remaining }}%;background:#18a66a"></i><i style="width:{{ pct.in_use }}%;background:#1769e0"></i><i style="width:{{ pct.expired }}%;background:#9aa8b6"></i><i style="width:{{ pct.other }}%;background:#d9534f"></i></div>
+    <div><span class="lg"><i style="background:#18a66a"></i>Remaining {{ pct.remaining }}%</span><span class="lg"><i style="background:#1769e0"></i>In use {{ pct.in_use }}%</span><span class="lg"><i style="background:#9aa8b6"></i>Expired {{ pct.expired }}%</span>{% if counts.other %}<span class="lg"><i style="background:#d9534f"></i>Disabled / frozen {{ pct.other }}%</span>{% endif %}</div>
+  </div></div>
+  <div class="col-xl-7"><div class="panel h-100"><div class="panel-head"><div><h3>Batches of this plan</h3><p>Newest first</p></div></div>
+    <div class="bt-scroll"><table class="table table-sm align-middle mb-0"><thead><tr><th>Batch</th><th>Holder</th><th class="text-end">Vouchers</th><th class="text-end">Not used</th><th class="text-end">Used</th><th>Created</th></tr></thead><tbody>
+    {% for x in batches %}<tr><td><a class="fw-semibold" href="{% url 'batch_detail' x.id %}">{{ x.name }}</a></td><td>{{ x.agent.name|default:'Shop' }}</td><td class="text-end">{{ x.actual }}</td><td class="text-end">{{ x.unused }}</td><td class="text-end">{{ x.used }}</td><td>{{ x.created_at|date:'d M Y' }}</td></tr>
+    {% empty %}<tr><td colspan="6" class="empty-table">No batches use this plan yet.</td></tr>{% endfor %}</tbody></table></div>
+  </div></div>
+</div>
+
+{% include 'core/partials/voucher_lists.html' %}
+{% endwith %}{% endblock %}

@@ -2,7 +2,7 @@ from django.urls import path
 from . import views, views_business as vb, views_studio as vs, views_wan as vw, views_agents as va, views_auth
 
 from . import views_ads, views_ports, views_live, views_traffic, views_missing, views_link
-from . import views_team as vteam, views_platform as vp, views_bin as vbin, views_freeze as vfz
+from . import views_team as vteam, views_platform as vp, views_detail as vdetail, views_bin as vbin, views_freeze as vfz
 
 urlpatterns = [
     path('',views.home,name='home'), path('register/',views_auth.register,name='register'), path('login/',views_auth.login_view,name='login'), path('verify/',views_auth.verify_code,name='verify_code'), path('verify/resend/',views_auth.resend_code,name='resend_code'), path('verify/cancel/',views_auth.cancel_verification,name='cancel_verification'), path('account/devices/',views_auth.trusted_devices,name='trusted_devices'), path('account/devices/remove/',views_auth.trusted_device_remove,name='trusted_devices_remove_all'), path('account/devices/<int:pk>/remove/',views_auth.trusted_device_remove,name='trusted_device_remove'), path('logout/',views.logout_view,name='logout'),
@@ -77,4 +77,6 @@ urlpatterns = [
     path('platform/subscriptions/',vp.subscriptions,name='platform_subscriptions'),
     path('platform/subscriptions/<int:pk>/action/',vp.sub_action,name='platform_sub_action'),
     path('platform/audit/',vp.audit_log,name='platform_audit'), path('platform/view-as/stop/',vp.view_as_stop,name='platform_view_as_stop'),
+    # Batch and plan details (summary + scrollable voucher lists)
+    path('batches/<int:pk>/',vdetail.batch_detail,name='batch_detail'), path('plans/<int:pk>/',vdetail.plan_detail,name='plan_detail'),
 ]

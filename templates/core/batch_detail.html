@@ -1,0 +1,47 @@
+{% extends 'core/base.html' %}{% load taptap_extras %}{% block title %}{{ batch.name }} — TapTap{% endblock %}{% block heading %}Batch details{% endblock %}
+{% block extra_head %}<style>
+.dt-head{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;justify-content:space-between;margin-bottom:1rem}.dt-head h2{font-size:1.25rem;font-weight:800;margin:0}
+.dt-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.75rem}.dt-kpi{background:#fff;border:1px solid #e3e9f1;border-radius:14px;padding:.75rem .9rem}
+.dt-kpi small{display:block;font-size:.7rem;font-weight:700;color:#8a9aab;text-transform:uppercase;letter-spacing:.04em}.dt-kpi strong{display:block;font-size:1.35rem;color:#102033}.dt-kpi em{font-style:normal;font-size:.75rem;color:#6b7c8f}
+.dt-bar{display:flex;height:12px;border-radius:6px;overflow:hidden;background:#eef2f6;margin:.4rem 0}.dt-bar i{display:block}
+.dt-info{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.4rem 1.2rem;font-size:.88rem}.dt-info span{color:#6b7c8f;display:block;font-size:.75rem}
+.lg{display:inline-flex;align-items:center;gap:.3rem;font-size:.78rem;margin-right:.8rem}.lg i{width:10px;height:10px;border-radius:3px;display:inline-block}
+</style>{% endblock %}
+{% block content %}{% with c=current_business.currency %}
+<div class="dt-head">
+  <div><a class="small text-decoration-none" href="{% url 'batches' %}"><i class="bi bi-arrow-left"></i> All batches</a>
+    <h2>{{ batch.name }}</h2>
+    <span class="text-secondary small">{{ batch.plan|default:'No plan' }} · created {{ batch.created_at|date:'d M Y H:i' }}{% if batch.agent %} · held by {{ batch.agent.name }}{% else %} · shop stock{% endif %}</span></div>
+  <div class="d-flex flex-wrap gap-2">
+    {% if 'vouchers.create' in tt_perms %}<a class="btn btn-sm btn-outline-primary" href="{% url 'voucher_print' %}?batch={{ batch.id }}"><i class="bi bi-printer"></i> Print</a>{% endif %}
+    {% if batch.plan and 'vouchers.view' in tt_perms %}<a class="btn btn-sm btn-light" href="{% url 'plan_detail' batch.plan.id %}"><i class="bi bi-tag"></i> Plan details</a>{% endif %}
+    {% if batch.agent and 'agents.view' in tt_perms %}<a class="btn btn-sm btn-light" href="{% url 'agent_detail' batch.agent.id %}"><i class="bi bi-person"></i> {{ batch.agent.name }}</a>{% endif %}
+  </div>
+</div>
+{% if open_report %}<div class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle"></i> {{ open_report.voucher_count }} voucher{{ open_report.voucher_count|pluralize }} from this batch reported missing{% if open_report.reported_at %} on {{ open_report.reported_at|date:'d M Y' }}{% endif %}.</div>{% endif %}
+
+<div class="dt-kpis">
+  <div class="dt-kpi"><small>Vouchers</small><strong>{{ counts.total }}</strong><em>{% if counts.total != batch.quantity %}{{ batch.quantity }} ordered{% else %}in this batch{% endif %}</em></div>
+  <div class="dt-kpi"><small>Remaining</small><strong>{{ counts.remaining }}</strong><em>{{ counts.sold_unused }} sold, not used yet</em></div>
+  <div class="dt-kpi"><small>In use</small><strong>{{ counts.in_use }}</strong><em>time still running</em></div>
+  <div class="dt-kpi"><small>Expired</small><strong>{{ counts.expired }}</strong><em>time ran out</em></div>
+  <div class="dt-kpi"><small>Sold</small><strong>{{ counts.sold }}</strong><em>{{ sales.v|default:0|money:c }} recorded</em></div>
+  <div class="dt-kpi"><small>Batch value</small><strong>{{ counts.value|default:0|money:c }}</strong><em>at voucher prices</em></div>
+</div>
+
+<div class="panel mt-4">
+  <div class="dt-bar" aria-hidden="true"><i style="width:{{ pct.remaining }}%;background:#18a66a"></i><i style="width:{{ pct.in_use }}%;background:#1769e0"></i><i style="width:{{ pct.expired }}%;background:#9aa8b6"></i><i style="width:{{ pct.other }}%;background:#d9534f"></i></div>
+  <div class="mb-3"><span class="lg"><i style="background:#18a66a"></i>Remaining {{ pct.remaining }}%</span><span class="lg"><i style="background:#1769e0"></i>In use {{ pct.in_use }}%</span><span class="lg"><i style="background:#9aa8b6"></i>Expired {{ pct.expired }}%</span>{% if counts.other %}<span class="lg"><i style="background:#d9534f"></i>Disabled / frozen {{ pct.other }}%</span>{% endif %}</div>
+  <div class="dt-info">
+    <div><span>Plan</span>{{ batch.plan|default:'—' }}{% if batch.plan %} · {{ batch.plan.duration_text }} · {{ batch.plan.price|money:c }}{% endif %}</div>
+    <div><span>Holder</span>{% if batch.agent %}{{ batch.agent.name }} · {{ batch.get_settlement_display }}{% else %}Shop stock{% endif %}</div>
+    <div><span>Issued to holder</span>{{ batch.issued_at|date:'d M Y H:i'|default:'—' }}</div>
+    <div><span>First / last use</span>{{ counts.first_use|date:'d M Y'|default:'—' }}{% if counts.last_use %} → {{ counts.last_use|date:'d M Y' }}{% endif %}</div>
+    <div><span>Sales</span>{{ sales.n }} sale{{ sales.n|pluralize }} · {{ sales.v|default:0|money:c }}{% if sales.c %} · commission {{ sales.c|money:c }}{% endif %}</div>
+    <div><span>Routers</span>{% for r in routers %}{{ r.router__name }} ({{ r.n }}){% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}</div>
+    {% if batch.note %}<div><span>Note</span>{{ batch.note }}</div>{% endif %}
+  </div>
+</div>
+
+{% include 'core/partials/voucher_lists.html' %}
+{% endwith %}{% endblock %}

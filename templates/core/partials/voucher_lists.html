@@ -1,0 +1,59 @@
+{% comment %}Tabbed, scrollable voucher lists used by the batch and plan detail pages. Needs: lists, active_tab, counts.{% endcomment %}
+<div class="panel mt-4" id="vlists" data-url="{{ request.path }}">
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+    <nav class="vl-tabs" role="tablist">{% for l in lists %}
+      <button type="button" role="tab" class="vl-tab {% if l.key == active_tab %}on{% endif %}" data-tab="{{ l.key }}" aria-selected="{% if l.key == active_tab %}true{% else %}false{% endif %}">{{ l.label }} <span>{{ l.count }}</span></button>{% endfor %}
+    </nav>
+    <span class="flex-grow-1"></span>
+    <input type="search" class="form-control form-control-sm vl-search" placeholder="Search code, holder or customer" aria-label="Search vouchers">
+  </div>
+  {% for l in lists %}
+  <div class="vl-pane {% if l.key != active_tab %}d-none{% endif %}" data-pane="{{ l.key }}" data-next="{{ l.next|default:'' }}">
+    <div class="vl-scroll" tabindex="0" aria-label="{{ l.label }} vouchers">
+      <table class="table table-sm align-middle mb-0"><thead><tr><th>Code</th><th>State</th><th>Holder</th><th>Sold</th><th>First used</th><th>Ends</th><th class="text-end">{% if l.key == 'remaining' %}Duration{% else %}Time left{% endif %}</th></tr></thead>
+        <tbody>{% include 'core/partials/voucher_rows.html' with rows=l.rows tab=l.key %}</tbody></table>
+      <div class="vl-more text-center small text-secondary py-2 {% if not l.next %}d-none{% endif %}"><span class="spinner-border spinner-border-sm"></span> Loading more…</div>
+    </div>
+    <div class="small text-secondary mt-2 vl-foot"><span class="vl-shown">{{ l.rows|length }}</span> of <span class="vl-total">{{ l.count }}</span> shown · scroll the list to load more</div>
+  </div>
+  {% endfor %}
+</div>
+<style>
+.vl-tabs{display:flex;gap:.35rem;flex-wrap:wrap}.vl-tab{border:1px solid #e3e9f1;background:#fff;border-radius:999px;padding:.3rem .8rem;font-size:.82rem;font-weight:600;color:#4e6479}
+.vl-tab span{display:inline-block;min-width:1.4rem;margin-left:.25rem;border-radius:999px;background:#eef2f6;padding:0 .4rem;font-size:.74rem}
+.vl-tab.on{background:#1769e0;border-color:#1769e0;color:#fff}.vl-tab.on span{background:rgba(255,255,255,.25)}
+.vl-search{max-width:260px}.vl-scroll{max-height:min(60vh,560px);overflow:auto;border:1px solid #eef2f6;border-radius:12px}
+.vl-scroll thead th{position:sticky;top:0;background:#f7f9fc;z-index:1;font-size:.75rem;text-transform:uppercase;letter-spacing:.03em;color:#6b7c8f}
+.vl-scroll td{white-space:nowrap;font-size:.86rem}
+.vd-state{display:inline-flex;align-items:center;gap:.3rem;border-radius:999px;padding:.12rem .55rem;font-weight:700;font-size:.72rem}
+.vd-state.stock{background:#e6f6ee;color:#127a4d}.vd-state.sold{background:#fff4dc;color:#8a5a00}.vd-state.used{background:#e5f3fb;color:#0b6690}
+.vd-state.disabled{background:#fdeaea;color:#a12b2b}.vd-state.expired{background:#eef1f5;color:#56687a}.vd-state.frozen{background:#e0efff;color:#1a5fb4}.vd-state.warned{background:#fdecc8;color:#8a4b00}
+</style>
+<script>
+(function(){
+  const box=document.getElementById('vlists'); if(!box) return;
+  const url=box.dataset.url, search=box.querySelector('.vl-search'); let q='', timer=null;
+  function pane(tab){return box.querySelector('[data-pane="'+tab+'"]');}
+  function load(p, replace){
+    const next=replace?1:p.dataset.next; if(!next||p.dataset.busy) return;
+    p.dataset.busy='1'; const more=p.querySelector('.vl-more'); more.classList.remove('d-none');
+    fetch(url+'?partial=1&tab='+p.dataset.pane+'&page='+next+'&q='+encodeURIComponent(q),{credentials:'same-origin',headers:{'X-Requested-With':'XMLHttpRequest'}})
+      .then(r=>r.json()).then(d=>{
+        const body=p.querySelector('tbody');
+        if(replace){body.innerHTML=d.html; p.querySelector('.vl-scroll').scrollTop=0;} else body.insertAdjacentHTML('beforeend',d.html);
+        p.dataset.next=d.next||''; more.classList.toggle('d-none',!d.next);
+        p.querySelector('.vl-shown').textContent=body.querySelectorAll('tr:not(.vl-empty)').length; p.querySelector('.vl-total').textContent=d.count;
+      }).catch(()=>{more.textContent='Could not load more — scroll again to retry.';}).finally(()=>{delete p.dataset.busy;});
+  }
+  box.querySelectorAll('.vl-pane').forEach(p=>{
+    const sc=p.querySelector('.vl-scroll');
+    sc.addEventListener('scroll',()=>{ if(sc.scrollTop+sc.clientHeight>=sc.scrollHeight-80) load(p,false); });
+  });
+  box.querySelectorAll('.vl-tab').forEach(t=>t.addEventListener('click',()=>{
+    box.querySelectorAll('.vl-tab').forEach(x=>{x.classList.toggle('on',x===t);x.setAttribute('aria-selected',x===t);});
+    box.querySelectorAll('.vl-pane').forEach(p=>p.classList.toggle('d-none',p.dataset.pane!==t.dataset.tab));
+    const u=new URL(location.href); u.searchParams.set('tab',t.dataset.tab); history.replaceState(null,'',u);
+  }));
+  search.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>{q=search.value.trim();box.querySelectorAll('.vl-pane').forEach(p=>load(p,true));},300);});
+})();
+</script>
