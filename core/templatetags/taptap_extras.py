@@ -83,3 +83,12 @@ def minutes_short(minutes):
     """Plan/voucher minutes -> '30m', '12h', '3d', '1mo'."""
     from core.durations import short
     return short(minutes)
+
+
+@register.filter
+def pct(value):
+    """A percentage without trailing zeros: 10.0000 → 10, 9.0900 → 9.09, 9.0909 → 9.0909."""
+    try: v = Decimal(str(value))
+    except Exception: return value
+    text = format(v.normalize(), 'f')
+    return text.rstrip('0').rstrip('.') if '.' in text else text

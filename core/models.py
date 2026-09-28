@@ -426,7 +426,7 @@ class Agent(models.Model):
     name=models.CharField(max_length=120)
     phone=models.CharField(max_length=60,blank=True)
     location=models.CharField(max_length=160,blank=True)
-    commission_percent=models.DecimalField(max_digits=5,decimal_places=2,default=10)
+    commission_percent=models.DecimalField(max_digits=7,decimal_places=4,default=10,help_text='Up to 4 decimals, e.g. 9.09 or 9.0909')
     active=models.BooleanField(default=True)
     created_at=models.DateTimeField(auto_now_add=True)
     class Meta: ordering=['name']

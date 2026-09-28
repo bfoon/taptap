@@ -226,3 +226,37 @@ class TeamAccessTests(TestCase):
         self.assertFalse(UsageDaily.objects.filter(user=self.root).exists())  # support visits don't count as customer usage
         self.client.post(reverse('platform_view_as_stop'))
         self.assertRedirects(self.get('dashboard'), reverse('platform_overview'), fetch_redirect_response=False)
+
+
+@override_settings(AUTH_EMAIL_OTP=False)
+class AgentCommissionPrecisionTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user('o2@example.com', 'o2@example.com', 'pw')
+        self.biz = Business.objects.create(user=self.owner, business_name='B', owner_name='O', phone='1',
+                                           trial_ends_at=timezone.now() + timedelta(days=7))
+        self.client.force_login(self.owner)
+
+    def save_agent(self, pct):
+        self.client.post(reverse('finance_agent_save'), {'name': 'Awa', 'commission_percent': pct, 'active': '1'})
+        return Agent.objects.get(business=self.biz)
+
+    def test_fractional_percent_is_kept(self):
+        from .finance import commission_for
+        from .templatetags.taptap_extras import pct
+        a = self.save_agent('9.09')
+        self.assertEqual(a.commission_percent, Decimal('9.09'))
+        self.assertEqual(commission_for(a, Decimal('1100')), Decimal('99.99'))
+        self.assertEqual(pct(a.commission_percent), '9.09')
+        a.delete()
+        a = self.save_agent('9.0909')
+        self.assertEqual(commission_for(a, Decimal('1100')), Decimal('100.00'))
+        self.assertEqual(pct(a.commission_percent), '9.0909')
+        self.assertEqual(pct(Decimal('10.0000')), '10')
+
+    def test_pages_show_the_exact_percent(self):
+        a = self.save_agent('9.09')
+        r = self.client.get(reverse('agent_detail', args=[a.pk]), HTTP_ACCEPT='text/html')
+        self.assertContains(r, '9.09% commission')
+        r = self.client.get(reverse('finance'), {'tab': 'agents'}, HTTP_ACCEPT='text/html')
+        self.assertContains(r, '9.09% commission')
+        self.assertContains(r, 'step="any"')

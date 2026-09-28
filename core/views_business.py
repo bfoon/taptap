@@ -229,7 +229,7 @@ def finance_agent_save(request):
     if not name:
         messages.error(request, 'Give the agent a name.'); return _back(request, 'agents')
     agent.name = name[:120]; agent.phone = request.POST.get('phone', '')[:60]; agent.location = request.POST.get('location', '')[:160]
-    agent.commission_percent = min(Decimal('100'), _dec(request.POST.get('commission_percent'), '10'))
+    agent.commission_percent = min(Decimal('100'), _dec(request.POST.get('commission_percent'), '10')).quantize(Decimal('0.0001'))
     agent.active = request.POST.get('active', '1') == '1'; agent.save()
     messages.success(request, f'Agent {agent.name} saved.')
     return _back(request, 'agents')

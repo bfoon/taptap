@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}
+{% extends 'core/base.html' %}{% load taptap_extras %}
 {% block title %}Batches — TapTap{% endblock %}
 {% block heading %}Batch History{% endblock %}
 {% block content %}
@@ -139,7 +139,7 @@
         <select class="form-select" name="agent">
           <option value="">The shop (take back unsold vouchers)</option>
           {% for a in agents %}
-            <option value="{{ a.id }}" data-comm="{{ a.commission_percent }}">{{ a.name }} ({{ a.commission_percent|floatformat:-2 }}%)</option>
+            <option value="{{ a.id }}" data-comm="{{ a.commission_percent }}">{{ a.name }} ({{ a.commission_percent|pct }}%)</option>
           {% endfor %}
         </select>
 

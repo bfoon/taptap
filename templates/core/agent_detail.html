@@ -3,7 +3,7 @@
 {% block content %}{% with c=current_business.currency %}
 <div class="d-flex flex-wrap gap-2 align-items-center mb-3 no-print">
 {% if 'finance.view' in tt_perms or 'finance.agents' in tt_perms %}<a class="btn btn-light btn-sm" href="{% url 'finance' %}?tab=agents"><i class="bi bi-arrow-left"></i> All agents</a>{% endif %}
-  <span class="text-secondary small">{% if agent.location %}{{ agent.location }} · {% endif %}{% if agent.phone %}{{ agent.phone }} · {% endif %}{{ agent.commission_percent|floatformat:-2 }}% commission{% if not agent.active %} · <b>inactive</b>{% endif %}</span>
+  <span class="text-secondary small">{% if agent.location %}{{ agent.location }} · {% endif %}{% if agent.phone %}{{ agent.phone }} · {% endif %}{{ agent.commission_percent|pct }}% commission{% if not agent.active %} · <b>inactive</b>{% endif %}</span>
   <span class="flex-grow-1"></span>
 {% if 'vouchers.create' in tt_perms %}<a class="btn btn-primary btn-sm" href="{% url 'generate_vouchers' %}?agent={{ agent.id }}"><i class="bi bi-stars"></i> New batch for {{ agent.name }}</a>
   {% if shop_batches %}<div class="dropdown"><button class="btn btn-outline-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-box-arrow-right"></i> Give a shop batch</button><div class="dropdown-menu dropdown-menu-end p-2" style="min-width:320px">
@@ -19,7 +19,7 @@
   <div class="kpi hero"><small>Still to hand in</small><strong>{{ bal.outstanding|money:c }}</strong><em>{{ bal.collection_rate }}% of what they owe has been handed in</em></div>
   <div class="kpi"><small>Holding now</small><strong>{{ bal.holding }}</strong><em>unsold vouchers worth {{ bal.holding_value|money:c }}</em></div>
   <div class="kpi"><small>Sold</small><strong>{{ bal.sold }}</strong><em>{{ bal.gross|money:c }} in sales</em></div>
-  <div class="kpi"><small>Commission earned</small><strong>{{ bal.commission|money:c }}</strong><em>at {{ agent.commission_percent|floatformat:-2 }}%</em></div>
+  <div class="kpi"><small>Commission earned</small><strong>{{ bal.commission|money:c }}</strong><em>at {{ agent.commission_percent|pct }}%</em></div>
   <div class="kpi"><small>Handed in</small><strong>{{ bal.collected|money:c }}</strong><em>{% if bal.last_collection %}last {{ bal.last_collection|timesince }} ago{% else %}nothing yet{% endif %}</em></div>
 </div>
 
