@@ -104,6 +104,23 @@ class Router(models.Model):
     def __str__(self): return self.name
 
 
+# ─────────────────────────────── Recycle bin ───────────────────────────────
+# Deleted vouchers and batches are never erased: they move to the bin with who, when
+# and why. The default managers hide them, so every page, report and finance total
+# that goes through `business.vouchers` / `business.batches` leaves them out.
+# `all_objects` sees everything (code uniqueness, router mirroring, the bin itself).
+class BinQuerySet(models.QuerySet):
+    def alive(self): return self.filter(deleted_at__isnull=True)
+    def binned(self): return self.filter(deleted_at__isnull=False)
+
+
+class AliveManager(models.Manager.from_queryset(BinQuerySet)):
+    def get_queryset(self): return super().get_queryset().filter(deleted_at__isnull=True)
+
+
+ROUTER_REMOVAL=[('','—'),('not_needed','Not on a router'),('queued','Queued for the router'),('removed','Removed from the router'),('failed','Router not updated yet — retrying')]
+
+
 class VoucherBatch(models.Model):
     SETTLEMENT=[('credit','On credit — agent pays as vouchers sell'),('prepaid','Paid upfront — agent bought the batch')]
     business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='batches')
@@ -116,6 +133,13 @@ class VoucherBatch(models.Model):
     issued_at=models.DateTimeField(null=True,blank=True)
     note=models.CharField(max_length=255,blank=True)
     created_at=models.DateTimeField(auto_now_add=True)
+    # Recycle bin
+    deleted_at=models.DateTimeField(null=True,blank=True,db_index=True)
+    deleted_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
+    delete_reason=models.CharField(max_length=255,blank=True)
+    delete_info=models.JSONField(default=dict,blank=True)
+    objects=AliveManager()
+    all_objects=BinQuerySet.as_manager()
 
 
 class Voucher(models.Model):
@@ -145,6 +169,17 @@ class Voucher(models.Model):
     mikrotik_sync_status=models.CharField(max_length=30,default='Pending')
     mikrotik_sync_error=models.TextField(blank=True)
     created_at=models.DateTimeField(auto_now_add=True)
+    # Recycle bin: a deleted voucher keeps its code forever (it can never be issued again).
+    deleted_at=models.DateTimeField(null=True,blank=True,db_index=True)
+    deleted_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
+    delete_reason=models.CharField(max_length=255,blank=True)
+    delete_info=models.JSONField(default=dict,blank=True,help_text='Snapshot at deletion: state, holder, removed sale')
+    router_removal=models.CharField(max_length=20,blank=True,default='',choices=ROUTER_REMOVAL)
+    router_removal_note=models.CharField(max_length=255,blank=True)
+    objects=AliveManager()
+    all_objects=BinQuerySet.as_manager()
+    @property
+    def is_deleted(self): return self.deleted_at is not None
     @property
     def duration_hours(self):
         """Legacy read-only view in whole hours (rounded up)."""

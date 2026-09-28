@@ -291,17 +291,22 @@ def _users(router, rows, now):
         'prices_repaired': 0, 'activated_vouchers': 0, 'errors': [],
     }
     RouterHotspotUser.objects.filter(router=router).update(is_present=False)
+    from .voucher_bin import deleted_codes, heal
+    binned, binned_seen = deleted_codes(router.business), []
     for raw in rows:
         row = _clean(raw)
         username = str(row.get('name', '')).strip()
         if not username:
+            continue
+        if username.upper() in binned:
+            binned_seen.append(username)   # deleted in TapTap: queue its removal, never re-import
             continue
         profile_name = str(row.get('profile', 'default') or 'default')
         plan = router.business.plans.filter(name__iexact=profile_name).first()
         max_devices = plan.max_devices if plan else 1
         duration_minutes = _routeros_minutes(row.get('limit-uptime', row.get('limit_uptime', '')), plan.duration_minutes if plan else 1440)
         disabled = ros_bool(row.get('disabled', False))
-        existing_voucher = Voucher.objects.filter(code__iexact=username).first()
+        existing_voucher = Voucher.all_objects.filter(code__iexact=username).first()
         source = 'taptap' if existing_voucher and existing_voucher.business_id == router.business_id and existing_voucher.source == 'taptap' else 'mikrotik'
         RouterHotspotUser.objects.update_or_create(
             router=router,
@@ -388,6 +393,11 @@ def _users(router, rows, now):
                         Voucher.objects.filter(pk=new_voucher.pk).update(used_at=when)
             except Exception as exc:
                 summary['errors'].append(f'Could not import RouterOS voucher {username}: {exc}')
+    if binned_seen:
+        try:
+            heal(router, binned_seen)
+        except Exception as exc:
+            summary['errors'].append(f'Could not queue removal of deleted vouchers: {exc}')
     return summary
 
 

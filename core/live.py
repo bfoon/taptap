@@ -169,9 +169,14 @@ def watch_router(router, force=False):
             plans[(p.mikrotik_profile_name or p.name).lower()] = p
             plans.setdefault(p.name.lower(), p)
         seen = set()
+        from .voucher_bin import deleted_codes, heal
+        binned, binned_seen = deleted_codes(business), []
         for row in users:
             name = str(row.get('name', '')).strip()
             if not name or name in SKIP_USERS:
+                continue
+            if name.upper() in binned:
+                binned_seen.append(name)   # deleted in TapTap: remove again, never re-import
                 continue
             seen.add(name)
             disabled = ros_bool(row.get('disabled', False))
@@ -233,6 +238,12 @@ def watch_router(router, force=False):
                         push_event(business.pk, f'Voucher {name} started on {router.name}', 'sale')
                 else:
                     Voucher.objects.filter(pk=v.pk, used_at__isnull=True).update(used_at=when); v.used_at = when
+
+        if binned_seen:
+            try:
+                heal(router, binned_seen)
+            except Exception:
+                logger.exception('Could not remove deleted vouchers from %s', router.name)
 
         gone = [u for n, u in mirror.items() if n not in seen and u.is_present]
         if gone:

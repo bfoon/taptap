@@ -233,7 +233,8 @@ def voucher_detail(request,pk):
     from . import voucher_history as vh
     from .models import SessionIncident, VoucherSale
     business=b(request)
-    v=get_object_or_404(business.vouchers.select_related('router','batch','agent'),pk=pk)
+    # Vouchers in the bin still open here, read-only, so their history stays reachable.
+    v=get_object_or_404(Voucher.all_objects.filter(business=business).select_related('router','batch','agent','deleted_by'),pk=pk)
     now=timezone.now();end=vh.ends_at(v);state_key,state_label=vh.display_state(v,now)
     left=(end-now) if end and end>now else None
     mirror=RouterHotspotUser.objects.filter(router=v.router,username=v.code).first() if v.router_id else None
@@ -260,8 +261,10 @@ def delete_expired(request):
 
 @login_required
 def batches(request):
-    batch_list=list(b(request).batches.select_related('plan','agent').annotate(actual=Count('vouchers'),left=Count('vouchers',filter=Q(vouchers__sold_at__isnull=True,vouchers__used_at__isnull=True,vouchers__status='active')),
-        sold=Count('vouchers',filter=Q(vouchers__sold_at__isnull=False)),used=Count('vouchers',filter=Q(vouchers__used_at__isnull=False))).order_by('-created_at'))
+    batch_list=list(b(request).batches.select_related('plan','agent').annotate(actual=Count('vouchers',filter=Q(vouchers__deleted_at__isnull=True)),left=Count('vouchers',filter=Q(vouchers__sold_at__isnull=True,vouchers__used_at__isnull=True,vouchers__status='active',vouchers__deleted_at__isnull=True)),
+        sold=Count('vouchers',filter=Q(vouchers__sold_at__isnull=False,vouchers__deleted_at__isnull=True)),used=Count('vouchers',filter=Q(vouchers__used_at__isnull=False,vouchers__deleted_at__isnull=True)),
+        unused=Count('vouchers',filter=Q(vouchers__used_at__isnull=True,vouchers__deleted_at__isnull=True)),
+        sold_unused=Count('vouchers',filter=Q(vouchers__sold_at__isnull=False,vouchers__used_at__isnull=True,vouchers__deleted_at__isnull=True))).order_by('-created_at'))
     # Open missing-voucher reports per batch (the template shows "N reported missing").
     open_reports={}
     for r in b(request).missing_voucher_reports.filter(batch__isnull=False).exclude(status='resolved').order_by('-reported_at'):

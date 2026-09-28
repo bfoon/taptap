@@ -39,7 +39,7 @@ DEFAULT_EXPIRY = {'reboot': 5, 'port_restart': 5, 'interface_set': 15, 'port_off
 POLICY = 'ftp,read,write,test,reboot,sensitive'
 SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
-    'hotspot_user_set', 'hotspot_user_remove', 'disconnect', 'binding_set',
+    'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
 }
@@ -301,6 +301,11 @@ def command_body(cmd):
                 f'/ip hotspot user set $id disabled=no }}')
     if k == 'hotspot_user_remove':
         return f'/ip hotspot user remove [find name={name()}]'
+    if k == 'hotspot_users_remove':
+        # Deleted vouchers (recycle bin): drop any session, then the user entry. Missing names are fine.
+        names = ';'.join(rs(n) for n in p.get('names', []))
+        return (f':foreach n in={{{names}}} do={{ :do {{ /ip hotspot active remove [find user=$n] }} on-error={{}}; '
+                f'/ip hotspot user remove [find name=$n] }}')
     if k == 'disconnect':
         return f'/ip hotspot active remove [find user={name("user")}]'
     if k == 'binding_set':
@@ -382,6 +387,10 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
             raise ValueError(f'Invalid {key}.')
     if params and 'mac' in params and not MAC_RE.match(str(params['mac'])):
         raise ValueError('Invalid MAC address.')
+    if kind == 'hotspot_users_remove':
+        names = (params or {}).get('names') or []
+        if not isinstance(names, list) or not 1 <= len(names) <= 100 or not all(NAME_RE.match(str(n)) for n in names):
+            raise ValueError('Invalid voucher list.')
     if kind == 'hotspot_user_extend':
         hours = (params or {}).get('hours')
         if not isinstance(hours, int) or not 1 <= hours <= 8760:
@@ -693,6 +702,9 @@ def handle_ack(cmd_id, given_nonce, status, result=''):
     r = cmd.router
     if cmd.kind in ('portal_install', 'portal_reset'):
         from .portal_deploy import link_ack
+        link_ack(cmd, ok)
+    if cmd.kind == 'hotspot_users_remove':
+        from .voucher_bin import link_ack
         link_ack(cmd, ok)
     if cmd.kind == 'hotspot_users':
         ids = cmd.params.get('ids', [])

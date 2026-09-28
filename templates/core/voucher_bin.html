@@ -1,0 +1,83 @@
+{% extends 'core/base.html' %}{% load taptap_extras %}
+{% block title %}Bin — TapTap{% endblock %}{% block heading %}Bin{% endblock %}
+{% block content %}{% with c=current_business.currency %}
+<div class="page-actions">
+  <div>
+    <h2 class="section-title">Deleted vouchers and batches</h2>
+    <p>A permanent, read-only record. Items here are off your routers and out of your voucher and finance reports.
+       They cannot be deleted again or restored, and their codes are never issued again.</p>
+  </div>
+</div>
+
+{% if pending %}<div class="alert alert-warning d-flex gap-2 align-items-start"><i class="bi bi-router mt-1"></i>
+  <div><b>{{ pending }} deleted voucher{{ pending|pluralize }} still waiting to be removed from a router.</b>
+  TapTap keeps trying: at the router's next check-in (TapTap Link) or the next successful sync. They cannot log anyone in from TapTap's side, and are removed from the router as soon as it answers.</div></div>{% endif %}
+
+<nav class="fin-tabs">
+  <a href="?tab=vouchers{% if q %}&q={{ q|urlencode }}{% endif %}" class="{% if tab == 'vouchers' %}on{% endif %}">Vouchers <span class="count">{{ counts.vouchers }}</span></a>
+  <a href="?tab=batches{% if q %}&q={{ q|urlencode }}{% endif %}" class="{% if tab == 'batches' %}on{% endif %}">Batches <span class="count">{{ counts.batches }}</span></a>
+</nav>
+
+<div class="panel">
+  <form class="d-flex gap-2 mb-3" method="get">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <input class="form-control form-control-sm" style="max-width:320px" name="q" value="{{ q }}" placeholder="Search code, plan, batch or reason" aria-label="Search the bin">
+    <button class="btn btn-sm btn-outline-secondary">Search</button>{% if q %}<a class="btn btn-sm btn-link" href="?tab={{ tab }}">Clear</a>{% endif %}
+  </form>
+
+  <div class="table-responsive">
+  {% if tab == 'vouchers' %}
+    <table class="table align-middle">
+      <thead><tr><th>Code</th><th>Plan</th><th>Batch</th><th>Before deleting</th><th>Sale removed</th><th>Router</th><th>Deleted</th><th>Reason</th></tr></thead>
+      <tbody>
+      {% for v in page_obj %}{% with i=v.delete_info %}
+        <tr class="text-secondary">
+          <td><a href="{% url 'voucher_detail' v.id %}" class="text-decoration-none" title="History"><code class="voucher-code text-decoration-line-through">{{ v.code }}</code></a></td>
+          <td>{{ v.plan_name }}<small class="d-block">{{ v.price|money:c }}</small></td>
+          <td>{{ v.batch.name|default:i.batch|default:'—' }}</td>
+          <td>
+            {% if i.sold_at %}<span class="badge text-bg-warning">Sold</span>{% elif i.status == 'disabled' %}<span class="badge text-bg-secondary">Disabled</span>{% else %}<span class="badge text-bg-success">In stock</span>{% endif %}
+            {% if i.agent %}<small class="d-block"><i class="bi bi-person-badge"></i> {{ i.agent }}</small>{% elif i.customer %}<small class="d-block"><i class="bi bi-person"></i> {{ i.customer }}</small>{% endif %}
+          </td>
+          <td>{% if i.sale %}<b class="text-dark">{{ c }}{{ i.sale.amount }}</b><small class="d-block">{{ i.sale.method }}{% if i.sale.agent %} · {{ i.sale.agent }}{% endif %}</small>{% else %}—{% endif %}</td>
+          <td>
+            {% if v.router_removal == 'removed' %}<span class="text-success"><i class="bi bi-check-circle"></i> Removed</span>
+            {% elif v.router_removal == 'queued' %}<span class="text-warning-emphasis"><i class="bi bi-hourglass-split"></i> Queued</span>
+            {% elif v.router_removal == 'failed' %}<span class="text-danger"><i class="bi bi-arrow-repeat"></i> Retrying</span>
+            {% else %}<span>Not on a router</span>{% endif %}
+            {% if v.router %}<small class="d-block">{{ v.router.name }}</small>{% endif %}
+            {% if v.router_removal_note and v.router_removal != 'removed' %}<small class="d-block" title="{{ v.router_removal_note }}">{{ v.router_removal_note|truncatechars:50 }}</small>{% endif %}
+          </td>
+          <td class="text-nowrap">{{ v.deleted_at|date:'d M Y H:i' }}<small class="d-block">{{ v.deleted_by.get_full_name|default:v.deleted_by.username|default:'—' }}</small></td>
+          <td style="max-width:260px">{{ v.delete_reason }}{% if i.deleted_with_batch %}<small class="d-block">with batch {{ i.deleted_with_batch }}</small>{% endif %}</td>
+        </tr>
+      {% endwith %}{% empty %}
+        <tr><td colspan="8" class="empty-table">{% if q %}Nothing in the bin matches “{{ q }}”.{% else %}The bin is empty.{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <table class="table align-middle">
+      <thead><tr><th>Batch</th><th>Plan</th><th>Held by</th><th>Vouchers deleted</th><th>Sales removed</th><th>Deleted</th><th>Reason</th></tr></thead>
+      <tbody>
+      {% for x in page_obj %}{% with i=x.delete_info %}
+        <tr class="text-secondary">
+          <td><b class="text-decoration-line-through">{{ x.name }}</b><small class="d-block">created {{ x.created_at|date:'d M Y' }}</small></td>
+          <td>{{ x.plan.name|default:i.plan|default:'—' }}</td>
+          <td>{{ x.agent.name|default:i.agent|default:'Shop' }}</td>
+          <td>{{ i.vouchers_deleted|default:0 }}{% if i.quantity %} <small>of {{ i.quantity }}</small>{% endif %}
+            <a class="d-block small" href="?tab=vouchers&q={{ x.name|urlencode }}">See vouchers</a></td>
+          <td>{% if i.sales_removed %}{{ i.sales_removed }} · <b class="text-dark">{{ c }}{{ i.sales_amount }}</b>{% else %}—{% endif %}</td>
+          <td class="text-nowrap">{{ x.deleted_at|date:'d M Y H:i' }}<small class="d-block">{{ x.deleted_by.get_full_name|default:x.deleted_by.username|default:'—' }}</small></td>
+          <td style="max-width:260px">{{ x.delete_reason }}</td>
+        </tr>
+      {% endwith %}{% empty %}
+        <tr><td colspan="7" class="empty-table">{% if q %}No deleted batch matches “{{ q }}”.{% else %}No deleted batches.{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+  </div>
+  {% include 'core/partials/pager.html' with page=page_obj param='page' %}
+</div>
+{% endwith %}{% endblock %}

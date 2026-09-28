@@ -100,7 +100,7 @@ def generate_codes(count, length=None, charset='mixed', prefix='', suffix='', bu
             if c not in taken:
                 fresh.add(c)
         # Codes are unique across TapTap and matched case-insensitively at login.
-        existing = {x.upper() for x in Voucher.objects.filter(code__in=fresh).values_list('code', flat=True)}
+        existing = {x.upper() for x in Voucher.all_objects.filter(code__in=fresh).values_list('code', flat=True)}
         taken |= existing
         for c in fresh:
             if c not in existing and len(codes) < count:

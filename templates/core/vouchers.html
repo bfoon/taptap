@@ -157,6 +157,18 @@
       Print selected
     </button>
 
+    {% if 'vouchers.manage' in tt_perms %}<button
+      type="button"
+      class="btn btn-sm btn-outline-danger"
+      id="deleteSel"
+      disabled
+      data-bs-toggle="modal"
+      data-bs-target="#deleteSelModal"
+    >
+      <i class="bi bi-trash3"></i>
+      Delete selected
+    </button>{% endif %}
+
   </form>
 
 
@@ -204,6 +216,8 @@
               type="checkbox"
               class="form-check-input vsel"
               value="{{ v.id }}"
+              data-used="{% if v.used_at %}1{% else %}0{% endif %}"
+              data-sold="{% if v.sold_at %}1{% else %}0{% endif %}"
               aria-label="Select {{ v.code }}"
             >
           </td>
@@ -375,6 +389,17 @@
             </a>
 
 
+            {% if 'vouchers.manage' in tt_perms and not v.used_at %}
+              <a
+                class="btn btn-sm btn-outline-danger"
+                href="{% url 'voucher_detail' v.id %}?do=delete"
+                title="Delete to the bin"
+                aria-label="Delete {{ v.code }}"
+              >
+                <i class="bi bi-trash3"></i>
+              </a>
+            {% endif %}
+
             {% if v.status == 'active' %}
 
               <a
@@ -443,6 +468,31 @@
 </div>
 
 
+
+{% if 'vouchers.manage' in tt_perms %}
+<!-- DELETE SELECTED MODAL -->
+<div class="modal fade" id="deleteSelModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="{% url 'vouchers_delete' %}">
+      {% csrf_token %}
+      <input type="hidden" name="ids" id="deleteIds">
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <div class="modal-header border-0"><h5 class="modal-title fw-bold">Delete <span id="delCount"></span> voucher(s)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body pt-0">
+        <p class="small">Unused vouchers are removed from their MikroTik router and from TapTap, and move to the <b>bin</b>.
+          They will no longer appear in voucher or finance reports. <b>This cannot be undone</b>, and the codes are never issued again.</p>
+        <div class="alert alert-secondary small py-2" id="delUsed" hidden></div>
+        <div class="alert alert-warning small py-2" id="delSold" hidden></div>
+        <label class="form-label">Reason <span class="text-secondary">(required, kept in the bin)</span></label>
+        <input name="reason" class="form-control" maxlength="255" required placeholder="e.g. Printed by mistake, batch damaged">
+      </div>
+      <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-danger" id="delGo"><i class="bi bi-trash3"></i> Delete to the bin</button></div>
+    </form>
+  </div>
+</div>
+{% endif %}
 
 <!-- SELL VOUCHER MODAL -->
 
@@ -759,10 +809,17 @@
 
 
 
+    const delBtn = document.getElementById('deleteSel');
+
     function updateButtons() {
 
         const count =
             selected().length;
+
+        if (delBtn) {
+            delBtn.disabled = count === 0;
+            delBtn.innerHTML = '<i class="bi bi-trash3"></i> Delete selected' + (count ? ' (' + count + ')' : '');
+        }
 
 
         if (printBtn) {
@@ -863,6 +920,22 @@
 
     }
 
+
+    const delModal = document.getElementById('deleteSelModal');
+    if (delModal) {
+        delModal.addEventListener('show.bs.modal', function () {
+            const sel = selected(),
+                  unused = sel.filter(function (b) { return b.dataset.used !== '1'; }),
+                  used = sel.length - unused.length,
+                  sold = unused.filter(function (b) { return b.dataset.sold === '1'; }).length;
+            document.getElementById('deleteIds').value = unused.map(function (b) { return b.value; }).join(',');
+            document.getElementById('delCount').textContent = unused.length;
+            document.getElementById('delGo').disabled = unused.length === 0;
+            const u = document.getElementById('delUsed'), s = document.getElementById('delSold');
+            u.hidden = !used; u.textContent = used + ' selected voucher(s) have been used and will be kept — only unused vouchers can be deleted.';
+            s.hidden = !sold; s.textContent = sold + ' of these were sold. Their sales will be taken out of finance and kept with the records in the bin.';
+        });
+    }
 
     updateButtons();
 

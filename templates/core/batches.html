@@ -97,6 +97,21 @@
               </button>
             {% endif %}
 
+            {% if 'vouchers.manage' in tt_perms and x.unused %}
+              <button class="btn btn-sm btn-outline-danger"
+                      data-bs-toggle="modal"
+                      data-bs-target="#deleteBatchModal"
+                      data-id="{{ x.id }}"
+                      data-name="{{ x.name }}"
+                      data-unused="{{ x.unused }}"
+                      data-used="{{ x.used }}"
+                      data-sold="{{ x.sold_unused }}"
+                      data-agent="{{ x.agent.name|default:'' }}"
+                      title="Delete unused vouchers to the bin" aria-label="Delete {{ x.name }}">
+                <i class="bi bi-trash3"></i>
+              </button>
+            {% endif %}
+
             <div class="btn-group">
               <a class="btn btn-sm btn-outline-primary" href="{% url 'voucher_print' %}?batch={{ x.id }}">
                 <i class="bi bi-printer"></i> Print
@@ -178,6 +193,28 @@
     </form>
   </div>
 </div>
+
+{% if 'vouchers.manage' in tt_perms %}
+<div class="modal fade" id="deleteBatchModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post">
+      {% csrf_token %}
+      <div class="modal-header border-0"><h5 class="modal-title fw-bold">Delete batch <span data-name></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body pt-0">
+        <p class="small"><b data-unused></b> are removed from the MikroTik router and from TapTap, and move to the <b>bin</b>.
+          They will no longer appear in voucher or finance reports. <b>This cannot be undone</b>, and the codes are never issued again.</p>
+        <div class="alert alert-secondary small py-2" data-used hidden></div>
+        <div class="alert alert-warning small py-2" data-sold hidden></div>
+        <label class="form-label">Reason <span class="text-secondary">(required, kept in the bin)</span></label>
+        <input name="reason" class="form-control" maxlength="255" required placeholder="e.g. Printed with the wrong plan, cards damaged">
+      </div>
+      <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-danger"><i class="bi bi-trash3"></i> Delete to the bin</button></div>
+    </form>
+  </div>
+</div>
+{% endif %}
 
 <div class="modal fade" id="missingBatchModal" tabindex="-1">
   <div class="modal-dialog modal-dialog-centered">
@@ -261,6 +298,17 @@
     upd();
   });
   f.addEventListener('change',upd);
+
+  const del=document.getElementById('deleteBatchModal');
+  if(del) del.addEventListener('show.bs.modal',e=>{
+    const d=e.relatedTarget.dataset, form=del.querySelector('form'), used=+d.used, sold=+d.sold;
+    form.reset(); form.action='/batches/'+d.id+'/delete/';
+    del.querySelector('[data-name]').textContent=d.name;
+    del.querySelector('[data-unused]').textContent=d.unused+' unused voucher'+(d.unused==='1'?'':'s');
+    const u=del.querySelector('[data-used]'), s=del.querySelector('[data-sold]');
+    u.hidden=!used; u.textContent=used+' used voucher'+(used===1?' stays':'s stay')+' — used vouchers are real history, so the batch stays in your list with them.';
+    s.hidden=!sold; s.textContent=sold+' of the unused vouchers were sold'+(d.agent?' (e.g. paid upfront by '+d.agent+')':'')+'. Those sales will be taken out of finance'+(d.agent?' and the agent\'s balance':'')+', and kept with the records in the bin.';
+  });
 
   const missing=document.getElementById('missingBatchModal');
   missing.addEventListener('show.bs.modal',e=>{

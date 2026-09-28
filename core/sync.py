@@ -235,16 +235,20 @@ def sync_router(router, progress=None):
 
         # 2) Pull every RouterOS HotSpot user into both the mirror and the main Voucher app.
         RouterHotspotUser.objects.filter(router=router).update(is_present=False)
+        from .voucher_bin import deleted_codes, remove_with_service
+        binned, binned_seen = deleted_codes(router.business), []
         for raw in svc.hotspot_users():
             row = _clean(raw)
             username = str(row.get('name', '')).strip()
             if not username: continue
+            if username.upper() in binned:
+                binned_seen.append(username); continue   # deleted in TapTap: remove, never re-import
             profile_name = str(row.get('profile', 'default') or 'default')
             plan = profile_map.get(profile_name.lower()) or router.business.plans.filter(name__iexact=profile_name).first()
             max_devices = plan.max_devices if plan else 1
             duration_minutes = _routeros_minutes(row.get('limit-uptime', row.get('limit_uptime', '')), plan.duration_minutes if plan else 1440)
             disabled = ros_bool(row.get('disabled', False))
-            existing_voucher = Voucher.objects.filter(code__iexact=username).first()
+            existing_voucher = Voucher.all_objects.filter(code__iexact=username).first()
             source = 'taptap' if existing_voucher and existing_voucher.business_id == router.business_id and existing_voucher.source == 'taptap' else 'mikrotik'
             RouterHotspotUser.objects.update_or_create(
                 router=router, username=username,
@@ -310,6 +314,13 @@ def sync_router(router, progress=None):
                 except Exception as exc:
                     summary['errors'].append(f'Could not import RouterOS voucher {username}: {exc}')
 
+        if binned_seen:
+            try:
+                remove_with_service(svc, binned_seen)
+                Voucher.all_objects.filter(business=router.business, code__in=binned_seen).update(router_removal='removed', router_removal_note='Removed during full sync')
+                summary['deleted_removed'] = len(binned_seen)
+            except Exception as exc:
+                summary['errors'].append(f'Could not remove {len(binned_seen)} deleted voucher(s): {exc}')
         notify(40, 'Router vouchers imported — pushing TapTap vouchers')
 
         # 3) Push only TapTap-authored vouchers. MikroTik imports are already authoritative on the router.

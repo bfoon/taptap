@@ -30,6 +30,9 @@
       <span class="text-secondary small ms-2">{{ v.plan_name }} · {{ v.price|money:c }}</span>
     </div>
     <div class="d-flex flex-wrap gap-2">
+      {% if v.deleted_at %}
+      <a class="btn btn-outline-secondary" href="{% url 'voucher_bin' %}"><i class="bi bi-trash3"></i> Open the bin</a>
+      {% else %}
       {% if 'vouchers.support' in tt_perms %}{% if v.status == 'active' and not time_is_up %}
         <button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#disableModal"><i class="bi bi-slash-circle"></i> Disable</button>
         <button class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#enableModal"><i class="bi bi-clock-history"></i> Add time</button>
@@ -38,9 +41,21 @@
       {% endif %}
       <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#resetModal"><i class="bi bi-arrow-counterclockwise"></i> Reset devices</button>{% endif %}
       <a class="btn btn-outline-primary" href="{% url 'voucher_card' v.id %}"><i class="bi bi-card-text"></i> Card / share</a>
+      {% if 'vouchers.manage' in tt_perms and not v.used_at %}<button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteModal"><i class="bi bi-trash3"></i> Delete</button>{% endif %}
+      {% endif %}
     </div>
   </div>
+  {% if v.deleted_at %}
+  <div class="alert alert-danger mt-3 mb-0 d-flex gap-2"><i class="bi bi-trash3 mt-1"></i><div>
+    <b>Deleted {{ v.deleted_at|date:'d M Y H:i' }}{% if v.deleted_by %} by {{ v.deleted_by.get_full_name|default:v.deleted_by.username }}{% endif %}.</b>
+    {{ v.delete_reason }}<br>
+    <small>This voucher is in the bin: it is not in reports or finance, cannot log anyone in and cannot be deleted again.
+    Router: {{ v.get_router_removal_display }}{% if v.router_removal_note and v.router_removal != 'removed' %} — {{ v.router_removal_note }}{% endif %}.
+    {% if v.delete_info.sale %}Sale removed from finance: {{ c }}{{ v.delete_info.sale.amount }} ({{ v.delete_info.sale.method }}{% if v.delete_info.sale.agent %}, {{ v.delete_info.sale.agent }}{% endif %}).{% endif %}</small>
+  </div></div>
+  {% else %}
   <p class="small text-secondary mt-3 mb-0"><i class="bi bi-router"></i> Changes reach {{ v.router.name|default:'no router (TapTap only)' }} through <b>{{ channel }}</b>.</p>
+  {% endif %}
 </section>
 
 <div class="row g-3 mb-3">
@@ -134,6 +149,18 @@
 </div>
 
 {# ─────────── action dialogs ─────────── #}
+{% if 'vouchers.manage' in tt_perms and not v.used_at and not v.deleted_at %}
+<div class="modal fade" id="deleteModal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'voucher_delete' v.id %}">{% csrf_token %}
+  <div class="modal-header"><h5 class="modal-title">Delete {{ v.code }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body"><p class="small">The voucher is removed from {{ v.router.name|default:'TapTap' }}{% if v.router %} and from TapTap{% endif %}, and moves to the <b>bin</b>. It will no longer appear in voucher or finance reports.
+    <b>This cannot be undone</b>, and the code is never issued again.</p>
+    {% if sale %}<div class="alert alert-warning small py-2">This voucher was sold ({{ c }}{{ sale.amount }}). The sale will be taken out of finance and kept with the record in the bin.</div>{% endif %}
+    <label class="form-label">Reason <span class="text-secondary">(required, kept in the bin)</span></label>
+    <input name="reason" class="form-control" maxlength="255" required placeholder="e.g. Printed by mistake, damaged card, wrong plan"></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-danger"><i class="bi bi-trash3"></i> Delete to the bin</button></div>
+</form></div></div>
+{% endif %}
+
 <div class="modal fade" id="disableModal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'disable_voucher' v.id %}">{% csrf_token %}
   <div class="modal-header"><h5 class="modal-title">Disable {{ v.code }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
   <div class="modal-body"><p class="small">The voucher stops working at once and anyone using it is disconnected. You can enable it again later.</p>
@@ -175,7 +202,7 @@
 <script>
 (function(){
   var want=new URLSearchParams(location.search).get('do');
-  var id={enable:'enableModal',disable:'disableModal',reset:'resetModal'}[want];
+  var id={enable:'enableModal',disable:'disableModal',reset:'resetModal',delete:'deleteModal'}[want];
   if(!id)return;
   document.addEventListener('DOMContentLoaded',function(){
     var el=document.getElementById(id);

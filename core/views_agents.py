@@ -78,9 +78,9 @@ def agent_detail(request, pk):
     business = _b(request); agent = get_object_or_404(business.agents, pk=pk)
     bal = next((r for r in agent_balances(business) if r['agent'].id == agent.id), None)
     batches = (agent.batches.select_related('plan').annotate(
-        total=Count('vouchers'), sold=Count('vouchers', filter=Q(vouchers__sold_at__isnull=False)),
-        used=Count('vouchers', filter=Q(vouchers__used_at__isnull=False)),
-        left=Count('vouchers', filter=Q(vouchers__sold_at__isnull=True, vouchers__used_at__isnull=True, vouchers__status='active')))
+        total=Count('vouchers',filter=Q(vouchers__deleted_at__isnull=True)), sold=Count('vouchers',filter=Q(vouchers__sold_at__isnull=False,vouchers__deleted_at__isnull=True)),
+        used=Count('vouchers',filter=Q(vouchers__used_at__isnull=False,vouchers__deleted_at__isnull=True)),
+        left=Count('vouchers',filter=Q(vouchers__sold_at__isnull=True, vouchers__used_at__isnull=True, vouchers__status='active',vouchers__deleted_at__isnull=True)))
         .order_by('-issued_at', '-created_at'))
     holding = (business.vouchers.filter(agent=agent, status='active', sold_at__isnull=True, used_at__isnull=True)
                .values('plan_name').annotate(n=Count('id'), v=Sum('price')).order_by('plan_name'))
@@ -88,7 +88,7 @@ def agent_detail(request, pk):
         'agent': agent, 'bal': bal, 'batches': batches, 'holding': holding,
         'sales': agent.sales.select_related('router')[:40], 'collections': agent.collections.all()[:30],
         'shop_batches': business.batches.filter(agent__isnull=True).select_related('plan').annotate(
-            left=Count('vouchers', filter=Q(vouchers__sold_at__isnull=True, vouchers__used_at__isnull=True, vouchers__status='active'))).filter(left__gt=0).order_by('-created_at')[:30],
+            left=Count('vouchers',filter=Q(vouchers__sold_at__isnull=True, vouchers__used_at__isnull=True, vouchers__status='active',vouchers__deleted_at__isnull=True))).filter(left__gt=0).order_by('-created_at')[:30],
         'methods': MANUAL_METHODS, 'today': timezone.localdate().isoformat(), 'now': timezone.now(),
     })
 
@@ -138,7 +138,7 @@ def single_voucher(request):
         except CodeFormatError as exc: errors.append(str(exc))
     if code:
         if not CODE_RE.fullmatch(code): errors.append('A custom code must be 4–20 letters or numbers.')
-        elif Voucher.objects.filter(code__iexact=code).exists(): errors.append(f'The code {code} is already taken. Try another, or leave it blank for a random one.')
+        elif Voucher.all_objects.filter(code__iexact=code).exists(): errors.append(f'The code {code} is already taken (or was used by a deleted voucher). Try another, or leave it blank for a random one.')
     name = (f.get('customer_name') or '').strip()[:120]; phone = (f.get('customer_phone') or '').strip()[:60]
     router = business.routers.filter(pk=f.get('router') or 0).first()
     agent = business.agents.filter(pk=f.get('agent') or 0).first()
