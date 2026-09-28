@@ -29,7 +29,9 @@ MAX_EXTEND_MINUTES = 366 * 24 * 60   # up to a year, in any mix of days/hours/mi
 # ─────────────────────────────── state helpers ───────────────────────────────
 
 def ends_at(voucher):
-    """When the voucher's time runs out, or None if the clock has not started."""
+    """When the voucher's time runs out, or None if the clock has not started or stands still (frozen)."""
+    if getattr(voucher, 'frozen_at', None):
+        return None
     if voucher.expires_at:
         return voucher.expires_at
     if voucher.used_at and voucher.duration_minutes:
@@ -45,6 +47,8 @@ def time_is_up(voucher, now=None):
 def display_state(voucher, now=None):
     """(key, label) shown to people. Separates 'disabled by you' from 'time ran out'."""
     now = now or timezone.now()
+    if getattr(voucher, 'frozen_at', None):
+        return ('warned', 'Warning — internet paused') if voucher.freeze_kind == 'warning' else ('frozen', 'Frozen')
     if voucher.status == 'disabled':
         return 'disabled', 'Disabled'
     if voucher.status == 'expired' or time_is_up(voucher, now):
@@ -146,6 +150,8 @@ def _router_apply(voucher, action, hours=None, user=None, minutes=None, total=Fa
 
 
 def disable(voucher, user=None, reason=''):
+    if voucher.frozen_at:
+        raise VoucherActionError(f'{voucher.code} is frozen. Unfreeze it first if you want to disable it for good.')
     if voucher.status == 'disabled':
         raise VoucherActionError(f'{voucher.code} is already disabled.')
     before = voucher.status
@@ -197,6 +203,8 @@ def enable(voucher, user=None, reason='', add_hours=None, now=None, add_minutes=
         raise VoucherActionError('Extra time must be a whole number.')
     if minutes is not None and not 1 <= minutes <= MAX_EXTEND_MINUTES:
         raise VoucherActionError('Extra time must be between 1 minute and 1 year.')
+    if voucher.frozen_at:
+        raise VoucherActionError(f'{voucher.code} is frozen. Unfreeze it first — its time then continues from where it stopped.')
     expired = time_is_up(voucher, now)
     if voucher.status == 'active' and not expired and not minutes:
         raise VoucherActionError(f'{voucher.code} is already active. Enter the time to add.')
@@ -249,7 +257,8 @@ ICONS = {
     'extended': ('bi-clock-history', 'success'), 'mac_reset': ('bi-arrow-counterclockwise', 'secondary'),
     'enforced': ('bi-shield-exclamation', 'danger'), 'router_disabled': ('bi-router', 'danger'),
     'router_enabled': ('bi-router', 'success'), 'sale_voided': ('bi-x-circle', 'warning'),
-    'deleted': ('bi-trash', 'danger'), 'code_changed': ('bi-input-cursor-text', 'primary'), 'note': ('bi-chat-left-text', 'secondary'), 'legacy': ('bi-journal-text', 'secondary'),
+    'deleted': ('bi-trash', 'danger'), 'code_changed': ('bi-input-cursor-text', 'primary'), 'frozen': ('bi-snow', 'info'), 'unfrozen': ('bi-play-circle', 'success'),
+    'warned': ('bi-exclamation-octagon', 'danger'), 'warning_accepted': ('bi-hand-thumbs-up', 'success'), 'shared_resolved': ('bi-people', 'secondary'), 'note': ('bi-chat-left-text', 'secondary'), 'legacy': ('bi-journal-text', 'secondary'),
 }
 
 

@@ -33,6 +33,7 @@ EVENTS = OrderedDict([
     ('device_offline', ('A watched device goes offline', 'Switches, access points and devices your alert rules watch.', 'instant', 'warning', 'Network')),
     ('device_online', ('A watched device is back', 'Sent when a device you were told about returns.', 'digest', 'info', 'Network')),
     ('traffic_guard', ('Traffic guard triggers', 'A port reached its speed limit and was slowed down or switched off.', 'instant', 'warning', 'Network')),
+    ('voucher_shared', ('Voucher used on too many devices', 'A voucher was seen on more devices than its plan allows (and warned, if automatic).', 'instant', 'warning', 'Hotspot')),
     ('session_enforced', ('Expired voucher disconnected', 'Automatic fixes of sessions whose voucher ran out or was disabled.', 'digest', 'info', 'Hotspot')),
     ('sync_failed', ('Router sync fails', 'A full synchronisation could not finish.', 'instant', 'warning', 'Routers')),
     ('backup_done', ('Backup saved', 'Manual and nightly router backups.', 'digest', 'info', 'Routers')),

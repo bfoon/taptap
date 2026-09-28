@@ -1,0 +1,10 @@
+{# Actions for a voucher used on more devices than it allows. Needs: case (from shared_use.cases), next (path to return to). #}
+<form method="post" action="{% url 'shared_resolve' case.voucher.id %}" class="d-flex flex-wrap gap-1 align-items-center shared-actions">{% csrf_token %}
+  <input type="hidden" name="next" value="{{ next }}">
+  <input name="note" class="form-control form-control-sm" style="max-width:200px" maxlength="255" placeholder="Note (optional)" aria-label="Note">
+  {% if not case.voucher.frozen_at %}<button class="btn btn-sm btn-warning" name="action" value="warn" title="Stop the internet and show the warning page; the customer continues by pressing I agree"><i class="bi bi-exclamation-octagon"></i> Warn</button>{% endif %}
+  <button class="btn btn-sm btn-outline-secondary" name="action" value="reset" title="Forget the devices and end sessions; the next devices are counted fresh"><i class="bi bi-arrow-counterclockwise"></i> Reset devices</button>
+  {% if not case.voucher.frozen_at %}<button class="btn btn-sm btn-outline-info" name="action" value="freeze" title="Stop internet and time until you unfreeze it"><i class="bi bi-snow"></i> Freeze</button>
+  <button class="btn btn-sm btn-outline-danger" name="action" value="disable" onclick="return confirm('Disable {{ case.code }} for good?')"><i class="bi bi-slash-circle"></i> Disable</button>{% endif %}
+  <button class="btn btn-sm btn-outline-success" name="action" value="allow" title="It is fine (e.g. the customer's own devices). It shows up again only if another new device uses it"><i class="bi bi-check2"></i> Allow</button>
+</form>

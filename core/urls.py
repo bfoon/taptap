@@ -2,13 +2,13 @@ from django.urls import path
 from . import views, views_business as vb, views_studio as vs, views_wan as vw, views_agents as va, views_auth
 
 from . import views_ads, views_ports, views_live, views_traffic, views_missing, views_link
-from . import views_team as vteam, views_platform as vp, views_bin as vbin
+from . import views_team as vteam, views_platform as vp, views_bin as vbin, views_freeze as vfz
 
 urlpatterns = [
     path('',views.home,name='home'), path('register/',views_auth.register,name='register'), path('login/',views_auth.login_view,name='login'), path('verify/',views_auth.verify_code,name='verify_code'), path('verify/resend/',views_auth.resend_code,name='resend_code'), path('verify/cancel/',views_auth.cancel_verification,name='cancel_verification'), path('account/devices/',views_auth.trusted_devices,name='trusted_devices'), path('account/devices/remove/',views_auth.trusted_device_remove,name='trusted_devices_remove_all'), path('account/devices/<int:pk>/remove/',views_auth.trusted_device_remove,name='trusted_device_remove'), path('logout/',views.logout_view,name='logout'),
     path('dashboard/',views.dashboard,name='dashboard'), path('subscription/',views.subscription,name='subscription'), path('subscription/select/<str:code>/',views.subscription_select,name='subscription_select'),
     path('vouchers/',views.vouchers,name='vouchers'), path('vouchers/generate/',views.generate_vouchers,name='generate_vouchers'), path('vouchers/<int:pk>/',views.voucher_detail,name='voucher_detail'), path('vouchers/<int:pk>/disable/',views.disable_voucher,name='disable_voucher'), path('vouchers/<int:pk>/enable/',views.enable_voucher,name='enable_voucher'), path('vouchers/<int:pk>/reset-mac/',views.reset_mac,name='reset_mac'), path('vouchers/delete-expired/',views.delete_expired,name='delete_expired'),
-    path('vouchers/<int:pk>/delete/',vbin.voucher_delete,name='voucher_delete'), path('vouchers/<int:pk>/change-code/',views.change_voucher_code,name='change_voucher_code'), path('vouchers/delete/',vbin.vouchers_delete,name='vouchers_delete'),
+    path('vouchers/<int:pk>/delete/',vbin.voucher_delete,name='voucher_delete'), path('vouchers/<int:pk>/change-code/',views.change_voucher_code,name='change_voucher_code'), path('vouchers/<int:pk>/freeze/',vfz.voucher_freeze,name='voucher_freeze'), path('vouchers/freeze/',vfz.vouchers_freeze,name='vouchers_freeze'), path('batches/<int:pk>/freeze/',vfz.batch_freeze,name='batch_freeze'), path('vouchers/delete/',vbin.vouchers_delete,name='vouchers_delete'),
     path('batches/<int:pk>/delete/',vbin.batch_delete,name='batch_delete'), path('bin/',vbin.voucher_bin,name='voucher_bin'),
     path('batches/',views.batches,name='batches'), path('plans/',views.plans,name='plans'), path('plans/<int:pk>/update/',views.plan_update,name='plan_update'),
     path('routers/',views.routers,name='routers'), path('routers/agent/register/',views_link.router_agent_register,name='router_agent_register'), path('routers/inventory/',views.router_inventory,name='router_inventory'), path('routers/sync-all/',views.routers_sync_all,name='routers_sync_all'), path('routers/sync-status/',views.router_sync_status,name='router_sync_status'),
@@ -45,7 +45,7 @@ urlpatterns = [
     path('api/business/<int:business_id>/subscription-warning/',views.api_subscription_warning,name='api_subscription_warning'), path('api/voucher/login/',views.api_voucher_login,name='api_voucher_login'),
     path('ads/',views_ads.ads,name='ads'), path('ads/save/',views_ads.ad_save,name='ad_save'), path('ads/<int:pk>/action/',views_ads.ad_action,name='ad_action'),
     path('p/ad/<int:pk>/seen/',views_ads.ad_seen,name='ad_seen'), path('p/ad/<int:pk>/go/',views_ads.ad_go,name='ad_go'),
-    path('p/device/<slug:slug>/',views_ads.device_beacon,name='device_beacon'),
+    path('p/device/<slug:slug>/',views_ads.device_beacon,name='device_beacon'), path('p/<slug:slug>/state/',views_ads.portal_state,name='portal_state'), path('p/<slug:slug>/accept/',views_ads.portal_accept,name='portal_accept'), path('devices/shared/<int:pk>/resolve/',views_ads.shared_resolve,name='shared_resolve'), path('devices/shared/settings/',views_ads.shared_settings,name='shared_settings'),
     path('devices/',views_ads.devices,name='devices'), path('devices/<int:pk>/action/',views_ads.device_action,name='device_action'),
     path('routers/<int:pk>/port/',views_ports.router_port,name='router_port'), path('routers/<int:pk>/port/action/',views_ports.port_action,name='port_action'), path('routers/<int:pk>/reboot/',views_ports.router_reboot,name='router_reboot'), path('routers/<int:pk>/backups/',views_ports.router_backups,name='router_backups'), path('routers/<int:pk>/backups/<int:bid>/download/',views_ports.router_backup_download,name='router_backup_download'),
     path('live/tick/',views_live.live_tick,name='live_tick'), path('live/now/',views_live.live_now,name='live_now'), path('live/settings/',views_live.live_settings,name='live_settings'),

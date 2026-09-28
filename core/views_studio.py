@@ -185,6 +185,7 @@ def _public_ctx(request, page, mode):
     base = request.build_absolute_uri('/').rstrip('/')
     return {'mode': mode, 'kind': page.kind, 'business': business_ctx(business), 'plans': plans_ctx(business),
             'mt': mt, 'checkUrl': f'/p/{page.slug}/check/', 'deviceUrl': f'/p/device/{page.slug}/',
+            'acceptUrl': f'/p/{page.slug}/accept/',
             'ads': {page.kind: ads_for(business, page.kind, base)}}
 
 
@@ -220,6 +221,8 @@ def portal_check(request, slug):
     if not code: return JsonResponse({'success': False, 'message': 'Type the code printed on your voucher.'}, status=400)
     v = page.business.vouchers.filter(code__iexact=code).first()
     if not v: return JsonResponse({'success': False, 'message': 'That code was not recognised. Check the letters and try again.'}, status=404)
+    from .voucher_freeze import portal_block
+    if v.frozen_at: return JsonResponse(portal_block(v), status=403)   # warning page (with "I agree") or paused page
     if v.status != 'active': return JsonResponse({'success': False, 'message': 'This voucher has been disabled. Ask staff for help.'}, status=403)
     if v.expires_at and v.expires_at <= timezone.now(): return JsonResponse({'success': False, 'message': 'This voucher has expired.'}, status=403)
     PortalPage.objects.filter(pk=page.pk).update(connects=page.connects + 1)
@@ -227,6 +230,10 @@ def portal_check(request, slug):
         try:
             record_device(page.business, data.get('fp'), data.get('c') or {}, request.META.get('HTTP_USER_AGENT', ''),
                           mac=data.get('mac', ''), ip=data.get('ip') or ip, code=v.code, portal=page)
+            from .shared_use import check_after_login
+            if check_after_login(page.business, v):      # automatic warning: this device pushed it over its limit
+                v.refresh_from_db()
+                return JsonResponse(portal_block(v), status=403)
         except Exception:
             pass  # identification must never block a customer from logging in
     return JsonResponse({'success': True, 'code': v.code, 'plan': v.plan_name, 'duration': duration_text(v.duration_minutes), 'devices': v.max_devices})
@@ -244,7 +251,9 @@ def _export_html(page, base=''):
     renderer = (STATIC_DIR / 'studio' / 'portal-render.js').read_text(encoding='utf-8')
     business = page.business
     ctx = {'mode': 'mikrotik', 'kind': page.kind, 'business': business_ctx(business), 'plans': plans_ctx(business),
-           'ads': {page.kind: ads_for(business, page.kind, base)}, 'deviceUrl': f'{base}/p/device/{page.slug}/' if base else ''}
+           'ads': {page.kind: ads_for(business, page.kind, base)}, 'deviceUrl': f'{base}/p/device/{page.slug}/' if base else '',
+           # frozen / warned vouchers: the page asks TapTap first and shows the warning instead of logging in
+           'stateUrl': f'{base}/p/{page.slug}/state/' if base else '', 'acceptUrl': f'{base}/p/{page.slug}/accept/' if base else ''}
     # Values that may contain quotes go through the DOM, not a JS string literal.
     hidden = '<div id="tp-err" hidden>$(error)</div><div id="tp-orig" hidden>$(link-orig)</div>' if page.kind == 'login' else ''
     refresh = '<meta http-equiv="refresh" content="60">' if page.kind == 'status' else ''

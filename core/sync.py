@@ -280,7 +280,7 @@ def sync_router(router, progress=None):
                 existing_voucher.mikrotik_sync_status='Synced'; existing_voucher.mikrotik_sync_error=''
                 if existing_voucher.router_id is None:
                     existing_voucher.router=router; fields.append('router')
-                if existing_voucher.source == 'mikrotik':
+                if existing_voucher.source == 'mikrotik' and not existing_voucher.frozen_at:
                     existing_voucher.mikrotik_id=str(row.get('id','')); existing_voucher.plan_name=profile_name
                     existing_voucher.duration_minutes=duration_minutes; existing_voucher.max_devices=max_devices
                     _was=existing_voucher.status

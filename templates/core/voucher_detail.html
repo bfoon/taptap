@@ -17,6 +17,8 @@
 .vd-ic.success{background:#e6f6ee;color:#127a4d}.vd-ic.danger{background:#fdeaea;color:#a12b2b}.vd-ic.warning{background:#fff4dc;color:#8a5a00}
 .vd-ic.info{background:#e5f3fb;color:#0b6690}.vd-ic.secondary{background:#eef1f5;color:#56687a}
 .vd-meta{font-size:.76rem;color:#51667b}.vd-reason{font-size:.8rem;background:#f6f8fb;border-radius:8px;padding:.3rem .55rem;margin-top:.25rem;display:inline-block}
+.vd-state.frozen{background:#e0efff;color:#1a5fb4}.vd-state.warned{background:#fdecc8;color:#8a4b00}
+.vd-share{border:1px solid #f2d69a;background:#fff9ec;border-radius:14px;padding:.9rem 1rem}
 </style>{% endblock %}
 {% block content %}
 {% with c=current_business.currency %}
@@ -33,6 +35,10 @@
       {% if v.deleted_at %}
       <a class="btn btn-outline-secondary" href="{% url 'voucher_bin' %}"><i class="bi bi-trash3"></i> Open the bin</a>
       {% else %}
+      {% if v.frozen_at %}
+        {% if 'vouchers.support' in tt_perms %}<button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#freezeModal"><i class="bi bi-play-circle"></i> Unfreeze</button>{% endif %}
+      {% else %}
+      {% if 'vouchers.support' in tt_perms and v.status == 'active' and not time_is_up %}<button class="btn btn-outline-info" data-bs-toggle="modal" data-bs-target="#freezeModal"><i class="bi bi-snow"></i> Freeze</button>{% endif %}
       {% if 'vouchers.support' in tt_perms %}{% if v.status == 'active' and not time_is_up %}
         <button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#disableModal"><i class="bi bi-slash-circle"></i> Disable</button>
         <button class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#enableModal"><i class="bi bi-clock-history"></i> Add time</button>
@@ -41,11 +47,20 @@
       {% endif %}
       <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#resetModal"><i class="bi bi-arrow-counterclockwise"></i> Reset devices</button>{% endif %}
       <a class="btn btn-outline-primary" href="{% url 'voucher_card' v.id %}"><i class="bi bi-card-text"></i> Card / share</a>
+      {% endif %}
       {% if 'vouchers.manage' in tt_perms %}<button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#codeModal"><i class="bi bi-input-cursor-text"></i> Change code</button>{% endif %}
       {% if 'vouchers.manage' in tt_perms and not v.used_at %}<button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteModal"><i class="bi bi-trash3"></i> Delete</button>{% endif %}
       {% endif %}
     </div>
   </div>
+  {% if v.frozen_at %}
+  <div class="alert {% if v.freeze_kind == 'warning' %}alert-warning{% else %}alert-info{% endif %} mt-3 mb-0 d-flex gap-2"><i class="bi {% if v.freeze_kind == 'warning' %}bi-exclamation-octagon{% else %}bi-snow{% endif %} mt-1"></i><div>
+    <b>{% if v.freeze_kind == 'warning' %}Warning sent{% else %}Frozen{% endif %} {{ v.frozen_at|date:'d M Y H:i' }}{% if v.frozen_by %} by {{ v.frozen_by.get_full_name|default:v.frozen_by.username }}{% elif v.freeze_kind == 'warning' %} automatically{% endif %}.</b>
+    {{ v.freeze_reason }}<br>
+    <small>Internet is off and the clock stands still{% if v.frozen_left is not None %} with <b>{{ v.frozen_left|duration_short }}</b> left{% else %} (not used yet — full time kept){% endif %}.
+    {% if v.freeze_kind == 'warning' %}The customer sees the warning page on the portal and continues by pressing “I agree” — or you can unfreeze it here.{% else %}It continues from where it stopped when you unfreeze it.{% endif %}</small>
+  </div></div>
+  {% endif %}
   {% if v.deleted_at %}
   <div class="alert alert-danger mt-3 mb-0 d-flex gap-2"><i class="bi bi-trash3 mt-1"></i><div>
     <b>Deleted {{ v.deleted_at|date:'d M Y H:i' }}{% if v.deleted_by %} by {{ v.deleted_by.get_full_name|default:v.deleted_by.username }}{% endif %}.</b>
@@ -58,6 +73,17 @@
   <p class="small text-secondary mt-3 mb-0"><i class="bi bi-router"></i> Changes reach {{ v.router.name|default:'no router (TapTap only)' }} through <b>{{ channel }}</b>.</p>
   {% endif %}
 </section>
+
+{% if shared_case %}{% with sc=shared_case %}
+<section class="vd-share mb-3">
+  <div class="d-flex flex-wrap justify-content-between gap-2 align-items-start">
+    <div><b><i class="bi bi-people-fill text-warning"></i> Used on {{ sc.devices }} devices — the plan allows {{ sc.allowed }}.</b>
+      <small class="d-block text-secondary">{% if sc.waiting %}Warning sent — waiting for the customer to press “I agree” on the portal.{% elif sc.open %}{{ sc.new|length }} device{{ sc.new|length|pluralize }} not decided yet. Choose what to do below.{% else %}Decided: {{ sc.review.get_action_display }}{% if sc.review.by %} by {{ sc.review.by.get_full_name|default:sc.review.by.username }}{% elif sc.review.auto %} (automatic){% endif %} {{ sc.review.created_at|date:'d M H:i' }}.{% endif %}</small>
+      <div class="d-flex flex-wrap gap-1 mt-2">{% for s in sc.sigs|slice:':10' %}<span class="badge text-bg-light border">{% if s in sc.new %}<i class="bi bi-dot text-danger"></i>{% endif %}{{ s.label|default:s.model|default:s.os|default:'Device'|truncatechars:22 }}{% if s.last_mac %} · {{ s.last_mac }}{% endif %}</span>{% endfor %}</div></div>
+    {% if 'vouchers.support' in tt_perms and not sc.waiting %}{% include 'core/partials/shared_actions.html' with case=sc next=request.path %}{% endif %}
+  </div>
+</section>
+{% endwith %}{% endif %}
 
 <div class="row g-3 mb-3">
   <div class="col-lg-7">
@@ -194,6 +220,22 @@
   <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success">{% if v.status == 'active' and not time_is_up %}Add time{% else %}Enable{% endif %}</button></div>
 </form></div></div>
 
+{% if 'vouchers.support' in tt_perms and not v.deleted_at %}
+<div class="modal fade" id="freezeModal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'voucher_freeze' v.id %}">{% csrf_token %}
+  <input type="hidden" name="action" value="{% if v.frozen_at %}unfreeze{% else %}freeze{% endif %}">
+  <div class="modal-header"><h5 class="modal-title">{% if v.frozen_at %}Unfreeze{% else %}Freeze{% endif %} {{ v.code }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    {% if v.frozen_at %}
+      <p class="small">Internet comes back and the clock continues from where it stopped{% if v.frozen_left is not None %}: <b>{{ v.frozen_left|duration_short }}</b> left, counted from now{% else %} — it was not used yet, so the clock starts on first login{% endif %}.</p>
+    {% else %}
+      <p class="small">Internet stops at once{% if v.router %} (session disconnected, user disabled on {{ v.router.name }}){% endif %} and the clock <b>stands still</b>{% if time_left %} with {{ time_left|duration_short }} left{% endif %}. When you unfreeze it, it continues from exactly that point. Freezing is not a sale and does not change finance.</p>
+    {% endif %}
+    <label class="form-label">Reason <span class="text-secondary">({% if v.frozen_at %}optional{% else %}required{% endif %}, kept in the history)</span></label>
+    <input name="reason" class="form-control" maxlength="255" {% if not v.frozen_at %}required{% endif %} placeholder="{% if v.frozen_at %}e.g. Customer came back{% else %}e.g. Customer travelling, payment dispute, shared voucher{% endif %}"></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">{% if v.frozen_at %}Unfreeze{% else %}Freeze{% endif %}</button></div>
+</form></div></div>
+{% endif %}
+
 {% if 'vouchers.manage' in tt_perms and not v.deleted_at %}
 <div class="modal fade" id="codeModal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'change_voucher_code' v.id %}">{% csrf_token %}
   <div class="modal-header"><h5 class="modal-title">Change code of {{ v.code }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
@@ -242,7 +284,7 @@
   var rnd=document.getElementById('codeRandom');
   if(rnd)rnd.addEventListener('click',function(){var a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',n=Math.max(4,Math.min(20,{{ v.code|length }})),b=new Uint32Array(n),s='';crypto.getRandomValues(b);for(var i=0;i<n;i++)s+=a[b[i]%a.length];document.getElementById('newCode').value=s;});
   var want=new URLSearchParams(location.search).get('do');
-  var id={enable:'enableModal',disable:'disableModal',reset:'resetModal',delete:'deleteModal',code:'codeModal'}[want];
+  var id={enable:'enableModal',disable:'disableModal',reset:'resetModal',delete:'deleteModal',code:'codeModal',freeze:'freezeModal'}[want];
   if(!id)return;
   document.addEventListener('DOMContentLoaded',function(){
     var el=document.getElementById(id);

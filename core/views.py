@@ -118,7 +118,8 @@ def vouchers(request):
     if state=='unsold': qs=qs.filter(status='active',sold_at__isnull=True,used_at__isnull=True)
     elif state=='sold': qs=qs.filter(sold_at__isnull=False,used_at__isnull=True)
     elif state=='used': qs=qs.filter(used_at__isnull=False)
-    elif state=='disabled': qs=qs.exclude(status='active')
+    elif state=='disabled': qs=qs.exclude(status='active').filter(frozen_at__isnull=True)
+    elif state=='frozen': qs=qs.filter(frozen_at__isnull=False)
     if plan: qs=qs.filter(plan_name=plan)
     holder=request.GET.get('holder','')
     if holder=='shop': qs=qs.filter(agent__isnull=True)
@@ -126,9 +127,10 @@ def vouchers(request):
     elif holder.isdigit(): qs=qs.filter(agent_id=holder)
     if q: qs=qs.filter(code_search_q(q,'code',('batch__name','customer_name','customer_phone'),also_codes=('code_aliases__code',))).distinct()
     counts=business.vouchers.aggregate(all=Count('id'),unsold=Count('id',filter=Q(status='active',sold_at__isnull=True,used_at__isnull=True)),
-        sold=Count('id',filter=Q(sold_at__isnull=False,used_at__isnull=True)),used=Count('id',filter=Q(used_at__isnull=False)),disabled=Count('id',filter=~Q(status='active')))
+        sold=Count('id',filter=Q(sold_at__isnull=False,used_at__isnull=True)),used=Count('id',filter=Q(used_at__isnull=False)),disabled=Count('id',filter=~Q(status='active')&Q(frozen_at__isnull=True)),
+        frozen=Count('id',filter=Q(frozen_at__isnull=False)))
     params=request.GET.copy();params.pop('page',None)
-    state_tabs=[('','All',counts['all']),('unsold','In stock',counts['unsold']),('sold','Sold, not used',counts['sold']),('used','Used',counts['used']),('disabled','Disabled / expired',counts['disabled'])]
+    state_tabs=[('','All',counts['all']),('unsold','In stock',counts['unsold']),('sold','Sold, not used',counts['sold']),('used','Used',counts['used']),('frozen','Frozen / warned',counts['frozen']),('disabled','Disabled / expired',counts['disabled'])]
     return render(request,'core/vouchers.html',{'page_obj':Paginator(qs,100).get_page(request.GET.get('page')),'counts':counts,'state_tabs':state_tabs,'state':state,'plan':plan,'q':q,
         'plans':business.vouchers.values_list('plan_name',flat=True).distinct().order_by('plan_name'),'agents':business.agents.filter(active=True),'all_agents':business.agents.all(),'holder':holder,
         'designs':business.voucher_designs.all(),'params':params.urlencode()})
@@ -250,10 +252,11 @@ def reset_mac(request,pk):
 def voucher_detail(request,pk):
     """Everything about one voucher: details, devices, sale, router state and full history."""
     from . import voucher_history as vh
+    from .shared_use import case_for
     from .models import SessionIncident, VoucherSale
     business=b(request)
     # Vouchers in the bin still open here, read-only, so their history stays reachable.
-    v=get_object_or_404(Voucher.all_objects.filter(business=business).select_related('router','batch','agent','deleted_by'),pk=pk)
+    v=get_object_or_404(Voucher.all_objects.filter(business=business).select_related('router','batch','agent','deleted_by','frozen_by'),pk=pk)
     now=timezone.now();end=vh.ends_at(v);state_key,state_label=vh.display_state(v,now)
     left=(end-now) if end and end>now else None
     mirror=RouterHotspotUser.objects.filter(router=v.router,username=v.code).first() if v.router_id else None
@@ -266,13 +269,14 @@ def voucher_detail(request,pk):
         # quick picks for the "add time" form: (label, days, hours, minutes)
         'extend_choices':[('30 min',0,0,30),('1 hour',0,1,0),('3 hours',0,3,0),('12 hours',0,12,0),('1 day',1,0,0),('3 days',3,0,0),('1 week',7,0,0),('30 days',30,0,0)],
         'old_codes':v.code_aliases.select_related('changed_by') if v.pk else [],
+        'shared_case':case_for(v) if not v.deleted_at else None,
     })
 
 
 @login_required
 def delete_expired(request):
     from .models import VoucherEvent
-    business=b(request);qs=business.vouchers.filter(Q(status='expired')|Q(expires_at__lt=timezone.now()))
+    business=b(request);qs=business.vouchers.filter(Q(status='expired')|Q(expires_at__lt=timezone.now())).filter(frozen_at__isnull=True)   # frozen vouchers keep their time
     user=request.user if request.user.is_authenticated else None
     VoucherEvent.objects.bulk_create([VoucherEvent(business=business,voucher_id=v.pk,voucher_code=v.code,event='deleted',user=user,
         status_before=v.status,status_after='deleted',reason='Delete expired vouchers',detail={'plan':v.plan_name,'price':str(v.price)})
@@ -285,7 +289,9 @@ def batches(request):
     batch_list=list(b(request).batches.select_related('plan','agent').annotate(actual=Count('vouchers',filter=Q(vouchers__deleted_at__isnull=True)),left=Count('vouchers',filter=Q(vouchers__sold_at__isnull=True,vouchers__used_at__isnull=True,vouchers__status='active',vouchers__deleted_at__isnull=True)),
         sold=Count('vouchers',filter=Q(vouchers__sold_at__isnull=False,vouchers__deleted_at__isnull=True)),used=Count('vouchers',filter=Q(vouchers__used_at__isnull=False,vouchers__deleted_at__isnull=True)),
         unused=Count('vouchers',filter=Q(vouchers__used_at__isnull=True,vouchers__deleted_at__isnull=True)),
-        sold_unused=Count('vouchers',filter=Q(vouchers__sold_at__isnull=False,vouchers__used_at__isnull=True,vouchers__deleted_at__isnull=True))).order_by('-created_at'))
+        sold_unused=Count('vouchers',filter=Q(vouchers__sold_at__isnull=False,vouchers__used_at__isnull=True,vouchers__deleted_at__isnull=True)),
+        frozen=Count('vouchers',filter=Q(vouchers__frozen_at__isnull=False,vouchers__deleted_at__isnull=True)),
+        freezable=Count('vouchers',filter=Q(vouchers__frozen_at__isnull=True,vouchers__status='active',vouchers__deleted_at__isnull=True))).order_by('-created_at'))
     # Open missing-voucher reports per batch (the template shows "N reported missing").
     open_reports={}
     for r in b(request).missing_voucher_reports.filter(batch__isnull=False).exclude(status='resolved').order_by('-reported_at'):

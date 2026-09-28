@@ -62,6 +62,8 @@ def recent_events(business_id):
 # ─────────────────────────── enforcement ───────────────────────────
 def voucher_problem(voucher, now):
     """Why this voucher must not be online, or None."""
+    if getattr(voucher, 'frozen_at', None):
+        return 'disabled', ('Warning not accepted yet' if voucher.freeze_kind == 'warning' else 'Frozen in TapTap') + ' but still connected on the router'
     if voucher.status == 'disabled':
         return 'disabled', 'Disabled in TapTap but still connected on the router'
     expires = voucher.expires_at
@@ -225,7 +227,7 @@ def watch_router(router, force=False):
                 vouchers[name.upper()] = v
                 summary['new_vouchers'] += 1
                 push_event(business.pk, f'New voucher {name} ({profile}) appeared on {router.name}', 'new')
-            elif v.source == 'mikrotik':
+            elif v.source == 'mikrotik' and not v.frozen_at:   # a frozen voucher stays frozen, whatever the router says
                 want = 'disabled' if disabled else ('expired' if v.status == 'expired' else 'active')
                 if v.status != want:
                     before = v.status

@@ -159,6 +159,14 @@
       '.tp-hint{font-size:12.5px;color:' + t.muted + ';margin:10px 0 0}',
       '.tp-msg{font-size:14px;padding:11px 14px;border-radius:' + Math.max(4, r * .45) + 'px;margin-top:12px;display:flex;gap:9px;align-items:flex-start;text-align:left;line-height:1.4}',
       '.tp-msg.err{background:#fde8e8;color:#9b1c1c}.tp-msg.ok{background:#e3f7ec;color:#11683f}',
+      /* warning / paused page (frozen voucher) */
+      '.tp-block{position:fixed;inset:0;z-index:9999;background:rgba(10,18,30,.72);display:flex;align-items:center;justify-content:center;padding:18px;font-family:inherit}',
+      '.tp-block-card{background:#fff;color:#1d2735;max-width:420px;width:100%;border-radius:18px;padding:26px 22px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.35)}',
+      '.tp-block-ic{width:64px;height:64px;border-radius:50%;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;background:#fdecc8;color:#a15c00}',
+      '.tp-block-ic.freeze{background:#e0efff;color:#1a5fb4}.tp-block-ic svg{width:34px;height:34px}',
+      '.tp-block h2{margin:0 0 10px;font-size:22px}.tp-block p{margin:0 0 10px;font-size:15px;line-height:1.5}.tp-block small{display:block;color:#5c6b7d;font-size:13px;margin-top:6px}',
+      '.tp-block-code{font-family:monospace;font-weight:700;letter-spacing:.12em;background:#f1f4f8;border-radius:8px;padding:4px 10px;display:inline-block;margin-bottom:12px}',
+      '.tp-block .tp-btn{margin-top:14px;width:100%}',
       '.tp-note{display:flex;gap:10px;align-items:flex-start;text-align:left;padding:13px 14px;border-radius:' + Math.max(4, r * .5) + 'px;font-size:14px;line-height:1.45;background:' + hexA(t.accent, .1) + ';color:' + t.text + '}',
       '.tp-note.promo{background:' + t.accent + ';color:' + t.accent_text + '}.tp-note.warning{background:#fff4d6;color:#7a5200}',
       '.tp-note .tp-ico{flex:none;margin-top:1px}',
@@ -365,6 +373,47 @@
     document.body.appendChild(f); f.submit();
   }
 
+  /* ---------- frozen / warned vouchers ---------- */
+  function postJSON(url, data, done, fail, timeout) {
+    try {
+      var x = new XMLHttpRequest(); x.open('POST', url, true);
+      x.setRequestHeader('Content-Type', 'text/plain');   // no CORS pre-flight from router-served pages
+      if (timeout) x.timeout = timeout;
+      x.onload = function () { var d = {}; try { d = JSON.parse(x.responseText); } catch (e) {} done(d, x.status); };
+      x.onerror = x.ontimeout = function () { fail && fail(); };
+      x.send(JSON.stringify(data));
+    } catch (e) { fail && fail(); }
+  }
+
+  function showBlock(ctx, d, go) {
+    var old = document.querySelector('.tp-block'); if (old) old.parentNode.removeChild(old);
+    var w = document.createElement('div'); w.className = 'tp-block'; w.setAttribute('role', 'alertdialog'); w.setAttribute('aria-modal', 'true');
+    var warn = d.kind === 'warning';
+    w.innerHTML = '<div class="tp-block-card"><div class="tp-block-ic' + (warn ? '' : ' freeze') + '">' + icon(warn ? 'warn' : 'lock') + '</div>' +
+      '<h2>' + esc(d.title || (warn ? 'Warning' : 'Voucher paused')) + '</h2>' +
+      (d.code ? '<div class="tp-block-code">' + esc(d.code) + '</div>' : '') +
+      '<p>' + esc(d.message || '') + '</p>' + (d.keep ? '<small>' + esc(d.keep) + '</small>' : '') +
+      (d.contact ? '<small>Help: ' + esc(d.contact) + '</small>' : '') +
+      (warn && d.can_accept ? '<button class="tp-btn" type="button">' + icon('check') + '<span>' + esc(d.button || 'I agree') + '</span></button>' : '<button class="tp-btn" type="button" data-close="1"><span>Close</span></button>') +
+      '<div class="tp-block-out"></div></div>';
+    document.body.appendChild(w);
+    var btn = w.querySelector('button'), out = w.querySelector('.tp-block-out');
+    btn.focus();
+    btn.addEventListener('click', function () {
+      if (btn.getAttribute('data-close')) { w.parentNode.removeChild(w); return; }
+      if (!ctx.acceptUrl) { out.innerHTML = '<small>Ask staff for help.</small>'; return; }
+      btn.disabled = true; out.innerHTML = '<small>Please wait…</small>';
+      var dv = deviceSignature();
+      postJSON(ctx.acceptUrl, { code: d.code, fp: dv.fp || '' }, function (r) {
+        if (!r.success) { btn.disabled = false; out.innerHTML = '<small>' + esc(r.message || 'Could not continue. Try again.') + '</small>'; return; }
+        var secs = +r.wait || 0;
+        out.innerHTML = '<small>' + esc(r.message || 'Thank you.') + (secs ? ' Connecting in <b class="tp-wait">' + secs + '</b> s…' : ' Connecting…') + '</small>';
+        var t = setInterval(function () { secs--; var n = w.querySelector('.tp-wait'); if (n) n.textContent = Math.max(0, secs); if (secs <= 0) { clearInterval(t); go(r.code || d.code); } }, 1000);
+        if (!secs) { clearInterval(t); go(r.code || d.code); }
+      }, function () { btn.disabled = false; out.innerHTML = '<small>Could not reach the server. Try again.</small>'; });
+    });
+  }
+
   function wireVoucher(root, cfg, ctx) {
     [].forEach.call(root.querySelectorAll('.tp-vform'), function (form) {
       var out = form.querySelector('.tp-out'), btn = form.querySelector('button'), input = form.querySelector('input[name=code]');
@@ -378,16 +427,34 @@
         var dst = (cfg.settings && cfg.settings.redirect_url) || (ctx.mt && ctx.mt.linkOrig) || '';
         if (ctx.mode === 'preview' || ctx.mode === 'thumb') { say('ok', 'Preview: a customer typing <b>' + esc(code) + '</b> would be logged in now.'); return; }
         if (ctx.mode === 'mikrotik') {
-          var pw = code;
-          if (ctx.mt.chapId) pw = md5(ctx.mt.chapId + code + ctx.mt.chapChallenge);
-          sendDevice(ctx, code);
-          btn.disabled = true; postForm(ctx.mt.linkLoginOnly, { username: code, password: pw, dst: dst, popup: 'true' }); return;
+          var login = function (c) {
+            var pw = c;
+            if (ctx.mt.chapId) pw = md5(ctx.mt.chapId + c + ctx.mt.chapChallenge);
+            btn.disabled = true; postForm(ctx.mt.linkLoginOnly, { username: c, password: pw, dst: dst, popup: 'true' });
+          };
+          if (!ctx.stateUrl) { sendDevice(ctx, code); login(code); return; }
+          // Ask TapTap first: a frozen or warned voucher shows its page instead of logging in.
+          btn.disabled = true; say('ok', 'Checking your voucher…');
+          var dv0 = (ctx.settings && ctx.settings.collect_device === false) ? {} : deviceSignature();
+          postJSON(ctx.stateUrl, { code: code, fp: dv0.fp || '', c: dv0.c || {}, mac: ctx.mt.mac || '', ip: ctx.mt.ip || '' }, function (st) {
+            if (st.blocked) { btn.disabled = false; out.innerHTML = ''; showBlock(ctx, st, login); return; }
+            login(code);
+          }, function () { sendDevice(ctx, code); login(code); }, 4000);
+          return;
         }
         // hosted
         btn.disabled = true; say('ok', 'Checking your voucher…');
         var xhr = new XMLHttpRequest(); xhr.open('POST', ctx.checkUrl, true); xhr.setRequestHeader('Content-Type', 'application/json');
         xhr.onload = function () {
           var d = {}; try { d = JSON.parse(xhr.responseText); } catch (e) {}
+          if (d.blocked) {
+            btn.disabled = false; out.innerHTML = '';
+            showBlock(ctx, d, function (c) {
+              if (ctx.mt && ctx.mt.linkLoginOnly) postForm(ctx.mt.linkLoginOnly, { username: c, password: c, dst: dst, popup: 'true' });
+              else { var b = document.querySelector('.tp-block'); if (b) b.parentNode.removeChild(b); say('ok', 'Thank you — your voucher works again. Enter it on the Wi-Fi login page to go online.'); }
+            });
+            return;
+          }
           if (!d.success) { btn.disabled = false; say('err', esc(d.message || 'That code was not recognised. Check it and try again.')); return; }
           var real = d.code || code;
           if (ctx.mt && ctx.mt.linkLoginOnly) { say('ok', 'Valid ' + esc(d.plan) + ' voucher — connecting…'); postForm(ctx.mt.linkLoginOnly, { username: real, password: real, dst: dst, popup: 'true' }); }

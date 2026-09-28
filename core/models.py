@@ -30,6 +30,10 @@ class Business(models.Model):
     live_sync=models.BooleanField(default=True,help_text='Check routers every few seconds for voucher, session and binding changes')
     auto_enforce=models.BooleanField(default=True,help_text='Automatically disconnect sessions whose voucher has expired or been disabled')
     enforce_grace_minutes=models.PositiveSmallIntegerField(default=5,help_text='Wait this long before fixing automatically')
+    # Vouchers used on more devices than they allow
+    shared_warning_mode=models.CharField(max_length=10,default='manual',choices=[('manual','Manual — I decide'),('auto','Automatic — warn at once')],
+        help_text='Automatic: as soon as a voucher is seen on more devices than it allows, its internet stops and the customer must accept a warning')
+    shared_warning_text=models.TextField(blank=True,help_text='Shown on the warning page. Empty = TapTap default text')
     def access_expires_at(self): return self.subscription_expires_at if self.subscription_status=='active' else self.trial_ends_at
     @property
     def has_access(self):
@@ -176,6 +180,13 @@ class Voucher(models.Model):
     delete_info=models.JSONField(default=dict,blank=True,help_text='Snapshot at deletion: state, holder, removed sale')
     router_removal=models.CharField(max_length=20,blank=True,default='',choices=ROUTER_REMOVAL)
     router_removal_note=models.CharField(max_length=255,blank=True)
+    # Freeze: internet stops and the clock stands still until unfrozen; it then continues from where it stopped.
+    # A "warning" is a freeze the customer lifts themselves by accepting the warning page.
+    frozen_at=models.DateTimeField(null=True,blank=True,db_index=True)
+    frozen_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
+    freeze_kind=models.CharField(max_length=10,blank=True,default='',choices=[('freeze','Frozen'),('warning','Warning')])
+    freeze_reason=models.CharField(max_length=255,blank=True)
+    frozen_left=models.PositiveIntegerField(null=True,blank=True,help_text='Seconds left when frozen (empty: clock had not started)')
     objects=AliveManager()
     all_objects=BinQuerySet.as_manager()
     @property
@@ -188,6 +199,25 @@ class Voucher(models.Model):
     def duration_text(self):
         from .durations import text
         return text(self.duration_minutes)
+
+
+class SharedUseReview(models.Model):
+    """A decision about a voucher seen on more devices than it allows. The devices known at
+    that moment are remembered: the voucher only shows up as a new warning when a device
+    appears that was not part of an earlier decision."""
+    ACTIONS=[('allowed','Allowed'),('warned','Warning sent'),('reset','Devices reset'),('frozen','Frozen'),('disabled','Disabled'),('accepted','Customer accepted the warning')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='shared_reviews')
+    voucher=models.ForeignKey(Voucher,on_delete=models.CASCADE,related_name='shared_reviews')
+    code=models.CharField(max_length=120)
+    fingerprints=models.JSONField(default=list,blank=True)
+    devices=models.PositiveSmallIntegerField(default=0)
+    allowed=models.PositiveSmallIntegerField(default=1)
+    action=models.CharField(max_length=20,choices=ACTIONS)
+    note=models.CharField(max_length=255,blank=True)
+    auto=models.BooleanField(default=False)
+    by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
+    created_at=models.DateTimeField(auto_now_add=True)
+    class Meta: ordering=['-created_at']
 
 
 class VoucherCodeAlias(models.Model):
@@ -210,7 +240,8 @@ class VoucherEvent(models.Model):
     EVENTS=[('disabled','Disabled'),('enabled','Enabled'),('extended','Time added'),('mac_reset','Devices reset'),
             ('enforced','Disconnected by enforcement'),('router_disabled','Disabled on the router'),
             ('router_enabled','Enabled on the router'),('sale_voided','Sale voided'),('deleted','Deleted'),('note','Note'),
-            ('code_changed','Code changed')]
+            ('code_changed','Code changed'),('frozen','Frozen'),('unfrozen','Unfrozen'),('warned','Warning sent'),
+            ('warning_accepted','Warning accepted by the customer'),('shared_resolved','Shared use resolved')]
     SOURCES=[('user','User'),('auto','Automatic'),('router','Router')]
     business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='voucher_events')
     voucher=models.ForeignKey(Voucher,on_delete=models.SET_NULL,null=True,blank=True,related_name='events')

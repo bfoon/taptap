@@ -158,6 +158,11 @@
       Print selected
     </button>
 
+    {% if 'vouchers.manage' in tt_perms %}<div class="btn-group">
+      <button type="button" class="btn btn-sm btn-outline-info bulk-freeze" data-action="freeze" disabled data-bs-toggle="modal" data-bs-target="#freezeSelModal"><i class="bi bi-snow"></i> Freeze</button>
+      <button type="button" class="btn btn-sm btn-outline-info bulk-freeze" data-action="unfreeze" disabled data-bs-toggle="modal" data-bs-target="#freezeSelModal"><i class="bi bi-play-circle"></i> Unfreeze</button>
+    </div>{% endif %}
+
     {% if 'vouchers.manage' in tt_perms %}<button
       type="button"
       class="btn btn-sm btn-outline-danger"
@@ -303,7 +308,15 @@
 
           <td>
 
-            {% if v.status != 'active' %}
+            {% if v.frozen_at %}
+
+              <span class="badge {% if v.freeze_kind == 'warning' %}text-bg-warning{% else %}text-bg-info{% endif %}"
+                    title="{% if v.freeze_kind == 'warning' %}Warning sent — waiting for the customer to agree{% else %}Frozen{% endif %} {{ v.frozen_at|date:'d M Y H:i' }}{% if v.frozen_left %} · {{ v.frozen_left|duration_short }} left{% endif %}">
+                <i class="bi {% if v.freeze_kind == 'warning' %}bi-exclamation-octagon{% else %}bi-snow{% endif %}"></i>
+                {% if v.freeze_kind == 'warning' %}Warned{% else %}Frozen{% endif %}
+              </span>
+
+            {% elif v.status != 'active' %}
 
               <span class="badge text-bg-secondary">
                 {{ v.get_status_display }}
@@ -469,6 +482,29 @@
 </div>
 
 
+
+{% if 'vouchers.manage' in tt_perms %}
+<!-- FREEZE / UNFREEZE SELECTED MODAL -->
+<div class="modal fade" id="freezeSelModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="{% url 'vouchers_freeze' %}">
+      {% csrf_token %}
+      <input type="hidden" name="ids" id="freezeIds">
+      <input type="hidden" name="action" id="freezeAction">
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <div class="modal-header border-0"><h5 class="modal-title fw-bold" id="freezeTitle"></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body pt-0">
+        <p class="small" id="freezeHelp"></p>
+        <label class="form-label">Reason <span class="text-secondary" id="freezeReq"></span></label>
+        <input name="reason" id="freezeReason" class="form-control" maxlength="255" placeholder="e.g. Payment dispute, customer away, event postponed">
+      </div>
+      <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" id="freezeGo"></button></div>
+    </form>
+  </div>
+</div>
+{% endif %}
 
 {% if 'vouchers.manage' in tt_perms %}
 <!-- DELETE SELECTED MODAL -->
@@ -817,6 +853,8 @@
         const count =
             selected().length;
 
+        document.querySelectorAll('.bulk-freeze').forEach(function (b) { b.disabled = count === 0; });
+
         if (delBtn) {
             delBtn.disabled = count === 0;
             delBtn.innerHTML = '<i class="bi bi-trash3"></i> Delete selected' + (count ? ' (' + count + ')' : '');
@@ -921,6 +959,22 @@
 
     }
 
+
+    const frModal = document.getElementById('freezeSelModal');
+    if (frModal) {
+        frModal.addEventListener('show.bs.modal', function (e) {
+            const act = e.relatedTarget.dataset.action, sel = selected(), n = sel.length, fr = act === 'freeze';
+            document.getElementById('freezeIds').value = sel.map(function (b) { return b.value; }).join(',');
+            document.getElementById('freezeAction').value = act;
+            document.getElementById('freezeTitle').textContent = (fr ? 'Freeze ' : 'Unfreeze ') + n + ' voucher(s)';
+            document.getElementById('freezeHelp').textContent = fr
+                ? 'Internet stops at once and each voucher\'s clock stands still. When unfrozen, each continues from exactly where it stopped. Vouchers whose time has run out are skipped.'
+                : 'Internet comes back and each voucher continues from where it stopped. Vouchers that are not frozen are skipped.';
+            document.getElementById('freezeReq').textContent = fr ? '(required, kept in the history)' : '(optional)';
+            document.getElementById('freezeReason').required = fr;
+            document.getElementById('freezeGo').textContent = fr ? 'Freeze' : 'Unfreeze';
+        });
+    }
 
     const delModal = document.getElementById('deleteSelModal');
     if (delModal) {

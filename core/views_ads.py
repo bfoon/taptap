@@ -179,7 +179,76 @@ def device_beacon(request, slug):
         data = {}
     sig = record_device(page.business, data.get('fp', ''), data.get('c') or {}, request.META.get('HTTP_USER_AGENT', ''),
                         mac=data.get('mac', ''), ip=data.get('ip') or _client_ip(request), code=data.get('code', ''), portal=page)
+    v = _portal_voucher(page, data.get('code'))
+    if sig and v:
+        from .shared_use import check_after_login
+        check_after_login(page.business, v)
     return _cors(JsonResponse({'ok': bool(sig)}))
+
+
+def _portal_voucher(page, code):
+    code = re.sub(r'[\s-]', '', str(code or ''))
+    return page.business.vouchers.filter(code__iexact=code).first() if code else None
+
+
+def _portal_json(request):
+    if len(request.body or b'') > 8000:
+        return None
+    try:
+        return json.loads(request.body or '{}')
+    except ValueError:
+        return {}
+
+
+@csrf_exempt
+def portal_state(request, slug):
+    """Router-served portal pages ask this before logging in: is the voucher frozen or warned?
+    Also records the device (like device_beacon) and runs the shared-use check.
+    Answers {"ok": true} when the router may go ahead."""
+    from .shared_use import check_after_login
+    from .voucher_freeze import portal_block
+    if request.method == 'OPTIONS':
+        return _cors(HttpResponse(status=204))
+    if request.method != 'POST' or _throttle(f'pstate:{_client_ip(request)}', 30, 60):
+        return _cors(JsonResponse({'ok': True}))          # never block a login because of this check
+    page = PortalPage.objects.select_related('business').filter(slug=slug).first()
+    data = _portal_json(request)
+    if not page or data is None:
+        return _cors(JsonResponse({'ok': True}))
+    v = _portal_voucher(page, data.get('code'))
+    if not v:
+        return _cors(JsonResponse({'ok': True}))
+    if data.get('fp') and not v.frozen_at:
+        try:
+            record_device(page.business, data.get('fp', ''), data.get('c') or {}, request.META.get('HTTP_USER_AGENT', ''),
+                          mac=data.get('mac', ''), ip=data.get('ip') or _client_ip(request), code=v.code, portal=page)
+            if check_after_login(page.business, v):
+                v.refresh_from_db()
+        except Exception:
+            pass
+    block = portal_block(v)
+    return _cors(JsonResponse(block or {'ok': True}))
+
+
+@csrf_exempt
+def portal_accept(request, slug):
+    """The customer pressed "I agree" on the warning page: internet and clock continue."""
+    from .shared_use import customer_accepted
+    from .voucher_history import channel
+    if request.method == 'OPTIONS':
+        return _cors(HttpResponse(status=204))
+    if request.method != 'POST' or _throttle(f'paccept:{_client_ip(request)}', 10, 60):
+        return _cors(JsonResponse({'success': False, 'message': 'Too many tries. Wait a minute.'}, status=429))
+    page = PortalPage.objects.select_related('business').filter(slug=slug).first()
+    data = _portal_json(request) or {}
+    v = _portal_voucher(page, data.get('code')) if page else None
+    if not v or not (v.frozen_at and v.freeze_kind == 'warning'):
+        return _cors(JsonResponse({'success': False, 'message': 'There is no warning to accept for this code.'}, status=400))
+    customer_accepted(v, str(data.get('fp') or ''))
+    # TapTap Link routers apply the unfreeze at their next check-in, so the page waits a little before logging in.
+    wait = 15 if channel(v.router) == 'TapTap Link' else 0
+    return _cors(JsonResponse({'success': True, 'code': v.code, 'wait': wait,
+                               'message': 'Thank you. Your internet continues from where it stopped.'}))
 
 
 # ───────────────────────────── Devices page ─────────────────────────────
@@ -207,11 +276,46 @@ def devices(request):
     }
     multi = [d for d in all_sigs.only('id', 'macs')[:2000] if len(d.macs or []) > 1]
     stats['multimac'] = len(multi)
-    shared = shared_vouchers(business, limit=50)
-    stats['shared'] = len(shared)
+    from .shared_use import cases
+    from .voucher_freeze import warning_text
+    shared = cases(business, limit=100)
+    stats['shared'] = sum(1 for c in shared if c['open'])
     collecting = business.portal_pages.filter(kind='login', is_published=True).exists()
     return render(request, 'core/devices.html', {'devices': items, 'stats': stats, 'shared': shared if view in {'all', 'shared'} else [],
+                                                 'shared_open': [c for c in shared if c['open']], 'shared_waiting': [c for c in shared if c['waiting']],
+                                                 'shared_done': [c for c in shared if not c['open'] and not c['waiting']],
+                                                 'warning_text': warning_text(business), 'custom_warning': business.shared_warning_text,
                                                  'q': q, 'view': view, 'collecting': collecting})
+
+
+@login_required
+@require_POST
+def shared_resolve(request, pk):
+    """Decide a voucher used on too many devices: allow, warn, reset devices, freeze or disable."""
+    from .shared_use import SharedError, resolve
+    v = get_object_or_404(_b(request).vouchers.select_related('router'), pk=pk)
+    try:
+        for level, msg in resolve(v, request.POST.get('action', ''), request.user, request.POST.get('note', '')):
+            getattr(messages, level)(request, msg)
+    except SharedError as e:
+        messages.error(request, str(e))
+    except ValueError as e:
+        messages.error(request, str(e))
+    nxt = request.POST.get('next', '')
+    return redirect(nxt if nxt.startswith('/') and not nxt.startswith('//') else 'devices')
+
+
+@login_required
+@require_POST
+def shared_settings(request):
+    business = _b(request)
+    mode = request.POST.get('shared_warning_mode')
+    business.shared_warning_mode = mode if mode in ('manual', 'auto') else 'manual'
+    business.shared_warning_text = request.POST.get('shared_warning_text', '').strip()[:1500]
+    business.save(update_fields=['shared_warning_mode', 'shared_warning_text'])
+    messages.success(request, 'Automatic warnings are on: a voucher seen on too many devices is paused until the customer agrees.'
+                     if business.shared_warning_mode == 'auto' else 'Manual warnings: shared vouchers are listed here for you to decide.')
+    return redirect('/devices/?view=shared')
 
 
 @login_required

@@ -97,6 +97,10 @@
               </button>
             {% endif %}
 
+            {% if 'vouchers.manage' in tt_perms %}
+              {% if x.freezable %}<button class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#freezeBatchModal" data-id="{{ x.id }}" data-name="{{ x.name }}" data-action="freeze" data-n="{{ x.freezable }}" title="Freeze the batch" aria-label="Freeze {{ x.name }}"><i class="bi bi-snow"></i></button>{% endif %}
+              {% if x.frozen %}<button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#freezeBatchModal" data-id="{{ x.id }}" data-name="{{ x.name }}" data-action="unfreeze" data-n="{{ x.frozen }}" title="Unfreeze {{ x.frozen }} voucher(s)" aria-label="Unfreeze {{ x.name }}"><i class="bi bi-play-circle"></i> {{ x.frozen }}</button>{% endif %}
+            {% endif %}
             {% if 'vouchers.manage' in tt_perms and x.unused %}
               <button class="btn btn-sm btn-outline-danger"
                       data-bs-toggle="modal"
@@ -193,6 +197,22 @@
     </form>
   </div>
 </div>
+
+{% if 'vouchers.manage' in tt_perms %}
+<div class="modal fade" id="freezeBatchModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post">
+      {% csrf_token %}<input type="hidden" name="action">
+      <div class="modal-header border-0"><h5 class="modal-title fw-bold" data-title></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body pt-0"><p class="small" data-help></p>
+        <label class="form-label">Reason <span class="text-secondary" data-req></span></label>
+        <input name="reason" class="form-control" maxlength="255" placeholder="e.g. Event postponed, stock on hold"></div>
+      <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" data-go></button></div>
+    </form>
+  </div>
+</div>
+{% endif %}
 
 {% if 'vouchers.manage' in tt_perms %}
 <div class="modal fade" id="deleteBatchModal" tabindex="-1">
@@ -298,6 +318,18 @@
     upd();
   });
   f.addEventListener('change',upd);
+
+  const fz=document.getElementById('freezeBatchModal');
+  if(fz) fz.addEventListener('show.bs.modal',e=>{
+    const d=e.relatedTarget.dataset, form=fz.querySelector('form'), fr=d.action==='freeze';
+    form.reset(); form.action='/batches/'+d.id+'/freeze/'; form.elements.action.value=d.action;
+    fz.querySelector('[data-title]').textContent=(fr?'Freeze ':'Unfreeze ')+d.name;
+    fz.querySelector('[data-help]').textContent=fr
+      ? d.n+' voucher(s) stop working at once and their clocks stand still. When you unfreeze the batch, each continues from exactly where it stopped. Vouchers whose time has run out are skipped.'
+      : d.n+' frozen voucher(s) work again, each continuing from where it stopped.';
+    fz.querySelector('[data-req]').textContent=fr?'(required, kept in each voucher\'s history)':'(optional)';
+    form.elements.reason.required=fr; fz.querySelector('[data-go]').textContent=fr?'Freeze batch':'Unfreeze batch';
+  });
 
   const del=document.getElementById('deleteBatchModal');
   if(del) del.addEventListener('show.bs.modal',e=>{

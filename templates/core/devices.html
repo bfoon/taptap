@@ -37,13 +37,63 @@
   <a class="dv-kpi {% if view == 'flagged' %}on{% endif %}" href="?view=flagged"><span>Flagged by you</span><strong>{{ stats.flagged }}</strong></a>
 </div>
 
-{% if shared %}
-<section class="panel mb-3"><div class="panel-head"><div><h3>Vouchers used on more devices than they allow</h3><p>Same code, different device signatures — usually a shared or resold voucher.</p></div></div>
-  <div class="scroll-list scroll-short">{% for code,sigs,allowed in shared|slice:':12' %}
-  <div class="dv-share"><b class="dv-mono">{{ code }}</b> <small>· {{ sigs|length }} devices, plan allows {{ allowed }}</small>
-    <div class="dv-tags mt-1">{% for s in sigs|slice:':8' %}<span>{{ s.label|default:s.model|default:s.os|default:s.fingerprint|truncatechars:24 }}</span>{% endfor %}</div></div>
+{% if view == 'all' or view == 'shared' %}
+<section class="panel mb-3">
+  <div class="panel-head"><div><h3><i class="bi bi-people-fill text-warning"></i> Vouchers used on more devices than they allow</h3>
+    <p>Same code on different devices — usually a shared or resold voucher.
+      {% if current_business.shared_warning_mode == 'auto' %}<b>Automatic warnings are on:</b> the internet stops and the customer must press “I agree” on a warning page to continue.{% else %}<b>Manual:</b> decide for each voucher below.{% endif %}</p></div>
+    {% if 'vouchers.manage' in tt_perms %}<button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#sharedSettings"><i class="bi bi-gear"></i> Warning settings</button>{% endif %}</div>
+
+  {% if shared_open %}
+  <div class="scroll-list">
+  {% for c in shared_open %}
+    <div class="dv-share d-flex flex-wrap justify-content-between gap-2 align-items-start">
+      <div><a href="{% url 'voucher_detail' c.voucher.id %}" class="dv-mono fw-bold text-decoration-none">{{ c.code }}</a>
+        <span class="badge text-bg-danger">{{ c.devices }} devices · allows {{ c.allowed }}</span>
+        {% if c.review %}<small class="text-secondary"> · {{ c.new|length }} new since “{{ c.review.get_action_display|lower }}” {{ c.review.created_at|date:'d M' }}</small>{% endif %}
+        {% if c.voucher.frozen_at %}<span class="badge text-bg-info">Frozen</span>{% endif %}
+        <div class="dv-tags mt-1">{% for s in c.sigs|slice:':8' %}<span{% if s in c.new %} class="flag"{% endif %}>{{ s.label|default:s.model|default:s.os|default:s.fingerprint|truncatechars:24 }}</span>{% endfor %}</div></div>
+      {% if 'vouchers.support' in tt_perms %}{% include 'core/partials/shared_actions.html' with case=c next=request.get_full_path %}{% endif %}
+    </div>
+  {% endfor %}
+  </div>
+  {% else %}<p class="text-secondary small mb-0"><i class="bi bi-check2-circle text-success"></i> Nothing to decide right now.</p>{% endif %}
+
+  {% if shared_waiting %}
+  <h4 class="h6 mt-3">Waiting for the customer <span class="badge text-bg-warning">{{ shared_waiting|length }}</span></h4>
+  <div class="scroll-list scroll-short">{% for c in shared_waiting %}
+    <div class="dv-share d-flex flex-wrap justify-content-between gap-2"><div><a href="{% url 'voucher_detail' c.voucher.id %}" class="dv-mono fw-bold text-decoration-none">{{ c.code }}</a>
+      <small class="text-secondary"> · warned {{ c.voucher.frozen_at|timesince }} ago — internet paused until they press “I agree”</small></div>
+      {% if 'vouchers.support' in tt_perms %}<form method="post" action="{% url 'voucher_freeze' c.voucher.id %}">{% csrf_token %}<input type="hidden" name="action" value="unfreeze"><input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="reason" value="Warning lifted by staff"><button class="btn btn-sm btn-outline-primary"><i class="bi bi-play-circle"></i> Lift warning</button></form>{% endif %}</div>
   {% endfor %}</div>
+  {% endif %}
+
+  {% if shared_done %}
+  <details class="mt-3"><summary class="small text-secondary">Decided ({{ shared_done|length }})</summary>
+    <div class="scroll-list scroll-short mt-2">{% for c in shared_done %}
+      <div class="dv-share"><a href="{% url 'voucher_detail' c.voucher.id %}" class="dv-mono text-decoration-none">{{ c.code }}</a>
+        <small class="text-secondary"> · {{ c.devices }} devices, allows {{ c.allowed }} · {{ c.review.get_action_display }}{% if c.review.by %} by {{ c.review.by.get_full_name|default:c.review.by.username }}{% elif c.review.auto %} (automatic){% endif %} {{ c.review.created_at|date:'d M H:i' }}{% if c.review.note %} — {{ c.review.note }}{% endif %}</small></div>
+    {% endfor %}</div>
+  </details>
+  {% endif %}
 </section>
+
+{% if 'vouchers.manage' in tt_perms %}
+<div class="modal fade" id="sharedSettings" tabindex="-1"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'shared_settings' %}">{% csrf_token %}
+  <div class="modal-header"><h5 class="modal-title">Warning settings</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <label class="form-label">When a voucher is used on more devices than it allows</label>
+    <div class="form-check"><input class="form-check-input" type="radio" name="shared_warning_mode" id="swm-manual" value="manual" {% if current_business.shared_warning_mode != 'auto' %}checked{% endif %}>
+      <label class="form-check-label" for="swm-manual"><b>Manual</b> — list it here and notify me; I decide (warn, reset devices, freeze, disable or allow).</label></div>
+    <div class="form-check mt-1"><input class="form-check-input" type="radio" name="shared_warning_mode" id="swm-auto" value="auto" {% if current_business.shared_warning_mode == 'auto' %}checked{% endif %}>
+      <label class="form-check-label" for="swm-auto"><b>Automatic</b> — stop the internet at once and show the warning page. The customer continues by pressing “I agree”; their time is kept.</label></div>
+    <label class="form-label mt-3">Warning text <span class="text-secondary">(empty = default)</span></label>
+    <textarea class="form-control" name="shared_warning_text" rows="4" maxlength="1500" placeholder="{{ warning_text }}">{{ custom_warning }}</textarea>
+    <small class="text-secondary d-block mt-2">Shown on your TapTap customer portal. After this update, redeploy your portal pages in Portal Studio so router-served pages can show it.</small>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save</button></div>
+</form></div></div>
+{% endif %}
 {% endif %}
 
 {% if view != 'shared' %}

@@ -56,9 +56,9 @@ def hours_text(hours):
 
 @register.filter
 def duration_short(value):
-    """timedelta -> '2d 4h', '3h 20m' or '12m'."""
+    """timedelta (or seconds) -> '2d 4h', '3h 20m' or '12m'."""
     try:
-        secs = int(value.total_seconds())
+        secs = int(value.total_seconds()) if hasattr(value, 'total_seconds') else int(value)
     except Exception:
         return ''
     d, rest = divmod(max(0, secs), 86400)
