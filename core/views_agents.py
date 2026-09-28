@@ -138,7 +138,7 @@ def single_voucher(request):
         except CodeFormatError as exc: errors.append(str(exc))
     if code:
         if not CODE_RE.fullmatch(code): errors.append('A custom code must be 4–20 letters or numbers.')
-        elif Voucher.all_objects.filter(code__iexact=code).exists(): errors.append(f'The code {code} is already taken (or was used by a deleted voucher). Try another, or leave it blank for a random one.')
+        elif Voucher.all_objects.filter(code__iexact=code).exists() or business.voucher_code_aliases.model.objects.filter(code__iexact=code).exists(): errors.append(f'The code {code} is already taken (or was used by a deleted voucher). Try another, or leave it blank for a random one.')
     name = (f.get('customer_name') or '').strip()[:120]; phone = (f.get('customer_phone') or '').strip()[:60]
     router = business.routers.filter(pk=f.get('router') or 0).first()
     agent = business.agents.filter(pk=f.get('agent') or 0).first()

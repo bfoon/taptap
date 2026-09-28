@@ -100,7 +100,9 @@ def generate_codes(count, length=None, charset='mixed', prefix='', suffix='', bu
             if c not in taken:
                 fresh.add(c)
         # Codes are unique across TapTap and matched case-insensitively at login.
+        from .models import VoucherCodeAlias   # old codes of renamed vouchers are never issued again
         existing = {x.upper() for x in Voucher.all_objects.filter(code__in=fresh).values_list('code', flat=True)}
+        existing |= {x.upper() for x in VoucherCodeAlias.objects.filter(code__in=fresh).values_list('code', flat=True)}
         taken |= existing
         for c in fresh:
             if c not in existing and len(codes) < count:
@@ -156,7 +158,7 @@ def code_format_from_post(post, business):
 
 
 # ─────────────────────────── Voucher search ───────────────────────────
-def code_search_q(q, field='code', others=()):
+def code_search_q(q, field='code', others=(), also_codes=()):
     """Search filter with * wildcards on the voucher code (case-insensitive):
          C*   codes that START with C       *C   codes that END with C
          *C*  codes that CONTAIN C          C*9  start with C and end with 9
@@ -166,7 +168,7 @@ def code_search_q(q, field='code', others=()):
     q = (q or '').strip()
     if '*' not in q:
         cond = Q(**{f'{field}__icontains': q})
-        for f in others:
+        for f in (*also_codes, *others):
             cond |= Q(**{f'{f}__icontains': q})
         return cond
     pattern = re.sub(r'[\s-]', '', q)
@@ -174,7 +176,10 @@ def code_search_q(q, field='code', others=()):
     if pattern.strip('*') == '':
         return Q()                     # just "*": everything
     regex = '^' + '.*'.join(re.escape(part) for part in pattern.split('*')) + '$'
-    return Q(**{f'{field}__iregex': regex})
+    cond = Q(**{f'{field}__iregex': regex})
+    for f in also_codes:           # e.g. old codes of renamed vouchers
+        cond |= Q(**{f'{f}__iregex': regex})
+    return cond
 
 
 def is_wildcard(q):

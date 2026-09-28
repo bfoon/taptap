@@ -44,7 +44,7 @@
 
 {% if ads %}
 <section class="panel mb-3"><div class="panel-head"><div><h3>Last 30 days</h3><p>Views and taps across all campaigns.</p></div></div><div class="ad-chart"><canvas id="adChart" aria-label="Advert views and taps, last 30 days"></canvas></div></section>
-<div class="ad-list">
+<div class="ad-list scroll-list">
   {% for a in ads %}
   <article class="ad-card {% if not a.live %}off{% endif %}">
     <div class="ad-thumb {% if not a.image %}txt{% endif %}" {% if a.image %}style="background-image:url('{{ a.image }}')"{% else %}style="background:{{ a.theme.bg|default:'#102033' }};color:{{ a.theme.fg|default:'#ffffff' }}"{% endif %}>

@@ -292,7 +292,10 @@ def _users(router, rows, now):
     }
     RouterHotspotUser.objects.filter(router=router).update(is_present=False)
     from .voucher_bin import deleted_codes, heal
+    from .voucher_codes import aliases as code_aliases, heal as heal_codes
     binned, binned_seen = deleted_codes(router.business), []
+    renamed, renamed_seen = code_aliases(router.business), []
+    present = {str(_clean(r).get('name', '')).upper() for r in rows}
     for raw in rows:
         row = _clean(raw)
         username = str(row.get('name', '')).strip()
@@ -300,6 +303,9 @@ def _users(router, rows, now):
             continue
         if username.upper() in binned:
             binned_seen.append(username)   # deleted in TapTap: queue its removal, never re-import
+            continue
+        if username.upper() in renamed:
+            renamed_seen.append((username, renamed[username.upper()].code))   # old code: rename, never import twice
             continue
         profile_name = str(row.get('profile', 'default') or 'default')
         plan = router.business.plans.filter(name__iexact=profile_name).first()
@@ -393,6 +399,11 @@ def _users(router, rows, now):
                         Voucher.objects.filter(pk=new_voucher.pk).update(used_at=when)
             except Exception as exc:
                 summary['errors'].append(f'Could not import RouterOS voucher {username}: {exc}')
+    if renamed_seen:
+        try:
+            heal_codes(router, renamed_seen, present)
+        except Exception as exc:
+            summary['errors'].append(f'Could not queue renaming of changed voucher codes: {exc}')
     if binned_seen:
         try:
             heal(router, binned_seen)

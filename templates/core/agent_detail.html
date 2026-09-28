@@ -34,7 +34,7 @@
         {% if x.left and 'vouchers.create' in tt_perms %}<form method="post" action="{% url 'batch_assign' x.id %}" class="d-inline" onsubmit="return confirm('Take the {{ x.left }} unsold voucher(s) back to the shop?')">{% csrf_token %}<input type="hidden" name="agent" value=""><input type="hidden" name="next" value="{{ request.path }}"><button class="btn btn-sm btn-outline-danger">Take back</button></form>{% endif %}</td></tr>
     {% empty %}<tr><td colspan="5" class="empty-table">No batches yet. <a href="{% url 'generate_vouchers' %}?agent={{ agent.id }}">Create one for {{ agent.name }}</a>.</td></tr>{% endfor %}</tbody></table></div></div></div>
   <div class="col-xl-4"><div class="panel h-100"><div class="panel-head"><div><h3>Stock in hand</h3><p>Unsold vouchers by plan</p></div></div>
-    {% for h in holding %}<div class="stock-row"><b>{{ h.plan_name }}</b><span class="text-secondary">{{ h.n }}</span><b>{{ h.v|money:c }}</b></div>{% empty %}<p class="text-secondary small">{{ agent.name }} holds no unsold vouchers.</p>{% endfor %}</div></div>
+    <div class="scroll-list scroll-short">{% for h in holding %}<div class="stock-row"><b>{{ h.plan_name }}</b><span class="text-secondary">{{ h.n }}</span><b>{{ h.v|money:c }}</b></div>{% empty %}<p class="text-secondary small">{{ agent.name }} holds no unsold vouchers.</p>{% endfor %}</div></div></div>
 </div>
 
 <div class="row g-3 mt-1">

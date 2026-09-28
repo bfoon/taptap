@@ -27,9 +27,9 @@
     <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Plan</th><th class="text-end">Sold</th><th class="text-end">Amount</th></tr></thead><tbody>
     {% for r in by_plan %}<tr><td>{{ r.plan_name }}</td><td class="text-end">{{ r.n }}</td><td class="text-end"><b>{{ r.v|money:c }}</b></td></tr>{% empty %}<tr><td colspan="3" class="empty-table">No sales on this day.</td></tr>{% endfor %}</tbody></table></div></div></div>
   <div class="col-md-6"><div class="panel"><div class="panel-head"><div><h3>By payment method</h3></div></div>
-    <table class="table table-sm"><tbody>{% for r in by_method %}<tr><td>{{ r.payment_method|title }}</td><td class="text-end">{{ r.n }}</td><td class="text-end"><b>{{ r.v|money:c }}</b></td></tr>{% empty %}<tr><td class="empty-table">—</td></tr>{% endfor %}</tbody></table></div></div>
+    <div class="table-responsive"><table class="table table-sm"><tbody>{% for r in by_method %}<tr><td>{{ r.payment_method|title }}</td><td class="text-end">{{ r.n }}</td><td class="text-end"><b>{{ r.v|money:c }}</b></td></tr>{% empty %}<tr><td class="empty-table">—</td></tr>{% endfor %}</tbody></table></div></div></div>
   <div class="col-md-6"><div class="panel"><div class="panel-head"><div><h3>By seller</h3></div></div>
-    <table class="table table-sm"><tbody>{% for r in by_agent %}<tr><td>{{ r.agent__name|default:'Shop' }}</td><td class="text-end">{{ r.n }}</td><td class="text-end"><b>{{ r.v|money:c }}</b></td></tr>{% empty %}<tr><td class="empty-table">—</td></tr>{% endfor %}</tbody></table></div></div>
+    <div class="table-responsive"><table class="table table-sm"><tbody>{% for r in by_agent %}<tr><td>{{ r.agent__name|default:'Shop' }}</td><td class="text-end">{{ r.n }}</td><td class="text-end"><b>{{ r.v|money:c }}</b></td></tr>{% empty %}<tr><td class="empty-table">—</td></tr>{% endfor %}</tbody></table></div></div></div>
 </div>
 <div class="panel mt-4"><div class="panel-head"><div><h3>Sales</h3><p>Every sale recorded on this day</p></div></div>
   <div class="table-responsive"><table class="table"><thead><tr><th>Time</th><th>Plan</th><th>Site</th><th>Seller</th><th>Method</th><th class="text-end">Amount</th></tr></thead><tbody>

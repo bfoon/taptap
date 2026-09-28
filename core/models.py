@@ -190,12 +190,27 @@ class Voucher(models.Model):
         return text(self.duration_minutes)
 
 
+class VoucherCodeAlias(models.Model):
+    """A code a voucher used to have. The voucher (its sale, history, usage) stays the same
+    row; the old code is kept here so it is never issued again, still finds the voucher in
+    search, and router sync renames it instead of importing it as a second voucher."""
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='voucher_code_aliases')
+    voucher=models.ForeignKey(Voucher,on_delete=models.CASCADE,related_name='code_aliases')
+    code=models.CharField(max_length=120,unique=True)
+    changed_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
+    changed_at=models.DateTimeField(auto_now_add=True)
+    reason=models.CharField(max_length=255,blank=True)
+    class Meta: ordering=['-changed_at']
+    def __str__(self): return f'{self.code} → {self.voucher_id}'
+
+
 class VoucherEvent(models.Model):
     """Permanent history of a voucher: who did what, when, why and through which channel.
     Keeps the code and survives deletion of the voucher itself."""
     EVENTS=[('disabled','Disabled'),('enabled','Enabled'),('extended','Time added'),('mac_reset','Devices reset'),
             ('enforced','Disconnected by enforcement'),('router_disabled','Disabled on the router'),
-            ('router_enabled','Enabled on the router'),('sale_voided','Sale voided'),('deleted','Deleted'),('note','Note')]
+            ('router_enabled','Enabled on the router'),('sale_voided','Sale voided'),('deleted','Deleted'),('note','Note'),
+            ('code_changed','Code changed')]
     SOURCES=[('user','User'),('auto','Automatic'),('router','Router')]
     business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='voucher_events')
     voucher=models.ForeignKey(Voucher,on_delete=models.SET_NULL,null=True,blank=True,related_name='events')

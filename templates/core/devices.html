@@ -39,15 +39,15 @@
 
 {% if shared %}
 <section class="panel mb-3"><div class="panel-head"><div><h3>Vouchers used on more devices than they allow</h3><p>Same code, different device signatures — usually a shared or resold voucher.</p></div></div>
-  {% for code,sigs,allowed in shared|slice:':12' %}
+  <div class="scroll-list scroll-short">{% for code,sigs,allowed in shared|slice:':12' %}
   <div class="dv-share"><b class="dv-mono">{{ code }}</b> <small>· {{ sigs|length }} devices, plan allows {{ allowed }}</small>
     <div class="dv-tags mt-1">{% for s in sigs|slice:':8' %}<span>{{ s.label|default:s.model|default:s.os|default:s.fingerprint|truncatechars:24 }}</span>{% endfor %}</div></div>
-  {% endfor %}
+  {% endfor %}</div>
 </section>
 {% endif %}
 
 {% if view != 'shared' %}
-<section class="panel p-0 overflow-hidden">
+<section class="panel p-0 scroll-list">
   {% for d in devices %}
   <div class="dv-row">
     <span class="dv-ic {{ d.os|lower }}"><i class="bi {% if d.device_type == 'phone' %}bi-phone{% elif d.device_type == 'tablet' %}bi-tablet{% else %}bi-laptop{% endif %}"></i></span>

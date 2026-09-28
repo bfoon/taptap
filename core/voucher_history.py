@@ -23,6 +23,7 @@ from django.utils import timezone
 logger = logging.getLogger('taptap.vouchers')
 
 MAX_EXTEND_HOURS = 8760
+MAX_EXTEND_MINUTES = 366 * 24 * 60   # up to a year, in any mix of days/hours/minutes
 
 
 # ─────────────────────────────── state helpers ───────────────────────────────
@@ -95,7 +96,7 @@ class VoucherActionError(ValueError):
     pass
 
 
-def _router_apply(voucher, action, hours=None, user=None):
+def _router_apply(voucher, action, hours=None, user=None, minutes=None, total=False):
     """Send the change to the router. Returns (via, result_text, ok)."""
     router = voucher.router
     via = channel(router)
@@ -108,8 +109,9 @@ def _router_apply(voucher, action, hours=None, user=None):
                 send(router, 'hotspot_user_set', {'name': voucher.code, 'disabled': True}, label=f'Disable voucher {voucher.code}', user=user)
                 send(router, 'disconnect', {'user': voucher.code}, label=f'Disconnect {voucher.code}', user=user)
             elif action == 'enable':
-                if hours:
-                    send(router, 'hotspot_user_extend', {'name': voucher.code, 'hours': int(hours)}, label=f'Enable {voucher.code} (+{hours} h)', user=user)
+                if minutes:
+                    send(router, 'hotspot_user_extend', {'name': voucher.code, 'seconds': int(minutes) * 60, 'total': bool(total)},
+                         label=f'Enable {voucher.code} (+{_mtext(minutes)})', user=user)
                 else:
                     send(router, 'hotspot_user_set', {'name': voucher.code, 'disabled': False}, label=f'Enable voucher {voucher.code}', user=user)
             elif action == 'reset':
@@ -126,8 +128,8 @@ def _router_apply(voucher, action, hours=None, user=None):
                 svc.reset_active_by_name(voucher.code)
                 return via, 'Applied on the router', True
             if action == 'enable':
-                if hours:
-                    limit = svc.extend_voucher(voucher.code, hours)
+                if minutes:
+                    limit = svc.extend_voucher(voucher.code, seconds=int(minutes) * 60, total=total)
                     if limit is None:
                         return via, 'Voucher not found on the router', False
                     return via, 'Applied on the router' + (f' (uptime limit now {limit})' if limit else ''), True
@@ -155,37 +157,76 @@ def disable(voucher, user=None, reason=''):
     return ok, result
 
 
-def enable(voucher, user=None, reason='', add_hours=None, now=None):
-    """Enable a disabled/expired voucher. If its time has run out, ``add_hours`` is
-    required: otherwise live enforcement would disconnect it again at once."""
+def _mtext(minutes):
+    from .durations import text
+    return text(int(minutes))
+
+
+def parse_added_time(days=None, hours=None, minutes=None):
+    """Total minutes from free days/hours/minutes fields (blank = 0). Raises VoucherActionError."""
+    total = 0
+    for val, mult, label in ((days, 1440, 'days'), (hours, 60, 'hours'), (minutes, 1, 'minutes')):
+        if val in (None, ''):
+            continue
+        try:
+            n = int(str(val).strip())
+        except ValueError:
+            raise VoucherActionError(f'The {label} must be a whole number.')
+        if n < 0:
+            raise VoucherActionError(f'The {label} cannot be negative.')
+        total += n * mult
+    return total
+
+
+def enable(voucher, user=None, reason='', add_hours=None, now=None, add_minutes=None):
+    """Enable a disabled/expired voucher, and/or add time to it.
+
+    Time can be any amount (``add_minutes``; ``add_hours`` is kept for older callers).
+    * Voucher not used yet: the time is added to its duration — the clock still starts
+      on first login, and the router's uptime limit becomes the new duration.
+    * Clock running: the time goes on top of its current end (or from now if it had run
+      out), and the router's uptime limit is raised by the same amount.
+    If its time has run out, extra time is required: otherwise live enforcement would
+    disconnect it again at once. Adding time is not a sale and is never counted as one."""
     now = now or timezone.now()
     try:
-        hours = int(add_hours) if add_hours not in (None, '', 0, '0') else None
+        minutes = int(add_minutes) if add_minutes not in (None, '', 0, '0') else None
+        if minutes is None and add_hours not in (None, '', 0, '0'):
+            minutes = int(add_hours) * 60
     except (TypeError, ValueError):
-        raise VoucherActionError('Extra time must be a whole number of hours.')
-    if hours is not None and not 1 <= hours <= MAX_EXTEND_HOURS:
-        raise VoucherActionError('Extra time must be between 1 hour and 1 year.')
+        raise VoucherActionError('Extra time must be a whole number.')
+    if minutes is not None and not 1 <= minutes <= MAX_EXTEND_MINUTES:
+        raise VoucherActionError('Extra time must be between 1 minute and 1 year.')
     expired = time_is_up(voucher, now)
-    if voucher.status == 'active' and not expired and not hours:
-        raise VoucherActionError(f'{voucher.code} is already active.')
-    if expired and not hours:
+    if voucher.status == 'active' and not expired and not minutes:
+        raise VoucherActionError(f'{voucher.code} is already active. Enter the time to add.')
+    if expired and not minutes:
         raise VoucherActionError(
             f'The time on {voucher.code} ran out {timezone.localtime(ends_at(voucher)):%d %b %Y %H:%M}. '
             'Add time to enable it — without it, TapTap would disconnect it again straight away.')
-    before, old_end = voucher.status, ends_at(voucher)
+    before, old_end, old_duration = voucher.status, ends_at(voucher), voucher.duration_minutes
     voucher.status = 'active'
     fields = ['status']
-    if hours:
+    not_started = minutes and not old_end and not voucher.used_at
+    if not_started:
+        voucher.duration_minutes = int(voucher.duration_minutes or 0) + minutes
+        fields.append('duration_minutes')
+    elif minutes:
         # Extra time counts from now when the voucher had run out, otherwise from its current end.
         base = now if (not old_end or old_end <= now) else old_end
-        voucher.expires_at = base + timedelta(hours=hours)
+        voucher.expires_at = base + timedelta(minutes=minutes)
         fields.append('expires_at')
     voucher.save(update_fields=fields)
-    via, result, ok = _router_apply(voucher, 'enable', hours=hours, user=user)
-    record(voucher, 'extended' if hours else 'enabled', user=user, reason=reason, via=via, router_result=result,
-           status_before=before, status_after='active', added_hours=hours,
+    via, result, ok = _router_apply(voucher, 'enable', user=user, minutes=minutes,
+                                    total=bool(not_started))
+    if not_started:
+        result = (result + ' · ' if result else '') + f'valid for {_mtext(voucher.duration_minutes)} from first login'
+    record(voucher, 'extended' if minutes else 'enabled', user=user, reason=reason, via=via, router_result=result,
+           status_before=before, status_after='active', added_minutes=minutes,
+           duration_before=old_duration if not_started else None,
+           duration_after=voucher.duration_minutes if not_started else None,
            ends_before=old_end.isoformat() if old_end else None,
-           ends_after=voucher.expires_at.isoformat() if hours else None)
+           ends_after=voucher.expires_at.isoformat() if minutes and not not_started else None)
     return ok, result
 
 
@@ -208,7 +249,7 @@ ICONS = {
     'extended': ('bi-clock-history', 'success'), 'mac_reset': ('bi-arrow-counterclockwise', 'secondary'),
     'enforced': ('bi-shield-exclamation', 'danger'), 'router_disabled': ('bi-router', 'danger'),
     'router_enabled': ('bi-router', 'success'), 'sale_voided': ('bi-x-circle', 'warning'),
-    'deleted': ('bi-trash', 'danger'), 'note': ('bi-chat-left-text', 'secondary'), 'legacy': ('bi-journal-text', 'secondary'),
+    'deleted': ('bi-trash', 'danger'), 'code_changed': ('bi-input-cursor-text', 'primary'), 'note': ('bi-chat-left-text', 'secondary'), 'legacy': ('bi-journal-text', 'secondary'),
 }
 
 
@@ -230,18 +271,25 @@ def timeline(voucher, now=None):
     now = now or timezone.now()
     items = []
 
-    stored = list(VoucherEvent.objects.filter(business=voucher.business, voucher_code=voucher.code).select_related('user'))
+    from django.db.models import Q
+    codes = [voucher.code] + list(voucher.code_aliases.values_list('code', flat=True)) if voucher.pk else [voucher.code]
+    stored = list(VoucherEvent.objects.filter(Q(voucher=voucher) | Q(voucher_code__in=codes, voucher__isnull=True),
+                                              business=voucher.business).select_related('user')) if voucher.pk else []
     stored_kinds = {e.event for e in stored}
     for e in stored:
         text = ''
-        if e.event == 'extended' and e.detail.get('added_hours'):
-            text = f"+{e.detail['added_hours']} h"
+        if e.event == 'extended' and (e.detail.get('added_minutes') or e.detail.get('added_hours')):
+            text = '+' + _mtext(e.detail.get('added_minutes') or int(e.detail['added_hours']) * 60)
+            if e.detail.get('duration_after'):
+                text += f" · now valid for {_mtext(e.detail['duration_after'])} from first login"
             if e.detail.get('ends_after'):
                 text += f" · now ends {timezone.localtime(timezone.datetime.fromisoformat(e.detail['ends_after'])):%d %b %Y %H:%M}"
         elif e.event == 'mac_reset' and e.detail.get('devices_removed'):
             text = 'Removed: ' + ', '.join(e.detail['devices_removed'])
         elif e.detail.get('text'):
             text = e.detail['text']
+        if e.voucher_code and e.voucher_code.upper() != voucher.code.upper() and e.event != 'code_changed':
+            text = (text + ' · ' if text else '') + f'as {e.voucher_code}'
         who = _who(e.user) or {'auto': 'TapTap (automatic)', 'router': 'Router'}.get(e.source, '')
         items.append(_item(e.event, e.created_at, e.get_event_display(), text, who, e.via, e.router_result, e.reason, True))
 

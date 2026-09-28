@@ -2,13 +2,13 @@
 <div class="page-actions"><div><h2 class="section-title">Devices that sign in without a code</h2><p>After you enter an emailed code and choose "Remember this device", that browser signs in with just your password for {{ days }} days. Remove any device you do not recognise.</p></div>
   {% if devices %}<form method="post" action="{% url 'trusted_devices_remove_all' %}" onsubmit="return confirm('Remove every trusted device? Each one will need a new emailed code to sign in.')">{% csrf_token %}<button class="btn btn-outline-danger">Remove all</button></form>{% endif %}</div>
 <section class="panel">
-  {% for d in devices %}
+  <div class="scroll-list">{% for d in devices %}
   <div class="d-flex align-items-center gap-3 py-2 border-bottom">
     <i class="bi {% if 'iPhone' in d.label or 'Android' in d.label %}bi-phone{% else %}bi-laptop{% endif %} fs-4 text-primary"></i>
     <div class="flex-grow-1"><b>{{ d.label|default:'Browser' }}</b>{% if d.id == current_id %} <span class="badge text-bg-success">This device</span>{% endif %}
       <div class="small text-secondary">Last used {{ d.last_used_at|timesince }} ago{% if d.ip_address %} from {{ d.ip_address }}{% endif %} · trusted until {{ d.expires_at|date:'d M Y' }}</div></div>
     <form method="post" action="{% url 'trusted_device_remove' d.id %}">{% csrf_token %}<button class="btn btn-sm btn-light text-danger">Remove</button></form>
   </div>
-  {% empty %}<p class="text-secondary mb-0">No trusted devices. The next sign-in on any device will ask for an emailed code.</p>{% endfor %}
+  {% empty %}<p class="text-secondary mb-0">No trusted devices. The next sign-in on any device will ask for an emailed code.</p>{% endfor %}</div>
 </section>
 {% endblock %}

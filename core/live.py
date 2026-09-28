@@ -170,13 +170,20 @@ def watch_router(router, force=False):
             plans.setdefault(p.name.lower(), p)
         seen = set()
         from .voucher_bin import deleted_codes, heal
+        from .voucher_codes import aliases as code_aliases, heal as heal_codes
         binned, binned_seen = deleted_codes(business), []
+        renamed, renamed_seen = code_aliases(business), []
+        users = list(users)
+        present = {str(r.get('name', '')).upper() for r in users}
         for row in users:
             name = str(row.get('name', '')).strip()
             if not name or name in SKIP_USERS:
                 continue
             if name.upper() in binned:
                 binned_seen.append(name)   # deleted in TapTap: remove again, never re-import
+                continue
+            if name.upper() in renamed:
+                renamed_seen.append((name, renamed[name.upper()].code))   # old code: rename, never import twice
                 continue
             seen.add(name)
             disabled = ros_bool(row.get('disabled', False))
@@ -239,6 +246,11 @@ def watch_router(router, force=False):
                 else:
                     Voucher.objects.filter(pk=v.pk, used_at__isnull=True).update(used_at=when); v.used_at = when
 
+        if renamed_seen:
+            try:
+                heal_codes(router, renamed_seen, present)
+            except Exception:
+                logger.exception('Could not rename changed voucher codes on %s', router.name)
         if binned_seen:
             try:
                 heal(router, binned_seen)

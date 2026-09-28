@@ -27,7 +27,7 @@
 <section class="panel mb-3" id="incidents">
   <div class="panel-head"><div><h3><i class="bi bi-broadcast-pin"></i> Sessions that should not be online</h3><p>Live sync watches every connected customer. When a voucher has run out or was disabled but the device is still online, it shows here{% if current_business.auto_enforce %} and is disconnected automatically after {{ current_business.enforce_grace_minutes }} minute{{ current_business.enforce_grace_minutes|pluralize }}{% endif %}.</p></div>
     {% if incidents %}<form method="post" action="{% url 'incident_fix_all' %}">{% csrf_token %}<button class="btn btn-danger btn-sm" onclick="return confirm('Disconnect every session listed here and disable their vouchers on the router?')"><i class="bi bi-lightning-charge"></i> Fix all now</button></form>{% endif %}</div>
-  {% for i in incidents %}
+  <div class="scroll-list">{% for i in incidents %}
   <div class="inc-row {% if i.status == 'ignored' %}ignored{% endif %}">
     <div class="inc-clock" {% if i.status == 'open' and current_business.auto_enforce and i.fix_due_at %}data-due="{{ i.fix_due_at|date:'c' }}" data-start="{{ i.first_seen|date:'c' }}"{% endif %}>
       <svg viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="18" class="bg"/><circle cx="22" cy="22" r="18" class="fg" stroke-dasharray="113.1" stroke-dashoffset="0"/></svg>
@@ -42,9 +42,9 @@
   </div>
   {% empty %}
   <div class="inc-clear"><i class="bi bi-shield-check"></i> Every connected customer has a valid voucher.{% if recent_fixed %} {{ recent_fixed|length }} recent session{{ recent_fixed|length|pluralize }} handled below.{% endif %}</div>
-  {% endfor %}
+  {% endfor %}</div>
   {% if recent_fixed %}<details class="mt-2"><summary class="small text-secondary">Recently handled</summary>
-    {% for i in recent_fixed %}<div class="inc-hist"><i class="bi {% if i.status == 'fixed' %}bi-check2-circle text-success{% else %}bi-door-closed text-secondary{% endif %}"></i> <b>{{ i.username }}</b> on {{ i.router.name }} — {% if i.status == 'fixed' %}{% if i.fixed_by == 'auto' %}fixed automatically{% else %}fixed by {{ i.fixed_user.first_name|default:'you' }}{% endif %}{% else %}left on their own{% endif %} <small class="text-secondary">{{ i.fixed_at|timesince }} ago</small></div>{% endfor %}
+    <div class="scroll-list scroll-short">{% for i in recent_fixed %}<div class="inc-hist"><i class="bi {% if i.status == 'fixed' %}bi-check2-circle text-success{% else %}bi-door-closed text-secondary{% endif %}"></i> <b>{{ i.username }}</b> on {{ i.router.name }} — {% if i.status == 'fixed' %}{% if i.fixed_by == 'auto' %}fixed automatically{% else %}fixed by {{ i.fixed_user.first_name|default:'you' }}{% endif %}{% else %}left on their own{% endif %} <small class="text-secondary">{{ i.fixed_at|timesince }} ago</small></div>{% endfor %}</div>
   </details>{% endif %}
   <form method="post" action="{% url 'live_settings' %}" class="inc-settings" id="live-settings">{% csrf_token %}<input type="hidden" name="next" value="{% url 'security' %}#incidents">
     <label class="form-check form-switch"><input class="form-check-input" type="checkbox" name="live_sync" {% if current_business.live_sync %}checked{% endif %}> <span class="form-check-label">Live sync with routers</span></label>
@@ -102,7 +102,7 @@
   {% for cat in summary.categories %}<button type="button" class="sec-filter" data-filter="cat:{{ cat }}">{{ cat }}</button>{% endfor %}
 </div>
 
-<div class="sec-list" id="secList">
+<div class="sec-list scroll-list" id="secList">
   {% for f in summary.active %}
   <details class="sec-item sev-{{ f.severity }}" data-sev="{{ f.severity }}" data-cat="{{ f.category }}"{% if f.severity == 'critical' %} open{% endif %}>
     <summary><span class="sec-sev">{{ f.severity }}</span><span class="sec-title"><b>{{ f.title }}</b><small>{{ f.router_name }} · {{ f.category }}</small></span><i class="bi bi-chevron-down"></i></summary>
@@ -124,7 +124,7 @@
 
 {% if summary.acked %}
 <details class="sec-acked"><summary>{{ summary.acked|length }} reviewed finding{{ summary.acked|length|pluralize }} (not counted in the score)</summary>
-  <div class="sec-list">
+  <div class="sec-list scroll-list">
   {% for f in summary.acked %}
   <div class="sec-item sev-{{ f.severity }}"><div class="sec-body pt-3"><p><b>{{ f.title }}</b> — {{ f.router_name }}{% if f.ack.note %}<br><small class="text-secondary">“{{ f.ack.note }}” · {{ f.ack.acknowledged_by.email|default:'' }} {{ f.ack.created_at|date:'d M Y' }}</small>{% endif %}</p>
     <form method="post" action="{% url 'security_ack' %}">{% csrf_token %}<input type="hidden" name="finding_key" value="{{ f.key }}"><input type="hidden" name="action" value="unack"><button class="btn btn-sm btn-link p-0">Reopen</button></form></div></div>

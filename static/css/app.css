@@ -22,12 +22,13 @@
 @media(max-width:620px){.control-metrics,.role-board,.config-section-grid{grid-template-columns:1fr}.studio-options{width:100%}.studio-options select{width:100%}.quick-recipes form{flex-direction:column}.wan-link{grid-template-columns:55px 1fr}.blueprint-lane.wide{min-width:280px}}
 
 /* v4 — bounded, scrollable data panels */
-.panel .table-responsive:not(.no-scroll){max-height:min(62vh,620px);overflow:auto!important;scrollbar-gutter:stable;border-radius:10px}
-.panel .table-responsive:not(.no-scroll) .table thead th{position:sticky;top:0;z-index:3;background:#fff!important;box-shadow:0 1px 0 var(--border)}
+.table-responsive:not(.no-scroll){max-height:min(62vh,620px);overflow:auto!important;scrollbar-gutter:stable;border-radius:10px}
+.table-responsive:not(.no-scroll) .table thead th{position:sticky;top:0;z-index:3;background:#fff!important;box-shadow:0 1px 0 var(--border)}
+.modal .table-responsive,.no-scroll{max-height:none!important}
 .scroll-list{max-height:min(58vh,560px);overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding-right:.25rem}
-.scroll-list,.panel .table-responsive,.resource-table-wrap,.change-log,.role-port-list{scrollbar-width:thin;scrollbar-color:#b9c7d6 transparent}
-.scroll-list::-webkit-scrollbar,.panel .table-responsive::-webkit-scrollbar,.resource-table-wrap::-webkit-scrollbar,.change-log::-webkit-scrollbar,.role-port-list::-webkit-scrollbar{width:8px;height:8px}
-.scroll-list::-webkit-scrollbar-thumb,.panel .table-responsive::-webkit-scrollbar-thumb,.resource-table-wrap::-webkit-scrollbar-thumb,.change-log::-webkit-scrollbar-thumb,.role-port-list::-webkit-scrollbar-thumb{background:#b9c7d6;border-radius:999px}
+.scroll-list,.table-responsive,.resource-table-wrap,.change-log,.role-port-list{scrollbar-width:thin;scrollbar-color:#b9c7d6 transparent}
+.scroll-list::-webkit-scrollbar,.table-responsive::-webkit-scrollbar,.resource-table-wrap::-webkit-scrollbar,.change-log::-webkit-scrollbar,.role-port-list::-webkit-scrollbar{width:8px;height:8px}
+.scroll-list::-webkit-scrollbar-thumb,.table-responsive::-webkit-scrollbar-thumb,.resource-table-wrap::-webkit-scrollbar-thumb,.change-log::-webkit-scrollbar-thumb,.role-port-list::-webkit-scrollbar-thumb{background:#b9c7d6;border-radius:999px}
 .router-list-scroll{max-height:650px}.role-port-list{max-height:260px;overflow:auto;overscroll-behavior:contain}.change-log{max-height:430px;overflow:auto;overscroll-behavior:contain}
 
 /* v4 — background synchronization monitor */
@@ -36,5 +37,9 @@
 .sync-job-list{max-height:360px}.sync-job-row{display:grid;grid-template-columns:38px 1fr 48px;gap:.7rem;align-items:center;padding:.72rem .15rem;border-bottom:1px solid #edf2f6}.sync-job-row:last-child{border-bottom:0}.sync-job-icon{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:#edf4ff;color:#1769e0}.sync-job-row.status-running .sync-job-icon i,.sync-job-row.status-queued .sync-job-icon i{animation:syncSpin 1.25s linear infinite}.sync-job-row.status-success .sync-job-icon{background:#e6f8ef;color:#168857}.sync-job-row.status-failed .sync-job-icon{background:#fff0f0;color:#c44949}@keyframes syncSpin{to{transform:rotate(360deg)}}
 .sync-job-main>div:first-child{display:flex;gap:.55rem;align-items:center}.sync-job-main b{font-size:.76rem}.sync-job-status{font-size:.56rem;font-weight:850;text-transform:uppercase;letter-spacing:.04em;color:#6f8397}.sync-job-phase{display:block;color:#6b7d8f;font-size:.62rem;margin:.13rem 0 .32rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.sync-progress{height:5px;background:#e8eef5}.sync-progress .progress-bar{background:linear-gradient(90deg,#1769e0,#14a3e2)}.status-success .sync-progress .progress-bar{background:#22a76a}.status-failed .sync-progress .progress-bar{background:#d65353}.sync-job-percent{font-size:.68rem;text-align:right;color:#596f84}
 .router-sync-pill{font-size:.54rem;font-weight:850;border-radius:999px;background:#f1f4f7;color:#718294;padding:.2rem .4rem;margin-left:.25rem}.router-sync-pill.active{background:#e8f2ff;color:#1769e0}.router-sync-pill.success{background:#e8f8f0;color:#168857}.router-sync-pill.failed{background:#fff0f0;color:#c44949}.router-sync-button:disabled{opacity:.62;cursor:wait}
-@media(max-width:620px){.panel .table-responsive:not(.no-scroll){max-height:68vh}.scroll-list{max-height:62vh}.sync-job-row{grid-template-columns:32px 1fr 42px}.sync-job-phase{max-width:220px}}
+@media(max-width:620px){.table-responsive:not(.no-scroll){max-height:68vh}.scroll-list{max-height:62vh}.sync-job-row{grid-template-columns:32px 1fr 42px}.sync-job-phase{max-width:220px}}
 .sync-global-pill{display:inline-flex;align-items:center;gap:.42rem;padding:.5rem .7rem;border-radius:999px;background:#eaf3ff;color:#1769e0;font-size:.7rem;font-weight:800}.sync-global-pill i{animation:syncSpin 1.25s linear infinite}.sync-global-pill:hover{background:#dcecff;color:#1258bd}
+
+/* v5 — every long list scrolls inside its own box, like Topology's device lists */
+.scroll-list.scroll-short{max-height:min(40vh,360px)}
+.vd-tl.scroll-list{padding-right:.5rem}

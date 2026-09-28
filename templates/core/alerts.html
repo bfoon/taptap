@@ -31,21 +31,21 @@
   <section class="panel">
     <div class="panel-head"><div><h3>Alert history</h3></div></div>
     <div class="al-tabs"><a href="?f=all" class="{% if f == 'all' %}on{% endif %}">All</a><a href="?f=offline" class="{% if f == 'offline' %}on{% endif %}">Went offline</a><a href="?f=unread" class="{% if f == 'unread' %}on{% endif %}">Unread</a></div>
-    {% for a in alerts %}
+    <div class="scroll-list">{% for a in alerts %}
     <div class="al-row {{ a.event }} {% if not a.read_at %}unread{% endif %}">
       <i class="bi ev {% if a.event == 'offline' %}bi-exclamation-octagon{% else %}bi-check-circle{% endif %}"></i>
       <div class="flex-grow-1"><b>{{ a.name }}</b> {% if a.event == 'offline' %}went offline{% else %}is back online{% if a.offline_since %} after {{ a.offline_since|timesince:a.created_at }}{% endif %}{% endif %}
         <small>{{ a.ip_address|default:'' }}{% if a.mac_address %} · {{ a.mac_address }}{% endif %} · {{ a.router.name }}{% if a.rule %} · rule: {{ a.rule.name }}{% endif %}</small></div>
       <small class="text-nowrap">{{ a.created_at|date:'d M H:i' }}</small>
     </div>
-    {% empty %}<p class="text-secondary small mb-0">No alerts yet. When a watched device goes offline it appears here.</p>{% endfor %}
+    {% empty %}<p class="text-secondary small mb-0">No alerts yet. When a watched device goes offline it appears here.</p>{% endfor %}</div>
   </section>
 
   <section class="panel">
     <div class="panel-head"><div><h3>What should alert you</h3><p>Mute rules always win. Devices that match no alert rule stay quiet.</p></div>
       <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#ruleModal"><i class="bi bi-plus-lg"></i> Add rule</button></div>
     <div class="al-help"><i class="bi bi-lightbulb"></i> Tip: in Topology, click a router, switch or device group and use the <i class="bi bi-bell"></i> bell next to any device to watch or mute just that device.</div>
-    {% for r in rules %}
+    <div class="scroll-list scroll-short">{% for r in rules %}
     <div class="rule {{ r.action }} {% if not r.enabled %}off{% endif %}">
       <span class="ic"><i class="bi {% if r.action == 'mute' %}bi-bell-slash{% else %}bi-bell-fill{% endif %}"></i></span>
       <div class="flex-grow-1"><b>{{ r.name }}</b><small>{{ r.get_subject_display }} · {{ r.get_match_display }}{% if r.value %}: {{ r.value }}{% endif %}{% if r.action == 'alert' %} · after {{ r.min_offline_minutes }} min{% if r.notify_recovery %} · tells you when back{% endif %}{% endif %}</small></div>
@@ -53,7 +53,7 @@
         <button name="action" value="toggle" class="btn btn-sm btn-light" title="{% if r.enabled %}Pause{% else %}Resume{% endif %}" aria-label="{% if r.enabled %}Pause rule{% else %}Resume rule{% endif %}"><i class="bi {% if r.enabled %}bi-pause{% else %}bi-play{% endif %}"></i></button>
         <button name="action" value="delete" class="btn btn-sm btn-light text-danger" onclick="return confirm('Delete this rule?')" aria-label="Delete rule"><i class="bi bi-trash"></i></button></form>
     </div>
-    {% endfor %}
+    {% endfor %}</div>
   </section>
 </div>
 

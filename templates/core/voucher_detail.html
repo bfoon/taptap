@@ -41,6 +41,7 @@
       {% endif %}
       <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#resetModal"><i class="bi bi-arrow-counterclockwise"></i> Reset devices</button>{% endif %}
       <a class="btn btn-outline-primary" href="{% url 'voucher_card' v.id %}"><i class="bi bi-card-text"></i> Card / share</a>
+      {% if 'vouchers.manage' in tt_perms %}<button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#codeModal"><i class="bi bi-input-cursor-text"></i> Change code</button>{% endif %}
       {% if 'vouchers.manage' in tt_perms and not v.used_at %}<button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteModal"><i class="bi bi-trash3"></i> Delete</button>{% endif %}
       {% endif %}
     </div>
@@ -69,6 +70,7 @@
         <div><span>Devices allowed</span><b>{{ v.max_devices }}</b></div>
         {% if v.rate_limit %}<div><span>Speed</span><b>{{ v.rate_limit }}</b></div>{% endif %}
         <div><span>Origin</span><b>{{ v.get_source_display }}</b></div>
+        {% if old_codes %}<div><span>Previous code{{ old_codes|length|pluralize }}</span><b>{% for a in old_codes %}<code class="text-decoration-line-through" title="Changed {{ a.changed_at|date:'d M Y H:i' }}{% if a.changed_by %} by {{ a.changed_by.get_full_name|default:a.changed_by.username }}{% endif %}{% if a.reason %} — {{ a.reason }}{% endif %}">{{ a.code }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}</b></div>{% endif %}
         <div><span>Batch</span><b>{{ v.batch.name|default:'—' }}</b></div>
         <div><span>Held by</span><b>{% if v.agent %}<a href="{% url 'agent_detail' v.agent_id %}">{{ v.agent.name }}</a>{% else %}Shop{% endif %}</b></div>
         {% if v.customer_name or v.customer_phone %}<div><span>Customer</span><b>{{ v.customer_name|default:'' }} {{ v.customer_phone|default:'' }}</b></div>{% endif %}
@@ -124,14 +126,14 @@
       {% else %}<p class="text-secondary small mb-0">No device has used this voucher yet.</p>{% endif %}
       {% if incidents %}
       <h4 class="h6 mt-3">Enforcement</h4>
-      <ul class="small mb-0 ps-3">{% for i in incidents %}<li>{{ i.first_seen|date:'d M H:i' }} · {{ i.get_reason_display }} · {{ i.get_status_display }} on {{ i.router.name }}</li>{% endfor %}</ul>
+      <ul class="small mb-0 ps-3 scroll-list scroll-short">{% for i in incidents %}<li>{{ i.first_seen|date:'d M H:i' }} · {{ i.get_reason_display }} · {{ i.get_status_display }} on {{ i.router.name }}</li>{% endfor %}</ul>
       {% endif %}
     </section>
   </div>
   <div class="col-lg-7">
     <section class="panel h-100" id="history">
       <div class="panel-head"><div><h3><i class="bi bi-clock-history"></i> History</h3><p>Every change, who made it, why, and what the router answered.</p></div></div>
-      <ul class="vd-tl">
+      <ul class="vd-tl scroll-list">
         {% for e in timeline %}
         <li>
           <div class="vd-ic {{ e.tone }}"><i class="bi {{ e.icon }}"></i></div>
@@ -179,15 +181,36 @@
     {% else %}
       <p class="small">Adds time on top of the current end{% if ends_at %} ({{ ends_at|date:'d M Y H:i' }}){% endif %}. The router's uptime limit is raised too.</p>
     {% endif %}
-    <label class="form-label">{% if time_is_up or v.status == 'active' %}Time to add{% else %}Add time (optional){% endif %}</label>
-    <select name="add_hours" class="form-select mb-3" {% if time_is_up or v.status == 'active' %}required{% endif %}>
-      {% if not time_is_up and v.status != 'active' %}<option value="">No extra time</option>{% else %}<option value="" disabled selected>Choose…</option>{% endif %}
-      {% for h,label in extend_choices %}<option value="{{ h }}">{{ label }}</option>{% endfor %}
-    </select>
+    <label class="form-label mb-1">{% if time_is_up or v.status == 'active' %}Time to add{% else %}Add time (optional){% endif %}</label>
+    <div class="d-flex flex-wrap gap-1 mb-2" id="timePicks">{% for label,d,h,m in extend_choices %}<button type="button" class="btn btn-sm btn-outline-secondary" data-d="{{ d }}" data-h="{{ h }}" data-m="{{ m }}">{{ label }}</button>{% endfor %}</div>
+    <div class="row g-2 mb-1">
+      <div class="col-4"><div class="input-group input-group-sm"><input class="form-control" type="number" min="0" max="366" step="1" name="add_days" id="addDays" placeholder="0" aria-label="Days"><span class="input-group-text">days</span></div></div>
+      <div class="col-4"><div class="input-group input-group-sm"><input class="form-control" type="number" min="0" max="8784" step="1" name="add_hrs" id="addHrs" placeholder="0" aria-label="Hours"><span class="input-group-text">hours</span></div></div>
+      <div class="col-4"><div class="input-group input-group-sm"><input class="form-control" type="number" min="0" max="527040" step="1" name="add_mins" id="addMins" placeholder="0" aria-label="Minutes"><span class="input-group-text">min</span></div></div>
+    </div>
+    <small class="d-block mb-3" id="timeSum">{% if v.used_at or ends_at %}Added on top of the current end{% if ends_at and not time_is_up %} ({{ ends_at|date:'d M Y H:i' }}){% endif %}.{% else %}Not used yet: the time is added to its {{ v.duration_minutes|minutes_text }} — the clock still starts on first login.{% endif %} Adding time is not a sale.</small>
     <label class="form-label">Reason <span class="text-secondary">(kept in the history)</span></label>
     <input name="reason" class="form-control" maxlength="255" placeholder="e.g. Disabled by mistake, customer paid again, compensation"></div>
   <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success">{% if v.status == 'active' and not time_is_up %}Add time{% else %}Enable{% endif %}</button></div>
 </form></div></div>
+
+{% if 'vouchers.manage' in tt_perms and not v.deleted_at %}
+<div class="modal fade" id="codeModal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'change_voucher_code' v.id %}">{% csrf_token %}
+  <div class="modal-header"><h5 class="modal-title">Change code of {{ v.code }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <p class="small">It stays the <b>same voucher</b>: its sale, time, devices, usage and history stay with it, so nothing is counted twice.
+      {% if v.router %}The user on {{ v.router.name }} is renamed and keeps the time already used.{% endif %}
+      The old code stops working, is never issued again, and still finds this voucher in search.</p>
+    {% if v.used_at and v.status == 'active' and not time_is_up %}<div class="alert alert-warning small py-2">This voucher is in use. A customer online now stays connected; next time they log in they need the new code.</div>{% endif %}
+    <label class="form-label">New code</label>
+    <div class="input-group mb-1"><input name="new_code" id="newCode" class="form-control font-monospace text-uppercase" maxlength="20" required pattern="[A-Za-z0-9 \-]{4,24}" autocomplete="off" placeholder="4–20 letters or numbers">
+      <button type="button" class="btn btn-outline-secondary" id="codeRandom" title="Suggest a random code of the same size"><i class="bi bi-shuffle"></i></button></div>
+    <small class="text-secondary d-block mb-3">Spaces and dashes are removed. Must not be used by any other voucher.</small>
+    <label class="form-label">Reason <span class="text-secondary">(required, kept in the history)</span></label>
+    <input name="reason" class="form-control" maxlength="255" required placeholder="e.g. Code leaked, card unreadable, customer asked"></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Change code</button></div>
+</form></div></div>
+{% endif %}
 
 <div class="modal fade" id="resetModal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'reset_mac' v.id %}">{% csrf_token %}
   <div class="modal-header"><h5 class="modal-title">Reset devices on {{ v.code }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
@@ -201,8 +224,25 @@
 {% block scripts %}
 <script>
 (function(){
+  // Add time: quick picks fill the days/hours/minutes boxes; the line below shows the total.
+  var picks=document.getElementById('timePicks'),D=document.getElementById('addDays'),H=document.getElementById('addHrs'),M=document.getElementById('addMins'),sum=document.getElementById('timeSum');
+  if(picks){
+    var baseText=sum.textContent, needTime={% if time_is_up or v.status == 'active' %}true{% else %}false{% endif %};
+    var total=function(){return (+D.value||0)*1440+(+H.value||0)*60+(+M.value||0);};
+    var words=function(t){var d=Math.floor(t/1440),h=Math.floor(t%1440/60),m=t%60,o=[];if(d)o.push(d+' day'+(d>1?'s':''));if(h)o.push(h+' hour'+(h>1?'s':''));if(m)o.push(m+' minute'+(m>1?'s':''));return o.join(' ');};
+    var upd=function(){var t=total();[].forEach.call(picks.children,function(b){b.classList.toggle('active',+b.dataset.d==(+D.value||0)&&+b.dataset.h==(+H.value||0)&&+b.dataset.m==(+M.value||0)&&t>0);});
+      sum.textContent=t?('Adds '+words(t)+'. '+baseText):baseText;};
+    picks.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;D.value=b.dataset.d||'';H.value=b.dataset.h||'';M.value=b.dataset.m||'';upd();});
+    [D,H,M].forEach(function(x){x.addEventListener('input',upd);});
+    D.form.addEventListener('submit',function(e){var t=total();
+      if(needTime&&!t){e.preventDefault();sum.textContent='Enter the time to add (days, hours and/or minutes).';sum.className='d-block mb-3 text-danger';}
+      else if(t>527040){e.preventDefault();sum.textContent='That is more than a year — enter less time.';sum.className='d-block mb-3 text-danger';}});
+  }
+  // Change code: suggest a random code of the same length
+  var rnd=document.getElementById('codeRandom');
+  if(rnd)rnd.addEventListener('click',function(){var a='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',n=Math.max(4,Math.min(20,{{ v.code|length }})),b=new Uint32Array(n),s='';crypto.getRandomValues(b);for(var i=0;i<n;i++)s+=a[b[i]%a.length];document.getElementById('newCode').value=s;});
   var want=new URLSearchParams(location.search).get('do');
-  var id={enable:'enableModal',disable:'disableModal',reset:'resetModal',delete:'deleteModal'}[want];
+  var id={enable:'enableModal',disable:'disableModal',reset:'resetModal',delete:'deleteModal',code:'codeModal'}[want];
   if(!id)return;
   document.addEventListener('DOMContentLoaded',function(){
     var el=document.getElementById(id);

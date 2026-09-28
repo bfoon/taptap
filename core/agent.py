@@ -39,7 +39,7 @@ DEFAULT_EXPIRY = {'reboot': 5, 'port_restart': 5, 'interface_set': 15, 'port_off
 POLICY = 'ftp,read,write,test,reboot,sensitive'
 SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
-    'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'disconnect', 'binding_set',
+    'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
 }
@@ -293,12 +293,19 @@ def command_body(cmd):
     if k == 'hotspot_user_extend':
         # Add time on top of what the voucher already used, so a router-side
         # limit-uptime cannot lock it out again; vouchers with no limit keep none.
-        secs = max(60, min(8760 * 3600, int(p.get('hours', 1)) * 3600))
+        # "total" (unused vouchers): the new limit is the whole new duration.
+        secs = int(p['seconds']) if p.get('seconds') else int(p.get('hours', 1)) * 3600
+        secs = max(60, min(366 * 86400, secs))
+        new_limit = f'{secs}s' if p.get('total') else f'([/ip hotspot user get $id uptime] + {secs}s)'
         return (f':local id [/ip hotspot user find name={name()}]; :if ([:len $id] > 0) do={{ '
                 f':local lim [/ip hotspot user get $id limit-uptime]; '
-                f':if ([:typeof $lim] = "time" and $lim > 0s) do={{ '
-                f'/ip hotspot user set $id limit-uptime=([/ip hotspot user get $id uptime] + {secs}s) }}; '
+                f':if ([:typeof $lim] = \"time\" and $lim > 0s) do={{ '
+                f'/ip hotspot user set $id limit-uptime={new_limit} }}; '
                 f'/ip hotspot user set $id disabled=no }}')
+    if k == 'hotspot_user_rename':
+        # Changing a voucher code: rename keeps the used uptime on the router.
+        return (f':local id [/ip hotspot user find name={name()}]; :if ([:len $id] > 0) do={{ '
+                f'/ip hotspot user set $id name={name("new_name")} }}')
     if k == 'hotspot_user_remove':
         return f'/ip hotspot user remove [find name={name()}]'
     if k == 'hotspot_users_remove':
@@ -392,9 +399,16 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
         if not isinstance(names, list) or not 1 <= len(names) <= 100 or not all(NAME_RE.match(str(n)) for n in names):
             raise ValueError('Invalid voucher list.')
     if kind == 'hotspot_user_extend':
-        hours = (params or {}).get('hours')
-        if not isinstance(hours, int) or not 1 <= hours <= 8760:
-            raise ValueError('Extra time must be between 1 hour and 1 year.')
+        secs = (params or {}).get('seconds')
+        if secs is not None:
+            if not isinstance(secs, int) or not 60 <= secs <= 366 * 86400:
+                raise ValueError('Extra time must be between 1 minute and 1 year.')
+        else:
+            hours = (params or {}).get('hours')
+            if not isinstance(hours, int) or not 1 <= hours <= 8760:
+                raise ValueError('Extra time must be between 1 hour and 1 year.')
+    if kind == 'hotspot_user_rename' and not NAME_RE.match(str((params or {}).get('new_name', ''))):
+        raise ValueError('Invalid new code.')
     if kind == 'security_fix':
         from .mikrotik import MikroTikService
         if (params or {}).get('key') not in MikroTikService.SECURITY_FIXES:

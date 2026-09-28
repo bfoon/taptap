@@ -312,10 +312,12 @@ class MikroTikService:
         self.resource('/ip/hotspot/user').set(id=users[0]['id'], disabled='no')
         return True
 
-    def extend_voucher(self, code, hours):
-        """Enable and add ``hours`` on top of the time already used, so the router's
-        own limit-uptime does not lock the voucher out again. Returns the new limit
+    def extend_voucher(self, code, hours=None, seconds=None, total=False):
+        """Enable and add time on top of the time already used, so the router's own
+        limit-uptime does not lock the voucher out again. With ``total`` (a voucher
+        not used yet) the new limit is the whole new duration. Returns the new limit
         (or '' when the voucher has no router-side limit)."""
+        add = int(seconds) if seconds else int(hours or 0) * 3600
         from .sync import _routeros_seconds
         users = self.resource('/ip/hotspot/user').get(name=code)
         if not users:
@@ -324,7 +326,7 @@ class MikroTikService:
         data = {'disabled': 'no'}
         limit = ''
         if _routeros_seconds(row.get('limit-uptime', row.get('limit_uptime', ''))) > 0:
-            total = _routeros_seconds(row.get('uptime', '')) + int(hours) * 3600
+            total = add if total else _routeros_seconds(row.get('uptime', '')) + add
             d, rest = divmod(total, 86400); h, rest = divmod(rest, 3600); m, s = divmod(rest, 60)
             limit = ''.join(f'{v}{u}' for v, u in ((d, 'd'), (h, 'h'), (m, 'm'), (s, 's')) if v) or '1h'
             data['limit_uptime'] = limit

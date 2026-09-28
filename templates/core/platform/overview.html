@@ -25,8 +25,8 @@
 <div class="row g-4 mt-1">
   <div class="col-xl-8"><div class="panel h-100"><div class="panel-head"><div><h3>Revenue by month</h3><p>Confirmed subscription payments, last 12 months</p></div></div><div class="chart-box"><canvas id="revChart"></canvas></div></div></div>
   <div class="col-xl-4"><div class="panel h-100"><div class="panel-head"><div><h3>Revenue by plan</h3><p>All time</p></div></div>
-    <table class="table table-sm"><thead><tr><th>Plan</th><th class="text-end">Paid</th><th class="text-end">Revenue</th></tr></thead><tbody>
-    {% for p in by_plan %}<tr><td>{{ p.plan }}</td><td class="text-end">{{ p.n }}</td><td class="text-end"><b>{{ p.v|money:'D' }}</b></td></tr>{% empty %}<tr><td colspan="3" class="empty-table">No paid subscriptions yet.</td></tr>{% endfor %}</tbody></table></div></div>
+    <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Plan</th><th class="text-end">Paid</th><th class="text-end">Revenue</th></tr></thead><tbody>
+    {% for p in by_plan %}<tr><td>{{ p.plan }}</td><td class="text-end">{{ p.n }}</td><td class="text-end"><b>{{ p.v|money:'D' }}</b></td></tr>{% empty %}<tr><td colspan="3" class="empty-table">No paid subscriptions yet.</td></tr>{% endfor %}</tbody></table></div></div></div>
 </div>
 
 <div class="section-title">Software usage</div>
@@ -53,8 +53,8 @@
 
 <div class="row g-4 mt-1">
   <div class="col-xl-6"><div class="panel h-100"><div class="panel-head"><div><h3>Most active businesses</h3><p>Last 30 days</p></div></div>
-    <table class="table table-sm"><thead><tr><th>Business</th><th class="text-end">Days used</th><th class="text-end">Pages</th><th class="text-end">Sign-ins</th></tr></thead><tbody>
-    {% for r in top_biz %}<tr><td><a href="{% url 'platform_business' r.business %}">{{ r.business__business_name }}</a></td><td class="text-end">{{ r.d }}</td><td class="text-end">{{ r.v }}</td><td class="text-end">{{ r.l }}</td></tr>{% empty %}<tr><td colspan="4" class="empty-table">No usage yet.</td></tr>{% endfor %}</tbody></table></div></div>
+    <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Business</th><th class="text-end">Days used</th><th class="text-end">Pages</th><th class="text-end">Sign-ins</th></tr></thead><tbody>
+    {% for r in top_biz %}<tr><td><a href="{% url 'platform_business' r.business %}">{{ r.business__business_name }}</a></td><td class="text-end">{{ r.d }}</td><td class="text-end">{{ r.v }}</td><td class="text-end">{{ r.l }}</td></tr>{% empty %}<tr><td colspan="4" class="empty-table">No usage yet.</td></tr>{% endfor %}</tbody></table></div></div></div>
   <div class="col-xl-6"><div class="panel h-100"><div class="panel-head"><div><h3>Needs attention</h3><p>Help owners before they churn</p></div></div>
     <h6 class="small fw-bold mt-1">Paid access ending within 7 days</h6>
     <ul class="list-unstyled small">{% for b in expiring %}<li><a href="{% url 'platform_business' b.id %}">{{ b.business_name }}</a> — {{ b.subscription_expires_at|date:'d M' }} ({{ b.phone }})</li>{% empty %}<li class="text-secondary">None</li>{% endfor %}</ul>

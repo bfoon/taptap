@@ -124,7 +124,7 @@ def vouchers(request):
     if holder=='shop': qs=qs.filter(agent__isnull=True)
     elif holder=='individual': qs=qs.filter(batch__isnull=True,source='taptap')
     elif holder.isdigit(): qs=qs.filter(agent_id=holder)
-    if q: qs=qs.filter(code_search_q(q,'code',('batch__name','customer_name','customer_phone')))
+    if q: qs=qs.filter(code_search_q(q,'code',('batch__name','customer_name','customer_phone'),also_codes=('code_aliases__code',))).distinct()
     counts=business.vouchers.aggregate(all=Count('id'),unsold=Count('id',filter=Q(status='active',sold_at__isnull=True,used_at__isnull=True)),
         sold=Count('id',filter=Q(sold_at__isnull=False,used_at__isnull=True)),used=Count('id',filter=Q(used_at__isnull=False)),disabled=Count('id',filter=~Q(status='active')))
     params=request.GET.copy();params.pop('page',None)
@@ -211,10 +211,29 @@ def enable_voucher(request,pk):
     from . import voucher_history as vh
     v=get_object_or_404(b(request).vouchers,pk=pk)
     if request.method!='POST': return redirect('voucher_detail',pk=pk)
-    try: ok,result=vh.enable(v,request.user,request.POST.get('reason','').strip(),request.POST.get('add_hours'))
+    P=request.POST
+    try:
+        # Free days / hours / minutes (any mix). "add_hours" is still accepted from older forms.
+        minutes=vh.parse_added_time(P.get('add_days'),P.get('add_hrs'),P.get('add_mins'))
+        ok,result=vh.enable(v,request.user,P.get('reason','').strip(),P.get('add_hours') if not minutes else None,add_minutes=minutes or None)
     except vh.VoucherActionError as e: messages.error(request,str(e)); return _voucher_back(request,v)
-    log(b(request),'Voucher Enabled',v.code);_voucher_result(request,v,ok,result,'enabled')
+    log(b(request),'Voucher Time Added' if minutes else 'Voucher Enabled',v.code+(f' +{vh._mtext(minutes)}' if minutes else ''))
+    _voucher_result(request,v,ok,result,f'given {vh._mtext(minutes)} more' if minutes else 'enabled')
     return _voucher_back(request,v)
+
+
+@login_required
+def change_voucher_code(request,pk):
+    """Give a voucher a new code. Same voucher record: sale, history and usage stay attached."""
+    from . import voucher_codes as vc
+    v=get_object_or_404(b(request).vouchers.select_related('router'),pk=pk)
+    if request.method!='POST': return redirect('voucher_detail',pk=pk)
+    old=v.code
+    try: ok,result=vc.change_code(v,request.POST.get('new_code',''),request.user,request.POST.get('reason',''))
+    except vc.CodeChangeError as e: messages.error(request,str(e)); return redirect('voucher_detail',pk=pk)
+    messages.success(request,f'Code changed from {old} to {v.code}. The sale, history and usage stay with this voucher.')
+    (messages.info if ok else messages.warning)(request,result)
+    return redirect('voucher_detail',pk=pk)
 
 
 @login_required
@@ -244,7 +263,9 @@ def voucher_detail(request,pk):
         'sale':VoucherSale.objects.filter(voucher=v).select_related('agent','recorded_by').first(),
         'incidents':SessionIncident.objects.filter(voucher=v).select_related('router').order_by('-first_seen')[:20],
         'mirror':mirror,'channel':vh.channel(v.router),'max_extend':vh.MAX_EXTEND_HOURS,
-        'extend_choices':[(1,'1 hour'),(3,'3 hours'),(24,'1 day'),(72,'3 days'),(168,'1 week'),(720,'30 days')],
+        # quick picks for the "add time" form: (label, days, hours, minutes)
+        'extend_choices':[('30 min',0,0,30),('1 hour',0,1,0),('3 hours',0,3,0),('12 hours',0,12,0),('1 day',1,0,0),('3 days',3,0,0),('1 week',7,0,0),('30 days',30,0,0)],
+        'old_codes':v.code_aliases.select_related('changed_by') if v.pk else [],
     })
 
 

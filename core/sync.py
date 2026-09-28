@@ -236,13 +236,20 @@ def sync_router(router, progress=None):
         # 2) Pull every RouterOS HotSpot user into both the mirror and the main Voucher app.
         RouterHotspotUser.objects.filter(router=router).update(is_present=False)
         from .voucher_bin import deleted_codes, remove_with_service
+        from .voucher_codes import aliases as code_aliases, rename_with_service
         binned, binned_seen = deleted_codes(router.business), []
-        for raw in svc.hotspot_users():
+        renamed, renamed_seen = code_aliases(router.business), []
+        router_rows = list(svc.hotspot_users())
+        present = {str(_clean(r).get('name', '')).upper() for r in router_rows}
+        for raw in router_rows:
             row = _clean(raw)
             username = str(row.get('name', '')).strip()
             if not username: continue
             if username.upper() in binned:
                 binned_seen.append(username); continue   # deleted in TapTap: remove, never re-import
+            if username.upper() in renamed:
+                # Old code of a renamed voucher: rename it back to the current code, never import it twice.
+                renamed_seen.append((username, renamed[username.upper()].code)); continue
             profile_name = str(row.get('profile', 'default') or 'default')
             plan = profile_map.get(profile_name.lower()) or router.business.plans.filter(name__iexact=profile_name).first()
             max_devices = plan.max_devices if plan else 1
@@ -314,6 +321,12 @@ def sync_router(router, progress=None):
                 except Exception as exc:
                     summary['errors'].append(f'Could not import RouterOS voucher {username}: {exc}')
 
+        if renamed_seen:
+            try:
+                rename_with_service(svc, renamed_seen, present)
+                summary['codes_renamed'] = len(renamed_seen)
+            except Exception as exc:
+                summary['errors'].append(f'Could not rename {len(renamed_seen)} changed voucher code(s): {exc}')
         if binned_seen:
             try:
                 remove_with_service(svc, binned_seen)
