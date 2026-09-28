@@ -56,6 +56,7 @@ urlpatterns = [
     path('topology/node-devices/',views_traffic.node_devices,name='node_devices'), path('alerts/device/',views_traffic.device_alert_toggle,name='device_alert_toggle'),
     path('alerts/',views_traffic.alerts,name='alerts'), path('alerts/rule/',views_traffic.alert_rule_save,name='alert_rule_save'),
     path('alerts/rule/<int:pk>/',views_traffic.alert_rule_action,name='alert_rule_action'), path('alerts/read/',views_traffic.alerts_read,name='alerts_read'),
+    path('vouchers/<int:pk>/missing/',views_missing.mark_voucher_missing,name='mark_voucher_missing'),
     path('vouchers/missing/',views_missing.missing_vouchers,name='missing_vouchers'),
     path('vouchers/missing/report/',views_missing.report_missing_vouchers,name='report_missing_vouchers'),
     path('vouchers/missing/<int:pk>/resolve/',views_missing.resolve_missing_report,name='resolve_missing_report'),

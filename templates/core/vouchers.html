@@ -15,6 +15,10 @@
   </div>
 
   <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-outline-warning" href="{% url 'missing_vouchers' %}">
+      <i class="bi bi-exclamation-triangle"></i>
+      Missing Vouchers
+    </a>
 {% if 'network.manage' in tt_perms %}<form method="post" action="{% url 'routers_sync_all' %}">
       {% csrf_token %}
       <button class="btn btn-outline-primary">
@@ -394,6 +398,25 @@
               <i class="bi bi-info-circle"></i>
             </a>
 
+            {% if 'vouchers.manage' in tt_perms %}
+              <form
+                method="post"
+                action="{% url 'mark_voucher_missing' v.id %}"
+                class="d-inline"
+                onsubmit="return confirm('Mark voucher {{ v.code|escapejs }} as missing?');"
+              >
+                {% csrf_token %}
+                <button
+                  type="submit"
+                  class="btn btn-sm btn-outline-warning"
+                  title="Mark {{ v.code }} as missing"
+                >
+                  <i class="bi bi-exclamation-triangle"></i>
+                  Missing
+                </button>
+              </form>
+            {% endif %}
+
 
             <a
               class="btn btn-sm btn-outline-secondary"
@@ -437,7 +460,6 @@
           </td>
 
         </tr>
-
 
       {% empty %}
 

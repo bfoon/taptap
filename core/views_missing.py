@@ -27,6 +27,61 @@ def _parse_ids(raw):
 
 
 @login_required
+@require_POST
+def mark_voucher_missing(request, pk):
+    """Mark one voucher as missing and open it on the Missing Vouchers page.
+
+    The voucher itself is not deleted or modified. Its sale, router, usage and
+    finance history stay intact while the missing-voucher case is tracked in
+    MissingVoucherReport.
+    """
+    business = _business(request)
+    voucher = get_object_or_404(
+        business.vouchers.select_related('batch'),
+        pk=pk,
+    )
+
+    # Do not create a second open case for the same voucher code.
+    for report in business.missing_voucher_reports.filter(status='open').only(
+        'id', 'voucher_codes'
+    ):
+        if voucher.code in (report.voucher_codes or []):
+            messages.info(
+                request,
+                f'Voucher {voucher.code} is already in open missing report #{report.id}.',
+            )
+            return redirect('missing_vouchers')
+
+    details = (request.POST.get('details') or '').strip()
+    if not details:
+        details = f'Voucher {voucher.code} marked as missing.'
+
+    report = MissingVoucherReport.objects.create(
+        business=business,
+        batch=voucher.batch,
+        report_type='single',
+        voucher_codes=[voucher.code],
+        voucher_count=1,
+        details=details,
+        action_state='planned',
+        action_notes=(request.POST.get('action_notes') or '').strip(),
+        reference=(request.POST.get('reference') or '').strip()[:160],
+        reported_by=request.user,
+    )
+
+    log(
+        business,
+        'Voucher Marked Missing',
+        f'{voucher.code} added to missing voucher report #{report.id}',
+    )
+    messages.warning(
+        request,
+        f'Voucher {voucher.code} was marked as missing.',
+    )
+    return redirect('missing_vouchers')
+
+
+@login_required
 def missing_vouchers(request):
     business = _business(request)
     reports = list(
