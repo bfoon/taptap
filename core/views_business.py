@@ -97,6 +97,7 @@ def finance(request):
               'oldest': min((v.used_at for v, _ in priced), default=None),
               'auto': business.auto_record_sales, 'live': business.live_sync,
               'unpriced_plans': list(business.vouchers.filter(used_at__isnull=False, sale__isnull=True, price=0)
+                                     .exclude(plan_name__in=business.plans.filter(is_free=True).values('name'))
                                      .values_list('plan_name', flat=True).distinct()[:8])}
     ctx = {
         'health': health, 'fin_full': fin_full,

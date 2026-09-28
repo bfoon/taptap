@@ -60,7 +60,8 @@ class VoucherPlan(models.Model):
     price=models.DecimalField(max_digits=10,decimal_places=2,default=0)
     # How long the plan lasts, in minutes; duration_unit is the unit the owner chose (for display/editing).
     duration_minutes=models.PositiveIntegerField(default=1440)
-    duration_unit=models.CharField(max_length=10,default='hours',choices=[('minutes','Minutes'),('hours','Hours'),('days','Days'),('months','Months')])
+    # duration_minutes=0 with duration_unit='unlimited' = no time limit (the voucher never runs out).
+    duration_unit=models.CharField(max_length=10,default='hours',choices=[('minutes','Minutes'),('hours','Hours'),('days','Days'),('months','Months'),('unlimited','Unlimited')])
     max_devices=models.PositiveIntegerField(default=1)
     speed_limit=models.CharField(max_length=50,blank=True)
     data_limit_mb=models.PositiveIntegerField(null=True,blank=True)
@@ -70,7 +71,11 @@ class VoucherPlan(models.Model):
     mikrotik_profile_name=models.CharField(max_length=120,blank=True)
     # Where the price came from: '' (none yet), 'router' (Mikhmon script / comment) or 'manual' (typed in TapTap — never overwritten by sync).
     price_source=models.CharField(max_length=20,blank=True,default='')
+    # A free plan has no price on purpose: its vouchers work normally and are never flagged as "missing a price".
+    is_free=models.BooleanField(default=False,help_text='No charge — vouchers of this plan are given away')
     class Meta: unique_together=('business','name')
+    @property
+    def is_unlimited(self): return not self.duration_minutes
     def __str__(self): return self.name
     @property
     def duration_hours(self):
@@ -191,6 +196,8 @@ class Voucher(models.Model):
     all_objects=BinQuerySet.as_manager()
     @property
     def is_deleted(self): return self.deleted_at is not None
+    @property
+    def is_unlimited(self): return not self.duration_minutes and not self.expires_at
     @property
     def duration_hours(self):
         """Legacy read-only view in whole hours (rounded up)."""

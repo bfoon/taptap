@@ -167,20 +167,22 @@ def _profile_to_plan(router, row, summary, now):
         if plan.source == 'mikrotik':
             plan.max_devices = shared
             plan.speed_limit = rate
-            minutes = _routeros_minutes(session, validity or plan.duration_minutes or 1440)
-            if minutes != plan.duration_minutes:
-                plan.duration_minutes = minutes; plan.duration_unit = best_unit(minutes)
+            # "Unlimited" chosen in TapTap is kept: the router profile has no length for it anyway.
+            if plan.duration_unit != 'unlimited':
+                minutes = _routeros_minutes(session, validity or plan.duration_minutes or 1440)
+                if minutes != plan.duration_minutes:
+                    plan.duration_minutes = minutes; plan.duration_unit = best_unit(minutes)
             plan.mikrotik_profile_name = name
             if not plan.imported_from_router_id: plan.imported_from_router = router
             fields = ['max_devices','speed_limit','duration_minutes','duration_unit','mikrotik_profile_name','imported_from_router']
             # The router is the source of truth for an imported plan's price — but a price the owner typed
             # in TapTap is never wiped just because the router has none.
-            if price and plan.price != price and plan.price_source != 'manual':
+            if price and plan.price != price and plan.price_source != 'manual' and not plan.is_free:
                 plan.price = price; plan.price_source = 'router'; fields += ['price', 'price_source']
                 summary['prices_found'] = summary.get('prices_found', 0) + 1
             plan.save(update_fields=fields)
-            if not plan.price: summary.setdefault('plans_without_price', []).append(name)
-        elif price and not plan.price:
+            if not plan.price and not plan.is_free: summary.setdefault('plans_without_price', []).append(name)
+        elif price and not plan.price and not plan.is_free:
             plan.price = price; plan.price_source = 'router'; plan.save(update_fields=['price', 'price_source']); summary['prices_found'] = summary.get('prices_found', 0) + 1
         return plan
     plan = VoucherPlan.objects.create(

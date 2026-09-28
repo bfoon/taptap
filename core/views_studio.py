@@ -53,7 +53,7 @@ def business_ctx(business):
 def plans_ctx(business):
     # 'minutes' is exact; 'hours' is kept for portal designs saved before minute plans existed.
     return [{'name': p.name, 'price': float(p.price), 'minutes': p.duration_minutes, 'hours': p.duration_hours,
-             'duration': p.duration_text, 'devices': p.max_devices, 'speed': p.speed_limit}
+             'duration': p.duration_text, 'devices': p.max_devices, 'speed': p.speed_limit, 'free': p.is_free}
             for p in business.plans.filter(active=True).order_by('price', 'duration_minutes')]
 
 
@@ -420,6 +420,7 @@ def voucher_print_rows(business, qs):
     for v in qs.select_related('batch'):
         p = plans.get(v.plan_name)
         rows.append({'code': v.code, 'plan': v.plan_name, 'price': _money(v.price or (p.price if p else 0)), 'duration': duration_text(v.duration_minutes),
+                     'free': bool(p and p.is_free and not v.price),
                      'devices': f'{v.max_devices} device{"s" if v.max_devices != 1 else ""}', 'speed': (p.speed_limit if p and p.speed_limit else 'Full speed'),
                      'data': (f'{p.data_limit_mb} MB' if p and p.data_limit_mb else 'Unlimited'), 'serial': f'{v.pk:06d}',
                      'batch': v.batch.name if v.batch else '', 'created': timezone.localtime(v.created_at).strftime('%d %b %Y')})

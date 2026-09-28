@@ -227,7 +227,8 @@ def audit_router(audit, router, now):
         audit.add(f'r{router.id}:bypassed', sev, 'Hotspot abuse', f'{len(bypassed)} device(s) bypass the hotspot for free',
                   'Bypassed IP bindings get unlimited Internet with no voucher. Make sure every one is intentional.', router,
                   evidence=[f'{b.mac_address or b.address} — {b.comment or "no comment"}' for b in bypassed], link='ip_bindings')
-    unlimited = router.hotspot_users.filter(is_present=True, disabled=False, limit_uptime__in=['', '0s', '0'], source='mikrotik').exclude(username__in=['admin', 'default-trial'])
+    unlimited = router.hotspot_users.filter(is_present=True, disabled=False, limit_uptime__in=['', '0s', '0'], source='mikrotik').exclude(username__in=['admin', 'default-trial'])\
+        .exclude(username__in=router.business.vouchers.filter(duration_minutes=0, expires_at__isnull=True).values('code'))  # unlimited plans on purpose
     count = unlimited.count()
     if count:
         audit.add(f'r{router.id}:unlimited-users', 'medium' if count > 5 else 'low', 'Revenue', f'{count} hotspot user(s) never expire',

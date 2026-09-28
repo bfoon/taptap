@@ -41,7 +41,10 @@
     return s ? 'url("data:image/svg+xml;utf8,' + encodeURIComponent(s) + '")' : '';
   }
 
-  function fill(text, d) { return String(text || '').replace(/\{(\w+)\}/g, function (m, k) { return d[k] != null ? d[k] : m; }); }
+  function fill(text, d) {
+    var t = String(text || '');
+    if (d && d.free) t = t.replace(/\{currency\}\s*\{price\}/g, 'FREE').replace(/\{price\}/g, 'FREE');
+    return t.replace(/\{(\w+)\}/g, function (m, k) { return d[k] != null ? d[k] : m; }); }
   function groupCode(code, g) { g = +g || 0; if (!g || g >= code.length || code.length % g !== 0 || code.length < 8) return code; var out = []; for (var i = 0; i < code.length; i += g) out.push(code.slice(i, i + g)); return out.join(' '); }
   function loginLink(d) {
     var u = String(d.login_url || '').trim(); if (!u) return '';

@@ -206,6 +206,9 @@ def enable(voucher, user=None, reason='', add_hours=None, now=None, add_minutes=
     if voucher.frozen_at:
         raise VoucherActionError(f'{voucher.code} is frozen. Unfreeze it first — its time then continues from where it stopped.')
     expired = time_is_up(voucher, now)
+    if minutes and not voucher.duration_minutes and not voucher.expires_at:
+        raise VoucherActionError(f'{voucher.code} has no time limit (unlimited plan), so there is no time to add.'
+                                 + (' Use Enable to switch it back on.' if voucher.status != 'active' else ''))
     if voucher.status == 'active' and not expired and not minutes:
         raise VoucherActionError(f'{voucher.code} is already active. Enter the time to add.')
     if expired and not minutes:

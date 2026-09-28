@@ -8,16 +8,20 @@ convention; "1 month" on the router becomes limit-uptime 30d).
 """
 import re
 
-UNITS = [('minutes', 'Minutes'), ('hours', 'Hours'), ('days', 'Days'), ('months', 'Months')]
+UNITS = [('minutes', 'Minutes'), ('hours', 'Hours'), ('days', 'Days'), ('months', 'Months'), ('unlimited', 'Unlimited')]
+UNLIMITED = 'unlimited'   # stored as 0 minutes: the voucher never runs out
+UNLIMITED_ROUTEROS = '0s'  # RouterOS limit-uptime 0 = no limit
 MINUTES_PER = {'minutes': 1, 'hours': 60, 'days': 1440, 'months': 43200}
 MAX_MINUTES = 60 * 24 * 366 * 2          # two years
 DEFAULT_MINUTES = 1440                   # 1 day
 
 
 def to_minutes(value, unit):
-    """(3, 'days') -> 4320. Raises ValueError on bad input."""
+    """(3, 'days') -> 4320; (anything, 'unlimited') -> 0. Raises ValueError on bad input."""
+    if unit == UNLIMITED:
+        return 0
     if unit not in MINUTES_PER:
-        raise ValueError('Choose minutes, hours, days or months.')
+        raise ValueError('Choose minutes, hours, days, months or unlimited.')
     try:
         amount = int(str(value).strip())
     except (TypeError, ValueError):
@@ -40,8 +44,10 @@ def best_unit(minutes):
 
 
 def split(minutes, unit=None):
-    """(value, unit) for a form. Uses ``unit`` when it divides exactly."""
+    """(value, unit) for a form. Uses ``unit`` when it divides exactly. 0 minutes -> ('', 'unlimited')."""
     minutes = int(minutes or 0)
+    if minutes <= 0:
+        return '', UNLIMITED
     if unit not in MINUTES_PER or minutes % MINUTES_PER[unit]:
         unit = best_unit(minutes)
     return minutes // MINUTES_PER[unit], unit
@@ -51,7 +57,7 @@ def text(minutes):
     """Human text: '30 minutes', '1 hour 30 minutes', '3 days', '1 month', '1 week'."""
     minutes = int(minutes or 0)
     if minutes <= 0:
-        return '—'
+        return 'Unlimited'
     def n(v, word):
         return f'{v} {word}{"" if v == 1 else "s"}'
     if minutes % 43200 == 0:
@@ -76,7 +82,7 @@ def short(minutes):
     """Compact text for tables: '30m', '12h', '3d', '1mo', '1h30m'."""
     minutes = int(minutes or 0)
     if minutes <= 0:
-        return '—'
+        return '∞'
     if minutes % 43200 == 0:
         return f'{minutes // 43200}mo'
     d, rest = divmod(minutes, 1440)
@@ -117,6 +123,8 @@ def router_limit(voucher):
     used_at + duration), the limit grows to match, so a later full sync never
     shrinks it back and cuts the customer off.
     """
+    if not voucher.duration_minutes and not voucher.expires_at:
+        return UNLIMITED_ROUTEROS  # unlimited plan: explicitly no limit (also clears an old one)
     minutes = int(voucher.duration_minutes or DEFAULT_MINUTES)
     if voucher.expires_at and voucher.used_at:
         span = int((voucher.expires_at - voucher.used_at).total_seconds() + 59) // 60

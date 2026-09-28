@@ -104,7 +104,7 @@
         <div><span>Created</span><b>{{ v.created_at|date:'d M Y H:i' }}</b></div>
         <div><span>Sold</span><b>{{ v.sold_at|date:'d M Y H:i'|default:'Not sold' }}</b></div>
         <div><span>First used</span><b>{{ v.used_at|date:'d M Y H:i'|default:'Not used yet' }}</b></div>
-        <div><span>{% if time_is_up %}Time ran out{% else %}Ends{% endif %}</span><b>{% if ends_at %}{{ ends_at|date:'d M Y H:i' }}{% else %}Clock starts on first login{% endif %}</b></div>
+        <div><span>{% if time_is_up %}Time ran out{% else %}Ends{% endif %}</span><b>{% if ends_at %}{{ ends_at|date:'d M Y H:i' }}{% elif v.is_unlimited %}Never — no time limit{% else %}Clock starts on first login{% endif %}</b></div>
         {% if time_left %}<div><span>Time left</span><b>{{ time_left|duration_short }}</b></div>{% endif %}
         <div><span>Status in TapTap</span><b>{{ v.get_status_display }}</b></div>
       </div>

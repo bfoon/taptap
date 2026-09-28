@@ -315,7 +315,7 @@ def plans(request):
     zero=business.vouchers.filter(price=0,sold_at__isnull=True).values('plan_name').annotate(n=Count('id'))
     zero_map={r['plan_name']:r['n'] for r in zero}
     for p in plan_list: p.zero_vouchers=zero_map.get(p.name,0)
-    return render(request,'core/plans.html',{'plans':plan_list,'form':form,'missing':[p for p in plan_list if not p.price]})
+    return render(request,'core/plans.html',{'plans':plan_list,'form':form,'missing':[p for p in plan_list if not p.price and not p.is_free]})
 
 
 @login_required
@@ -324,16 +324,17 @@ def plan_update(request,pk):
     from decimal import Decimal, InvalidOperation
     business=b(request);plan=get_object_or_404(business.plans,pk=pk)
     if request.method!='POST': return redirect('plans')
-    old_price=plan.price
-    try: price=max(Decimal('0'),Decimal(request.POST.get('price','0').replace(',','') or '0'))
+    old_price,old_free,old_minutes=plan.price,plan.is_free,plan.duration_minutes
+    free=request.POST.get('is_free')=='1'
+    try: price=Decimal('0') if free else max(Decimal('0'),Decimal(request.POST.get('price','0').replace(',','') or '0'))
     except (InvalidOperation,ValueError): messages.error(request,'Enter a valid price.');return redirect('plans')
-    plan.price=price
-    if price!=old_price: plan.price_source='manual'
-    if request.POST.get('duration_value','').strip():
+    plan.price=price;plan.is_free=free
+    if price!=old_price or free!=old_free: plan.price_source='manual'  # a router sync never overrides this
+    unit=request.POST.get('duration_unit') or plan.duration_unit
+    if unit=='unlimited' or request.POST.get('duration_value','').strip():
         from .durations import to_minutes
         try:
-            unit=request.POST.get('duration_unit') or plan.duration_unit
-            plan.duration_minutes=to_minutes(request.POST['duration_value'],unit);plan.duration_unit=unit
+            plan.duration_minutes=to_minutes(request.POST.get('duration_value'),unit);plan.duration_unit=unit
         except ValueError as e: messages.error(request,str(e));return redirect('plans')
     elif request.POST.get('duration_hours','').isdigit():  # older clients
         plan.duration_minutes=max(1,int(request.POST['duration_hours']))*60;plan.duration_unit='hours'
@@ -342,9 +343,15 @@ def plan_update(request,pk):
     plan.save()
     unsold=business.vouchers.filter(plan_name=plan.name,sold_at__isnull=True,used_at__isnull=True)
     fixed=business.vouchers.filter(plan_name=plan.name,price=0,sold_at__isnull=True).update(price=price) if price else 0
-    moved=unsold.exclude(price=price).update(price=price) if request.POST.get('apply_unsold') and price else 0
-    msg=f'{plan.name} saved at {business.currency}{price}.'
+    moved=unsold.exclude(price=price).update(price=price) if request.POST.get('apply_unsold') and (price or free) else 0
+    retimed=0
+    if request.POST.get('apply_duration') and plan.duration_minutes!=old_minutes:
+        # Unused vouchers take the new length; they are re-sent to the router so its limit-uptime matches.
+        retimed=business.vouchers.filter(plan_name=plan.name,used_at__isnull=True,expires_at__isnull=True,frozen_at__isnull=True)\
+            .update(duration_minutes=plan.duration_minutes,mikrotik_sync_status='Pending')
+    msg=f'{plan.name} saved — {"free" if free else f"{business.currency}{price}"}, {plan.duration_text.lower() if plan.duration_minutes else "no time limit"}.'
     if fixed or moved: msg+=f' {fixed+moved} voucher price{"s" if fixed+moved!=1 else ""} updated.'
+    if retimed: msg+=f' {retimed} unused voucher{"s" if retimed!=1 else ""} now {"unlimited" if not plan.duration_minutes else plan.duration_text} (sent to the router on the next sync).'
     messages.success(request,msg)
     from .portal_deploy import schedule_redeploy; schedule_redeploy(plan.business)
     return redirect('plans')

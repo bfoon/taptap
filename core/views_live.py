@@ -320,7 +320,10 @@ def missing_sales(business, since=None):
         qs = qs.filter(used_at__gte=since)
     priced, unpriced = [], 0
     plan_prices = {p.name: p.price for p in business.plans.all()}
+    free = set(business.plans.filter(is_free=True).values_list('name', flat=True))
     for v in qs.only('id', 'price', 'plan_name', 'used_at', 'code', 'business_id'):
+        if v.plan_name in free and not (v.price and v.price > 0):
+            continue  # given away on purpose — nothing is missing
         price = v.price if v.price and v.price > 0 else plan_prices.get(v.plan_name) or Decimal('0')
         if price > 0:
             priced.append((v, price))
