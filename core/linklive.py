@@ -70,6 +70,22 @@ def _ensure_ports(router, cur, now):
     if new:
         RouterInterface.objects.bulk_create(new, ignore_conflicts=True)
     RouterInterface.objects.filter(router=router, name__in=list(cur)).update(running=True, last_seen_at=now, is_present=True)
+    # Keep the saved byte totals current so the port panel isn't stuck at the last full sync (or 0).
+    stale = []
+    for obj in RouterInterface.objects.filter(router=router, name__in=list(cur)).only('pk', 'name', 'rx_byte', 'tx_byte', 'raw_data'):
+        rx, tx = cur[obj.name]
+        if (rx, tx) != (obj.rx_byte, obj.tx_byte):
+            obj.rx_byte, obj.tx_byte = rx, tx
+            obj.raw_data = {**(obj.raw_data or {}), 'rx-byte': rx, 'tx-byte': tx}
+            stale.append(obj)
+    if stale:
+        RouterInterface.objects.bulk_update(stale, ['rx_byte', 'tx_byte', 'raw_data'])
+
+
+def counters(router, name):
+    """Byte counters from the most recent heartbeat (a few seconds old), or None."""
+    c = (cache.get(f'tt:linkctr:{router.pk}') or {}).get(name)
+    return {'rx-byte': c[0], 'tx-byte': c[1]} if c else None
 
 
 def rates(router, names=None):

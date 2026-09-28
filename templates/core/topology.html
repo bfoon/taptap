@@ -55,7 +55,7 @@
 {% block scripts %}
 <script src="{% static 'js/netviz-lb.js' %}?v=5"></script>
 <script src="{% static 'js/netviz-topology.js' %}?v=5"></script>
-<script src="{% static 'js/port-inspector.js' %}?v=2" data-port-url="{% url 'router_port' 0 %}" data-control-url="{% url 'router_control' 0 %}" data-action-url="{% url 'port_action' 0 %}" data-reboot-url="{% url 'router_reboot' 0 %}" data-backups-url="{% url 'router_backups' 0 %}"></script>
+<script src="{% static 'js/port-inspector.js' %}?v=3" data-port-url="{% url 'router_port' 0 %}" data-control-url="{% url 'router_control' 0 %}" data-action-url="{% url 'port_action' 0 %}" data-reboot-url="{% url 'router_reboot' 0 %}" data-backups-url="{% url 'router_backups' 0 %}"></script>
 <script>
 document.getElementById('discoverAll')?.addEventListener('click',()=>{const m=window.taptapNetMap;if(m)m.discover(m.cfg.routers.map(r=>r.id));});
 </script>

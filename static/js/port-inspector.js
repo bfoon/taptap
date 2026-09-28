@@ -100,7 +100,7 @@
     if (state.tab === 'devices') return devices(box, d);
     if (state.tab === 'config') return config(box, d);
     if (state.tab === 'control') return control(box, d);
-    var c = (state.live && state.live.counters) || d.counters, wan = isWan(d);
+    var c = Object.assign({}, d.counters || {}, (state.live && state.live.counters) || {}), wan = isWan(d);
     var rx = c['rx-byte'], tx = c['tx-byte'];
     var h = '<div class="pi-stats">' +
       '<div class="pi-stat"><span>' + (wan ? 'Downloaded' : 'Received from devices') + '</span><b>' + bytes(rx) + '</b><small>' + num(c['rx-packet']) + ' packets</small></div>' +

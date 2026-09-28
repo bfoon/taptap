@@ -116,10 +116,11 @@ def router_port(request, pk):
     }
 
     if request.GET.get('live') and _on_link(router):
-        from .linklive import link_state, rates
+        from .linklive import counters as link_counters, link_state, rates
         online, why = link_state(router)
         r = rates(router, {name}).get(name) if online else None
-        data['live'] = {'at': timezone.now().isoformat(), 'transport': 'link', **(r or {})} if online else {'error': why}
+        data['live'] = {'at': timezone.now().isoformat(), 'transport': 'link', **(r or {}),
+                        'counters': {**counters, **(link_counters(router, name) or {})}} if online else {'error': why}
     elif request.GET.get('live') and router.status == 'Online':
         live = {'at': timezone.now().isoformat()}
         try:
@@ -129,7 +130,7 @@ def router_port(request, pk):
                 fresh = [r for r in svc.resource('/interface').get(name=name)]
                 if fresh:
                     f = _clean(fresh[0])
-                    live['counters'] = {k: f[k] for k in COUNTER_KEYS if k in f}
+                    live['counters'] = {**counters, **{k: f[k] for k in COUNTER_KEYS if k in f}}
                     live['running'] = str(f.get('running', '')).lower() == 'true'
                 if obj.interface_type.lower() in {'ether', 'ethernet'} or name.startswith(('ether', 'sfp', 'combo', 'qsfp')):
                     try:

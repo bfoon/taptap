@@ -110,12 +110,19 @@ EXTRA_SOURCES = [
     ('wireless_registrations', 'Wireless registrations', '/interface/wireless/registration-table'),
     ('remote_caps_wifi', 'WiFi CAPsMAN remote CAPs', '/interface/wifi/capsman/remote-cap'),
     ('remote_caps_legacy', 'Legacy CAPsMAN remote CAPs', '/caps-man/remote-cap'),
+    # `/interface print as-value` leaves out the traffic counters; `print stats` has them.
+    ('interface_stats', 'Interface counters', '/interface'),
 ]
 
 # Tables that only exist with the wifi / wireless / CAPsMAN packages.
 OPTIONAL_KINDS = {'wifi_registrations', 'wireless_registrations', 'remote_caps_wifi', 'remote_caps_legacy'}
 
 SOURCES = OrderedDict((key, {'label': label, 'path': path}) for key, label, path in CONFIG_SOURCES + EXTRA_SOURCES)
+SOURCES['interface_stats']['args'] = 'stats'
+
+# Interface statistics copied onto the interface rows (rx-byte, packets, errors, drops, link drops).
+STAT_KEYS = ('rx-byte', 'tx-byte', 'rx-packet', 'tx-packet', 'rx-drop', 'tx-drop', 'rx-error', 'tx-error', 'tx-queue-drop',
+             'fp-rx-byte', 'fp-tx-byte', 'fp-rx-packet', 'fp-tx-packet', 'link-downs', 'last-link-up-time', 'last-link-down-time')
 
 # Periodic traffic samples for TapTap Link routers (not part of a full sync).
 SAMPLE_SOURCES = OrderedDict([
@@ -178,7 +185,8 @@ def inventory_piece_script(cmd, url, check, nonce_value):
     # Compile the RouterOS command at run time so optional menus missing on a
     # particular RouterOS version become a caught run-time error instead of
     # invalidating the entire returned command batch.
-    command = f'{menu} print as-value{where}'
+    args = f' {src["args"]}' if src.get('args') else ''
+    command = f'{menu} print{args} as-value{where}'
     return (
         f':local rows [:toarray ""]; '
         f':do {{ :set rows [[:parse ":return [{command}]"]] }} '
@@ -420,6 +428,46 @@ def _bindings(router, rows, now):
     return summary
 
 
+def merge_interface_stats(interfaces, stats):
+    """Copy counters from `/interface print stats` rows onto the matching interface rows (by name)."""
+    by_name = {str(r.get('name', '')): r for r in stats or [] if r.get('name')}
+    if not by_name:
+        return interfaces
+    out = []
+    for row in interfaces:
+        s = by_name.get(str(row.get('name', '')))
+        out.append({**row, **{k: s[k] for k in STAT_KEYS if s and s.get(k) not in (None, '')}} if s else row)
+    return out
+
+
+def apply_interface_stats(router, stats):
+    """Save the latest counters on the stored ports even when the topology itself did not change."""
+    from .models import RouterInterface
+    by_name = {str(r.get('name', '')): r for r in stats or [] if r.get('name')}
+    if not by_name:
+        return 0
+    changed = []
+    for obj in RouterInterface.objects.filter(router=router, name__in=list(by_name)):
+        s = by_name[obj.name]
+        fresh = {k: s[k] for k in STAT_KEYS if s.get(k) not in (None, '')}
+        if not fresh:
+            continue
+        obj.raw_data = {**(obj.raw_data or {}), **fresh}
+        obj.rx_byte = _count(fresh.get('rx-byte'), obj.rx_byte)
+        obj.tx_byte = _count(fresh.get('tx-byte'), obj.tx_byte)
+        changed.append(obj)
+    if changed:
+        RouterInterface.objects.bulk_update(changed, ['raw_data', 'rx_byte', 'tx_byte'])
+    return len(changed)
+
+
+def _count(value, default=0):
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
+
+
 def _rows(sections, label):
     sec = sections.get(label) or {}
     rows = sec.get('rows') or []
@@ -466,7 +514,7 @@ def _rebuild_topology_and_analysis(router, snap, now, topology=True):
     data = {
         'identity': identity_rows[0] if identity_rows else {},
         'routerboard': board_rows[0] if board_rows else {},
-        'interfaces': _rows(sections, 'Interfaces'),
+        'interfaces': merge_interface_stats(_rows(sections, 'Interfaces'), _rows(sections, 'Interface counters')),
         'ethernet': _rows(sections, 'Ethernet'),
         'bridge_ports': _rows(sections, 'Bridge ports'),
         'bridge_hosts': _rows(sections, 'Bridge hosts'),
@@ -488,6 +536,7 @@ def _rebuild_topology_and_analysis(router, snap, now, topology=True):
     }
     if topology:
         _persist_topology(router, data, now)
+    apply_interface_stats(router, _rows(sections, 'Interface counters'))
 
     declared = list(router.interface_roles.filter(role='wan').values_list('interface_name', flat=True))
     try:
