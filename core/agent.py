@@ -41,9 +41,9 @@ SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
     'hotspot_user_set', 'hotspot_user_remove', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update',
-    'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend',
+    'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
 }
-ACK_WAIT = {'inventory_piece': 600, 'backup': 300, 'hotspot_users': 300, 'self_update': 300}   # seconds before a resend
+ACK_WAIT = {'portal_install': 300, 'inventory_piece': 600, 'backup': 300, 'hotspot_users': 300, 'self_update': 300}   # seconds before a resend
 NAME_RE = re.compile(r'^[\w.@:+/<>-]{1,64}$')
 MAC_RE = re.compile(r'^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$')
 
@@ -352,6 +352,9 @@ def wrap(cmd, url, check):
     if cmd.kind == 'inventory_piece':
         from .agent_inventory import inventory_piece_script
         body = inventory_piece_script(cmd, url, check, nonce(cmd))
+    elif cmd.kind in ('portal_install', 'portal_reset'):
+        from .portal_deploy import link_command_body
+        body = link_command_body(cmd, check)
     elif cmd.kind == 'self_update':
         body = self_update_body(url, check)
     else:
@@ -665,6 +668,9 @@ def handle_ack(cmd_id, given_nonce, status, result=''):
     cmd.result = (result or ('OK' if ok else 'The router reported an error'))[:500]
     cmd.save(update_fields=['status', 'done_at', 'result'])
     r = cmd.router
+    if cmd.kind in ('portal_install', 'portal_reset'):
+        from .portal_deploy import link_ack
+        link_ack(cmd, ok)
     if cmd.kind == 'hotspot_users':
         ids = cmd.params.get('ids', [])
         Voucher.objects.filter(pk__in=ids).update(mikrotik_sync_status='Synced' if ok else 'Error', mikrotik_sync_error='' if ok else 'Router rejected the batch')

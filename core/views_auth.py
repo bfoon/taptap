@@ -54,12 +54,8 @@ def register(request):
         return redirect('dashboard')
     form = RegisterForm(request.POST or None)
     if request.method == 'POST' and form.is_valid():
-        email, err = validate_email_address(form.cleaned_data['email'])
-        if err:
-            form.add_error('email', err)
-        elif User.objects.filter(username=email).exists():
-            form.add_error('email', 'An account with this email already exists. Sign in instead.')
-        else:
+        email = form.cleaned_data['email']   # already validated (format, typos, disposable, domain, not taken)
+        if True:
             data = {k: form.cleaned_data[k] for k in ('business_name', 'owner_name', 'phone')}
             data['password'] = make_password(form.cleaned_data['password'])  # never keep the plain password
             if not _otp_on():
@@ -70,7 +66,7 @@ def register(request):
                 messages.success(request, msg)
                 return redirect('verify_code')
             form.add_error(None, msg)
-    return render(request, 'core/register.html', {'form': form})
+    return render(request, 'core/register.html', {'form': form, 'trial_days': settings.TRIAL_DAYS})
 
 
 def _create_account(request, email, data, remember=True):

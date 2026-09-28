@@ -261,7 +261,9 @@ def batches(request):
 def plans(request):
     business=b(request);form=PlanForm(request.POST or None)
     if request.method=='POST' and form.is_valid():
-        obj=form.save(commit=False);obj.business=business;obj.source='taptap';obj.price_source='manual';obj.save();messages.success(request,'Plan saved.');return redirect('plans')
+        obj=form.save(commit=False);obj.business=business;obj.source='taptap';obj.price_source='manual';obj.save();messages.success(request,'Plan saved.')
+        from .portal_deploy import schedule_redeploy; schedule_redeploy(business)
+        return redirect('plans')
     plan_list=list(business.plans.select_related('imported_from_router').all().order_by('price','name'))
     zero=business.vouchers.filter(price=0,sold_at__isnull=True).values('plan_name').annotate(n=Count('id'))
     zero_map={r['plan_name']:r['n'] for r in zero}
@@ -296,7 +298,9 @@ def plan_update(request,pk):
     moved=unsold.exclude(price=price).update(price=price) if request.POST.get('apply_unsold') and price else 0
     msg=f'{plan.name} saved at {business.currency}{price}.'
     if fixed or moved: msg+=f' {fixed+moved} voucher price{"s" if fixed+moved!=1 else ""} updated.'
-    messages.success(request,msg);return redirect('plans')
+    messages.success(request,msg)
+    from .portal_deploy import schedule_redeploy; schedule_redeploy(plan.business)
+    return redirect('plans')
 
 
 @login_required
@@ -937,6 +941,7 @@ def settings_view(request):
         elif logo.startswith('data:image/') and len(logo)<400_000: business.logo_data=logo
         business.save()
         messages.success(request,'Settings saved. Portal pages and voucher designs use the new details straight away.')
+        from .portal_deploy import schedule_redeploy; schedule_redeploy(business)
         if pending_email:
             from .views_auth import start_email_change
             resp=start_email_change(request,pending_email,'/settings/')

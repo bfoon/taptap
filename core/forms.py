@@ -2,7 +2,32 @@ from django import forms
 from django.contrib.auth.models import User
 from .models import Router,VoucherPlan
 class RegisterForm(forms.Form):
- business_name=forms.CharField(max_length=180); owner_name=forms.CharField(max_length=180); phone=forms.CharField(max_length=60); email=forms.EmailField(); password=forms.CharField(widget=forms.PasswordInput,min_length=6)
+ business_name=forms.CharField(max_length=180,widget=forms.TextInput(attrs={'class':'form-control','placeholder':'e.g. Kairaba Wi-Fi','autocomplete':'organization'}))
+ owner_name=forms.CharField(max_length=180,widget=forms.TextInput(attrs={'class':'form-control','placeholder':'First and last name','autocomplete':'name'}))
+ phone=forms.CharField(max_length=60,widget=forms.TextInput(attrs={'class':'form-control','placeholder':'+220 700 0000','autocomplete':'tel','inputmode':'tel'}))
+ email=forms.EmailField(widget=forms.EmailInput(attrs={'class':'form-control','placeholder':'you@yourbusiness.com','autocomplete':'email'}))
+ password=forms.CharField(min_length=8,widget=forms.PasswordInput(attrs={'class':'form-control','placeholder':'At least 8 characters','autocomplete':'new-password'}))
+ def clean_email(self):
+  from django.contrib.auth.models import User as U
+  from .auth_security import validate_email_address
+  email,err=validate_email_address(self.cleaned_data['email'])
+  if err: raise forms.ValidationError(err)
+  if U.objects.filter(username=email).exists(): raise forms.ValidationError('An account with this email already exists. Sign in instead.')
+  return email
+ def clean_phone(self):
+  import re
+  v=self.cleaned_data['phone'].strip()
+  if len(re.sub(r'\D','',v))<7: raise forms.ValidationError('Enter a phone number customers and our team can reach you on.')
+  return v
+ def clean(self):
+  data=super().clean()
+  pw=data.get('password')
+  if pw:
+   from django.contrib.auth.password_validation import validate_password
+   from django.contrib.auth.models import User as U
+   try: validate_password(pw,U(username=data.get('email',''),email=data.get('email',''),first_name=data.get('owner_name','')))
+   except forms.ValidationError as e: self.add_error('password',e)
+  return data
 class RouterForm(forms.ModelForm):
  class Meta:
   model=Router; fields=['name','ip_address','api_port','username','password','use_ssl']; widgets={'password':forms.PasswordInput(render_value=True)}

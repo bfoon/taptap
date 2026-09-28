@@ -38,7 +38,7 @@ urlpatterns = [
     path('studio/vouchers/',vs.voucher_designs,name='voucher_designs'), path('studio/vouchers/<int:pk>/',vs.voucher_design_editor,name='voucher_design_editor'),
     path('studio/vouchers/<int:pk>/action/',vs.voucher_design_action,name='voucher_design_action'), path('studio/vouchers/print/',vs.voucher_print,name='voucher_print'),
     # Public customer portal
-    path('p/<slug:slug>/',vs.portal_public,name='portal_public'), path('p/<slug:slug>/check/',vs.portal_check,name='portal_check'),
+    path('p/router-files/<str:token>/<str:name>.html',vs.portal_router_file,name='portal_router_file'), path('studio/portal/deploy/',vs.portal_deploy,name='portal_deploy'), path('studio/portal/deploy/status/',vs.portal_deploy_status,name='portal_deploy_status'), path('p/<slug:slug>/',vs.portal_public,name='portal_public'), path('p/<slug:slug>/check/',vs.portal_check,name='portal_check'),
     path('api/business/<int:business_id>/subscription-warning/',views.api_subscription_warning,name='api_subscription_warning'), path('api/voucher/login/',views.api_voucher_login,name='api_voucher_login'),
     path('ads/',views_ads.ads,name='ads'), path('ads/save/',views_ads.ad_save,name='ad_save'), path('ads/<int:pk>/action/',views_ads.ad_action,name='ad_action'),
     path('p/ad/<int:pk>/seen/',views_ads.ad_seen,name='ad_seen'), path('p/ad/<int:pk>/go/',views_ads.ad_go,name='ad_go'),

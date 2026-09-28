@@ -10,11 +10,28 @@
     {% with pages|first as p %}{% if p %}<div class="phone-peek" aria-hidden="true"><iframe data-thumb="p{{ p.id }}" tabindex="-1" title=""></iframe></div>{% endif %}{% endwith %}
   </div>
   <div class="how-card">
-    <h3>Two ways to put a page on your router</h3>
-    <dl><dt><i class="bi bi-router"></i> Offline on the router</dt><dd>Export gives you <code>login.html</code> and <code>alogin.html</code>. Upload them to the router’s hotspot folder. Works even when the internet is down.</dd>
-      <dt><i class="bi bi-cloud"></i> Hosted by TapTap</dt><dd>The router forwards customers to your TapTap page. Edits go live instantly and codes are checked before login. Needs one walled-garden rule.</dd></dl>
+    <h3>How customers see it</h3>
+    <dl><dt><i class="bi bi-router"></i> On your routers (recommended)</dt><dd><b>Publish</b> or <b>Make default</b> installs the page in each router’s hotspot folder, so phones see it the moment they join — before they have Internet. TapTap re-installs it when you edit the page, your plans or your branding.</dd>
+      <dt><i class="bi bi-download"></i> Manual</dt><dd>Prefer WinBox? Use <b>Export for router</b> in a page’s menu and drag the files into the hotspot folder.</dd></dl>
   </div>
 </div>
+
+<section class="dep-panel" id="depPanel" aria-live="polite">
+  <div class="dep-head"><div><h3><i class="bi bi-broadcast-pin"></i> On your routers</h3><p>The default login, “connected” and status pages are served by each router, so customers see your voucher page before they get Internet.</p></div>
+    <div class="d-flex gap-2 flex-wrap"><button class="btn btn-primary" id="depAll"><i class="bi bi-cloud-upload"></i> Put on all routers</button></div></div>
+  <div class="dep-list" id="depList"><div class="text-secondary small">Loading…</div></div>
+  <p class="dep-note">Routers download the pages from TapTap over HTTPS using a link that expires in 2 hours. A walled-garden entry for TapTap is added so device identification and adverts work before login. Routers on TapTap Link install at their next check-in.</p>
+</section>
+<style>
+.dep-panel{background:#fff;border:1px solid var(--border);border-radius:18px;padding:1rem 1.1rem;margin:0 0 1.2rem}
+.dep-head{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:flex-start}.dep-head h3{font-size:1rem;font-weight:800;margin:0 0 .2rem}.dep-head p{font-size:.82rem;color:var(--muted);margin:0;max-width:640px}
+.dep-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:.6rem;margin-top:.9rem}
+.dep-r{border:1px solid #e8edf3;border-radius:14px;padding:.7rem .8rem;display:flex;flex-direction:column;gap:.35rem}
+.dep-r .top{display:flex;align-items:center;gap:.5rem}.dep-r b{font-size:.9rem}.dep-r small{color:var(--muted);font-size:.74rem}
+.dep-st{margin-left:auto;font-size:.68rem;font-weight:800;border-radius:999px;padding:.15rem .55rem;background:#eef2f6;color:#51667b;white-space:nowrap}
+.dep-st.installed{background:#e4f7ee;color:#138453}.dep-st.queued{background:#fff4dc;color:#9a6200}.dep-st.failed{background:#fdeaea;color:#c02b2b}.dep-st.outdated{background:#eef4ff;color:#1558b8}
+.dep-r .acts{display:flex;gap:.35rem;margin-top:.2rem}.dep-note{font-size:.72rem;color:#8a9aab;margin:.8rem 0 0}
+</style>
 
 {% for kind,label in kinds %}
 <div class="kind-head"><h3>{{ label }}s</h3><p>{% if kind == 'login' %}Where customers type their voucher code.{% elif kind == 'redirect' %}Shown straight after a successful login.{% else %}Session details a customer can come back to.{% endif %}</p></div>
@@ -28,7 +45,8 @@
         <a class="btn btn-sm btn-outline-secondary" href="/p/{{ p.slug }}/" target="_blank" rel="noopener" title="Open live page" aria-label="Open live page"><i class="bi bi-box-arrow-up-right"></i></a>
         <div class="dropdown"><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" aria-label="More actions"><i class="bi bi-three-dots"></i></button>
           <ul class="dropdown-menu dropdown-menu-end">
-            <li><a class="dropdown-item" href="{% url 'portal_export' p.id %}?mode=offline"><i class="bi bi-router"></i> Export for router (offline)</a></li>
+            {% if p.is_default %}<li><button class="dropdown-item" type="button" data-dep-all><i class="bi bi-cloud-upload"></i> Put on all routers</button></li>{% endif %}
+            <li><a class="dropdown-item" href="{% url 'portal_export' p.id %}?mode=offline"><i class="bi bi-router"></i> Export for router (manual)</a></li>
             <li><a class="dropdown-item" href="{% url 'portal_export' p.id %}?mode=hosted"><i class="bi bi-cloud"></i> Export hosted redirect</a></li><li><hr class="dropdown-divider"></li>
             {% if not p.is_default %}<li><form method="post" action="{% url 'portal_action' p.id %}">{% csrf_token %}<button class="dropdown-item" name="action" value="default"><i class="bi bi-star"></i> Make default</button></form></li>{% endif %}
             <li><form method="post" action="{% url 'portal_action' p.id %}">{% csrf_token %}<button class="dropdown-item" name="action" value="toggle"><i class="bi bi-{% if p.is_published %}eye-slash{% else %}broadcast{% endif %}"></i> {% if p.is_published %}Unpublish{% else %}Publish{% endif %}</button></form></li>
@@ -53,6 +71,39 @@
 <script id="pagesData" type="application/json">{ {% for p in pages %}"p{{ p.id }}":{{ p.config_json|safe }}{% if not forloop.last %},{% endif %}{% endfor %} }</script>
 {% endblock %}
 {% block scripts %}
+
+<script>
+(function(){
+  var list=document.getElementById('depList'), token=(document.cookie.match(/(?:^|; )csrftoken=([^;]+)/)||[])[1]||'', timer=null;
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function paint(rows){
+    if(!rows.length){list.innerHTML='<div class="text-secondary small">No routers yet. <a href="/routers/">Add a router</a> and the portal can be installed on it.</div>';return;}
+    list.innerHTML=rows.map(function(r){
+      var st=r.outdated?'outdated':r.status, label=r.outdated?'Update available':r.status_label;
+      var when=r.installed_at?'Installed '+new Date(r.installed_at).toLocaleString():'';
+      return '<div class="dep-r"><div class="top"><i class="bi bi-router"></i><b>'+esc(r.name)+'</b><span class="dep-st '+st+'">'+esc(label)+'</span></div>'+
+        '<small>'+(r.mode==='agent'?'TapTap Link':'Direct')+(r.online?' · online':' · offline')+(when?' · '+esc(when):'')+(r.files.length?' · '+esc(r.files.map(function(f){return f+'.html';}).join(', ')):'')+'</small>'+
+        (r.error?'<small class="text-danger">'+esc(r.error)+'</small>':'')+
+        '<div class="acts"><button class="btn btn-sm '+(r.status==='installed'&&!r.outdated?'btn-outline-primary':'btn-primary')+'" data-dep="'+r.id+'">'+(r.status==='installed'?(r.outdated?'Update now':'Re-install'):'Install')+'</button>'+
+        (r.status==='installed'||r.status==='queued'?'<button class="btn btn-sm btn-light" data-reset="'+r.id+'">Restore MikroTik default</button>':'')+'</div></div>';}).join('');
+    clearTimeout(timer); if(rows.some(function(r){return r.status==='queued';})) timer=setTimeout(load,5000);
+  }
+  function load(){fetch('{% url "portal_deploy_status" %}',{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.json();}).then(function(d){paint(d.routers);}).catch(function(){});}
+  function send(ids,action,btn){
+    var fd=new FormData(); ids.forEach(function(i){fd.append('router',i);}); if(action)fd.append('action',action);
+    var old=btn?btn.innerHTML:''; if(btn){btn.disabled=true;btn.innerHTML='<span class="spinner-border spinner-border-sm"></span> Working…';}
+    fetch('{% url "portal_deploy" %}',{method:'POST',body:fd,credentials:'same-origin',headers:{'X-CSRFToken':decodeURIComponent(token)}}).then(function(r){return r.json();}).then(function(d){
+      if(d.routers)paint(d.routers); var n=document.createElement('div'); n.className='alert '+(d.success?'alert-success':'alert-warning')+' small mt-2 mb-0'; n.textContent=d.message; list.after(n); setTimeout(function(){n.remove();},9000);
+    }).catch(function(e){alert('Could not reach TapTap: '+e.message);}).then(function(){if(btn){btn.disabled=false;btn.innerHTML=old;}});
+  }
+  document.getElementById('depAll').onclick=function(){send([],'',this);};
+  document.querySelectorAll('[data-dep-all]').forEach(function(b){b.onclick=function(){document.getElementById('depPanel').scrollIntoView({behavior:'smooth'});send([],'',document.getElementById('depAll'));};});
+  list.addEventListener('click',function(e){var b=e.target.closest('[data-dep]'),x=e.target.closest('[data-reset]');
+    if(b)send([b.dataset.dep],'',b);
+    if(x&&confirm('Put MikroTik\'s own default login pages back on this router?'))send([x.dataset.reset],'reset',x);});
+  load();
+})();
+</script>
 <script src="{% static 'studio/thumbs.js' %}" data-renderer="{% static 'studio/portal-render.js' %}"></script>
 <script>
 (function(){

@@ -910,5 +910,19 @@ class TrustedDevice(models.Model):
     def active(self): return not self.revoked_at and self.expires_at>timezone.now()
 
 
+class PortalDeployment(models.Model):
+    """Which portal pages are installed in a router's hotspot folder (one row per router)."""
+    STATUS=[('queued','Waiting for the router'),('installed','On the router'),('failed','Could not install'),('removed','MikroTik default pages')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='portal_deployments')
+    router=models.OneToOneField(Router,on_delete=models.CASCADE,related_name='portal_deployment')
+    status=models.CharField(max_length=12,choices=STATUS,default='queued')
+    files=models.JSONField(default=list,blank=True)
+    version=models.CharField(max_length=40,blank=True,help_text='Fingerprint of the pages, plans and branding that were installed')
+    via=models.CharField(max_length=10,blank=True)
+    error=models.CharField(max_length=300,blank=True)
+    requested_at=models.DateTimeField(default=timezone.now)
+    installed_at=models.DateTimeField(null=True,blank=True)
+
+
 # Registered here so Django loads it with the rest of the app's models.
 from .models_missing import MissingVoucherReport  # noqa: E402,F401

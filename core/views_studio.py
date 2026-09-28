@@ -118,6 +118,9 @@ def portal_editor(request, pk):
                 business.portal_pages.filter(kind=page.kind).exclude(pk=page.pk).update(is_default=False)
                 page.is_default = True; page.is_published = True
             page.save()
+        if page.is_default and page.is_published:
+            from .portal_deploy import schedule_redeploy
+            schedule_redeploy(business)   # keep the copy on the routers up to date
         return JsonResponse({'success': True, 'updated_at': timezone.localtime(page.updated_at).strftime('%H:%M:%S'),
                              'is_published': page.is_published, 'is_default': page.is_default})
     public_url = request.build_absolute_uri(f'/p/{page.slug}/')
@@ -132,6 +135,20 @@ def portal_editor(request, pk):
 
 @login_required
 @require_POST
+def _publish_to_routers(request, business):
+    """Publishing the default pages puts them on every router (served before customers have Internet)."""
+    from .portal_deploy import deploy_business, site_base
+    if not business.routers.exists():
+        return
+    results = deploy_business(business, base=site_base(request), user=request.user)
+    good = [m for ok, m in results if ok]
+    bad = [m for ok, m in results if not ok]
+    if good:
+        messages.success(request, 'On your routers: ' + ' '.join(good))
+    if bad:
+        messages.warning(request, 'Not installed: ' + ' '.join(bad))
+
+
 def portal_action(request, pk):
     business = _b(request); page = get_object_or_404(business.portal_pages, pk=pk); action = request.POST.get('action')
     if action == 'delete':
@@ -148,8 +165,10 @@ def portal_action(request, pk):
         business.portal_pages.filter(kind=page.kind).update(is_default=False)
         page.is_default = True; page.is_published = True; page.save(update_fields=['is_default', 'is_published'])
         messages.success(request, f'{page.name} is now your default {page.get_kind_display().lower()}.')
+        _publish_to_routers(request, business)
     elif action == 'toggle':
         page.is_published = not page.is_published; page.save(update_fields=['is_published'])
+        if page.is_published and page.is_default: _publish_to_routers(request, business)
         messages.success(request, f'{page.name} {"published" if page.is_published else "unpublished"}.')
     return redirect('portal_studio')
 
@@ -427,3 +446,56 @@ def voucher_print(request):
         'ads_json': _safe_json(ads_for(business, 'voucher')),
         'query': request.GET.urlencode(),
     })
+
+
+
+# ─────────────────────── Put the portal on the routers ───────────────────────
+def portal_router_file(request, token, name):
+    """Public, token-protected: the router downloads its hotspot pages from here."""
+    from .portal_deploy import FILES, default_pages, read_token
+    from .models import Router
+    data = read_token(token)
+    if not data or name not in FILES:
+        raise Http404
+    router = Router.objects.select_related('business').filter(pk=data.get('r'), business_id=data.get('b')).first()
+    page = default_pages(router.business).get(name) if router else None
+    if not page:
+        raise Http404
+    base = request.build_absolute_uri('/').rstrip('/')
+    resp = HttpResponse(_export_html(page, base), content_type='text/html; charset=utf-8')
+    resp['Cache-Control'] = 'no-store'
+    return resp
+
+
+def _deploy_rows(business):
+    from .portal_deploy import version_for
+    current = version_for(business)
+    deps = {d.router_id: d for d in business.portal_deployments.all()}
+    rows = []
+    for r in business.routers.all().order_by('name'):
+        d = deps.get(r.id)
+        rows.append({'id': r.id, 'name': r.name, 'mode': r.connection_mode, 'online': r.status == 'Online',
+                     'status': d.status if d else 'none', 'status_label': d.get_status_display() if d else 'Not installed',
+                     'installed_at': d.installed_at.isoformat() if d and d.installed_at else None, 'error': d.error if d else '',
+                     'files': d.files if d else [], 'outdated': bool(d and d.status == 'installed' and d.version != current)})
+    return rows
+
+
+@login_required
+def portal_deploy_status(request):
+    return JsonResponse({'routers': _deploy_rows(_b(request))})
+
+
+@login_required
+@require_POST
+def portal_deploy(request):
+    from .portal_deploy import deploy, reset
+    business = _b(request)
+    ids = [int(x) for x in request.POST.getlist('router') if str(x).isdigit()]
+    routers = business.routers.filter(pk__in=ids) if ids else business.routers.all()
+    if not routers.exists():
+        return JsonResponse({'success': False, 'message': 'Add a router first.', 'routers': []}, status=400)
+    fn = reset if request.POST.get('action') == 'reset' else deploy
+    results = [fn(r, user=request.user) for r in routers]
+    log(business, 'Portal Deployed' if fn is deploy else 'Portal Removed', '; '.join(m for _, m in results)[:500])
+    return JsonResponse({'success': all(ok for ok, _ in results), 'message': ' '.join(m for _, m in results), 'routers': _deploy_rows(business)})

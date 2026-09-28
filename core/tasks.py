@@ -130,3 +130,15 @@ def deliver_notifications():
 def process_inventory_piece(cmd_id):
     from .agent_inventory import process_piece
     process_piece(cmd_id)
+
+
+@shared_task(ignore_result=True)
+def redeploy_portal(business_id):
+    """Re-install the voucher portal on routers that have it (after page, plan or branding changes)."""
+    from .models import Business
+    from .portal_deploy import deploy
+    business = Business.objects.filter(pk=business_id).first()
+    if not business:
+        return
+    for dep in business.portal_deployments.select_related('router').filter(status__in=['installed', 'queued', 'failed']):
+        deploy(dep.router)

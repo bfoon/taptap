@@ -56,7 +56,13 @@ else:
                              'HOST': os.getenv('POSTGRES_HOST', 'db'), 'PORT': os.getenv('POSTGRES_PORT', '5432'),
                              'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')), 'CONN_HEALTH_CHECKS': True}}
 
-AUTH_PASSWORD_VALIDATORS = []
+# Password rules for new accounts and password changes.
+AUTH_PASSWORD_VALIDATORS = [
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator', 'OPTIONS': {'min_length': 8}},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
+]
 LANGUAGE_CODE = 'en-us'; TIME_ZONE = os.getenv('TIME_ZONE', 'Africa/Banjul'); USE_I18N = True; USE_TZ = True
 STATIC_URL = os.getenv('STATIC_URL', '/static/'); STATIC_ROOT = BASE_DIR / 'staticfiles'; STATICFILES_DIRS = [BASE_DIR / 'static']
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

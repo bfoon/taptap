@@ -1,1 +1,90 @@
-{% extends 'core/base.html' %}{% block title %}Start Free — TapTap{% endblock %}{% block public_content %}<div class="auth-page"><div class="auth-card wide"><a class="brand justify-content-center mb-4" href="/"><span class="brand-mark"><i class="bi bi-wifi"></i></span><span>TapTap</span></a><div class="trial-badge">7 days free • No card required</div><h2>Create your hotspot business</h2><p>Get the full TapTap control center and connect your MikroTik router when you are ready.</p><form method="post">{% csrf_token %}<div class="row g-3"><div class="col-md-6"><label>Business name</label>{{ form.business_name }}</div><div class="col-md-6"><label>Owner name</label>{{ form.owner_name }}</div><div class="col-md-6"><label>Phone</label>{{ form.phone }}</div><div class="col-md-6"><label>Email</label>{{ form.email }}</div><div class="col-12"><label>Password</label>{{ form.password }}</div></div>{% if form.errors %}<div class="alert alert-danger mt-3">{% for field, errs in form.errors.items %}{% for e in errs %}<div>{{ e }}</div>{% endfor %}{% endfor %}</div>{% endif %}<p class="small text-secondary mt-3 mb-0"><i class="bi bi-envelope-check"></i> We will email you a code to confirm the address before your account is created.</p><button class="btn btn-primary w-100 mt-4">Continue</button></form><div class="auth-bottom">Already registered? <a href="{% url 'login' %}">Sign in</a></div></div></div>{% endblock %}
+{% extends 'core/base.html' %}{% block title %}Create your account — TapTap{% endblock %}{% block public_content %}
+<div class="rg">
+  <aside class="rg-side">
+    <a class="brand rg-brand" href="/"><span class="brand-mark"><i class="bi bi-wifi"></i></span><span>TapTap</span></a>
+    <div class="rg-pitch">
+      <span class="rg-badge"><i class="bi bi-gift"></i> {{ trial_days|default:7 }} days free · no card needed</span>
+      <h1>Run your Wi-Fi business from one place</h1>
+      <p>Sell vouchers, watch your MikroTik routers and see what you earn — from your phone or computer.</p>
+      <ul class="rg-feat">
+        <li><i class="bi bi-ticket-perforated"></i><div><b>Vouchers & plans</b><span>Print, sell and track every voucher, with agents and cash collection.</span></div></li>
+        <li><i class="bi bi-router"></i><div><b>Your MikroTik, live</b><span>Topology, traffic and alerts — even for routers behind NAT.</span></div></li>
+        <li><i class="bi bi-graph-up-arrow"></i><div><b>Finance & reports</b><span>Sales, expenses and peak hours without spreadsheets.</span></div></li>
+      </ul>
+      <ol class="rg-steps"><li><b>Create your account</b></li><li><b>Confirm your email</b> with the code we send</li><li><b>Connect your router</b> when you are ready</li></ol>
+    </div>
+    <p class="rg-foot"><i class="bi bi-shield-lock"></i> Your password is stored encrypted. We only use your email for sign-in codes and the alerts you choose.</p>
+  </aside>
+
+  <main class="rg-main">
+    <div class="rg-card">
+      <a class="brand rg-brand-m" href="/"><span class="brand-mark"><i class="bi bi-wifi"></i></span><span>TapTap</span></a>
+      <h2>Create your account</h2>
+      <p class="rg-sub">It takes about a minute.</p>
+      {% if form.non_field_errors %}<div class="alert alert-danger py-2 small">{% for e in form.non_field_errors %}{{ e }} {% endfor %}</div>{% endif %}
+      {% for message in messages %}<div class="alert alert-{% if message.tags == 'error' %}danger{% elif message.tags %}{{ message.tags }}{% else %}info{% endif %} py-2 small">{{ message }}</div>{% endfor %}
+      <form method="post" novalidate>{% csrf_token %}
+        <fieldset class="rg-sec"><legend><span>1</span> Your business</legend>
+          <div class="row g-3">
+            <div class="col-md-6"><label for="{{ form.business_name.id_for_label }}">Business name</label>{{ form.business_name }}
+              {% for e in form.business_name.errors %}<div class="rg-err">{{ e }}</div>{% endfor %}<small class="rg-help">Shown on your portal and vouchers.</small></div>
+            <div class="col-md-6"><label for="{{ form.phone.id_for_label }}">Business phone</label>{{ form.phone }}
+              {% for e in form.phone.errors %}<div class="rg-err">{{ e }}</div>{% endfor %}<small class="rg-help">Include the country code, e.g. +220.</small></div>
+          </div>
+        </fieldset>
+        <fieldset class="rg-sec"><legend><span>2</span> Account owner</legend>
+          <div class="row g-3">
+            <div class="col-md-6"><label for="{{ form.owner_name.id_for_label }}">Full name</label>{{ form.owner_name }}
+              {% for e in form.owner_name.errors %}<div class="rg-err">{{ e }}</div>{% endfor %}</div>
+            <div class="col-md-6"><label for="{{ form.email.id_for_label }}">Email</label>{{ form.email }}
+              {% for e in form.email.errors %}<div class="rg-err">{{ e }}</div>{% endfor %}<small class="rg-help">We'll send a code to confirm it.</small></div>
+            <div class="col-12"><label for="{{ form.password.id_for_label }}">Password</label>
+              <div class="rg-pw">{{ form.password }}<button type="button" class="rg-eye" id="rgEye" aria-label="Show password"><i class="bi bi-eye"></i></button></div>
+              <div class="rg-meter" aria-hidden="true"><i id="rgBar"></i></div><small class="rg-help" id="rgPwHelp">Use 8+ characters — a mix of words, numbers and symbols is strongest.</small>
+              {% for e in form.password.errors %}<div class="rg-err">{{ e }}</div>{% endfor %}</div>
+          </div>
+        </fieldset>
+        <button class="btn btn-primary w-100 rg-submit" id="rgSubmit">Create account <i class="bi bi-arrow-right"></i></button>
+        <p class="rg-next"><i class="bi bi-envelope-check"></i> Next, enter the 6-digit code we email you. Your account is created once your email is confirmed.</p>
+      </form>
+      <div class="auth-bottom">Already have an account? <a href="{% url 'login' %}">Sign in</a></div>
+    </div>
+  </main>
+</div>
+<style>
+.rg{min-height:100vh;display:grid;grid-template-columns:minmax(340px,42%) 1fr;background:#f4f7fb}
+.rg-side{background:radial-gradient(circle at 20% 0,#1f5fbf 0,#0e2f5c 45%,#071727 100%);color:#e6f0fb;padding:2.2rem 2.6rem;display:flex;flex-direction:column;gap:2rem}
+.rg-brand{color:#fff}.rg-pitch{margin:auto 0}.rg-badge{display:inline-flex;gap:.4rem;align-items:center;background:#ffffff1a;border:1px solid #ffffff2a;border-radius:999px;padding:.35rem .75rem;font-size:.76rem;font-weight:700}
+.rg-side h1{font-size:clamp(1.8rem,2.6vw,2.5rem);font-weight:850;letter-spacing:-.03em;line-height:1.12;margin:1.1rem 0 .7rem;color:#fff}.rg-side>div>p{color:#b9cde3;font-size:1rem;max-width:460px}
+.rg-feat{list-style:none;padding:0;margin:1.6rem 0;display:grid;gap:1rem}.rg-feat li{display:flex;gap:.85rem}.rg-feat i{flex:none;width:40px;height:40px;border-radius:12px;background:#ffffff14;display:grid;place-items:center;font-size:1.1rem;color:#8fd0ff}
+.rg-feat b{display:block;color:#fff;font-size:.95rem}.rg-feat span{font-size:.82rem;color:#a9c0d8}
+.rg-steps{counter-reset:s;list-style:none;padding:1rem 1.1rem;margin:0;background:#ffffff0d;border:1px solid #ffffff1c;border-radius:16px;display:grid;gap:.55rem}
+.rg-steps li{counter-increment:s;display:flex;gap:.6rem;align-items:center;font-size:.85rem;color:#c9d9ea}.rg-steps li::before{content:counter(s);flex:none;width:24px;height:24px;border-radius:50%;background:#2aaeff;color:#04213d;font-weight:800;display:grid;place-items:center;font-size:.75rem}.rg-steps b{color:#fff;font-weight:700}
+.rg-foot{font-size:.76rem;color:#8fa8c2;margin:0}
+.rg-main{display:grid;place-items:center;padding:2.5rem 1.5rem}
+.rg-card{width:min(640px,100%);background:#fff;border:1px solid var(--border);border-radius:24px;padding:2rem 2.2rem;box-shadow:0 25px 60px #163d6714}
+.rg-card h2{font-weight:850;letter-spacing:-.02em;margin:0}.rg-sub{color:var(--muted);margin:.25rem 0 1.2rem}.rg-brand-m{display:none;margin-bottom:1rem}
+.rg-sec{border:0;padding:0;margin:0 0 1.3rem}.rg-sec legend{font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#51667b;display:flex;align-items:center;gap:.5rem;margin-bottom:.6rem;float:none;width:auto}
+.rg-sec legend span{width:22px;height:22px;border-radius:50%;background:#eaf3ff;color:var(--primary);display:grid;place-items:center;font-size:.72rem}
+.rg-card label{font-size:.8rem;font-weight:700;margin-bottom:.3rem;display:block}.rg-card .form-control{border-radius:.7rem;padding:.72rem .85rem;border-color:#d8e1ec}
+.rg-card .form-control:focus{border-color:var(--primary);box-shadow:0 0 0 .2rem #1769e026}
+.rg-help{display:block;font-size:.74rem;color:#8a9aab;margin-top:.3rem}.rg-err{font-size:.78rem;color:#c02b2b;margin-top:.3rem;font-weight:600}
+.rg-err~.rg-help{display:none}
+.rg-pw{position:relative}.rg-pw .form-control{padding-right:3rem}.rg-eye{position:absolute;right:.4rem;top:50%;transform:translateY(-50%);border:0;background:none;color:#6c7c90;width:36px;height:36px;border-radius:8px}
+.rg-meter{height:5px;border-radius:99px;background:#edf2f7;margin-top:.5rem;overflow:hidden}.rg-meter i{display:block;height:100%;width:0;border-radius:99px;transition:width .3s,background .3s}
+.rg-submit{padding:.8rem;font-weight:700;border-radius:.8rem;margin-top:.3rem}.rg-next{font-size:.8rem;color:#51667b;background:#f3f7fb;border-radius:12px;padding:.6rem .8rem;margin:.9rem 0 0}
+@media(max-width:960px){.rg{grid-template-columns:1fr}.rg-side{display:none}.rg-brand-m{display:flex}.rg-card{padding:1.5rem 1.2rem}}
+</style>
+<script>
+(function(){
+  var pw=document.getElementById('{{ form.password.id_for_label }}'),bar=document.getElementById('rgBar'),help=document.getElementById('rgPwHelp');
+  document.getElementById('rgEye').onclick=function(){var t=pw.type==='password';pw.type=t?'text':'password';this.innerHTML='<i class="bi bi-eye'+(t?'-slash':'')+'"></i>';this.setAttribute('aria-label',t?'Hide password':'Show password');};
+  pw.addEventListener('input',function(){var v=pw.value,s=0;if(v.length>=8)s++;if(v.length>=12)s++;if(/[a-z]/.test(v)&&/[A-Z]/.test(v))s++;if(/\d/.test(v))s++;if(/[^A-Za-z0-9]/.test(v))s++;
+    var c=['#d64545','#d64545','#f59e0b','#f5b544','#18a66a','#138453'][s],l=['Too short','Weak','Fair','Good','Strong','Very strong'][s];
+    bar.style.width=(v?Math.max(12,s*20):0)+'%';bar.style.background=c;help.textContent=v?'Strength: '+l+(v.length<8?' — use at least 8 characters':''):'Use 8+ characters — a mix of words, numbers and symbols is strongest.';});
+  // Clear a field's old error as soon as it is edited.
+  document.querySelectorAll('.rg-card .form-control').forEach(function(f){f.addEventListener('input',function(){var box=f.closest('[class*="col-"]');if(box)box.querySelectorAll('.rg-err').forEach(function(e){e.remove();});});});
+  document.querySelector('.rg-card form').addEventListener('submit',function(){var b=document.getElementById('rgSubmit');b.disabled=true;b.innerHTML='<span class="spinner-border spinner-border-sm"></span> Checking…';});
+})();
+</script>
+{% endblock %}
