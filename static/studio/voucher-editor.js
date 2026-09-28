@@ -4,6 +4,7 @@
   var $ = function (s, r) { return (r || document).querySelector(s); }, $$ = function (s, r) { return [].slice.call((r || document).querySelectorAll(s)); };
   var cfg = J('cfgData'), GAL = J('galleryData'), BIZ = J('bizData'), PLANS = J('plansData'), FONTS = J('fontsData'), SIZES = J('sizesData'), PAPERS = J('papersData'), TOKENS = J('tokensData'), D = J('designData');
   var MM = 3.7795, zoom = 2, sel = null, rtab = 'card', dirty = false, isDefault = D.is_default, hist = [], hi = -1, saveT, histT, saving = false;
+  var rev = 0, userZoom = false;   // rev counts edits (so a save never hides newer changes); userZoom: you zoomed by hand
   var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
   var clone = function (o) { return JSON.parse(JSON.stringify(o)); };
   var uid = function () { return 'e' + Math.random().toString(36).slice(2, 8); };
@@ -14,7 +15,8 @@
   function loadFonts() {
     var used = [cfg.font].concat(cfg.elements.map(function (e) { return e.font; })).filter(function (f, i, a) { return FONT_Q[f] && a.indexOf(f) === i; });
     var l = document.getElementById('vfonts'); if (!l) { l = document.createElement('link'); l.id = 'vfonts'; l.rel = 'stylesheet'; document.head.appendChild(l); }
-    if (used.length) l.href = 'https://fonts.googleapis.com/css2?family=' + used.map(function (f) { return FONT_Q[f]; }).join('&family=') + '&display=swap';
+    var href = used.length ? 'https://fonts.googleapis.com/css2?family=' + used.map(function (f) { return FONT_Q[f]; }).join('&family=') + '&display=swap' : '';
+    if (href && l.getAttribute('href') !== href) l.setAttribute('href', href);   // re-setting the same link made text flicker on every edit
   }
 
   /* sample data */
@@ -57,9 +59,10 @@
 
   /* ---------- zoom ---------- */
   function autoZoom() { var st = $('#stage'); zoom = Math.max(.5, Math.min(4, Math.floor(Math.min((st.clientWidth - 80) / (cfg.size.w * MM), (st.clientHeight - 90) / (cfg.size.h * MM)) * 4) / 4)); }
-  $('#zIn').onclick = function () { zoom = Math.min(6, zoom + .25); draw(); };
-  $('#zOut').onclick = function () { zoom = Math.max(.5, zoom - .25); draw(); };
-  $('#zVal').onclick = function () { autoZoom(); draw(); };
+  $('#zIn').onclick = function () { zoom = Math.min(6, zoom + .25); userZoom = true; draw(); };
+  $('#zOut').onclick = function () { zoom = Math.max(.5, zoom - .25); userZoom = true; draw(); };
+  $('#zVal').onclick = function () { userZoom = false; autoZoom(); draw(); };
+  $('#zVal').title = 'Fit to screen';
 
   /* ---------- drag / resize ---------- */
   var drag = null;
@@ -67,14 +70,17 @@
     var h = ev.target.closest('.vsel i'), t = ev.target.closest('[data-eid]');
     if (!h && !t) { if (ev.target.closest('.tv-card')) { sel = null; rtab = 'card'; drawSel(); renderProps(); renderLayers(); } return; }
     ev.preventDefault();
+    // Take focus off the side panel so arrow keys / Delete act on the card, not on a slider or button there.
+    if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();
     if (t && !h) { var id = t.getAttribute('data-eid'); if (sel !== id) { sel = id; rtab = 'el'; renderProps(); renderLayers(); drawSel(); } }
     var e = el(sel); if (!e || e.locked) return;
-    drag = { mode: h ? h.dataset.h : 'move', x0: ev.clientX, y0: ev.clientY, e0: clone(e), moved: false };
-    wrap.setPointerCapture(ev.pointerId);
+    drag = { mode: h ? h.dataset.h : 'move', x0: ev.clientX, y0: ev.clientY, e0: clone(e), moved: false, pid: ev.pointerId };
+    try { wrap.setPointerCapture(ev.pointerId); } catch (err) {}
   });
   wrap.addEventListener('pointermove', function (ev) {
-    if (!drag) return;
-    var e = el(sel), dx = (ev.clientX - drag.x0) / (MM * zoom), dy = (ev.clientY - drag.y0) / (MM * zoom), o = drag.e0, W = cfg.size.w, H = cfg.size.h;
+    if (!drag || (drag.pid != null && ev.pointerId !== drag.pid)) return;
+    var e = el(sel); if (!e) { drag = null; return; }
+    var dx = (ev.clientX - drag.x0) / (MM * zoom), dy = (ev.clientY - drag.y0) / (MM * zoom), o = drag.e0, W = cfg.size.w, H = cfg.size.h;
     if (Math.abs(dx) + Math.abs(dy) > .05) drag.moved = true;
     var snap = ev.altKey ? function (v) { return r1(v); } : function (v) { return Math.round(v * 2) / 2; };
     $$('.vguide', wrap).forEach(function (n) { n.remove(); });
@@ -94,28 +100,46 @@
     if (d) { d.style.left = e.x + 'mm'; d.style.top = e.y + 'mm'; d.style.width = e.w + 'mm'; d.style.height = e.h + 'mm'; }
     var s = $('.vsel', wrap), b = box(e); if (s) { s.style.left = b.l + 'px'; s.style.top = b.t + 'px'; s.style.width = b.w + 'px'; s.style.height = b.h + 'px'; $('.dims', s).textContent = r1(e.w) + ' × ' + r1(e.h) + ' mm'; }
   });
-  wrap.addEventListener('pointerup', function () { if (!drag) return; var m = drag.moved; drag = null; if (m) { commit(true); } else draw(); });
+  wrap.addEventListener('pointerup', function () { if (!drag) return; var m = drag.moved; drag = null; $$('.vguide', wrap).forEach(function (n) { n.remove(); }); if (m) { commit(true); } else draw(); });
+  // A touch that turns into a scroll, or a lost capture, used to leave the drag "stuck" so the element
+  // followed the next mouse move. Cancel puts the element back where it was.
+  function cancelDrag() { if (!drag) return; var e = el(sel), o = drag.e0; drag = null; if (e && o) { e.x = o.x; e.y = o.y; e.w = o.w; e.h = o.h; } draw(); }
+  wrap.addEventListener('pointercancel', cancelDrag);
+  wrap.addEventListener('lostpointercapture', function () { if (drag) { var m = drag.moved; drag = null; if (m) commit(true); else draw(); } });
+  window.addEventListener('blur', cancelDrag);
   wrap.addEventListener('dblclick', function (ev) { var t = ev.target.closest('[data-eid]'); if (!t) return; var f = $('#props textarea[data-p=text]'); if (f) { f.focus(); f.select(); } });
 
   /* ---------- history + save ---------- */
-  function commit(now) { dirty = true; status('dirty'); draw(); if (rtab !== 'el' || !now) {} renderPropsSoft(); clearTimeout(histT); histT = setTimeout(pushHist, now ? 0 : 350); clearTimeout(saveT); saveT = setTimeout(save, 2500); }
-  function pushHist() { var s = JSON.stringify(cfg); if (hist[hi] === s) return; hist = hist.slice(0, hi + 1); hist.push(s); if (hist.length > 100) hist.shift(); hi = hist.length - 1; undoState(); }
+  function commit(now) { rev++; dirty = true; status('dirty'); draw(); if (rtab !== 'el' || !now) {} renderPropsSoft(); clearTimeout(histT); histT = setTimeout(pushHist, now ? 0 : 350); clearTimeout(saveT); saveT = setTimeout(save, 2500); }
+  function pushHist() { histT = null; var s = JSON.stringify(cfg); if (hist[hi] === s) return; hist = hist.slice(0, hi + 1); hist.push(s); if (hist.length > 100) hist.shift(); hi = hist.length - 1; undoState(); }
   function undoState() { $('#undo').disabled = hi <= 0; $('#redo').disabled = hi >= hist.length - 1; }
-  function restore(i) { hi = i; cfg = JSON.parse(hist[hi]); if (sel && !el(sel)) sel = null; dirty = true; status('dirty'); draw(); renderProps(); undoState(); clearTimeout(saveT); saveT = setTimeout(save, 2500); }
-  $('#undo').onclick = function () { if (hi > 0) restore(hi - 1); };
-  $('#redo').onclick = function () { if (hi < hist.length - 1) restore(hi + 1); };
+  function restore(i) { hi = i; rev++; cfg = JSON.parse(hist[hi]); if (sel && !el(sel)) sel = null; dirty = true; status('dirty'); draw(); renderProps(); undoState(); clearTimeout(saveT); saveT = setTimeout(save, 2500); }
+  // An edit made less than a moment ago may still be waiting to enter the history: add it first, so undo steps back exactly one change.
+  function flushHist() { if (histT) { clearTimeout(histT); histT = null; pushHist(); } }
+  $('#undo').onclick = function () { flushHist(); if (hi > 0) restore(hi - 1); };
+  $('#redo').onclick = function () { flushHist(); if (hi < hist.length - 1) restore(hi + 1); };
   function status(k, msg) { var s = $('#status'); s.className = 'ed-status ' + (k || ''); s.textContent = msg || { dirty: 'Unsaved changes', saving: 'Saving…', err: 'Could not save' }[k] || 'All changes saved'; }
-  function csrf() { var m = document.cookie.match(/csrftoken=([^;]+)/); return m ? m[1] : ''; }
+  function csrf() { var t = document.querySelector('meta[name=csrf-token]'); if (t && t.content) return t.content; var m = document.cookie.match(/csrftoken=([^;]+)/); return m ? m[1] : ''; }
   function save(extra) {
     if (saving) { clearTimeout(saveT); saveT = setTimeout(save, 800); return Promise.resolve(); }
     saving = true; status('saving');
-    return fetch(location.pathname, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() }, body: JSON.stringify(Object.assign({ config: cfg, name: $('#dName').value.trim() }, extra || {})) })
-      .then(function (r) { return r.json().then(function (d) { if (!r.ok || !d.success) throw new Error(d.message || 'Save failed'); return d; }); })
-      .then(function (d) { dirty = false; isDefault = d.is_default; defBtn(); status('', 'Saved at ' + d.updated_at); })
-      .catch(function (e) { status('err', e.message); }).then(function () { saving = false; });
+    var sent = rev;
+    return fetch(location.pathname, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() }, body: JSON.stringify(Object.assign({ config: cfg, name: $('#dName').value.trim() }, extra || {})) })
+      .then(function (r) {
+        var ct = r.headers.get('content-type') || '';
+        if (ct.indexOf('json') < 0) throw new Error(r.status === 403 ? 'Not saved — your session expired. Reload the page (your changes stay on screen until you do).' : r.status >= 500 ? 'Not saved — server error. Try again.' : 'Not saved (' + r.status + ').');
+        return r.json().then(function (d) { if (!r.ok || !d.success) throw new Error(d.message || 'Save failed'); return d; });
+      })
+      .then(function (d) {
+        isDefault = d.is_default; defBtn();
+        if (rev === sent) { dirty = false; status('', 'Saved at ' + d.updated_at); }
+        else { status('dirty'); clearTimeout(saveT); saveT = setTimeout(save, 1200); }   // you kept editing while it saved
+      })
+      .catch(function (e) { status('err', e.message === 'Failed to fetch' ? 'Not saved — no connection. Retrying…' : e.message); if (e.message === 'Failed to fetch') { clearTimeout(saveT); saveT = setTimeout(save, 5000); } })
+      .then(function () { saving = false; });
   }
   $('#saveBtn').onclick = function () { clearTimeout(saveT); save(); };
-  $('#dName').addEventListener('input', function () { dirty = true; status('dirty'); clearTimeout(saveT); saveT = setTimeout(save, 1500); });
+  $('#dName').addEventListener('input', function () { rev++; dirty = true; status('dirty'); clearTimeout(saveT); saveT = setTimeout(save, 1500); });
   function defBtn() { var b = $('#defBtn'); b.innerHTML = isDefault ? '<i class="bi bi-star-fill"></i> Default' : '<i class="bi bi-star"></i> Make default'; b.disabled = isDefault; b.title = 'The default design is used when printing from Batches and Vouchers'; }
   $('#defBtn').onclick = function () { clearTimeout(saveT); save({ is_default: true }); };
   $('#testPrint').addEventListener('click', function () { if (dirty) { clearTimeout(saveT); save(); } });
@@ -124,12 +148,13 @@
   document.addEventListener('keydown', function (ev) {
     var k = ev.key.toLowerCase(), mod = ev.ctrlKey || ev.metaKey, inField = /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName);
     if (mod && k === 's') { ev.preventDefault(); clearTimeout(saveT); save(); return; }
-    if (inField) return;
+    if (inField || (document.activeElement && document.activeElement.isContentEditable)) return;
     if (mod && k === 'z') { ev.preventDefault(); (ev.shiftKey ? $('#redo') : $('#undo')).click(); return; }
     if (mod && k === 'y') { ev.preventDefault(); $('#redo').click(); return; }
+    var ae = document.activeElement, onSide = ae && ae !== document.body && !$('#stage').contains(ae) && ae.tagName === 'BUTTON';
     var e = el(sel); if (!e) return;
     if (k === 'escape') { sel = null; rtab = 'card'; draw(); renderProps(); return; }
-    if (k === 'delete' || k === 'backspace') { ev.preventDefault(); removeEl(sel); return; }
+    if ((k === 'delete' || k === 'backspace') && !onSide) { ev.preventDefault(); removeEl(sel); return; }
     if (mod && k === 'd') { ev.preventDefault(); dup(sel); return; }
     var st = ev.shiftKey ? 2 : .5, mv = { arrowleft: [-st, 0], arrowright: [st, 0], arrowup: [0, -st], arrowdown: [0, st] }[k];
     if (mv && !e.locked) { ev.preventDefault(); e.x = r1(e.x + mv[0]); e.y = r1(e.y + mv[1]); commit(); }
@@ -190,11 +215,13 @@
   $$('[data-lt]').forEach(function (b) { b.onclick = function () { $$('[data-lt]').forEach(function (x) { x.classList.toggle('on', x === b); }); $$('[data-lp]').forEach(function (p) { p.hidden = p.dataset.lp !== b.dataset.lt; }); if (b.dataset.lt === 'templates') tpls(); }; });
   function tpls() {
     var L = $('#tplList'); if (L.dataset.done) return; L.dataset.done = 1;
+    var gf = []; GAL.forEach(function (g) { [g.config.font].concat((g.config.elements || []).map(function (x) { return x.font; })).forEach(function (f) { if (FONT_Q[f] && gf.indexOf(FONT_Q[f]) < 0) gf.push(FONT_Q[f]); }); });
+    if (gf.length && !document.getElementById('vfonts-gal')) { var gl = document.createElement('link'); gl.id = 'vfonts-gal'; gl.rel = 'stylesheet'; gl.href = 'https://fonts.googleapis.com/css2?family=' + gf.join('&family=') + '&display=swap'; document.head.appendChild(gl); }
     L.innerHTML = GAL.map(function (g, i) { return '<button class="btn btn-light text-start p-2" data-i="' + i + '"><div class="vg-thumb mb-1" style="height:110px"></div><b class="small">' + esc(g.label) + '</b><small class="d-block text-secondary">' + esc(g.note) + '</small></button>'; }).join('');
     $$('button', L).forEach(function (b) {
       var g = GAL[+b.dataset.i], t = $('.vg-thumb', b), c = TapVoucher.renderCard(g.config, data()), w = g.config.size.w * MM, h = g.config.size.h * MM, s = Math.min((t.clientWidth - 16) / w, 94 / h);
       var wr = document.createElement('div'); wr.style.cssText = 'width:' + w * s + 'px;height:' + h * s + 'px'; c.style.transform = 'scale(' + s + ')'; c.style.transformOrigin = '0 0'; wr.appendChild(c); t.appendChild(wr);
-      b.onclick = function () { if (!confirm('Replace this design with “' + g.label + '”? You can undo this.')) return; cfg = clone(g.config); sel = null; rtab = 'card'; autoZoom(); commit(true); renderProps(); };
+      b.onclick = function () { if (!confirm('Replace this design with “' + g.label + '”? You can undo this.')) return; flushHist(); cfg = clone(g.config); sel = null; rtab = 'card'; userZoom = false; autoZoom(); commit(true); renderProps(); };
     });
   }
 
@@ -343,6 +370,10 @@
 
   /* ---------- boot ---------- */
   pushHist(); undoState(); defBtn(); autoZoom(); draw(); renderProps();
-  window.addEventListener('resize', function () { autoZoom(); draw(); });
+  var lastStage = '', rzT;
+  window.addEventListener('resize', function () { clearTimeout(rzT); rzT = setTimeout(function () {
+    var st = $('#stage'), key = st.clientWidth + 'x' + st.clientHeight; if (key === lastStage) return; lastStage = key;
+    if (!userZoom && !drag) { var z = zoom; autoZoom(); if (z !== zoom) draw(); }
+  }, 150); });
   if (document.fonts) document.fonts.ready.then(draw);
 })();

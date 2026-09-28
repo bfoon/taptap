@@ -90,7 +90,7 @@ body:has(.ed) .main-content>.mb-3{position:fixed;top:12px;right:16px;z-index:200
 .tpl-list b{font-size:.72rem;display:block;padding:.3rem .15rem 0}
 
 /* ── voucher designer ── */
-.vcanvas-wrap{position:relative;margin:auto}
+.vcanvas-wrap{position:relative;margin:auto;touch-action:none;-webkit-user-select:none;user-select:none}
 .vcanvas{position:relative;transform-origin:0 0;box-shadow:0 20px 50px -18px #0b223766}
 .vcanvas .tv-el{cursor:move}.vcanvas .tv-el.locked{cursor:default}
 .vsel{position:absolute;border:1.5px solid var(--primary);pointer-events:none;z-index:5}

@@ -1,6 +1,6 @@
 {% extends 'core/base.html' %}{% load static %}
 {% block title %}{{ design.name }} — Voucher Designer{% endblock %}
-{% block extra_head %}<link href="{% static 'studio/studio.css' %}" rel="stylesheet">{% endblock %}
+{% block extra_head %}<meta name="csrf-token" content="{{ csrf_token }}"><link href="{% static 'studio/studio.css' %}" rel="stylesheet">{% endblock %}
 {% block content %}
 <div class="ed" id="ed">
   <div class="ed-bar">

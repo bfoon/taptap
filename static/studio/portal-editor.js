@@ -122,13 +122,16 @@
 
   var saveT, saving = false;
   function status(k, msg) { var s = $('#status'); s.className = 'ed-status ' + (k || ''); s.textContent = msg || { dirty: 'Unsaved changes', saving: 'Saving…', err: 'Could not save' }[k] || 'All changes saved'; }
-  function csrf() { var m = document.cookie.match(/csrftoken=([^;]+)/); return m ? m[1] : ''; }
+  function csrf() { var t = document.querySelector('meta[name=csrf-token]'); if (t && t.content) return t.content; var m = document.cookie.match(/csrftoken=([^;]+)/); return m ? m[1] : ''; }
   function save(extra) {
     if (saving) { clearTimeout(saveT); saveT = setTimeout(save, 800); return Promise.resolve(); }
     saving = true; status('saving');
     var body = Object.assign({ config: cfg, name: $('#pgName').value.trim() }, extra || {});
     return fetch(location.pathname, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() }, body: JSON.stringify(body) })
-      .then(function (r) { return r.json().then(function (d) { if (!r.ok || !d.success) throw new Error(d.message || 'Save failed'); return d; }); })
+      .then(function (r) {
+        if ((r.headers.get('content-type') || '').indexOf('json') < 0) throw new Error(r.status === 403 ? 'Not saved — your session expired. Reload the page.' : 'Not saved (' + r.status + '). Try again.');
+        return r.json().then(function (d) { if (!r.ok || !d.success) throw new Error(d.message || 'Save failed'); return d; });
+      })
       .then(function (d) { dirty = false; published = d.is_published; isDefault = d.is_default; pubBtn(); status('', 'Saved at ' + d.updated_at); })
       .catch(function (e) { status('err', e.message); })
       .then(function () { saving = false; });
