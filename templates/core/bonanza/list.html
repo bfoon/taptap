@@ -1,0 +1,22 @@
+{% extends 'core/base.html' %}
+{% block title %}Bonanza — TapTap{% endblock %}{% block heading %}Bonanza{% endblock %}
+{% block content %}
+<div class="page-actions">
+  <div><h2 class="section-title">Spin-the-wheel Bonanzas</h2>
+    <p>Customers with a voucher from the plans or batches you choose enter their code and spin to win free vouchers, extra time, cash/airtime or gifts.</p></div>
+  {% if 'vouchers.manage' in tt_perms %}<a class="btn btn-primary" href="{% url 'bonanza_new' %}"><i class="bi bi-plus-lg"></i> New Bonanza</a>{% endif %}
+</div>
+<div class="panel"><div class="table-responsive">
+<table class="table align-middle">
+  <thead><tr><th>Bonanza</th><th>Status</th><th>Dates</th><th>Spins</th><th>To pay out</th><th></th></tr></thead>
+  <tbody>{% for x in items %}
+    <tr><td><a href="{% url 'bonanza_edit' x.id %}" class="fw-bold text-decoration-none">{{ x.name }}</a><small class="d-block text-secondary">{{ x.headline }}</small></td>
+      <td>{% if x.open_now %}<span class="badge text-bg-success">Live now</span>{% else %}<span class="badge text-bg-secondary">{{ x.get_status_display }}</span>{% endif %}</td>
+      <td class="small">{{ x.starts_at|date:'d M Y H:i'|default:'Any time' }} → {{ x.ends_at|date:'d M Y H:i'|default:'no end' }}</td>
+      <td>{{ x.n_spins }}</td>
+      <td>{% if x.n_pending %}<a class="badge text-bg-warning text-decoration-none" href="{% url 'bonanza_spins' x.id %}?view=pending">{{ x.n_pending }}</a>{% else %}—{% endif %}</td>
+      <td class="text-end text-nowrap"><a class="btn btn-sm btn-outline-secondary" href="{% url 'bonanza_spins' x.id %}"><i class="bi bi-trophy"></i> Winners</a>
+        <a class="btn btn-sm btn-outline-primary" href="/b/{{ x.slug }}/" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open</a></td></tr>
+  {% empty %}<tr><td colspan="6" class="empty-table">No Bonanza yet. Create one to reward your customers.</td></tr>{% endfor %}</tbody>
+</table></div></div>
+{% endblock %}

@@ -1,0 +1,145 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}{% if bz %}{{ bz.name }}{% else %}New Bonanza{% endif %} — TapTap{% endblock %}{% block heading %}Bonanza{% endblock %}
+{% block extra_head %}<style>
+.bz-grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:1rem}@media(max-width:1100px){.bz-grid{grid-template-columns:1fr}}
+.bz-prize{border:1px solid var(--border);border-radius:14px;padding:.75rem;margin-bottom:.6rem;background:var(--panel)}
+.bz-prize.off{opacity:.55}.bz-prize .bz-sw{width:34px;height:34px;padding:2px;border-radius:10px}
+.bz-chance{font-weight:800;min-width:56px;text-align:right}.bz-wheel{max-width:320px;margin:0 auto}
+.bz-sticky{position:sticky;top:1rem}.bz-hint{font-size:.78rem;color:var(--muted)}
+.bz-pick{display:flex;flex-wrap:wrap;gap:.35rem}.bz-pick label{border:1px solid var(--border);border-radius:999px;padding:.2rem .65rem;font-size:.82rem;cursor:pointer}
+.bz-pick input{margin-right:.3rem}
+</style>{% endblock %}
+{% block content %}
+<p class="mb-3"><a href="{% url 'bonanza_list' %}" class="text-decoration-none"><i class="bi bi-arrow-left"></i> Bonanzas</a></p>
+<form method="post" id="bzForm">{% csrf_token %}
+<div class="bz-grid">
+<div>
+  <section class="panel mb-3">
+    <div class="row g-3">
+      <div class="col-md-6"><label class="form-label">Name</label><input class="form-control" name="name" required maxlength="120" value="{{ bz.name|default:'' }}" placeholder="e.g. Tabaski Bonanza"></div>
+      <div class="col-md-6"><label class="form-label">Status</label><select class="form-select" name="status">{% for k,l in statuses %}<option value="{{ k }}" {% if bz.status == k or not bz and k == 'draft' %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-12"><label class="form-label">Headline <span class="bz-hint">(big text customers see)</span></label><input class="form-control" name="headline" maxlength="160" value="{{ bz.headline|default:'' }}" placeholder="Spin & win free Wi-Fi!"></div>
+      <div class="col-md-4"><label class="form-label">Starts</label><input class="form-control" type="datetime-local" name="starts_at" value="{{ bz.starts_at|date:'Y-m-d\TH:i' }}"></div>
+      <div class="col-md-4"><label class="form-label">Ends</label><input class="form-control" type="datetime-local" name="ends_at" value="{{ bz.ends_at|date:'Y-m-d\TH:i' }}"></div>
+      <div class="col-md-2"><label class="form-label">Spins each</label><input class="form-control" type="number" name="spins_per_voucher" min="1" max="20" value="{{ bz.spins_per_voucher|default:1 }}"></div>
+      <div class="col-md-2"><label class="form-label">Colour</label><input class="form-control form-control-color w-100" type="color" name="theme_color" value="{{ bz.theme_color|default:'#f59e0b' }}"></div>
+      <div class="col-12"><label class="form-label">Rules / small print</label><textarea class="form-control" name="description" rows="3" placeholder="One spin per voucher. Cash prizes are paid at the shop within 7 days.">{{ bz.description|default:'' }}</textarea></div>
+    </div>
+  </section>
+
+  <section class="panel mb-3">
+    <h3 class="h6 fw-bold">Who can spin</h3>
+    <p class="bz-hint mb-2">Vouchers of any chosen plan <b>or</b> batch get {{ bz.spins_per_voucher|default:1 }} spin(s) each.</p>
+    <label class="form-label small fw-bold">Plans</label>
+    <div class="bz-pick mb-3">{% for p in plans %}<label><input type="checkbox" name="plans" value="{{ p.id }}" {% if p.id in sel_plans %}checked{% endif %}>{{ p.name }}</label>{% empty %}<span class="bz-hint">No plans yet.</span>{% endfor %}</div>
+    <label class="form-label small fw-bold">Batches</label>
+    <div class="bz-pick mb-3 scroll-list scroll-short">{% for x in batches %}<label><input type="checkbox" name="batches" value="{{ x.id }}" {% if x.id in sel_batches %}checked{% endif %}>{{ x.name }}</label>{% empty %}<span class="bz-hint">No batches yet.</span>{% endfor %}</div>
+    <div class="form-check"><input class="form-check-input" type="checkbox" name="require_sold" id="reqSold" {% if not bz or bz.require_sold %}checked{% endif %}>
+      <label class="form-check-label" for="reqSold">Only vouchers that were <b>sold or used</b> (not stock on the shelf)</label></div>
+    <h3 class="h6 fw-bold mt-3">Share with agents</h3>
+    <p class="bz-hint mb-2">Pick agents to limit the Bonanza to vouchers they hold. Each agent gets their own link, and can pay out cash and gift prizes. None ticked = everyone's vouchers take part.</p>
+    <div class="bz-pick">{% for a in agents %}<label><input type="checkbox" name="agents" value="{{ a.id }}" {% if a.id in sel_agents %}checked{% endif %}>{{ a.name }}</label>{% empty %}<span class="bz-hint">No agents.</span>{% endfor %}</div>
+  </section>
+
+  <section class="panel mb-3">
+    <div class="d-flex justify-content-between align-items-center mb-2"><h3 class="h6 fw-bold m-0">Prizes and chances</h3>
+      <button type="button" class="btn btn-sm btn-outline-primary" id="addPrize"><i class="bi bi-plus-lg"></i> Add prize</button></div>
+    <p class="bz-hint">Chance = the prize's weight ÷ all weights. A prize with a quantity is won at most that many times; when it runs out you choose to remove it from the wheel or keep showing it. Free vouchers and extra time are given instantly; cash/airtime and gifts get a claim code that staff or an agent confirm.</p>
+    <div id="prizes"></div>
+    <p class="bz-hint mb-0" id="chanceNote"></p>
+  </section>
+  <div class="d-flex gap-2 mb-4"><button class="btn btn-primary"><i class="bi bi-check2"></i> Save</button>
+    {% if bz %}<a class="btn btn-outline-secondary" href="{% url 'bonanza_spins' bz.id %}"><i class="bi bi-trophy"></i> Winners</a>{% endif %}</div>
+</div>
+
+<aside><div class="bz-sticky">
+  <section class="panel mb-3 text-center">
+    <h3 class="h6 fw-bold">Wheel preview</h3>
+    <div class="bz-wheel" id="wheel"></div>
+    <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="testSpin"><i class="bi bi-arrow-repeat"></i> Test spin (not saved)</button>
+    <div class="small mt-2" id="testOut"></div>
+  </section>
+  {% if bz %}
+  <section class="panel mb-3">
+    <h3 class="h6 fw-bold">Customer link</h3>
+    <div class="input-group input-group-sm mb-2"><input class="form-control" readonly value="{{ public_url }}" id="pubUrl"><button type="button" class="btn btn-outline-secondary" onclick="navigator.clipboard.writeText(document.getElementById('pubUrl').value)"><i class="bi bi-clipboard"></i></button></div>
+    <a class="btn btn-sm btn-outline-primary" href="{{ public_url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open</a>
+    {% if sel_agents %}<p class="small fw-bold mt-3 mb-1">Agent links</p>
+      {% for a in agents %}{% if a.id in sel_agents %}<div class="input-group input-group-sm mb-1"><span class="input-group-text">{{ a.name|truncatechars:14 }}</span><input class="form-control" readonly value="{{ public_url }}?a={{ a.id }}"></div>{% endif %}{% endfor %}{% endif %}
+    <p class="bz-hint mt-2 mb-0">Put the link in your portal (Portal Studio → Bonanza button) or print it as a QR code.</p>
+  </section>
+  <section class="panel">
+    <h3 class="h6 fw-bold">So far</h3>
+    <div class="d-flex justify-content-between small"><span>Spins</span><b>{{ stats.spins }}</b></div>
+    <div class="d-flex justify-content-between small"><span>Winners</span><b>{{ stats.winners }}</b></div>
+    <div class="d-flex justify-content-between small"><span>Free vouchers given</span><b>{{ stats.vouchers_given }}</b></div>
+    <div class="d-flex justify-content-between small"><span>Waiting for payout</span><b>{{ stats.pending }}</b></div>
+  </section>
+  {% endif %}
+</div></aside>
+</div>
+</form>
+
+<template id="prizeTpl">
+  <div class="bz-prize">
+    <input type="hidden" name="p_id"><input type="hidden" name="p_delete" value="0"><input type="hidden" name="p_active" value="1">
+    <div class="d-flex gap-2 align-items-center flex-wrap">
+      <input type="color" class="form-control form-control-color bz-sw" name="p_color" title="Colour on the wheel">
+      <input class="form-control form-control-sm" style="flex:1;min-width:140px" name="p_label" maxlength="40" placeholder="Label on the wheel" required>
+      <select class="form-select form-select-sm" style="width:auto" name="p_kind">{% for k,l in kinds %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select>
+      <span class="bz-chance" title="Chance of winning">0%</span>
+      <button type="button" class="btn btn-sm btn-link text-danger p-0 bz-del" aria-label="Remove prize"><i class="bi bi-x-lg"></i></button>
+    </div>
+    <div class="row g-2 mt-1 align-items-end">
+      <div class="col-sm-4 k-voucher"><label class="bz-hint">Voucher plan</label><select class="form-select form-select-sm" name="p_plan">{% for p in plans %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select></div>
+      <div class="col-sm-4 k-time"><label class="bz-hint">Minutes added</label><input class="form-control form-control-sm" type="number" min="1" name="p_minutes" placeholder="e.g. 60"></div>
+      <div class="col-sm-4 k-cash"><label class="bz-hint">Amount ({{ current_business.currency }})</label><input class="form-control form-control-sm" type="number" min="0" step="0.01" name="p_amount"></div>
+      <div class="col-sm-4 k-gift k-cash"><label class="bz-hint">Details</label><input class="form-control form-control-sm" name="p_details" maxlength="160" placeholder="e.g. T-shirt, Africell airtime"></div>
+      <div class="col-4 col-sm-2"><label class="bz-hint">Weight</label><input class="form-control form-control-sm" type="number" min="0" name="p_weight" value="10"></div>
+      <div class="col-4 col-sm-2"><label class="bz-hint">Quantity</label><input class="form-control form-control-sm" type="number" min="0" name="p_quantity" placeholder="∞"></div>
+      <div class="col-4 col-sm-4 k-qty"><label class="bz-hint">When all won</label><select class="form-select form-select-sm" name="p_when_out">{% for k,l in when_out %}<option value="{{ k }}">{% if k == 'remove' %}Remove from wheel{% else %}Keep on wheel{% endif %}</option>{% endfor %}</select></div>
+    </div>
+    <small class="bz-hint d-block mt-1 bz-won"></small>
+  </div>
+</template>
+<script src="{% static 'js/bonanza-wheel.js' %}"></script>
+<script>
+(function(){
+  var PAL={{ palette|safe }};
+  var INIT=[{% for p in prizes %}{id:{{ p.id }},label:"{{ p.label|escapejs }}",kind:"{{ p.kind }}",plan:"{{ p.plan_id|default:'' }}",minutes:"{{ p.minutes|default:'' }}",amount:"{{ p.amount|default:'' }}",details:"{{ p.details|escapejs }}",weight:{{ p.weight }},quantity:"{{ p.quantity|default_if_none:'' }}",won:{{ p.won }},when_out:"{{ p.when_out }}",color:"{{ p.color }}",active:{{ p.active|yesno:'true,false' }}}{% if not forloop.last %},{% endif %}{% endfor %}];
+  if(!INIT.length) INIT=[{label:'Free 1 hour',kind:'voucher',weight:20},{label:'+30 min',kind:'time',minutes:30,weight:30},{label:'Try again',kind:'none',weight:45},{label:'{{ current_business.currency }}50 airtime',kind:'cash',amount:50,weight:5,quantity:10}];
+  var box=document.getElementById('prizes'),tpl=document.getElementById('prizeTpl'),note=document.getElementById('chanceNote');
+  var wheel=BonanzaWheel.mount(document.getElementById('wheel'),[]);
+  function add(p){p=p||{};var n=tpl.content.firstElementChild.cloneNode(true),i=box.children.length,q=function(s){return n.querySelector('[name='+s+']');};
+    q('p_id').value=p.id||'';q('p_label').value=p.label||'';q('p_kind').value=p.kind||'voucher';if(p.plan)q('p_plan').value=p.plan;
+    q('p_minutes').value=p.minutes||'';q('p_amount').value=p.amount||'';q('p_details').value=p.details||'';q('p_weight').value=p.weight==null?10:p.weight;
+    q('p_quantity').value=p.quantity||'';q('p_when_out').value=p.when_out||'remove';q('p_color').value=p.color||PAL[i%PAL.length];
+    q('p_active').value=p.active===false?'0':'1';if(p.active===false)n.classList.add('off');
+    if(p.won)n.querySelector('.bz-won').textContent='Won '+p.won+' time'+(p.won>1?'s':'')+(p.quantity?' of '+p.quantity:'')+(p.active===false?' · switched off':'');
+    n.querySelector('.bz-del').onclick=function(){if(p.won&&!confirm('This prize was already won. It will be switched off (kept for the winners list). Continue?'))return;
+      q('p_delete').value='1';n.style.display='none';upd();};
+    box.appendChild(n);kinds(n);}
+  function kinds(n){var k=n.querySelector('[name=p_kind]').value;
+    n.querySelectorAll('.k-voucher,.k-time,.k-cash,.k-gift').forEach(function(e){e.style.display=e.classList.contains('k-'+k)?'':'none';});
+    n.querySelector('.k-qty').style.opacity=n.querySelector('[name=p_quantity]').value?'1':'.45';}
+  function rows(){return [].filter.call(box.children,function(n){return n.querySelector('[name=p_delete]').value!=='1';});}
+  function upd(){var rs=rows(),items=[],total=0;
+    rs.forEach(function(n){var w=+n.querySelector('[name=p_weight]').value||0,q=n.querySelector('[name=p_quantity]').value,won=+(n.dataset.won||0),active=n.querySelector('[name=p_active]').value==='1';
+      n._w=active?w:0;total+=n._w;kinds(n);});
+    rs.forEach(function(n,i){var pct=total?(n._w*100/total):0;n.querySelector('.bz-chance').textContent=(pct>=10?pct.toFixed(0):pct.toFixed(1))+'%';
+      if(n.querySelector('[name=p_active]').value==='1')items.push({id:i,label:n.querySelector('[name=p_label]').value||'—',color:n.querySelector('[name=p_color]').value});});
+    var none=rs.filter(function(n){return n.querySelector('[name=p_kind]').value==='none';}).reduce(function(a,n){return a+n._w;},0);
+    note.textContent=total?('About '+Math.round((total-none)*100/total)+'% of spins win something.'):'Give at least one prize a weight above 0.';
+    if(!wheel.busy)wheel.set(items);}
+  INIT.forEach(add);
+  box.addEventListener('input',upd);box.addEventListener('change',upd);
+  document.getElementById('addPrize').onclick=function(){add({label:'',kind:'voucher',weight:10});upd();box.lastElementChild.querySelector('[name=p_label]').focus();};
+  document.getElementById('testSpin').onclick=function(){if(wheel.busy)return;var rs=rows(),total=0,pool=[];
+    rs.forEach(function(n,i){if(n._w>0){total+=n._w;pool.push([i,n._w]);}});if(!total)return;
+    var r=Math.random()*total,pick=pool[pool.length-1][0];for(var j=0,up=0;j<pool.length;j++){up+=pool[j][1];if(r<up){pick=pool[j][0];break;}}
+    var out=document.getElementById('testOut');out.textContent='Spinning…';
+    wheel.spinTo(pick,function(){out.textContent='Landed on: '+(rs[pick].querySelector('[name=p_label]').value||'—')+' (test only — the real draw happens on the server).';});};
+  upd();
+})();
+</script>
+{% endblock %}

@@ -29,7 +29,7 @@ from .permissions import ALL_PERMISSIONS, ROLES, allowed, landing_for
 logger = logging.getLogger('taptap')
 
 VIEW_AS_KEY = 'tt_view_as'
-SKIP_PREFIXES = ('/admin/', '/static/', '/api/', '/p/', '/n/off/', '/media/')
+SKIP_PREFIXES = ('/admin/', '/static/', '/api/', '/p/', '/b/', '/n/off/', '/media/')   # /b/ = public Bonanza pages
 PLATFORM_OPEN = {'logout', 'login', 'home', 'verify_code', 'resend_code', 'cancel_verification', 'account_password',
                  'trusted_devices', 'trusted_device_remove', 'trusted_devices_remove_all'}
 _BUSINESS_REL = User._meta.get_field('business')

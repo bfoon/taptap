@@ -18,6 +18,7 @@ from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
+from .bonanza import portal_ctx as bonanza_ctx
 from .models import PortalPage, VoucherDesign, Voucher, VoucherBatch
 from .studio_presets import (
     portal_template, portal_gallery, PORTAL_TEMPLATES, FONTS, voucher_template, voucher_gallery,
@@ -186,6 +187,7 @@ def _public_ctx(request, page, mode):
     return {'mode': mode, 'kind': page.kind, 'business': business_ctx(business), 'plans': plans_ctx(business),
             'mt': mt, 'checkUrl': f'/p/{page.slug}/check/', 'deviceUrl': f'/p/device/{page.slug}/',
             'acceptUrl': f'/p/{page.slug}/accept/',
+            'bonanza': bonanza_ctx(business),
             'ads': {page.kind: ads_for(business, page.kind, base)}}
 
 
@@ -252,6 +254,7 @@ def _export_html(page, base=''):
     business = page.business
     ctx = {'mode': 'mikrotik', 'kind': page.kind, 'business': business_ctx(business), 'plans': plans_ctx(business),
            'ads': {page.kind: ads_for(business, page.kind, base)}, 'deviceUrl': f'{base}/p/device/{page.slug}/' if base else '',
+           'bonanza': bonanza_ctx(business, base) if base else None,
            # frozen / warned vouchers: the page asks TapTap first and shows the warning instead of logging in
            'stateUrl': f'{base}/p/{page.slug}/state/' if base else '', 'acceptUrl': f'{base}/p/{page.slug}/accept/' if base else ''}
     # Values that may contain quotes go through the DOM, not a JS string literal.

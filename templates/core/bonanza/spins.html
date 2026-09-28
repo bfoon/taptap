@@ -1,0 +1,44 @@
+{% extends 'core/base.html' %}{% load taptap_extras %}
+{% block title %}Winners · {{ bz.name }} — TapTap{% endblock %}{% block heading %}Bonanza winners{% endblock %}
+{% block content %}{% with c=current_business.currency %}
+<p class="mb-3"><a href="{% url 'bonanza_edit' bz.id %}" class="text-decoration-none"><i class="bi bi-arrow-left"></i> {{ bz.name }}</a></p>
+<div class="row g-3 mb-3">
+  <div class="col-6 col-md-3"><div class="panel"><small class="text-secondary">Spins</small><h3 class="m-0">{{ stats.spins }}</h3></div></div>
+  <div class="col-6 col-md-3"><div class="panel"><small class="text-secondary">Winners</small><h3 class="m-0">{{ stats.winners }}</h3></div></div>
+  <div class="col-6 col-md-3"><div class="panel"><small class="text-secondary">Waiting for payout</small><h3 class="m-0 {% if stats.pending %}text-warning{% endif %}">{{ stats.pending }}</h3></div></div>
+  <div class="col-6 col-md-3"><div class="panel"><small class="text-secondary">Cash / airtime paid</small><h3 class="m-0">{{ c }}{{ stats.cash_paid|floatformat:2 }}</h3></div></div>
+</div>
+<nav class="fin-tabs">
+  <a href="?view=all" class="{% if view == 'all' %}on{% endif %}">All spins</a>
+  <a href="?view=winners" class="{% if view == 'winners' %}on{% endif %}">Winners</a>
+  <a href="?view=pending" class="{% if view == 'pending' %}on{% endif %}">To pay out <span class="count">{{ stats.pending }}</span></a>
+</nav>
+<div class="panel">
+  <form class="d-flex gap-2 mb-3" method="get"><input type="hidden" name="view" value="{{ view }}">
+    <input class="form-control form-control-sm" style="max-width:300px" name="q" value="{{ q }}" placeholder="Voucher code, claim code or prize" aria-label="Search">
+    <button class="btn btn-sm btn-outline-secondary">Search</button></form>
+  <div class="table-responsive"><table class="table align-middle">
+    <thead><tr><th>When</th><th>Voucher</th><th>Prize</th><th>Payout</th><th>Claim code</th><th></th></tr></thead>
+    <tbody>{% for s in page_obj %}
+      <tr><td class="text-nowrap small">{{ s.created_at|date:'d M H:i' }}{% if s.via_agent %}<small class="d-block text-secondary">via {{ s.via_agent.name }}</small>{% endif %}</td>
+        <td>{% if s.voucher %}<a href="{% url 'voucher_detail' s.voucher.id %}"><code>{{ s.voucher_code }}</code></a>{% else %}<code>{{ s.voucher_code }}</code>{% endif %}</td>
+        <td>{% if s.prize_kind == 'none' %}<span class="text-secondary">No prize</span>{% else %}<b>{{ s.prize_label }}</b>{% endif %}
+          {% if s.reward_voucher %}<small class="d-block">New voucher <a href="{% url 'voucher_detail' s.reward_voucher.id %}"><code>{{ s.reward_voucher.code }}</code></a></small>{% endif %}</td>
+        <td>{% if s.payout == 'done' %}<span class="text-success"><i class="bi bi-check-circle"></i> Given</span>
+          {% elif s.payout == 'paid' %}<span class="text-success"><i class="bi bi-cash-coin"></i> Paid {{ s.paid_at|date:'d M H:i' }}</span><small class="d-block text-secondary">{% if s.paid_by_agent %}by {{ s.paid_by_agent.name }}{% elif s.paid_by %}by {{ s.paid_by.get_full_name|default:s.paid_by.username }}{% endif %}</small>
+          {% elif s.payout == 'pending' %}<span class="badge text-bg-warning">Waiting</span>
+          {% elif s.payout == 'failed' %}<span class="badge text-bg-danger">Pay by hand</span>{% else %}—{% endif %}
+          {% if s.payout_note and s.payout != 'none' %}<small class="d-block text-secondary">{{ s.payout_note|truncatechars:60 }}</small>{% endif %}</td>
+        <td>{% if s.claim_code %}<code class="fs-6">{{ s.claim_code }}</code>{% endif %}</td>
+        <td class="text-end">{% if s.payout == 'pending' or s.payout == 'failed' %}{% if 'vouchers.support' in tt_perms %}
+          <form method="post" action="{% url 'bonanza_payout' s.id %}" class="d-flex gap-1 justify-content-end flex-wrap">{% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <select name="agent" class="form-select form-select-sm" style="max-width:150px" aria-label="Paid by"><option value="">Paid by us</option>{% for a in agents %}<option value="{{ a.id }}" {% if s.via_agent_id == a.id %}selected{% endif %}>{{ a.name }}</option>{% endfor %}</select>
+            <input name="note" class="form-control form-control-sm" style="max-width:150px" placeholder="Note" aria-label="Note">
+            <button class="btn btn-sm btn-success" onclick="return confirm('Confirm {{ s.prize_label|escapejs }} was handed to the customer (claim code {{ s.claim_code }})?')"><i class="bi bi-check2"></i> Paid</button>
+          </form>{% endif %}{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="6" class="empty-table">No spins yet.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% include 'core/partials/pager.html' with page=page_obj param='page' %}
+</div>
+{% endwith %}{% endblock %}

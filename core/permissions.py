@@ -68,6 +68,8 @@ voucher_design_editor voucher_design_action ads ad_save ad_action'''.split()
 
 URL_PERMS = {
     'dashboard': 'dashboard.view',
+    'bonanza_list': 'vouchers.view', 'bonanza_spins': 'vouchers.view', 'bonanza_new': 'vouchers.manage', 'bonanza_edit': 'vouchers.manage',
+    'bonanza_status': 'vouchers.manage', 'bonanza_payout': 'vouchers.support',
     'sales_daily': ('sales.daily', 'finance.view'),
     'vouchers': 'vouchers.view', 'voucher_detail': 'vouchers.view', 'voucher_card': 'vouchers.view', 'batches': 'vouchers.view', 'batch_detail': 'vouchers.view', 'plan_detail': ('vouchers.view', 'plans.manage'),
     'generate_vouchers': 'vouchers.create', 'single_voucher': 'vouchers.create', 'batch_assign': 'vouchers.create',

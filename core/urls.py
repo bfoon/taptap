@@ -3,8 +3,14 @@ from . import views, views_business as vb, views_studio as vs, views_wan as vw, 
 
 from . import views_ads, views_ports, views_live, views_traffic, views_missing, views_link
 from . import views_team as vteam, views_platform as vp, views_detail as vdetail, views_bin as vbin, views_freeze as vfz
+from . import views_bonanza as vbz
 
 urlpatterns = [
+    path('bonanza/',vbz.bonanza_list,name='bonanza_list'), path('bonanza/new/',vbz.bonanza_edit,name='bonanza_new'),
+    path('bonanza/<int:pk>/',vbz.bonanza_edit,name='bonanza_edit'), path('bonanza/<int:pk>/status/',vbz.bonanza_status,name='bonanza_status'),
+    path('bonanza/<int:pk>/winners/',vbz.bonanza_spins,name='bonanza_spins'), path('bonanza/payout/<int:pk>/',vbz.bonanza_payout,name='bonanza_payout'),
+    path('b/<slug:slug>/',vbz.bonanza_public,name='bonanza_public'), path('b/<slug:slug>/check/',vbz.bonanza_check,name='bonanza_check'),
+    path('b/<slug:slug>/spin/',vbz.bonanza_spin,name='bonanza_spin'),
     path('',views.home,name='home'), path('register/',views_auth.register,name='register'), path('login/',views_auth.login_view,name='login'), path('verify/',views_auth.verify_code,name='verify_code'), path('verify/resend/',views_auth.resend_code,name='resend_code'), path('verify/cancel/',views_auth.cancel_verification,name='cancel_verification'), path('account/devices/',views_auth.trusted_devices,name='trusted_devices'), path('account/devices/remove/',views_auth.trusted_device_remove,name='trusted_devices_remove_all'), path('account/devices/<int:pk>/remove/',views_auth.trusted_device_remove,name='trusted_device_remove'), path('logout/',views.logout_view,name='logout'),
     path('dashboard/',views.dashboard,name='dashboard'), path('subscription/',views.subscription,name='subscription'), path('subscription/select/<str:code>/',views.subscription_select,name='subscription_select'),
     path('vouchers/',views.vouchers,name='vouchers'), path('vouchers/generate/',views.generate_vouchers,name='generate_vouchers'), path('vouchers/<int:pk>/',views.voucher_detail,name='voucher_detail'), path('vouchers/<int:pk>/disable/',views.disable_voucher,name='disable_voucher'), path('vouchers/<int:pk>/enable/',views.enable_voucher,name='enable_voucher'), path('vouchers/<int:pk>/reset-mac/',views.reset_mac,name='reset_mac'), path('vouchers/delete-expired/',views.delete_expired,name='delete_expired'),
@@ -56,7 +62,6 @@ urlpatterns = [
     path('topology/node-devices/',views_traffic.node_devices,name='node_devices'), path('alerts/device/',views_traffic.device_alert_toggle,name='device_alert_toggle'),
     path('alerts/',views_traffic.alerts,name='alerts'), path('alerts/rule/',views_traffic.alert_rule_save,name='alert_rule_save'),
     path('alerts/rule/<int:pk>/',views_traffic.alert_rule_action,name='alert_rule_action'), path('alerts/read/',views_traffic.alerts_read,name='alerts_read'),
-    path('vouchers/<int:pk>/missing/',views_missing.mark_voucher_missing,name='mark_voucher_missing'),
     path('vouchers/missing/',views_missing.missing_vouchers,name='missing_vouchers'),
     path('vouchers/missing/report/',views_missing.report_missing_vouchers,name='report_missing_vouchers'),
     path('vouchers/missing/<int:pk>/resolve/',views_missing.resolve_missing_report,name='resolve_missing_report'),

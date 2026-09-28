@@ -1026,3 +1026,77 @@ class PortalDeployment(models.Model):
 # Registered here so Django loads it with the rest of the app's models.
 from .models_missing import MissingVoucherReport  # noqa: E402,F401
 from .models_team import TeamMember, UsageDaily, PlatformAudit  # noqa: E402,F401
+
+
+# ─────────────────────────────── Bonanza (spin the wheel) ───────────────────────────────
+class Bonanza(models.Model):
+    """A spin-the-wheel promotion. Vouchers from the chosen plans/batches earn spins;
+    the customer enters their voucher code on the Bonanza page and spins."""
+    STATUS=[('draft','Draft'),('live','Live'),('paused','Paused'),('ended','Ended')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='bonanzas')
+    name=models.CharField(max_length=120)
+    slug=models.SlugField(max_length=40,unique=True)
+    headline=models.CharField(max_length=160,blank=True,help_text='Big text on the customer page')
+    description=models.TextField(blank=True,help_text='Rules / small print shown to customers')
+    status=models.CharField(max_length=10,choices=STATUS,default='draft')
+    starts_at=models.DateTimeField(null=True,blank=True)
+    ends_at=models.DateTimeField(null=True,blank=True)
+    plans=models.ManyToManyField(VoucherPlan,blank=True,related_name='bonanzas',help_text='Vouchers of these plans can spin')
+    batches=models.ManyToManyField(VoucherBatch,blank=True,related_name='bonanzas',help_text='Vouchers of these batches can spin')
+    agents=models.ManyToManyField(Agent,blank=True,related_name='bonanzas',help_text='Shared with these agents: only their vouchers take part (empty = everyone)')
+    spins_per_voucher=models.PositiveSmallIntegerField(default=1)
+    require_sold=models.BooleanField(default=True,help_text='Only vouchers that were sold or used can spin (not stock on the shelf)')
+    theme_color=models.CharField(max_length=20,default='#f59e0b')
+    created_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
+    created_at=models.DateTimeField(auto_now_add=True)
+    class Meta: ordering=['-created_at']
+    def __str__(self): return self.name
+
+
+class BonanzaPrize(models.Model):
+    KINDS=[('voucher','Free Wi-Fi voucher'),('time','Extra time on their voucher'),('cash','Cash / airtime'),('gift','Gift at the shop'),('none','No prize (try again)')]
+    WHEN_OUT=[('remove','Remove it from the wheel'),('keep','Keep showing it (it can no longer be won)')]
+    bonanza=models.ForeignKey(Bonanza,on_delete=models.CASCADE,related_name='prizes')
+    label=models.CharField(max_length=40)
+    kind=models.CharField(max_length=10,choices=KINDS,default='voucher')
+    plan=models.ForeignKey(VoucherPlan,on_delete=models.SET_NULL,null=True,blank=True,related_name='+',help_text='Free voucher prizes: the plan of the voucher given')
+    minutes=models.PositiveIntegerField(default=0,help_text='Extra time prizes: minutes added')
+    amount=models.DecimalField(max_digits=10,decimal_places=2,default=0,help_text='Cash / airtime prizes: amount paid')
+    details=models.CharField(max_length=160,blank=True,help_text='Gift description or payout note')
+    weight=models.PositiveIntegerField(default=10,help_text='Chance: bigger = more likely, compared to the other prizes')
+    quantity=models.PositiveIntegerField(null=True,blank=True,help_text='How many can be won. Empty = no limit')
+    won=models.PositiveIntegerField(default=0)
+    when_out=models.CharField(max_length=10,choices=WHEN_OUT,default='remove')
+    color=models.CharField(max_length=20,blank=True)
+    position=models.PositiveSmallIntegerField(default=0)
+    active=models.BooleanField(default=True)
+    class Meta: ordering=['position','id']
+    def __str__(self): return self.label
+    @property
+    def left(self): return None if self.quantity is None else max(0,self.quantity-self.won)
+    @property
+    def out(self): return self.quantity is not None and self.won>=self.quantity
+    @property
+    def pays_instantly(self): return self.kind in ('voucher','time','none')
+
+
+class BonanzaSpin(models.Model):
+    PAYOUT=[('none','Nothing to pay'),('done','Given automatically'),('pending','Waiting for payout'),('paid','Paid out'),('failed','Automatic payout failed — pay by hand')]
+    bonanza=models.ForeignKey(Bonanza,on_delete=models.CASCADE,related_name='spins')
+    voucher=models.ForeignKey(Voucher,on_delete=models.SET_NULL,null=True,blank=True,related_name='bonanza_spins')
+    voucher_code=models.CharField(max_length=120)
+    prize=models.ForeignKey(BonanzaPrize,on_delete=models.SET_NULL,null=True,blank=True,related_name='spins')
+    prize_label=models.CharField(max_length=60,blank=True)
+    prize_kind=models.CharField(max_length=10,blank=True)
+    prize_value=models.CharField(max_length=60,blank=True)
+    payout=models.CharField(max_length=10,choices=PAYOUT,default='none')
+    claim_code=models.CharField(max_length=12,blank=True,db_index=True)
+    reward_voucher=models.ForeignKey(Voucher,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
+    via_agent=models.ForeignKey(Agent,on_delete=models.SET_NULL,null=True,blank=True,related_name='+',help_text='Share link the customer came from')
+    paid_at=models.DateTimeField(null=True,blank=True)
+    paid_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
+    paid_by_agent=models.ForeignKey(Agent,on_delete=models.SET_NULL,null=True,blank=True,related_name='bonanza_payouts')
+    payout_note=models.CharField(max_length=255,blank=True)
+    ip=models.CharField(max_length=64,blank=True)
+    created_at=models.DateTimeField(auto_now_add=True)
+    class Meta: ordering=['-created_at']

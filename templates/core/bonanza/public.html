@@ -1,0 +1,93 @@
+{% load static %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{{ bz.name }} · {{ business.business_name }}</title>
+<meta name="theme-color" content="{{ bz.theme_color }}">
+<style>
+:root{--acc:{{ bz.theme_color|default:'#f59e0b' }};--ink:#1b2430;--muted:#5d6b7c}
+*{box-sizing:border-box}html,body{margin:0}body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);min-height:100vh;
+background:radial-gradient(circle at 50% -10%,color-mix(in srgb,var(--acc) 55%,#fff),#fff7e6 45%,#fff);padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+.wrap{max-width:480px;margin:0 auto;padding:20px 18px 40px;text-align:center}
+.brand{display:flex;align-items:center;justify-content:center;gap:10px;font-weight:700;color:var(--muted);font-size:14px}
+.brand img{width:36px;height:36px;border-radius:10px;object-fit:contain;background:#fff}
+h1{font-size:clamp(26px,7vw,36px);margin:14px 0 4px;line-height:1.1}.sub{color:var(--muted);margin:0 0 16px}
+.wheel{position:relative;width:min(92vw,380px);margin:0 auto 18px;filter:drop-shadow(0 18px 28px rgba(0,0,0,.18))}
+.card{background:#fff;border-radius:20px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.08);text-align:left}
+label{font-weight:700;font-size:14px}input{width:100%;font:700 20px/1.2 ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;padding:14px;border-radius:14px;border:2px solid #e3e7ee;margin:8px 0 12px;text-align:center}
+input:focus{outline:none;border-color:var(--acc)}
+.btn{width:100%;border:0;border-radius:14px;padding:15px;font:800 18px system-ui;background:var(--acc);color:#1b1300;cursor:pointer;box-shadow:0 6px 0 color-mix(in srgb,var(--acc) 60%,#000)}
+.btn:active{transform:translateY(3px);box-shadow:0 3px 0 color-mix(in srgb,var(--acc) 60%,#000)}.btn:disabled{opacity:.55;cursor:default}
+.msg{margin-top:10px;font-size:15px;min-height:1.2em}.msg.err{color:#b42318}.msg.ok{color:#146c43}
+.result{display:none;text-align:center}.result.show{display:block;animation:pop .5s ease}
+.result h2{margin:6px 0;font-size:26px}.code{display:inline-block;font:800 26px ui-monospace,monospace;letter-spacing:.14em;background:#fff5d6;border:2px dashed var(--acc);border-radius:12px;padding:8px 16px;margin:8px 0}
+.closed{background:#fff;border-radius:16px;padding:16px;color:var(--muted)}
+.prizes{margin-top:20px;text-align:left}.prizes h3{font-size:15px;margin:0 0 8px}.prizes li{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid #eef1f5;font-size:14px}
+.prizes ul{list-style:none;margin:0;padding:0}.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+.small{font-size:12.5px;color:var(--muted);white-space:pre-line;margin-top:16px;text-align:left}.banner{background:#1b2430;color:#fff;border-radius:12px;padding:8px 12px;font-size:13px;margin-bottom:12px}
+@keyframes pop{0%{transform:scale(.8);opacity:0}60%{transform:scale(1.04)}100%{transform:scale(1);opacity:1}}
+.confetti{position:fixed;top:-12px;width:10px;height:14px;z-index:9;animation:fall linear forwards}@keyframes fall{to{transform:translateY(110vh) rotate(720deg)}}
+@media(prefers-reduced-motion:reduce){.confetti{display:none}.result.show{animation:none}}
+</style></head>
+<body><div class="wrap">
+  {% if preview %}<div class="banner">Preview — this Bonanza is still a draft. Customers can't open it yet.</div>{% endif %}
+  <div class="brand">{% if business.logo_data %}<img src="{{ business.logo_data }}" alt="">{% endif %}<span>{{ business.business_name }}</span></div>
+  <h1>{{ bz.headline|default:bz.name }}</h1>
+  <p class="sub">{% if agent %}With {{ agent.name }} · {% endif %}Enter your voucher code and spin to win.</p>
+  <div class="wheel" id="wheel"></div>
+
+  {% if open %}
+  <div class="card" id="play">
+    <form id="f" autocomplete="off">
+      <label for="code">Your voucher code</label>
+      <input id="code" name="code" maxlength="24" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="ABCD2345" required>
+      <button class="btn" id="go" type="submit">Check my voucher</button>
+      <div class="msg" id="msg" role="status" aria-live="polite"></div>
+    </form>
+    <div class="result" id="result" role="status" aria-live="polite"></div>
+  </div>
+  {% else %}
+  <div class="closed">{{ closed_reason }}</div>
+  {% endif %}
+
+  {% if chances %}<div class="prizes"><h3>Prizes on the wheel</h3><ul>
+    {% for p,pct in chances %}{% if p.kind != 'none' %}<li><span><span class="dot" style="background:{{ p.color|default:'#f59e0b' }}"></span>{{ p.label }}{% if p.details %} — {{ p.details }}{% endif %}</span><span>{% if p.out %}All won{% elif p.left is not None %}{{ p.left }} left{% endif %}</span></li>{% endif %}{% endfor %}
+  </ul></div>{% endif %}
+  {% if bz.description %}<div class="small">{{ bz.description }}</div>{% endif %}
+  <div class="small" style="text-align:center">Prizes are drawn by the {{ business.business_name }} server, fairly and at random.</div>
+</div>
+<script src="{% static 'js/bonanza-wheel.js' %}"></script>
+<script>
+(function(){
+  var wheel=BonanzaWheel.mount(document.getElementById('wheel'),{{ wheel|safe }});
+  var f=document.getElementById('f'); if(!f) return;
+  var code=document.getElementById('code'),go=document.getElementById('go'),msg=document.getElementById('msg'),res=document.getElementById('result');
+  var ready=null, agent='{{ agent.id|default:"" }}';
+  function say(t,k){msg.textContent=t||'';msg.className='msg '+(k||'');}
+  function post(url,body,cb){var x=new XMLHttpRequest();x.open('POST',url,true);x.setRequestHeader('Content-Type','application/json');
+    x.onload=function(){var d={};try{d=JSON.parse(x.responseText);}catch(e){}cb(d);};x.onerror=function(){cb({ok:false,message:'Could not reach the server. Check your connection.'});};x.send(JSON.stringify(body));}
+  function esc(s){return String(s||'').replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  code.addEventListener('input',function(){ready=null;go.textContent='Check my voucher';res.className='result';});
+  function confetti(){for(var i=0;i<70;i++){var c=document.createElement('i');c.className='confetti';c.style.left=Math.random()*100+'vw';
+    c.style.background=['#f59e0b','#1769e0','#18a66a','#e5484d','#7c3aed'][i%5];c.style.animationDuration=(2+Math.random()*2)+'s';c.style.animationDelay=Math.random()*.5+'s';
+    document.body.appendChild(c);setTimeout(function(n){return function(){n.remove();};}(c),4600);}}
+  f.addEventListener('submit',function(e){e.preventDefault();if(wheel.busy)return;
+    var c=code.value.replace(/[^A-Za-z0-9]/g,'').toUpperCase();if(!c){say('Type the code printed on your voucher.','err');return;}
+    go.disabled=true;
+    if(ready!==c){say('Checking…');post('check/',{code:c},function(d){go.disabled=false;
+      if(!d.ok){say(d.message,'err');return;} ready=c;say('Your voucher has '+d.spins_left+' spin'+(d.spins_left>1?'s':'')+'. Good luck!','ok');go.textContent='SPIN!';});return;}
+    say('');res.className='result';
+    post('spin/',{code:c,a:agent},function(d){
+      if(!d.ok){go.disabled=false;say(d.message,'err');return;}
+      wheel.spinTo(d.result.prize_id,function(){
+        var r=d.result,win=r.kind!=='none';
+        res.innerHTML='<div style="font-size:44px">'+(win?'🎉':'🙂')+'</div><h2>'+(win?esc(r.label):'No prize this time')+'</h2><p>'+esc(r.message)+'</p>'+
+          (r.reward_code?'<div>Your new voucher:</div><div class="code">'+esc(r.reward_code)+'</div>':'')+
+          (r.claim_code?'<div>Claim code:</div><div class="code">'+esc(r.claim_code)+'</div><p class="small" style="text-align:center">Take a screenshot so you don\'t lose it.</p>':'');
+        res.className='result show'; if(win) confetti();
+        wheel.set(d.wheel);
+        go.disabled=d.spins_left<1; go.textContent=d.spins_left>0?'SPIN AGAIN ('+d.spins_left+' left)':'No spins left';
+      });
+    });
+  });
+})();
+</script>
+</body></html>

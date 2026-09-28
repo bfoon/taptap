@@ -1,0 +1,31 @@
+/* Dark theme — hand-made base. Colour overrides generated from the app CSS live in dark-auto.css
+   (python manage.py build_dark_theme). Switch: the moon button in the top bar. */
+html[data-theme="dark"]{color-scheme:dark;--bs-body-bg:#16191e;--bs-body-color:#d4dbe4;--bs-border-color:#343c47;--bs-secondary-color:#9aa6b4;
+  --bs-tertiary-bg:#1d2229;--bs-light-rgb:37,42,50;--bs-light:#252a32}
+html[data-theme="dark"] body{background:#16191e;color:#d4dbe4}
+html[data-theme="dark"] .panel,html[data-theme="dark"] .card,html[data-theme="dark"] .modal-content,html[data-theme="dark"] .dropdown-menu,
+html[data-theme="dark"] .offcanvas,html[data-theme="dark"] .live-panel,html[data-theme="dark"] .list-group-item{background-color:#1f242b;color:#d4dbe4;border-color:#343c47}
+html[data-theme="dark"] .table{--bs-table-bg:transparent;--bs-table-color:#d4dbe4;--bs-table-border-color:#2e353f;--bs-table-striped-bg:#1b2027;--bs-table-hover-bg:#232932}
+html[data-theme="dark"] .table-responsive:not(.no-scroll) .table thead th{background:#1f242b!important;box-shadow:0 1px 0 #343c47}
+html[data-theme="dark"] .text-secondary,html[data-theme="dark"] .text-muted{color:#9aa6b4!important}
+html[data-theme="dark"] .text-dark{color:#e6ebf1!important}html[data-theme="dark"] .bg-light,html[data-theme="dark"] .text-bg-light{background-color:#252a32!important;color:#d4dbe4!important}
+html[data-theme="dark"] .bg-white{background-color:#1f242b!important}
+html[data-theme="dark"] .form-control,html[data-theme="dark"] .form-select,html[data-theme="dark"] .input-group-text{background-color:#171b21;color:#e2e8ef;border-color:#3a434f}
+html[data-theme="dark"] .form-control::placeholder{color:#6f7c8b}
+html[data-theme="dark"] .btn-light{background:#2a3038;border-color:#2a3038;color:#d4dbe4}
+html[data-theme="dark"] .btn-outline-secondary{color:#b8c2cd;border-color:#4a5461}
+html[data-theme="dark"] .alert-warning{background:#2f2711;color:#f0cf7a;border-color:#4b3d18}html[data-theme="dark"] .alert-info{background:#10283a;color:#8fd0f5;border-color:#1d3e56}
+html[data-theme="dark"] .alert-danger{background:#35191b;color:#f3a8ac;border-color:#522529}html[data-theme="dark"] .alert-success{background:#12301f;color:#8fe0b1;border-color:#1f4a32}
+html[data-theme="dark"] .alert-secondary{background:#232932;color:#c2ccd6;border-color:#343c47}
+html[data-theme="dark"] code{color:#ff9ec4}
+html[data-theme="dark"] :where(.panel,.card,.modal-content,.alert,.table,p,small,.form-text) a:not(.btn):not(.badge){color:#7fb2ff}
+html[data-theme="dark"] :where(.panel,.card,.table) a.text-decoration-none:not(.btn):not(.badge){color:inherit}
+html[data-theme="dark"] .btn-close{filter:invert(1) grayscale(1) brightness(1.6)}
+html[data-theme="dark"] hr{border-color:#343c47}
+/* common inline light backgrounds in templates */
+html[data-theme="dark"] [style*="background:#fff"],html[data-theme="dark"] [style*="background: #fff"],html[data-theme="dark"] [style*="background:white"]{background:#1f242b!important}
+html[data-theme="dark"] [style*="background:#f"]:not([style*="gradient"]){background:#1b2027!important}
+/* the portal/voucher previews keep their own light look */
+html[data-theme="dark"] .tp,html[data-theme="dark"] .vcanvas,html[data-theme="dark"] .tv-card{color-scheme:light}
+.theme-btn{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:#eef2f6;color:#4e6479;border:0;font-size:1rem}
+html[data-theme="dark"] .theme-btn{background:#252b33;color:#f5c451}

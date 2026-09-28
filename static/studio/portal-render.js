@@ -143,7 +143,7 @@
       '.tp-h-sm h1{font-size:20px}.tp-h-md h1{font-size:26px}.tp-h-lg h1{font-size:32px}.tp-h-xl h1{font-size:42px}',
       '.tp-sub{margin:8px 0 0;color:' + t.muted + ';font-size:15px;line-height:1.45}',
       '.tp-logo{display:inline-grid;place-items:center;background:' + t.accent + ';color:' + t.accent_text + ';font-weight:800;overflow:hidden;font-family:' + HF + '}',
-      '.tp-logo img{width:100%;height:100%;object-fit:cover}',
+      '.tp-logo img{width:100%;height:100%;object-fit:contain}.tp-logo.img{display:inline-flex;box-sizing:border-box;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.12)}.tp-logo.img img{display:block;flex:1;min-width:0}',
       '.tp-label{display:block;font-size:13px;font-weight:600;color:' + t.muted + ';margin-bottom:8px;text-align:' + al + '}',
       '.tp-input{width:100%;font:inherit;font-size:20px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:14px 16px;border-radius:' + Math.max(4, r * .55) + 'px;border:1.5px solid ' + t.border + ';background:' + t.input_bg + ';color:' + t.text + ';outline:none;text-align:center;transition:border-color .15s,box-shadow .15s}',
       '.tp-input::placeholder{color:' + hexA(isDark(t.surface) ? '#ffffff' : '#000000', .3) + ';letter-spacing:.06em;text-transform:none}',
@@ -159,6 +159,10 @@
       '.tp-hint{font-size:12.5px;color:' + t.muted + ';margin:10px 0 0}',
       '.tp-msg{font-size:14px;padding:11px 14px;border-radius:' + Math.max(4, r * .45) + 'px;margin-top:12px;display:flex;gap:9px;align-items:flex-start;text-align:left;line-height:1.4}',
       '.tp-msg.err{background:#fde8e8;color:#9b1c1c}.tp-msg.ok{background:#e3f7ec;color:#11683f}',
+      '.tp-bz{display:flex;align-items:center;gap:12px;text-decoration:none;color:' + t.accent_text + ';background:linear-gradient(135deg,' + t.accent + ',#f97316);border-radius:' + Math.max(8, r * .7) + 'px;padding:12px 14px;text-align:left;box-shadow:0 8px 20px rgba(0,0,0,.18)}',
+      '.tp-bz b{display:block;font-size:17px}.tp-bz small{display:block;opacity:.85;font-size:12.5px}',
+      '.tp-bz-w{flex:none;width:40px;height:40px;border-radius:50%;background:conic-gradient(#f59e0b 0 25%,#1769e0 0 50%,#18a66a 0 75%,#e5484d 0);border:3px solid #fff;animation:tpbz 6s linear infinite}',
+      '@keyframes tpbz{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){.tp-bz-w{animation:none}}',
       /* warning / paused page (frozen voucher) */
       '.tp-block{position:fixed;inset:0;z-index:9999;background:rgba(10,18,30,.72);display:flex;align-items:center;justify-content:center;padding:18px;font-family:inherit}',
       '.tp-block-card{background:#fff;color:#1d2735;max-width:420px;width:100%;border-radius:18px;padding:26px 22px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.35)}',
@@ -223,8 +227,16 @@
   B.logo = function (b, ctx) {
     var s = +b.size || 60, rad = b.shape === 'circle' ? '50%' : (b.shape === 'rounded' ? Math.round(s * .28) + 'px' : '0');
     var inner = (b.mode !== 'initials' && ctx.business.logo) ? '<img src="' + esc(ctx.business.logo) + '" alt="' + esc(ctx.business.name) + '">' : esc(initials(ctx.business.name));
-    if (ctx.business.logo && b.mode !== 'initials') inner = '<img src="' + esc(ctx.business.logo) + '" alt="' + esc(ctx.business.name) + '">';
-    return '<div class="tp-logo" style="width:' + s + 'px;height:' + s + 'px;border-radius:' + rad + ';font-size:' + Math.round(s * .38) + 'px">' + inner + '</div>';
+    var img = !!(ctx.business.logo && b.mode !== 'initials');
+    if (img) inner = '<img src="' + esc(ctx.business.logo) + '" alt="' + esc(ctx.business.name) + '">';
+    return '<div class="tp-logo' + (img ? ' img' : '') + '" style="' + (img ? 'padding:' + Math.round(s * .08) + 'px;' : '') + 'width:' + s + 'px;height:' + s + 'px;border-radius:' + rad + ';font-size:' + Math.round(s * .38) + 'px">' + inner + '</div>';
+  };
+  /* Bonanza: a button to the live spin-the-wheel page (hidden when no Bonanza is live). */
+  B.bonanza = function (b, ctx) {
+    var bz = ctx.bonanza;
+    if (!bz || !bz.url) return ctx.mode === 'preview' ? '<div class="tp-ph">Bonanza button — shows when a Bonanza is live (Vouchers → Bonanza)</div>' : '';
+    return '<a class="tp-bz" href="' + esc(bz.url) + '" target="_blank" rel="noopener"><span class="tp-bz-w" aria-hidden="true"></span><span><b>' + esc(b.text || bz.headline || 'Spin & win') + '</b>' +
+      (b.note ? '<small>' + esc(tok(b.note, ctx)) + '</small>' : '') + '</span></a>';
   };
   B.heading = function (b, ctx) { return '<div class="tp-h-' + (b.size || 'md') + '"><h1>' + esc(tok(b.title, ctx)) + '</h1>' + (b.subtitle ? '<p class="tp-sub">' + esc(tok(b.subtitle, ctx)) + '</p>' : '') + '</div>'; };
   B.text = function (b, ctx) { return '<p class="tp-text" style="text-align:' + (b.align || 'inherit') + ';margin:0">' + esc(tok(b.text, ctx)) + '</p>'; };
@@ -563,6 +575,9 @@
     var st = document.getElementById('tp-style'); if (!st) { st = h('style', { id: 'tp-style' }); document.head.appendChild(st); } st.textContent = css(t) + EXTRA_CSS;
 
     var blocks = (cfg.blocks || []).filter(function (b) { return !b.hidden && B[b.type]; });
+    // Your uploaded logo shows on every page: pages without a Logo block get a small one on top.
+    if (ctx.business && ctx.business.logo && ctx.settings.auto_logo !== false && !blocks.some(function (b) { return b.type === 'logo'; }))
+      blocks.unshift({ id: 'auto-logo', type: 'logo', mode: 'image', size: 56, shape: 'rounded' });
     function html(b) { var inner = B[b.type](b, ctx); if (!inner) return ''; return '<div class="tp-b tp-b-' + b.type + '"' + (ctx.mode === 'preview' ? ' data-bid="' + esc(b.id) + '"' : '') + '>' + inner + '</div>'; }
     var layout = t.layout || 'card', hero = [], rest = blocks;
     if (layout === 'split' || layout === 'sheet') { var i = 0; while (i < blocks.length && (blocks[i].type === 'logo' || blocks[i].type === 'heading')) i++; hero = blocks.slice(0, i); rest = blocks.slice(i); }

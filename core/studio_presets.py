@@ -56,7 +56,7 @@ def _login_templates():
                         bg={'type': 'gradient', 'color1': '#ff8a5b', 'color2': '#1b2a6b', 'angle': 180, 'pattern': 'waves', 'pattern_opacity': .18},
                         accent='#ff6a3d', text='#1a1f3d', muted='#6b6f8c', radius=28, surface_opacity=.94),
         'blocks': [
-            _b('logo', mode='initials', size=64, shape='circle'),
+            _b('logo', mode='image', size=64, shape='circle'),
             _b('heading', title='Sun’s out, Wi-Fi’s on', subtitle='Enter your voucher to get online.', size='lg'),
             _b('voucher', label='Voucher code', placeholder='e.g. K7Q2 M9XP', button='Get online', style='single', show_hint=True),
             _b('plans', title='Grab a voucher at the bar', style='chips', show_devices=False, highlight=''),
@@ -81,7 +81,7 @@ def _login_templates():
                         bg={'type': 'gradient', 'color1': '#1f3b2d', 'color2': '#0f1f18', 'angle': 160, 'pattern': 'leaves', 'pattern_opacity': .14},
                         surface='#f7fbf6', accent='#2f9e6a', text='#15261d', muted='#5b7063', radius=18, input_bg='#e9f3ec', border='#d6e6da'),
         'blocks': [
-            _b('logo', mode='initials', size=56, shape='rounded'),
+            _b('logo', mode='image', size=56, shape='rounded'),
             _b('heading', title='Pull up a chair.', subtitle='Your Wi-Fi code is printed on your receipt.', size='lg'),
             _b('voucher', label='Wi-Fi code', placeholder='From your receipt', button='Start browsing', style='single', show_hint=True),
             _b('notice', text='Free 30 minutes with every pot of attaya — ask your server.', tone='promo', icon='cup-hot'),
@@ -107,7 +107,7 @@ def _login_templates():
                         surface='#140a24', surface_opacity=.82, accent='#ff2fb3', accent_text='#ffffff', text='#f3e9ff', muted='#a992c9',
                         radius=20, shadow='glow', input_bg='#221338', border='#3a2360'),
         'blocks': [
-            _b('logo', mode='initials', size=58, shape='circle'),
+            _b('logo', mode='image', size=58, shape='circle'),
             _b('heading', title='Plug in.', subtitle='Drop your code and stay connected all night.', size='xl'),
             _b('voucher', label='Code', placeholder='• • • • • • • •', button='Go live', style='single', show_hint=False),
             _b('plans', title='Night passes', style='chips', show_devices=False, highlight=''),
@@ -121,7 +121,7 @@ def _login_templates():
                         surface='#ffffff', surface_opacity=.18, accent='#f2c14e', accent_text='#1b1b1b', text='#ffffff', muted='#d8eef0',
                         radius=24, shadow='none', input_bg='rgba(255,255,255,.14)', border='rgba(255,255,255,.35)'),
         'blocks': [
-            _b('logo', mode='initials', size=70, shape='circle'),
+            _b('logo', mode='image', size=70, shape='circle'),
             _b('heading', title='Welcome, make yourself at home', subtitle='Your Wi-Fi voucher is in your welcome pack.', size='lg'),
             _b('voucher', label='Guest voucher', placeholder='Voucher code', button='Connect my device', style='single', show_hint=True),
             _b('notice', text='Need more time? Reception can extend your voucher any time.', tone='info', icon='bell'),
@@ -156,7 +156,7 @@ def _login_templates():
                         bg={'type': 'gradient', 'color1': '#7cc47f', 'color2': '#1f6f4a', 'angle': 170, 'pattern': 'palms', 'pattern_opacity': .2},
                         accent='#1f6f4a', text='#123524', muted='#5d7a69', radius=26, input_bg='#eef7f0', border='#d3e7d9'),
         'blocks': [
-            _b('logo', mode='initials', size=60, shape='rounded'),
+            _b('logo', mode='image', size=60, shape='rounded'),
             _b('heading', title='Relax. You’re connected.', subtitle='Use your voucher to join the network.', size='lg'),
             _b('voucher', label='Voucher', placeholder='Voucher code', button='Join', style='single', show_hint=True),
             _b('image', src='', alt='Promotion', radius=16, link=''),
@@ -195,7 +195,7 @@ def _login_templates():
                         bg={'type': 'solid', 'color1': '#ffffff', 'pattern': 'none'},
                         accent='#0c1c8c', text='#10131f', muted='#5a6072', radius=16, input_bg='#f3f5fb', border='#dde2ee', shadow='none'),
         'blocks': [
-            _b('logo', mode='initials', size=56, shape='circle'),
+            _b('logo', mode='image', size=56, shape='circle'),
             _b('heading', title='Community Wi-Fi', subtitle='Smiling Coast, always connected.', size='lg'),
             _b('voucher', label='Voucher', placeholder='Voucher code', button='Connect', style='single', show_hint=True),
             _b('plans', title='Prices', style='list', show_devices=True, highlight=''),
@@ -207,7 +207,7 @@ def _login_templates():
                         bg={'type': 'gradient', 'color1': '#0f2a4a', 'color2': '#071524', 'angle': 170, 'pattern': 'dots', 'pattern_opacity': .18},
                         accent='#ffb020', accent_text='#1a1300', radius=20),
         'blocks': [
-            _b('logo', mode='initials', size=56, shape='rounded'),
+            _b('logo', mode='image', size=56, shape='rounded'),
             _b('heading', title='{business} Wi-Fi', subtitle='Type your voucher to connect.', size='lg'),
             _b('voucher', label='Voucher code', placeholder='8 characters', button='Connect', style='single', show_hint=True),
             _b('ads', style='carousel', label='Sponsored', rotate=6, skip=5),
@@ -234,7 +234,7 @@ def _login_templates():
                         bg={'type': 'gradient', 'color1': '#5b1a7a', 'color2': '#1a0b2e', 'angle': 145, 'pattern': 'dots', 'pattern_opacity': .2},
                         surface='#fffaf2', accent='#c8961e', accent_text='#1a0b2e', text='#2a1438', muted='#7a6488', radius=24, shadow='glow'),
         'blocks': [
-            _b('logo', mode='initials', size=62, shape='circle'),
+            _b('logo', mode='image', size=62, shape='circle'),
             _b('heading', title='Season’s greetings from {business}', subtitle='Stay close to family with fast Wi-Fi.', size='lg'),
             _b('ticker', items=['Festive offer: extra time on every weekly pass', 'Share the joy — gift a voucher'], icon='gift'),
             _b('voucher', label='Voucher code', placeholder='Voucher code', button='Connect', style='single', show_hint=True),
@@ -254,6 +254,43 @@ def _login_templates():
             _b('voucher', label='Your code', placeholder='Code from SMS', button='Connect', style='boxes', show_hint=False),
             _b('contact', phone='', whatsapp='', email='', hours='Help 8:00 – 22:00'),
             _b('footer', text='Powered by TapTap'),
+        ]}
+    T['brand'] = {
+        'label': 'Brand First', 'kind': 'login', 'venue': 'Your logo front and centre',
+        'theme': _theme(font='outfit', heading_font='sora', width=420,
+                        bg={'type': 'gradient', 'color1': '#eef3fb', 'color2': '#dde7f5', 'angle': 180, 'pattern': 'none', 'pattern_opacity': 0},
+                        accent='#1769e0', radius=24),
+        'blocks': [
+            _b('logo', mode='image', size=112, shape='rounded'),
+            _b('heading', title='Welcome to {business}', subtitle='Enter your voucher code to get online.', size='lg'),
+            _b('voucher', label='Voucher code', placeholder='Enter code', button='Connect', style='boxes', length=8, show_hint=True),
+            _b('plans', title='Prices', style='chips', show_devices=False, highlight=''),
+            _b('contact', title='Need help?', show_phone=True),
+            _b('footer', text='Powered by TapTap'),
+        ]}
+    T['spinwin'] = {
+        'label': 'Spin & Win', 'kind': 'login', 'venue': 'Promote your Bonanza',
+        'theme': _theme(font='nunito', heading_font='bricolage', width=440,
+                        bg={'type': 'gradient', 'color1': '#7c2d12', 'color2': '#1c0a02', 'angle': 165, 'pattern': 'dots', 'pattern_opacity': .16},
+                        accent='#f59e0b', accent_text='#1a1300', radius=22),
+        'blocks': [
+            _b('logo', mode='image', size=64, shape='circle'),
+            _b('heading', title='{business} Wi-Fi', subtitle='Connect, then spin the wheel to win free Wi-Fi and prizes.', size='lg'),
+            _b('voucher', label='Voucher code', placeholder='Enter code', button='Connect', style='single', show_hint=True),
+            _b('bonanza', text='Spin & win', note='Every voucher from selected plans gets a spin.'),
+            _b('plans', title='Vouchers', style='cards', show_devices=True, highlight=''),
+            _b('footer', text='Powered by TapTap'),
+        ]}
+    T['plain'] = {
+        'label': 'Plain & Fast', 'kind': 'login', 'venue': 'Loads instantly on weak phones',
+        'theme': _theme(font='system', heading_font='system', width=380,
+                        bg={'type': 'solid', 'color1': '#ffffff', 'color2': '#ffffff', 'angle': 180, 'pattern': 'none', 'pattern_opacity': 0},
+                        accent='#111827', radius=12),
+        'blocks': [
+            _b('logo', mode='image', size=48, shape='rounded'),
+            _b('heading', title='{business}', subtitle='Type your voucher code.', size='md'),
+            _b('voucher', label='Voucher code', placeholder='Code', button='Connect', style='single', show_hint=False),
+            _b('footer', text='Help: {phone}'),
         ]}
     return T
 
@@ -298,7 +335,7 @@ def _redirect_templates():
         'theme': _theme(font='sora', heading_font='sora', bg={'type': 'gradient', 'color1': '#6a4dff', 'color2': '#1dc8ff', 'angle': 160}, accent='#6a4dff'),
         'settings': {'redirect_url': '', 'redirect_delay': 12},
         'blocks': [
-            _b('logo', mode='initials', size=64, shape='circle'),
+            _b('logo', mode='image', size=64, shape='circle'),
             _b('heading', title='You’re in!', subtitle='Follow us for promos and free-time giveaways.', size='md'),
             _b('social', facebook='', instagram='', tiktok='', whatsapp=''),
             _b('countdown', text='Continuing in', style='bar'),

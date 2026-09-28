@@ -44,6 +44,8 @@
       f: [['text', 'text', 'Label'], ['url', 'url', 'Link (blank = where the customer was going)'], ['style', 'seg', 'Style', { solid: 'Solid', outline: 'Outline' }]] },
     terms: { n: 'Terms checkbox', i: 'bi-check2-square', kinds: ['login'], def: { text: 'I agree to use this network fairly and legally.', required: true },
       f: [['text', 'textarea', 'Text'], ['required', 'check', 'Must be ticked to connect']] },
+    bonanza: { n: 'Bonanza button', i: 'bi-stars', def: { text: 'Spin & win', note: 'Every voucher from selected plans gets a spin.' },
+      f: [['text', 'text', 'Button text'], ['note', 'text', 'Small text']], note: 'Links to your live Bonanza (Vouchers → Bonanza). Hidden when none is live.' },
     ads: { n: 'Advert', i: 'bi-badge-ad', def: { style: 'card', label: 'Sponsored', rotate: 6, skip: 5 },
       f: [['style', 'seg', 'Show as', { card: 'Card', banner: 'Banner', carousel: 'Carousel', interstitial: 'Full screen' }], ['label', 'text', 'Small label above (blank = none)'],
           ['rotate', 'range', 'Change slide every', [3, 20, 1, 's'], function (b) { return b.style === 'carousel'; }],
