@@ -69,7 +69,7 @@
   </div>
   {% if v.frozen_at %}
   <div class="alert {% if v.freeze_kind == 'warning' %}alert-warning{% else %}alert-info{% endif %} mt-3 mb-0 d-flex gap-2"><i class="bi {% if v.freeze_kind == 'warning' %}bi-exclamation-octagon{% else %}bi-snow{% endif %} mt-1"></i><div>
-    <b>{% if v.freeze_kind == 'warning' %}Warning sent{% else %}Frozen{% endif %} {{ v.frozen_at|date:'d M Y H:i' }}{% if v.frozen_by %} by {{ v.frozen_by.get_full_name|default:v.frozen_by.username }}{% elif v.freeze_kind == 'warning' %} automatically{% endif %}.</b>
+    <b>{% if v.freeze_kind == 'warning' %}Warning sent{% else %}Frozen{% endif %} {{ v.frozen_at|date:'d M Y H:i' }}{% if v.frozen_by %} by {% firstof v.frozen_by.get_full_name v.frozen_by.username %}{% elif v.freeze_kind == 'warning' %} automatically{% endif %}.</b>
     {{ v.freeze_reason }}<br>
     {% if v.warning_message %}<span class="small">Customer sees: “{{ v.warning_message|truncatechars:200 }}”</span><br>{% endif %}
     <small>Internet is off and the clock stands still{% if v.frozen_left is not None %} with <b>{{ v.frozen_left|duration_short }}</b> left{% else %} (not used yet — full time kept){% endif %}.
@@ -78,7 +78,7 @@
   {% endif %}
   {% if v.deleted_at %}
   <div class="alert alert-danger mt-3 mb-0 d-flex gap-2"><i class="bi bi-trash3 mt-1"></i><div>
-    <b>Deleted {{ v.deleted_at|date:'d M Y H:i' }}{% if v.deleted_by %} by {{ v.deleted_by.get_full_name|default:v.deleted_by.username }}{% endif %}.</b>
+    <b>Deleted {{ v.deleted_at|date:'d M Y H:i' }}{% if v.deleted_by %} by {% firstof v.deleted_by.get_full_name v.deleted_by.username %}{% endif %}.</b>
     {{ v.delete_reason }}<br>
     <small>This voucher is in the bin: it is not in reports or finance, cannot log anyone in and cannot be deleted again.
     Router: {{ v.get_router_removal_display }}{% if v.router_removal_note and v.router_removal != 'removed' %} — {{ v.router_removal_note }}{% endif %}.
@@ -93,8 +93,8 @@
 <section class="vd-share mb-3">
   <div class="d-flex flex-wrap justify-content-between gap-2 align-items-start">
     <div><b><i class="bi bi-people-fill text-warning"></i> Used on {{ sc.devices }} devices — the plan allows {{ sc.allowed }}.</b>
-      <small class="d-block text-secondary">{% if sc.waiting %}Warning sent — waiting for the customer to press “I agree” on the portal.{% elif sc.open %}{{ sc.new|length }} device{{ sc.new|length|pluralize }} not decided yet. Choose what to do below.{% else %}Decided: {{ sc.review.get_action_display }}{% if sc.review.by %} by {{ sc.review.by.get_full_name|default:sc.review.by.username }}{% elif sc.review.auto %} (automatic){% endif %} {{ sc.review.created_at|date:'d M H:i' }}.{% endif %}</small>
-      <div class="d-flex flex-wrap gap-1 mt-2">{% for s in sc.sigs|slice:':10' %}<span class="badge text-bg-light border">{% if s in sc.new %}<i class="bi bi-dot text-danger"></i>{% endif %}{{ s.label|default:s.model|default:s.os|default:'Device'|truncatechars:22 }}{% if s.last_mac %} · {{ s.last_mac }}{% endif %}</span>{% endfor %}</div></div>
+      <small class="d-block text-secondary">{% if sc.waiting %}Warning sent — waiting for the customer to press “I agree” on the portal.{% elif sc.open %}{{ sc.new|length }} device{{ sc.new|length|pluralize }} not decided yet. Choose what to do below.{% else %}Decided: {{ sc.review.get_action_display }}{% if sc.review.by %} by {% firstof sc.review.by.get_full_name sc.review.by.username %}{% elif sc.review.auto %} (automatic){% endif %} {{ sc.review.created_at|date:'d M H:i' }}.{% endif %}</small>
+      <div class="d-flex flex-wrap gap-1 mt-2">{% for s in sc.sigs|slice:':10' %}<span class="badge text-bg-light border">{% if s in sc.new %}<i class="bi bi-dot text-danger"></i>{% endif %}{% if s.label %}{{ s.label|truncatechars:22 }}{% elif s.model %}{{ s.model|truncatechars:22 }}{% elif s.os %}{{ s.os|truncatechars:22 }}{% else %}{{ 'Device'|truncatechars:22 }}{% endif %}{% if s.last_mac %} · {{ s.last_mac }}{% endif %}</span>{% endfor %}</div></div>
     {% if 'vouchers.support' in tt_perms and not sc.waiting %}{% include 'core/partials/shared_actions.html' with case=sc next=request.path %}{% endif %}
   </div>
 </section>
@@ -111,7 +111,7 @@
         <div><span>Devices allowed</span><b>{{ v.max_devices }}</b></div>
         {% if v.rate_limit %}<div><span>Speed</span><b>{{ v.rate_limit }}</b></div>{% endif %}
         <div><span>Origin</span><b>{{ v.get_source_display }}</b></div>
-        {% if old_codes %}<div><span>Previous code{{ old_codes|length|pluralize }}</span><b>{% for a in old_codes %}<code class="text-decoration-line-through" title="Changed {{ a.changed_at|date:'d M Y H:i' }}{% if a.changed_by %} by {{ a.changed_by.get_full_name|default:a.changed_by.username }}{% endif %}{% if a.reason %} — {{ a.reason }}{% endif %}">{{ a.code }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}</b></div>{% endif %}
+        {% if old_codes %}<div><span>Previous code{{ old_codes|length|pluralize }}</span><b>{% for a in old_codes %}<code class="text-decoration-line-through" title="Changed {{ a.changed_at|date:'d M Y H:i' }}{% if a.changed_by %} by {% firstof a.changed_by.get_full_name a.changed_by.username %}{% endif %}{% if a.reason %} — {{ a.reason }}{% endif %}">{{ a.code }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}</b></div>{% endif %}
         <div><span>Serial</span><b class="font-monospace">{% if v.serial %}{{ v.serial }}{% else %}{{ v.pk|stringformat:"06d" }}{% endif %}</b></div>
         <div><span>Batch</span><b>{{ v.batch.name|default:'—' }}</b></div>
         <div><span>Held by</span><b>{% if v.agent %}<a href="{% url 'agent_detail' v.agent_id %}">{{ v.agent.name }}</a>{% else %}Shop{% endif %}</b></div>

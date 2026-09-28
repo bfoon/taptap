@@ -52,7 +52,7 @@
         <span class="badge text-bg-danger">{{ c.devices }} devices · allows {{ c.allowed }}</span>
         {% if c.review %}<small class="text-secondary"> · {{ c.new|length }} new since “{{ c.review.get_action_display|lower }}” {{ c.review.created_at|date:'d M' }}</small>{% endif %}
         {% if c.voucher.frozen_at %}<span class="badge text-bg-info">Frozen</span>{% endif %}
-        <div class="dv-tags mt-1">{% for s in c.sigs|slice:':8' %}<span{% if s in c.new %} class="flag"{% endif %}>{{ s.label|default:s.model|default:s.os|default:s.fingerprint|truncatechars:24 }}</span>{% endfor %}</div></div>
+        <div class="dv-tags mt-1">{% for s in c.sigs|slice:':8' %}<span{% if s in c.new %} class="flag"{% endif %}>{% if s.label %}{{ s.label|truncatechars:24 }}{% elif s.model %}{{ s.model|truncatechars:24 }}{% elif s.os %}{{ s.os|truncatechars:24 }}{% else %}{{ s.fingerprint|truncatechars:24 }}{% endif %}</span>{% endfor %}</div></div>
       {% if 'vouchers.support' in tt_perms %}{% include 'core/partials/shared_actions.html' with case=c next=request.get_full_path %}{% endif %}
     </div>
   {% endfor %}
@@ -72,7 +72,7 @@
   <details class="mt-3"><summary class="small text-secondary">Decided ({{ shared_done|length }})</summary>
     <div class="scroll-list scroll-short mt-2">{% for c in shared_done %}
       <div class="dv-share"><a href="{% url 'voucher_detail' c.voucher.id %}" class="dv-mono text-decoration-none">{{ c.code }}</a>
-        <small class="text-secondary"> · {{ c.devices }} devices, allows {{ c.allowed }} · {{ c.review.get_action_display }}{% if c.review.by %} by {{ c.review.by.get_full_name|default:c.review.by.username }}{% elif c.review.auto %} (automatic){% endif %} {{ c.review.created_at|date:'d M H:i' }}{% if c.review.note %} — {{ c.review.note }}{% endif %}</small></div>
+        <small class="text-secondary"> · {{ c.devices }} devices, allows {{ c.allowed }} · {{ c.review.get_action_display }}{% if c.review.by %} by {% firstof c.review.by.get_full_name c.review.by.username %}{% elif c.review.auto %} (automatic){% endif %} {{ c.review.created_at|date:'d M H:i' }}{% if c.review.note %} — {{ c.review.note }}{% endif %}</small></div>
     {% endfor %}</div>
   </details>
   {% endif %}
@@ -101,7 +101,7 @@
   {% for d in devices %}
   <div class="dv-row">
     <span class="dv-ic {{ d.os|lower }}"><i class="bi {% if d.device_type == 'phone' %}bi-phone{% elif d.device_type == 'tablet' %}bi-tablet{% else %}bi-laptop{% endif %}"></i></span>
-    <div><b>{{ d.label|default:d.model|default:d.os|default:'Unknown device' }}</b><small>{{ d.os }} {{ d.os_version }}{% if d.browser %} · {{ d.browser }}{% endif %}{% if d.components.screen %} · {{ d.components.screen }}{% endif %}</small>
+    <div><b>{% firstof d.label d.model d.os 'Unknown device' %}</b><small>{{ d.os }} {{ d.os_version }}{% if d.browser %} · {{ d.browser }}{% endif %}{% if d.components.screen %} · {{ d.components.screen }}{% endif %}</small>
       <div class="dv-tags mt-1">{% if d.flagged %}<span class="flag">Flagged</span>{% endif %}{% if d.random_macs %}<span class="rand" title="The phone generates random MAC addresses">Random MAC</span>{% endif %}{% if d.macs|length > 1 %}<span>{{ d.macs|length }} MACs</span>{% endif %}<span class="dv-mono" title="Device signature">{{ d.fingerprint|slice:':10' }}</span></div></div>
     <div class="hide-sm"><small>Last MAC · IP</small><span class="dv-mono">{{ d.last_mac|default:'—' }}</span><small>{{ d.last_ip|default:'' }}{% if d.router %} · {{ d.router.name }}{% endif %}</small></div>
     <div class="hide-sm"><small>Vouchers</small><div class="dv-tags">{% for v in d.vouchers|slice:':4' %}<span class="dv-mono">{{ v }}</span>{% empty %}<span>none yet</span>{% endfor %}{% if d.vouchers|length > 4 %}<span>+{{ d.vouchers|length|add:'-4' }}</span>{% endif %}</div></div>
@@ -111,7 +111,7 @@
     </div>
   </div>
   <div class="modal fade" id="dv{{ d.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content">
-    <div class="modal-header"><h5 class="modal-title">{{ d.label|default:d.model|default:'Device' }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+    <div class="modal-header"><h5 class="modal-title">{% firstof d.label d.model 'Device' %}</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
     <div class="modal-body small">
       <form method="post" action="{% url 'device_action' d.id %}" class="mb-3">{% csrf_token %}<input type="hidden" name="action" value="label"><input type="hidden" name="next" value="{{ request.get_full_path }}">
         <label class="form-label">Your name for it</label><div class="d-flex gap-2"><input class="form-control" name="label" value="{{ d.label }}" placeholder="e.g. Lamin's phone"><button class="btn btn-primary">Save</button></div>

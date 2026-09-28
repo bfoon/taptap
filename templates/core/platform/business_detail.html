@@ -24,7 +24,7 @@
     <div class="panel mb-4"><div class="panel-head"><div><h3>Usage — last 30 days</h3><p>Page views per day</p></div></div>
       <div class="d-flex align-items-end gap-1" style="height:110px">{% for d in days %}<div title="{{ d.label }}: {{ d.views }} pages" style="flex:1;background:{% if d.views %}#1769e0{% else %}#e3e9f1{% endif %};border-radius:3px;height:{{ d.pct }}%"></div>{% endfor %}</div>
       <div class="row mt-3 small">
-        <div class="col-md-6"><b>Who uses it</b><div class="table-responsive"><table class="table table-sm mt-1"><tbody>{% for u in per_user %}<tr><td>{{ u.user__first_name|default:u.user__email }}</td><td class="text-end">{{ u.v }} pages</td><td class="text-end">{{ u.l }} sign-ins</td></tr>{% empty %}<tr><td class="text-secondary">No usage yet</td></tr>{% endfor %}</tbody></table></div></div>
+        <div class="col-md-6"><b>Who uses it</b><div class="table-responsive"><table class="table table-sm mt-1"><tbody>{% for u in per_user %}<tr><td>{% firstof u.user__first_name u.user__email %}</td><td class="text-end">{{ u.v }} pages</td><td class="text-end">{{ u.l }} sign-ins</td></tr>{% empty %}<tr><td class="text-secondary">No usage yet</td></tr>{% endfor %}</tbody></table></div></div>
         <div class="col-md-6"><b>Features used</b><div class="table-responsive"><table class="table table-sm mt-1"><tbody>{% for k,v in features %}<tr><td>{{ k }}</td><td class="text-end">{{ v }}</td></tr>{% empty %}<tr><td class="text-secondary">—</td></tr>{% endfor %}</tbody></table></div></div>
       </div></div>
 

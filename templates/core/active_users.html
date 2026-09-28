@@ -467,7 +467,7 @@
                 </form>
                 {% if 'vouchers.warn' in tt_perms and x.user %}
                 <button type="button" class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#sessionWarn"
-                        data-user="{{ x.user }}" data-device="{{ x.mac_address|default:x.address|default:'' }}">
+                        data-user="{{ x.user }}" data-device="{% firstof x.mac_address x.address '' %}">
                   <i class="bi bi-exclamation-octagon"></i> Warn
                 </button>
                 {% endif %}

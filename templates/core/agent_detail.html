@@ -26,7 +26,7 @@
 <div class="row g-3 mt-1">
   <div class="col-xl-8"><div class="panel h-100"><div class="panel-head"><div><h3>Batches</h3><p>Everything issued to {{ agent.name }}</p></div></div>
     <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Batch</th><th>Terms</th><th>Progress</th><th class="text-end">Left</th><th></th></tr></thead><tbody>
-    {% for x in batches %}<tr><td><b>{{ x.name }}</b><small class="d-block text-secondary">{{ x.plan|default:'' }} · issued {{ x.issued_at|default:x.created_at|date:'d M Y' }}</small></td>
+    {% for x in batches %}<tr><td><b>{{ x.name }}</b><small class="d-block text-secondary">{{ x.plan|default:'' }} · issued {% if x.issued_at %}{{ x.issued_at|date:'d M Y' }}{% else %}{{ x.created_at|date:'d M Y' }}{% endif %}</small></td>
       <td><span class="badge {% if x.settlement == 'prepaid' %}text-bg-success{% else %}text-bg-light{% endif %}">{% if x.settlement == 'prepaid' %}Paid upfront{% else %}On credit{% endif %}</span></td>
       <td style="min-width:180px"><div class="stock-bar" style="height:8px"><i style="width:{{ x.sold|pct_of:x.total }}%;background:var(--green)"></i></div><small class="text-secondary">{{ x.sold }} of {{ x.total }} sold · {{ x.used }} used</small></td>
       <td class="text-end"><b>{{ x.left }}</b></td>

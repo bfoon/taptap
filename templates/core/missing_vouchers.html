@@ -63,7 +63,7 @@
           </td>
           <td>
             {{ r.reported_at|date:'d M Y H:i' }}
-            {% if r.reported_by %}<small class="d-block text-secondary">by {{ r.reported_by.get_full_name|default:r.reported_by.username }}</small>{% endif %}
+            {% if r.reported_by %}<small class="d-block text-secondary">by {% firstof r.reported_by.get_full_name r.reported_by.username %}</small>{% endif %}
           </td>
           <td class="text-end">
             <button class="btn btn-sm btn-outline-success"
@@ -111,7 +111,7 @@
           <td>{{ r.resolution_notes|default:'—'|linebreaksbr }}</td>
           <td>
             {{ r.resolved_at|date:'d M Y H:i' }}
-            {% if r.resolved_by %}<small class="d-block text-secondary">by {{ r.resolved_by.get_full_name|default:r.resolved_by.username }}</small>{% endif %}
+            {% if r.resolved_by %}<small class="d-block text-secondary">by {% firstof r.resolved_by.get_full_name r.resolved_by.username %}</small>{% endif %}
           </td>
         </tr>
       {% empty %}

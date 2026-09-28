@@ -17,7 +17,7 @@
   <div class="table-responsive"><table class="table align-middle">
     <thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Last sign-in</th><th class="text-end">Use (30 days)</th><th></th></tr></thead>
     <tbody>
-      <tr><td><b>{{ owner.get_full_name|default:current_business.owner_name }}</b><small class="d-block text-secondary">{{ owner.email }}</small></td>
+      <tr><td><b>{% firstof owner.get_full_name current_business.owner_name %}</b><small class="d-block text-secondary">{{ owner.email }}</small></td>
         <td><span class="role-pill owner">Owner</span></td><td>Active</td><td>{{ owner.last_login|date:'d M Y H:i'|default:'—' }}</td><td class="text-end">—</td><td></td></tr>
       {% for m in members %}
       <tr class="member-row {% if not m.is_active %}off{% endif %}">

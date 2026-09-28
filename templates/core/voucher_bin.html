@@ -35,7 +35,7 @@
         <tr class="text-secondary">
           <td><a href="{% url 'voucher_detail' v.id %}" class="text-decoration-none" title="History"><code class="voucher-code text-decoration-line-through">{{ v.code }}</code></a></td>
           <td>{{ v.plan_name }}<small class="d-block">{{ v.price|money:c }}</small></td>
-          <td>{{ v.batch.name|default:i.batch|default:'—' }}</td>
+          <td>{% firstof v.batch.name i.batch '—' %}</td>
           <td>
             {% if i.sold_at %}<span class="badge text-bg-warning">Sold</span>{% elif i.status == 'disabled' %}<span class="badge text-bg-secondary">Disabled</span>{% else %}<span class="badge text-bg-success">In stock</span>{% endif %}
             {% if i.agent %}<small class="d-block"><i class="bi bi-person-badge"></i> {{ i.agent }}</small>{% elif i.customer %}<small class="d-block"><i class="bi bi-person"></i> {{ i.customer }}</small>{% endif %}
@@ -49,7 +49,7 @@
             {% if v.router %}<small class="d-block">{{ v.router.name }}</small>{% endif %}
             {% if v.router_removal_note and v.router_removal != 'removed' %}<small class="d-block" title="{{ v.router_removal_note }}">{{ v.router_removal_note|truncatechars:50 }}</small>{% endif %}
           </td>
-          <td class="text-nowrap">{{ v.deleted_at|date:'d M Y H:i' }}<small class="d-block">{{ v.deleted_by.get_full_name|default:v.deleted_by.username|default:'—' }}</small></td>
+          <td class="text-nowrap">{{ v.deleted_at|date:'d M Y H:i' }}<small class="d-block">{% firstof v.deleted_by.get_full_name v.deleted_by.username '—' %}</small></td>
           <td style="max-width:260px">{{ v.delete_reason }}{% if i.deleted_with_batch %}<small class="d-block">with batch {{ i.deleted_with_batch }}</small>{% endif %}</td>
         </tr>
       {% endwith %}{% empty %}
@@ -69,7 +69,7 @@
             {% if i.vouchers_deleted %}<a class="d-block small" href="?tab=vouchers&q={{ x.name|urlencode }}">See deleted vouchers</a>{% endif %}</td>
           <td>{% if i.sales_removed %}{{ i.sales_removed }} · <b class="text-dark">{{ c }}{{ i.sales_amount }}</b>{% else %}—{% endif %}</td>
           <td>{% if i.profile %}{{ i.profile }}<small class="d-block">left on {{ i.router|default:'the router' }}</small>{% else %}—{% endif %}</td>
-          <td class="text-nowrap">{{ x.deleted_at|date:'d M Y H:i' }}<small class="d-block">{{ x.deleted_by.get_full_name|default:x.deleted_by.username|default:'—' }}</small></td>
+          <td class="text-nowrap">{{ x.deleted_at|date:'d M Y H:i' }}<small class="d-block">{% firstof x.deleted_by.get_full_name x.deleted_by.username '—' %}</small></td>
           <td style="max-width:260px">{{ x.delete_reason }}</td>
         </tr>
       {% endwith %}{% empty %}
@@ -84,12 +84,12 @@
       {% for x in page_obj %}{% with i=x.delete_info %}
         <tr class="text-secondary">
           <td><b class="text-decoration-line-through">{{ x.name }}</b><small class="d-block">created {{ x.created_at|date:'d M Y' }}</small></td>
-          <td>{{ x.plan.name|default:i.plan|default:'—' }}</td>
-          <td>{{ x.agent.name|default:i.agent|default:'Shop' }}</td>
+          <td>{% firstof x.plan.name i.plan '—' %}</td>
+          <td>{% firstof x.agent.name i.agent 'Shop' %}</td>
           <td>{{ i.vouchers_deleted|default:0 }}{% if i.quantity %} <small>of {{ i.quantity }}</small>{% endif %}
             <a class="d-block small" href="?tab=vouchers&q={{ x.name|urlencode }}">See vouchers</a></td>
           <td>{% if i.sales_removed %}{{ i.sales_removed }} · <b class="text-dark">{{ c }}{{ i.sales_amount }}</b>{% else %}—{% endif %}</td>
-          <td class="text-nowrap">{{ x.deleted_at|date:'d M Y H:i' }}<small class="d-block">{{ x.deleted_by.get_full_name|default:x.deleted_by.username|default:'—' }}</small></td>
+          <td class="text-nowrap">{{ x.deleted_at|date:'d M Y H:i' }}<small class="d-block">{% firstof x.deleted_by.get_full_name x.deleted_by.username '—' %}</small></td>
           <td style="max-width:260px">{{ x.delete_reason }}</td>
         </tr>
       {% endwith %}{% empty %}

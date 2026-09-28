@@ -53,7 +53,7 @@
   <div class="ticket" aria-live="polite"><small>{{ current_business.business_name }}</small><div class="who" id="pvWho">For a customer</div>
     <div class="code" id="pvCode">•••• ••••</div><div class="perf"></div>
     <dl><dt>Plan</dt><dd id="pvPlan">—</dd><dt>Valid for</dt><dd id="pvDur">—</dd><dt>Devices</dt><dd id="pvDev">—</dd><dt>Price</dt><dd id="pvPrice">—</dd></dl></div>
-  {% if recent %}<div class="panel mt-3 recent"><h3 class="fs-6 fw-bold">Recent one-off vouchers</h3>{% for v in recent %}<a href="{% url 'voucher_card' v.id %}"><span><b>{{ v.customer_name|default:v.customer_phone }}</b><small class="d-block text-secondary">{{ v.plan_name }} · {{ v.created_at|date:'d M H:i' }}</small></span><code class="voucher-code">{{ v.code }}</code></a>{% endfor %}</div>{% endif %}
+  {% if recent %}<div class="panel mt-3 recent"><h3 class="fs-6 fw-bold">Recent one-off vouchers</h3>{% for v in recent %}<a href="{% url 'voucher_card' v.id %}"><span><b>{% firstof v.customer_name v.customer_phone %}</b><small class="d-block text-secondary">{{ v.plan_name }} · {{ v.created_at|date:'d M H:i' }}</small></span><code class="voucher-code">{{ v.code }}</code></a>{% endfor %}</div>{% endif %}
 </div></form>
 {% endwith %}{% endblock %}
 {% block scripts %}<script>

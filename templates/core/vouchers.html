@@ -269,7 +269,7 @@
 
               <a href="{% url 'voucher_card' v.id %}">
                 <i class="bi bi-person"></i>
-                {{ v.customer_name|default:v.customer_phone }}
+                {% firstof v.customer_name v.customer_phone %}
               </a>
 
             {% endif %}

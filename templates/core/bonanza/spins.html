@@ -25,7 +25,7 @@
         <td>{% if s.prize_kind == 'none' %}<span class="text-secondary">No prize</span>{% else %}<b>{{ s.prize_label }}</b>{% endif %}
           {% if s.reward_voucher %}<small class="d-block">New voucher <a href="{% url 'voucher_detail' s.reward_voucher.id %}"><code>{{ s.reward_voucher.code }}</code></a></small>{% endif %}</td>
         <td>{% if s.payout == 'done' %}<span class="text-success"><i class="bi bi-check-circle"></i> Given</span>
-          {% elif s.payout == 'paid' %}<span class="text-success"><i class="bi bi-cash-coin"></i> Paid {{ s.paid_at|date:'d M H:i' }}</span><small class="d-block text-secondary">{% if s.paid_by_agent %}by {{ s.paid_by_agent.name }}{% elif s.paid_by %}by {{ s.paid_by.get_full_name|default:s.paid_by.username }}{% endif %}</small>
+          {% elif s.payout == 'paid' %}<span class="text-success"><i class="bi bi-cash-coin"></i> Paid {{ s.paid_at|date:'d M H:i' }}</span><small class="d-block text-secondary">{% if s.paid_by_agent %}by {{ s.paid_by_agent.name }}{% elif s.paid_by %}by {% firstof s.paid_by.get_full_name s.paid_by.username %}{% endif %}</small>
           {% elif s.payout == 'pending' %}<span class="badge text-bg-warning">Waiting</span>
           {% elif s.payout == 'failed' %}<span class="badge text-bg-danger">Pay by hand</span>{% else %}—{% endif %}
           {% if s.payout_note and s.payout != 'none' %}<small class="d-block text-secondary">{{ s.payout_note|truncatechars:60 }}</small>{% endif %}</td>

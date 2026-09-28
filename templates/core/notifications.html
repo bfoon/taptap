@@ -65,7 +65,7 @@
 
 <section class="nt-card"><h3 class="h6 fw-bold">Recent notifications</h3>
   <div class="table-responsive"><table class="table nt-log mb-0"><thead><tr><th>When</th><th>What</th><th>Status</th><th>Sent to</th></tr></thead><tbody>
-  {% for n in recent %}<tr><td class="text-nowrap">{{ n.created_at|date:'d M H:i' }}</td><td><span class="nt-sev {{ n.severity }}"></span>{{ n.subject }}</td><td><span class="nt-st {{ n.status }}" title="{{ n.error }}">{{ n.get_status_display }}</span></td><td><small class="text-secondary">{{ n.recipients|default:n.error|truncatechars:60 }}</small></td></tr>
+  {% for n in recent %}<tr><td class="text-nowrap">{{ n.created_at|date:'d M H:i' }}</td><td><span class="nt-sev {{ n.severity }}"></span>{{ n.subject }}</td><td><span class="nt-st {{ n.status }}" title="{{ n.error }}">{{ n.get_status_display }}</span></td><td><small class="text-secondary">{% if n.recipients %}{{ n.recipients|truncatechars:60 }}{% else %}{{ n.error|truncatechars:60 }}{% endif %}</small></td></tr>
   {% empty %}<tr><td colspan="4" class="empty-table">Nothing yet. Notifications appear here as things happen.</td></tr>{% endfor %}
   </tbody></table></div></section>
 {% endblock %}

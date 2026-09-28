@@ -48,7 +48,7 @@
   {% for a in ads %}
   <article class="ad-card {% if not a.live %}off{% endif %}">
     <div class="ad-thumb {% if not a.image %}txt{% endif %}" {% if a.image %}style="background-image:url('{{ a.image }}')"{% else %}style="background:{{ a.theme.bg|default:'#102033' }};color:{{ a.theme.fg|default:'#ffffff' }}"{% endif %}>
-      {% if not a.image %}{{ a.headline|default:a.name }}{% endif %}
+      {% if not a.image %}{% firstof a.headline a.name %}{% endif %}
       <span class="ad-state {% if a.live %}live{% elif a.ends_on and a.days_left < 0 %}ended{% endif %}">{% if a.live %}Live{% elif not a.active %}Paused{% elif a.days_left is not None and a.days_left < 0 %}Ended{% else %}Scheduled{% endif %}</span>
     </div>
     <div class="ad-body">

@@ -30,7 +30,7 @@ input:focus{outline:none;border-color:var(--acc)}
 <body><div class="wrap">
   {% if preview %}<div class="banner">Preview — this Bonanza is still a draft. Customers can't open it yet.</div>{% endif %}
   <div class="brand">{% if business.logo_data %}<img src="{{ business.logo_data }}" alt="">{% endif %}<span>{{ business.business_name }}</span></div>
-  <h1>{{ bz.headline|default:bz.name }}</h1>
+  <h1>{% firstof bz.headline bz.name %}</h1>
   <p class="sub">{% if agent %}With {{ agent.name }} · {% endif %}Enter your voucher code and spin to win.</p>
   <div class="wheel" id="wheel"></div>
 
