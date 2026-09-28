@@ -43,6 +43,7 @@ SAFE_KINDS = {
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
 }
+BATCH_GAP = 45   # seconds: one unanswered command must never freeze the whole queue
 ACK_WAIT = {'portal_install': 300, 'inventory_piece': 600, 'backup': 300, 'hotspot_users': 300, 'self_update': 300}   # seconds before a resend
 NAME_RE = re.compile(r'^[\w.@:+/<>-]{1,64}$')
 MAC_RE = re.compile(r'^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$')
@@ -485,9 +486,20 @@ def handle_poll(agent, data, ip, url):
         sv = 1
     if agent.script_version != sv:
         RouterAgent.objects.filter(pk=agent.pk).update(script_version=sv)
-    if (sv < SCRIPT_VERSION and cache.add(f'tt:link:upgrade:{router.pk}', 1, 1800)
-            and not AgentCommand.objects.filter(router=router, kind='self_update', status__in=['queued', 'sent']).exists()):
+    # Automatic heartbeat upgrade: at most two attempts per version. If a router cannot
+    # apply it, TapTap stops retrying (so it never clogs the queue) and the Link page
+    # asks the owner to reinstall with "Rotate token".
+    tries_key = f'tt:link:upgrade-tries:{router.pk}:{SCRIPT_VERSION}'
+    if sv >= SCRIPT_VERSION:
+        cache.delete(tries_key)
+    elif (cache.get(tries_key) or 0) < 2 and cache.add(f'tt:link:upgrade:{router.pk}', 1, 1800) \
+            and not AgentCommand.objects.filter(router=router, kind='self_update', status__in=['queued', 'sent']).exists():
+        cache.set(tries_key, (cache.get(tries_key) or 0) + 1, 7 * 86400)
         queue(router, 'self_update', {'to': SCRIPT_VERSION}, label=f'Update TapTap Link on the router to v{SCRIPT_VERSION}', minutes=30)
+    try:
+        link_traffic_samples(router)
+    except Exception as exc:
+        logger.info('link traffic sample %s: %s', router, exc)
     try:
         link_guards(router, now)
     except Exception as exc:
@@ -517,6 +529,17 @@ def handle_poll(agent, data, ip, url):
     except Exception as exc:
         logger.info('voucher push %s: %s', router, exc)
     return build_response(router, url)
+
+
+def link_traffic_samples(router):
+    """Apps & sites for Link-only routers: every 2 minutes upload the DNS cache and the busy connections."""
+    from .linkops import uses_link
+    if not uses_link(router) or not cache.add(f'tt:link:apps:{router.pk}', 1, 120):
+        return
+    if AgentCommand.objects.filter(router=router, kind='inventory_piece', status__in=['queued', 'sent']).exists():
+        return  # a full sync is running; it has priority
+    for kind in ('traffic_dns', 'traffic_conns'):
+        queue(router, 'inventory_piece', {'kind': kind}, label='Traffic sample (apps & sites)', minutes=5)
 
 
 def link_guards(router, now):
@@ -629,8 +652,8 @@ def build_response(router, url):
                     from .agent_inventory import inventory_command_ack
                     cmd.status, cmd.result = 'failed', 'No answer from the router'
                     inventory_command_ack(cmd, False)
-    if AgentCommand.objects.filter(router=router, status='sent').exists():
-        return ''  # the router is still working on the last batch
+    if AgentCommand.objects.filter(router=router, status='sent', sent_at__gte=now - timedelta(seconds=BATCH_GAP)).exists():
+        return ''  # give the router a moment to finish the last batch (never longer than BATCH_GAP)
     from .agent_inventory import send_function
     parts, size, helper = [], 0, False
     for cmd in AgentCommand.objects.filter(router=router, status='queued').order_by('created_at')[:40]:

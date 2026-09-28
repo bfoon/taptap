@@ -97,7 +97,7 @@
       <div><b><i class="bi bi-key"></i> Token {{ agent.token_hint }}…</b>Only its SHA-256 fingerprint is stored by TapTap. Rotate it after exposure.</div>
       <div><b><i class="bi bi-database-down"></i> Agent inventory</b>Full sync is requested from the router itself instead of attempting its old local IP.</div>
       <div><b><i class="bi bi-hourglass-split"></i> Never blocks</b>Check-ins stay short: commands run in a background job, the overlap guard heals itself, and fetch has duration and idle timeouts.</div>
-      <div><b><i class="bi bi-arrow-up-circle"></i> Heartbeat v{{ agent.script_version }}</b>{% if agent.script_version >= current_version %}Up to date.{% else %}Updating itself to v{{ current_version }} over the Link — no need to re-paste.{% endif %}</div>
+      <div><b><i class="bi bi-arrow-up-circle"></i> Heartbeat v{{ agent.script_version }}</b>{% if agent.script_version >= current_version %}Up to date.{% elif upgrade_failed %}<span class="text-danger">The router could not update itself. Press <b>Rotate token</b> and paste the new script once.</span>{% else %}Updating itself to v{{ current_version }} over the Link — no need to re-paste.{% endif %}</div>
     </div>
     {% if agent.allow_scripts %}<form method="post" action="{% url 'router_link_action' router.id %}" class="mt-3">{% csrf_token %}<input type="hidden" name="action" value="script"><label class="form-label small">Run a RouterOS script</label><textarea class="form-control form-control-sm font-monospace" name="source" rows="3" maxlength="2000" placeholder=':log info "hello from TapTap"'></textarea><button class="btn btn-sm btn-outline-danger mt-2" onclick="return confirm('Run this script on {{ router.name|escapejs }}?')">Queue script</button></form>{% endif %}
     <hr>

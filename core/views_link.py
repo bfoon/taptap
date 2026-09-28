@@ -207,6 +207,9 @@ def router_link(request, pk):
         'script': script,
         'advanced_script': advanced_script,
         'current_version': link.SCRIPT_VERSION,
+        'upgrade_failed': bool(agent and agent.script_version < link.SCRIPT_VERSION
+                               and (cache.get(f'tt:link:upgrade-tries:{router.pk}:{link.SCRIPT_VERSION}') or 0) >= 2
+                               and not router.agent_commands.filter(kind='self_update', status__in=['queued', 'sent']).exists()),
         'fixes': troubleshooting_steps(link.base_url(request)),
         'commands': cmds,
         'site': link.base_url(request),

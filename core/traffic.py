@@ -271,8 +271,22 @@ def collect_apps(router, svc, now):
             return 0
     except Exception:
         pass
-    conns = _connections(svc)
-    dns = _dns_map(router, svc)
+    return ingest_connections(router, _connections(svc), _dns_map(router, svc), now)
+
+
+def dns_map_from_rows(rows):
+    """address → name from RouterOS DNS cache rows (v6: address, v7: type/data)."""
+    m = {}
+    for r in rows or []:
+        name = str(r.get('name', ''))
+        addr = str(r.get('address') or (r.get('data') if str(r.get('type', 'A')).upper() in {'A', 'AAAA'} else '') or '')
+        if name and addr and addr not in m:
+            m[addr] = name.rstrip('.')
+    return m
+
+
+def ingest_connections(router, conns, dns, now):
+    """Turn two connection-table samples into per-app / per-site traffic (API, tunnel and TapTap Link)."""
     key = f'tt:tr:ct:{router.pk}'
     prev = cache.get(key)
     cur = {}

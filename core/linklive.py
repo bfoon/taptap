@@ -37,6 +37,7 @@ def ingest_counters(router, raw, now=None):
     cur = parse_counters(raw)
     if not cur:
         return {}
+    _ensure_ports(router, cur, now)
     ts = now.timestamp()
     key = f'tt:linkctr:{router.pk}'
     prev = cache.get(key) or {}
@@ -55,6 +56,20 @@ def ingest_counters(router, raw, now=None):
             if p and c and name in rates:
                 _add_sample(router, name, bucket, c[0] - p[0], c[1] - p[1], rates[name]['rx_bps'], rates[name]['tx_bps'])
     return rates
+
+
+def _ensure_ports(router, cur, now):
+    """Save the router's running interfaces from the heartbeat, so its ports appear before a full sync."""
+    from .models import RouterInterface
+    if not cache.add(f'tt:linkports:{router.pk}', 1, 300):
+        return
+    known = set(RouterInterface.objects.filter(router=router).values_list('name', flat=True))
+    new = [RouterInterface(router=router, name=n, running=True, rx_byte=rx, tx_byte=tx, last_seen_at=now,
+                           interface_type=('bridge' if n.startswith('bridge') else 'ether' if n.startswith(('ether', 'sfp')) else 'wlan' if n.startswith(('wlan', 'wifi')) else ''))
+           for n, (rx, tx) in cur.items() if n not in known]
+    if new:
+        RouterInterface.objects.bulk_create(new, ignore_conflicts=True)
+    RouterInterface.objects.filter(router=router, name__in=list(cur)).update(running=True, last_seen_at=now, is_present=True)
 
 
 def rates(router, names=None):

@@ -117,6 +117,17 @@ OPTIONAL_KINDS = {'wifi_registrations', 'wireless_registrations', 'remote_caps_w
 
 SOURCES = OrderedDict((key, {'label': label, 'path': path}) for key, label, path in CONFIG_SOURCES + EXTRA_SOURCES)
 
+# Periodic traffic samples for TapTap Link routers (not part of a full sync).
+SAMPLE_SOURCES = OrderedDict([
+    ('traffic_dns', {'label': 'DNS cache (traffic sample)', 'path': '/ip/dns/cache', 'sample': True}),
+    ('traffic_conns', {'label': 'Busy connections (traffic sample)', 'path': '/ip/firewall/connection', 'where': 'repl-bytes>20000', 'sample': True}),
+])
+
+
+def source(kind):
+    return SOURCES.get(kind) or SAMPLE_SOURCES.get(kind)
+
+
 TOPOLOGY_KINDS = {
     'system_identity', 'routerboard', 'interfaces', 'ethernet', 'bridge_ports', 'bridge_hosts',
     'neighbors', 'dhcp_leases', 'dhcp_clients', 'arp', 'hotspot_hosts', 'active_users',
@@ -151,10 +162,10 @@ def send_function():
 def inventory_piece_script(cmd, url, check, nonce_value):
     """RouterOS body for one table. The menu path is a trusted literal from SOURCES."""
     kind = str((cmd.params or {}).get('kind', ''))
-    src = SOURCES.get(kind)
+    src = source(kind)
     if not src:
         raise ValueError(f'Unknown inventory source: {kind}')
-    menu = src['path']  # e.g. /ip/hotspot/user (RouterOS accepts the slash form)
+    menu = src['path'] + (f' where {src["where"]}' if src.get('where') else '')  # trusted literals only
     upload = f'{url}/api/agent/v1/inventory?c={cmd.pk}&n={nonce_value}'
     # The menu is compiled at run time with :parse. Written directly, a menu this
     # router does not have (e.g. /interface/wifi without the wifi package, /routing/table
@@ -507,7 +518,7 @@ def receive_inventory_chunk(cmd, rows, part=0, final=False):
     background worker so the router's upload returns at once (no timeouts on big tables)."""
     params = dict(cmd.params or {})
     kind = str(params.get('kind', ''))
-    if kind not in SOURCES:
+    if not source(kind):
         raise ValueError('Unknown inventory source.')
     if not isinstance(rows, list):
         raise ValueError('Inventory payload must be a list of rows.')
@@ -552,6 +563,16 @@ def process_piece(cmd_id):
         router = cmd.router
         now = timezone.now()
         clean_rows = [_clean(x) for x in rows if isinstance(x, dict)]
+        if kind in SAMPLE_SOURCES:   # traffic samples: feed the Traffic report, never the snapshot or a sync job
+            from .traffic import dns_map_from_rows, ingest_connections
+            if kind == 'traffic_dns':
+                cache.set(f'tt:linkdns:{router.pk}', dns_map_from_rows(clean_rows), 900)
+            else:
+                ingest_connections(router, clean_rows, cache.get(f'tt:linkdns:{router.pk}') or {}, now)
+            params.update(received=True, row_count=len(clean_rows))
+            AgentCommand.objects.filter(pk=cmd.pk).update(params=params)
+            cache.delete(f'tt:agent-inventory-rows:{cmd.pk}')
+            return len(clean_rows)
         with transaction.atomic():
             RouterConfigSnapshot.objects.get_or_create(router=router)
             snap = RouterConfigSnapshot.objects.select_for_update().get(router=router)
