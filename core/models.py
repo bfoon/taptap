@@ -19,6 +19,7 @@ class Business(models.Model):
     hotspot_url=models.CharField(max_length=200,blank=True,help_text='e.g. http://wifi.local/login')
     support_phone=models.CharField(max_length=60,blank=True)
     email=models.EmailField(blank=True,help_text='Business email for notifications (blank = your login email)')
+    email_verified_at=models.DateTimeField(null=True,blank=True,help_text='When the owner proved the login email with a code')
     brand_color=models.CharField(max_length=20,default='#1769e0')
     logo_data=models.TextField(blank=True,help_text='Small logo as a data: URL')
     currency=models.CharField(max_length=8,default='D')
@@ -872,6 +873,41 @@ class Notification(models.Model):
     created_at=models.DateTimeField(auto_now_add=True,db_index=True)
     sent_at=models.DateTimeField(null=True,blank=True)
     class Meta: ordering=['-created_at']
+
+
+# ─────────────────────────────── Email verification & trusted devices ───────────────────────────────
+class EmailOTP(models.Model):
+    """A one-time code sent by email. Only an HMAC of the code is stored."""
+    PURPOSES=[('register','Create account'),('login','Sign in from a new device'),('email_change','Change business email')]
+    user=models.ForeignKey(User,on_delete=models.CASCADE,null=True,blank=True,related_name='email_otps')
+    email=models.EmailField(db_index=True)
+    purpose=models.CharField(max_length=20,choices=PURPOSES)
+    code_hash=models.CharField(max_length=64)
+    attempts=models.PositiveSmallIntegerField(default=0)
+    created_at=models.DateTimeField(auto_now_add=True)
+    expires_at=models.DateTimeField()
+    consumed_at=models.DateTimeField(null=True,blank=True)
+    ip_address=models.CharField(max_length=64,blank=True)
+    class Meta:
+        ordering=['-created_at']
+        indexes=[models.Index(fields=['email','purpose','created_at'],name='emailotp_lookup_idx')]
+
+
+class TrustedDevice(models.Model):
+    """A browser that verified an emailed code; signs in without a code for 30 days.
+    The cookie holds a random token; only its SHA-256 is stored."""
+    user=models.ForeignKey(User,on_delete=models.CASCADE,related_name='trusted_devices')
+    token_hash=models.CharField(max_length=64,unique=True)
+    label=models.CharField(max_length=120,blank=True)
+    user_agent=models.CharField(max_length=300,blank=True)
+    ip_address=models.CharField(max_length=64,blank=True)
+    created_at=models.DateTimeField(auto_now_add=True)
+    last_used_at=models.DateTimeField(default=timezone.now)
+    expires_at=models.DateTimeField()
+    revoked_at=models.DateTimeField(null=True,blank=True)
+    class Meta: ordering=['-last_used_at']
+    @property
+    def active(self): return not self.revoked_at and self.expires_at>timezone.now()
 
 
 # Registered here so Django loads it with the rest of the app's models.

@@ -1,7 +1,7 @@
 from django.shortcuts import redirect
 from django.urls import resolve, Resolver404
 class SubscriptionAccessMiddleware:
-    ALLOWED={'home','login','register','logout','subscription','subscription_select','api_subscription_warning','api_voucher_login'}
+    ALLOWED={'home','login','register','logout','verify_code','resend_code','cancel_verification','subscription','subscription_select','api_subscription_warning','api_voucher_login'}
     PREFIX_ALLOW=('/admin/','/static/','/api/','/p/')
     def __init__(self,get_response): self.get_response=get_response
     def __call__(self,request):

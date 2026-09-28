@@ -1,0 +1,33 @@
+{% extends 'core/base.html' %}{% block title %}{{ title }} — TapTap{% endblock %}{% block public_content %}
+<div class="auth-page"><div class="auth-card">
+  <a class="brand justify-content-center mb-4" href="/"><span class="brand-mark"><i class="bi bi-wifi"></i></span><span>TapTap</span></a>
+  <div class="otp-icon"><i class="bi bi-envelope-check"></i></div>
+  <h2>{{ title }}</h2>
+  <p>{{ intro }} It went to <b>{{ masked }}</b> and works for 10 minutes.</p>
+  {% for message in messages %}<div class="alert alert-{% if message.tags == 'error' %}danger{% elif message.tags %}{{ message.tags }}{% else %}info{% endif %} py-2 small">{{ message }}</div>{% endfor %}
+  <form method="post" id="otpForm">{% csrf_token %}
+    <label for="otpCode" class="visually-hidden">6-digit code</label>
+    <input class="form-control otp-input" id="otpCode" name="code" inputmode="numeric" pattern="[0-9 ]{6,7}" maxlength="7" autocomplete="one-time-code" placeholder="••••••" required autofocus>
+    {% if purpose != 'email_change' %}<label class="form-check mt-3 text-start"><input class="form-check-input" type="checkbox" name="remember" checked> <span class="form-check-label">Remember this device for {{ days }} days</span></label>{% endif %}
+    <button class="btn btn-primary w-100 mt-3" id="otpBtn">Verify</button>
+  </form>
+  <form method="post" action="{% url 'resend_code' %}" class="mt-3">{% csrf_token %}
+    <button class="btn btn-link p-0" id="resendBtn" {% if wait %}disabled{% endif %} data-wait="{{ wait }}">{% if wait %}Resend code in <span id="resendLeft">{{ wait }}</span> s{% else %}Didn't get it? Resend code{% endif %}</button>
+  </form>
+  <p class="small text-secondary mt-2 mb-0">Check your spam folder too. Codes come from TapTap and nobody from TapTap will ever ask you for one.</p>
+  <div class="auth-bottom"><a href="{% url 'cancel_verification' %}">{% if purpose == 'register' %}Use a different email{% elif purpose == 'login' %}Back to sign in{% else %}Keep my current email{% endif %}</a></div>
+</div></div>
+<style>
+.otp-icon{width:56px;height:56px;border-radius:16px;background:#eef4ff;color:#1769e0;display:grid;place-items:center;font-size:1.6rem;margin:0 auto .8rem}
+.otp-input{text-align:center;font-size:2rem;letter-spacing:.55em;font-weight:800;padding:.6rem .4rem .6rem .95rem;font-variant-numeric:tabular-nums}
+.otp-input::placeholder{color:#c8d1db}
+</style>
+<script>
+(function(){
+  var i=document.getElementById('otpCode'),f=document.getElementById('otpForm');
+  i.addEventListener('input',function(){var v=i.value.replace(/\D/g,'').slice(0,6);i.value=v;if(v.length===6){document.getElementById('otpBtn').disabled=true;document.getElementById('otpBtn').textContent='Checking…';f.submit();}});
+  var b=document.getElementById('resendBtn'),left=+b.dataset.wait;
+  if(left>0){var t=setInterval(function(){left--;var s=document.getElementById('resendLeft');if(s)s.textContent=left;if(left<=0){clearInterval(t);b.disabled=false;b.textContent="Didn't get it? Resend code";}},1000);}
+})();
+</script>
+{% endblock %}

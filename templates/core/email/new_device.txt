@@ -1,0 +1,10 @@
+{% autoescape off %}Hello {{ user.first_name|default:user.email }},
+
+Your TapTap account was just signed in on a new device, which is now trusted for {{ days }} days:
+
+  {{ dev.label }}{% if dev.ip_address %} — from {{ dev.ip_address }}{% endif %}
+  {{ dev.created_at|date:'D d M Y, H:i' }}
+
+If this was you, nothing to do. If not, change your password now and remove the device:
+{{ site }}/account/devices/
+{% endautoescape %}

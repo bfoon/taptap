@@ -924,9 +924,11 @@ def settings_view(request):
         business.wifi_ssid=f.get('wifi_ssid','').strip()[:80]
         business.hotspot_url=f.get('hotspot_url','').strip()[:200]
         business.support_phone=f.get('support_phone','').strip()[:60]
+        pending_email=None
         if 'business_email' in f:
-            em=f.get('business_email','').strip()
-            business.email=em if re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+',em) else ''
+            em=f.get('business_email','').strip().lower()
+            if not em: business.email=''                      # back to the login email
+            elif em!=(business.email or '').lower(): pending_email=em   # needs a code first
         business.currency=(f.get('currency','D').strip() or 'D')[:8]
         color=f.get('brand_color','#1769e0').strip()
         if re.fullmatch(r'#[0-9a-fA-F]{6}',color): business.brand_color=color
@@ -935,6 +937,10 @@ def settings_view(request):
         elif logo.startswith('data:image/') and len(logo)<400_000: business.logo_data=logo
         business.save()
         messages.success(request,'Settings saved. Portal pages and voucher designs use the new details straight away.')
+        if pending_email:
+            from .views_auth import start_email_change
+            resp=start_email_change(request,pending_email,'/settings/')
+            if resp: return resp
         return redirect('settings')
     return render(request,'core/settings.html')
 @login_required

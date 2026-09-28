@@ -138,3 +138,11 @@ LINK_SYNC_MINUTES = int(os.getenv('LINK_SYNC_MINUTES', '30'))
 
 CELERY_BEAT_SCHEDULE['taptap-notifications'] = {'task': 'core.tasks.deliver_notifications', 'schedule': 60.0, 'options': {'expires': 120}}
 CELERY_TASK_ROUTES['core.tasks.deliver_notifications'] = {'queue': 'live'}
+
+
+# ─── Sign-in security ───────────────────────────────────────────────────
+# Email codes at sign-up and on new devices; trusted devices skip the code for TRUSTED_DEVICE_DAYS.
+AUTH_EMAIL_OTP = env_bool('AUTH_EMAIL_OTP', True)
+TRUSTED_DEVICE_DAYS = int(os.getenv('TRUSTED_DEVICE_DAYS', '30'))
+# Reject addresses whose domain cannot receive mail (DNS MX lookup; skipped when DNS is unreachable).
+EMAIL_CHECK_DOMAIN = env_bool('EMAIL_CHECK_DOMAIN', True)

@@ -402,11 +402,16 @@ def notifications(request):
         s.quiet_start, s.quiet_end = t(request.POST.get('quiet_start')), t(request.POST.get('quiet_end'))
         s.events = {k: request.POST.get(f'ev_{k}') for k in EVENTS if request.POST.get(f'ev_{k}') in ('instant', 'digest', 'off')}
         s.save()
-        email = request.POST.get('business_email', '').strip()
-        if email != business.email:
-            business.email = email if '@' in email else ''
-            business.save(update_fields=['email'])
         messages.success(request, 'Notification settings saved.')
+        email = request.POST.get('business_email', '').strip().lower()
+        if not email and business.email:
+            business.email = ''
+            business.save(update_fields=['email'])
+        elif email and email != (business.email or '').lower():
+            from .views_auth import start_email_change
+            resp = start_email_change(request, email, '/notifications/')
+            if resp:
+                return resp
         return redirect('notifications')
     groups = {}
     for key, (label, help_, default, sev, group) in EVENTS.items():
