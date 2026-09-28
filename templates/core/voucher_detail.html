@@ -112,6 +112,7 @@
         {% if v.rate_limit %}<div><span>Speed</span><b>{{ v.rate_limit }}</b></div>{% endif %}
         <div><span>Origin</span><b>{{ v.get_source_display }}</b></div>
         {% if old_codes %}<div><span>Previous code{{ old_codes|length|pluralize }}</span><b>{% for a in old_codes %}<code class="text-decoration-line-through" title="Changed {{ a.changed_at|date:'d M Y H:i' }}{% if a.changed_by %} by {{ a.changed_by.get_full_name|default:a.changed_by.username }}{% endif %}{% if a.reason %} — {{ a.reason }}{% endif %}">{{ a.code }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}</b></div>{% endif %}
+        <div><span>Serial</span><b class="font-monospace">{% if v.serial %}{{ v.serial }}{% else %}{{ v.pk|stringformat:"06d" }}{% endif %}</b></div>
         <div><span>Batch</span><b>{{ v.batch.name|default:'—' }}</b></div>
         <div><span>Held by</span><b>{% if v.agent %}<a href="{% url 'agent_detail' v.agent_id %}">{{ v.agent.name }}</a>{% else %}Shop{% endif %}</b></div>
         {% if v.customer_name or v.customer_phone %}<div><span>Customer</span><b>{{ v.customer_name|default:'' }} {{ v.customer_phone|default:'' }}</b></div>{% endif %}

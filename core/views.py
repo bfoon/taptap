@@ -34,6 +34,7 @@ from .tasks import enqueue_router_sync
 from .utils import (generate_codes, code_format_from_post, code_format_ctx, describe_format, portal_code_length, CodeFormatError,
                     duration_to_routeros, log, code_search_q)
 from .portal_deploy import default_pages
+from . import serials
 
 import logging
 
@@ -125,7 +126,7 @@ def vouchers(request):
     if holder=='shop': qs=qs.filter(agent__isnull=True)
     elif holder=='individual': qs=qs.filter(batch__isnull=True,source='taptap')
     elif holder.isdigit(): qs=qs.filter(agent_id=holder)
-    if q: qs=qs.filter(code_search_q(q,'code',('batch__name','customer_name','customer_phone'),also_codes=('code_aliases__code',))).distinct()
+    if q: qs=qs.filter(code_search_q(q,'code',('batch__name','customer_name','customer_phone','serial'),also_codes=('code_aliases__code',))).distinct()
     counts=business.vouchers.aggregate(all=Count('id'),unsold=Count('id',filter=Q(status='active',sold_at__isnull=True,used_at__isnull=True)),
         sold=Count('id',filter=Q(sold_at__isnull=False,used_at__isnull=True)),used=Count('id',filter=Q(used_at__isnull=False)),disabled=Count('id',filter=~Q(status='active')&Q(frozen_at__isnull=True)),
         frozen=Count('id',filter=Q(frozen_at__isnull=False)))
@@ -142,7 +143,7 @@ def generate_vouchers(request):
     portal_len=portal_code_length(business)
     ctx={'plans':plans,'routers':routers,'designs':business.voucher_designs.all(),
          'agents':business.agents.filter(active=True),'owner':request.GET.get('agent',''),'methods':[m for m in PAYMENT_METHODS if m[0]!='auto'],
-         'cf':code_format_ctx(business)}
+         'cf':code_format_ctx(business),'sn':serials.settings_ctx(business)}
     if request.method=='POST':
         plan=get_object_or_404(plans,pk=request.POST.get('plan'))
         try: qty=max(1,min(500,int(request.POST.get('quantity','1'))))
@@ -152,14 +153,21 @@ def generate_vouchers(request):
         try:
             fmt=code_format_from_post(request.POST,business)
             codes=generate_codes(qty,fmt['length'],fmt['charset'],fmt['prefix'],fmt['suffix'],business)
-        except CodeFormatError as e:
-            messages.error(request,str(e)); ctx['cf']=code_format_ctx(business,request.POST)
+            P=request.POST
+            sfmt,sdig,sreset=serials.clean(P.get('serial_format',business.serial_format),P.get('serial_digits',business.serial_digits),P.get('serial_reset',business.serial_reset))
+            sstart=int(P['serial_start']) if (P.get('serial_start') or '').strip().isdigit() and int(P['serial_start'])>0 else None
+        except (CodeFormatError,serials.SerialError) as e:
+            messages.error(request,str(e)); ctx['cf']=code_format_ctx(business,request.POST); ctx['sn']=serials.settings_ctx(business,request.POST)
             return render(request,'core/generate_vouchers.html',ctx,status=400)
         with transaction.atomic():
+            if P.get('serial_save'):
+                business.serial_format,business.serial_digits,business.serial_reset=sfmt,sdig,sreset
+                business.save(update_fields=['serial_format','serial_digits','serial_reset'])
             batch=VoucherBatch.objects.create(business=business,name=batch_name,plan=plan,quantity=qty,note=request.POST.get('note','')[:255])
-            for c in codes:
-                Voucher.objects.create(business=business,batch=batch,router=router,code=c,plan_name=plan.name,price=plan.price,duration_minutes=plan.duration_minutes,max_devices=plan.max_devices,source='taptap')
-            log(business,'Voucher Generated',f'Batch {batch.name}: {qty} voucher(s), {describe_format(fmt)}'+(f' for {agent.name}' if agent else ''))
+            sns=serials.allocate(business,qty,fmt=sfmt,digits=sdig,reset=sreset,start=sstart,batch=batch,plan=plan.name)
+            for c,sn in zip(codes,sns):
+                Voucher.objects.create(business=business,batch=batch,router=router,code=c,serial=sn,plan_name=plan.name,price=plan.price,duration_minutes=plan.duration_minutes,max_devices=plan.max_devices,source='taptap')
+            log(business,'Voucher Generated',f'Batch {batch.name}: {qty} voucher(s), {describe_format(fmt)}, serials {sns[0]}–{sns[-1]}'+(f' for {agent.name}' if agent else ''))
             if agent:
                 from .finance import assign_batch
                 settlement=request.POST.get('settlement') if request.POST.get('settlement') in {'credit','prepaid'} else 'credit'
@@ -999,6 +1007,14 @@ def settings_view(request):
         business.currency=(f.get('currency','D').strip() or 'D')[:8]
         color=f.get('brand_color','#1769e0').strip()
         if re.fullmatch(r'#[0-9a-fA-F]{6}',color): business.brand_color=color
+        if 'serial_format' in f:
+            try:
+                business.serial_format,business.serial_digits,business.serial_reset=serials.clean(f.get('serial_format'),f.get('serial_digits'),f.get('serial_reset'))
+                st=(f.get('serial_next') or '').strip()
+                if st.isdigit() and int(st)>0 and business.serial_reset!='batch':
+                    c=dict(business.serial_counters or {}); c[serials.period_key(business.serial_reset)]=int(st)-1; business.serial_counters=c
+            except serials.SerialError as e:
+                messages.error(request,str(e)); return redirect('settings')
         logo=f.get('logo_data','')
         if f.get('remove_logo'): business.logo_data=''
         elif logo.startswith('data:image/') and len(logo)<400_000: business.logo_data=logo
@@ -1010,7 +1026,7 @@ def settings_view(request):
             resp=start_email_change(request,pending_email,'/settings/')
             if resp: return resp
         return redirect('settings')
-    return render(request,'core/settings.html')
+    return render(request,'core/settings.html',{'sn':serials.settings_ctx(business)})
 @login_required
 def support(request): return render(request,'core/support.html')
 

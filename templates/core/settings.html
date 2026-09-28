@@ -21,6 +21,13 @@
   <input type="hidden" name="logo_data" id="logoData">
   <label class="mt-3">Brand colour</label><div class="d-flex gap-2 align-items-center"><input type="color" class="form-control form-control-color" name="brand_color" value="{{ current_business.brand_color }}" aria-label="Brand colour"><small class="text-secondary">Used as a one-click palette in the Portal Studio.</small></div>
   <button class="btn btn-primary mt-4 w-100">Save settings</button>
+</div></div>
+<div class="col-12"><div class="panel form-panel"><h3>Voucher serial numbers</h3><p>How the serial number printed on each voucher looks and counts. You can also change it for one batch on the Generate page.</p>
+  {% include "core/partials/serial_format.html" with sn_title="Default pattern" %}
+  <div class="row g-3 mt-1"><div class="col-md-4"><label class="small">Next running number <span class="text-secondary fw-normal">(optional)</span></label>
+    <input class="form-control" type="number" min="1" name="serial_next" placeholder="Now: {{ sn.next }}" aria-label="Next running number">
+    <small class="text-secondary">Leave empty to carry on. A lower number may repeat serials already printed.</small></div></div>
+  <button class="btn btn-primary mt-3">Save</button>
 </div></div></form>
 <div class="row g-4 mt-1"><div class="col-xl-7"><div class="panel"><div class="panel-head"><div><h3>Team &amp; security</h3><p>Give staff their own logins with limited access, and keep your own password safe.</p></div></div>
   <div class="d-flex gap-2 flex-wrap">{% if 'team.manage' in tt_perms %}<a class="btn btn-outline-primary" href="{% url 'team' %}"><i class="bi bi-person-badge"></i> Manage team accounts</a>{% endif %}

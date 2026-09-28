@@ -425,7 +425,7 @@ def voucher_print_rows(business, qs):
         rows.append({'code': v.code, 'plan': v.plan_name, 'price': _money(v.price or (p.price if p else 0)), 'duration': duration_text(v.duration_minutes),
                      'free': bool(p and p.is_free and not v.price),
                      'devices': f'{v.max_devices} device{"s" if v.max_devices != 1 else ""}', 'speed': (p.speed_limit if p and p.speed_limit else 'Full speed'),
-                     'data': (f'{p.data_limit_mb} MB' if p and p.data_limit_mb else 'Unlimited'), 'serial': f'{v.pk:06d}',
+                     'data': (f'{p.data_limit_mb} MB' if p and p.data_limit_mb else 'Unlimited'), 'serial': v.serial or f'{v.pk:06d}',
                      'batch': v.batch.name if v.batch else '', 'created': timezone.localtime(v.created_at).strftime('%d %b %Y')})
     return rows
 

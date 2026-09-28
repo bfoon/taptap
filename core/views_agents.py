@@ -147,7 +147,8 @@ def single_voucher(request):
         ctx['form'] = f; ctx['cf'] = code_format_ctx(business, f); ctx['code_mode'] = code_mode
         return render(request, 'core/single_voucher.html', ctx, status=400)
     with transaction.atomic():
-        v = Voucher.objects.create(business=business, router=router, code=code or generate_code(fmt['length'], fmt['charset'], fmt['prefix'], fmt['suffix'], business), plan_name=plan_name, price=price,
+        from .serials import allocate as _serials
+        v = Voucher.objects.create(business=business, router=router, serial=_serials(business, 1, plan=plan_name)[0], code=code or generate_code(fmt['length'], fmt['charset'], fmt['prefix'], fmt['suffix'], business), plan_name=plan_name, price=price,
                                    duration_minutes=minutes, max_devices=devices, rate_limit=rate, source='taptap', agent=agent,
                                    customer_name=name, customer_phone=phone, note=(f.get('note') or '')[:255])
         if f.get('paid'):

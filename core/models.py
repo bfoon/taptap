@@ -22,6 +22,11 @@ class Business(models.Model):
     email_verified_at=models.DateTimeField(null=True,blank=True,help_text='When the owner proved the login email with a code')
     brand_color=models.CharField(max_length=20,default='#1769e0')
     logo_data=models.TextField(blank=True,help_text='Small logo as a data: URL')
+    # Voucher serial numbers — see core/serials.py
+    serial_format=models.CharField(max_length=60,default='{n}',help_text='Pattern, e.g. KN-{yy}{mm}-{n}')
+    serial_digits=models.PositiveSmallIntegerField(default=6)
+    serial_reset=models.CharField(max_length=10,default='never',choices=[('never','Never — one running number'),('yearly','Every year'),('monthly','Every month'),('daily','Every day'),('batch','Every batch (1, 2, 3… per batch)')])
+    serial_counters=models.JSONField(default=dict,blank=True,help_text='Last number used per period')
     currency=models.CharField(max_length=8,default='D')
     # Finance
     monthly_revenue_target=models.DecimalField(max_digits=12,decimal_places=2,default=0)
@@ -186,6 +191,7 @@ class Voucher(models.Model):
     rate_limit=models.CharField(max_length=50,blank=True,help_text='Speed for a custom voucher with no plan, e.g. 5M/5M')
     mikrotik_sync_status=models.CharField(max_length=30,default='Pending')
     mikrotik_sync_error=models.TextField(blank=True)
+    serial=models.CharField(max_length=60,blank=True,db_index=True,help_text='Printed serial number (set when the voucher is created)')
     created_at=models.DateTimeField(auto_now_add=True)
     # Recycle bin: a deleted voucher keeps its code forever (it can never be issued again).
     deleted_at=models.DateTimeField(null=True,blank=True,db_index=True)

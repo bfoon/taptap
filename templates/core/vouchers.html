@@ -68,7 +68,7 @@
       style="max-width:220px"
       name="q"
       value="{{ q }}"
-      placeholder="Code or batch · C* *C *C*"
+      placeholder="Code, serial or batch · C* *C *C*"
       title="Use * in a code: C* starts with C, *C ends with C, *C* contains C"
       aria-label="Search vouchers"
     >
@@ -239,6 +239,7 @@
                 {{ v.code }}
               </code>
             </a>
+            {% if v.serial %}<small class="d-block text-secondary font-monospace" title="Serial number">#{{ v.serial }}</small>{% endif %}
           </td>
 
 

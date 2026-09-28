@@ -6,6 +6,7 @@
 <label>MikroTik router</label><select class="form-select" name="router"><option value="">Create locally only</option>{% for r in routers %}<option value="{{ r.id }}">{{ r.name }} — {% if r.connection_mode == 'agent' %}TapTap Link{% else %}{{ r.ip_address }}{% endif %}</option>{% endfor %}</select>
 
 <div class="border rounded-3 p-3 mt-4">{% include "core/partials/code_format.html" %}</div>
+<div class="border rounded-3 p-3 mt-3">{% include "core/partials/serial_format.html" with sn_generate=True %}</div>
 <label class="mt-3">Who is this batch for?</label>
 <select class="form-select" name="owner" id="owner"><option value="">The shop — my own stock</option>{% for a in agents %}<option value="{{ a.id }}" data-comm="{{ a.commission_percent }}" {% if owner == a.id|stringformat:'s' %}selected{% endif %}>{{ a.name }}{% if a.location %} · {{ a.location }}{% endif %} ({{ a.commission_percent|pct }}% commission)</option>{% endfor %}</select>
 {% if not agents %}<small class="text-secondary">Add agents under <a href="{% url 'finance' %}?tab=agents">Finance → Agents &amp; cash</a> to hand batches to resellers.</small>{% endif %}
