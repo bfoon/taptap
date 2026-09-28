@@ -15,7 +15,7 @@ from .finance import agent_balances, assign_batch, record_sale, PAYMENT_METHODS,
 from .mikrotik import MikroTikService
 from .models import Voucher, VoucherBatch
 from .durations import router_limit, to_minutes
-from .utils import generate_code, log, voucher_profile
+from .utils import generate_code, log, voucher_profile, code_format_ctx, code_format_from_post, CodeFormatError
 from .views_studio import duration_text, business_ctx, _safe_json, voucher_print_rows
 
 
@@ -102,6 +102,7 @@ def single_voucher(request):
     ctx['recent'] = business.vouchers.filter(batch__isnull=True, source='taptap').filter(Q(customer_name__gt='') | Q(customer_phone__gt='')).order_by('-created_at')[:8]
     if request.method != 'POST':
         ctx['form'] = {'plan': request.GET.get('plan', ''), 'mode': 'plan', 'paid': '1'}
+        ctx['cf'] = code_format_ctx(business); ctx['code_mode'] = 'random'
         return render(request, 'core/single_voucher.html', ctx)
     f = request.POST; errors = []
     mode = 'custom' if f.get('mode') == 'custom' else 'plan'
@@ -127,7 +128,14 @@ def single_voucher(request):
         if rate and not re.fullmatch(r'\d+[kKmM]?(/\d+[kKmM]?)?', rate):
             errors.append('Speed looks wrong — use a form like 5M/5M or 2M.')
         plan_name = (f.get('custom_name') or '').strip()[:80] or f'Custom {duration_text(minutes)}'
-    code = re.sub(r'[\s-]', '', (f.get('code') or '')).upper()
+    code_mode = f.get('code_mode') or ('own' if (f.get('code') or '').strip() else 'random')
+    code = re.sub(r'[\s-]', '', (f.get('code') or '')).upper() if code_mode == 'own' else ''
+    fmt = None
+    if code_mode == 'own' and not code:
+        errors.append('Type your own code, or switch to a random code.')
+    elif code_mode == 'random':
+        try: fmt = code_format_from_post(f, business)
+        except CodeFormatError as exc: errors.append(str(exc))
     if code:
         if not CODE_RE.fullmatch(code): errors.append('A custom code must be 4–20 letters or numbers.')
         elif Voucher.objects.filter(code__iexact=code).exists(): errors.append(f'The code {code} is already taken. Try another, or leave it blank for a random one.')
@@ -136,10 +144,10 @@ def single_voucher(request):
     agent = business.agents.filter(pk=f.get('agent') or 0).first()
     if errors:
         for e in errors: messages.error(request, e)
-        ctx['form'] = f
+        ctx['form'] = f; ctx['cf'] = code_format_ctx(business, f); ctx['code_mode'] = code_mode
         return render(request, 'core/single_voucher.html', ctx, status=400)
     with transaction.atomic():
-        v = Voucher.objects.create(business=business, router=router, code=code or generate_code(business=business), plan_name=plan_name, price=price,
+        v = Voucher.objects.create(business=business, router=router, code=code or generate_code(fmt['length'], fmt['charset'], fmt['prefix'], fmt['suffix'], business), plan_name=plan_name, price=price,
                                    duration_minutes=minutes, max_devices=devices, rate_limit=rate, source='taptap', agent=agent,
                                    customer_name=name, customer_phone=phone, note=(f.get('note') or '')[:255])
         if f.get('paid'):

@@ -34,8 +34,11 @@
       <div class="col-sm-6"><label class="form-label small fw-bold">Name on the voucher</label><input class="form-control" name="custom_name" value="{{ form.custom_name|default:'' }}" placeholder="e.g. Guest room 4"></div>
       <div class="col-sm-6"><label class="form-label small fw-bold">Price ({{ c }})</label><input class="form-control" type="number" step="0.01" min="0" name="price" id="customPrice" value="{{ form.price|default:'' }}" placeholder="0 for free"></div></div></div></div>
 
-  <div class="sv-section"><h4>Code</h4><div class="row g-2 align-items-end"><div class="col-sm-6"><input class="form-control font-monospace code-in" name="code" value="{{ form.code|default:'' }}" placeholder="Leave blank for a random code" maxlength="24" autocomplete="off" aria-label="Code"></div>
-    <div class="col-sm-6"><small class="text-secondary">Type your own (4–20 letters or numbers), e.g. <code>AWA2026</code> — easy to remember and to say over the phone.</small></div></div></div>
+  <div class="sv-section"><h4>Code</h4>
+    <div class="seg-mode"><label><input type="radio" name="code_mode" value="random" {% if code_mode != 'own' %}checked{% endif %}>Random code</label><label><input type="radio" name="code_mode" value="own" {% if code_mode == 'own' %}checked{% endif %}>My own code</label></div>
+    <div data-codemode="random">{% include "core/partials/code_format.html" with cf_title="Random code format" %}</div>
+    <div data-codemode="own" hidden><div class="row g-2 align-items-end"><div class="col-sm-6"><input class="form-control font-monospace code-in" name="code" value="{{ form.code|default:'' }}" placeholder="e.g. AWA2026" maxlength="24" autocomplete="off" aria-label="Code"></div>
+      <div class="col-sm-6"><small class="text-secondary">Type your own (4–20 letters or numbers) — easy to remember and to say over the phone.</small></div></div></div></div>
 
   <div class="sv-section"><h4>Where and how it’s paid</h4><div class="row g-2">
     <div class="col-sm-6"><label class="form-label small fw-bold">Router</label><select class="form-select" name="router">{% for r in routers %}<option value="{{ r.id }}" {% if forloop.first %}selected{% endif %}>{{ r.name }}</option>{% endfor %}<option value="">Don’t send to a router yet</option></select><small class="text-secondary">Sent to the router straight away.</small></div>
@@ -58,7 +61,10 @@
 const dur=m=>{const n=(v,w)=>v+' '+w+(v==1?'':'s');if(m%43200===0)return n(m/43200,'month');if(m%1440===0){const d=m/1440;return d%7===0&&d<28?n(d/7,'week'):n(d,'day');}if(m%60===0)return n(m/60,'hour');if(m<60)return n(m,'minute');return n(Math.floor(m/60),'hour')+' '+n(m%60,'minute');};
 function upd(){const mode=f.querySelector('input[name=mode]:checked').value;f.querySelectorAll('[data-mode]').forEach(x=>{x.hidden=x.dataset.mode!==mode;x.querySelectorAll('input,select').forEach(i=>i.disabled=x.hidden);});
  f.querySelectorAll('[data-paid]').forEach(x=>x.hidden=!f.elements.paid.checked);
- const code=(f.elements.code.value||'').replace(/[\s-]/g,'').toUpperCase();$('pvCode').textContent=code?code.replace(/(.{4})(?=.)/g,'$1 '):'•••• ••••';
+ const cm=f.querySelector('input[name=code_mode]:checked').value;f.querySelectorAll('[data-codemode]').forEach(x=>x.hidden=x.dataset.codemode!==cm);
+ const cfBox=f.querySelector('.code-fmt');if(cm==='random'&&cfBox&&cfBox.codeFmtUpdate)cfBox.codeFmtUpdate();
+ const code=cm==='own'?(f.elements.code.value||'').replace(/[\s-]/g,'').toUpperCase():((cfBox&&cfBox.querySelector('[data-ex]').textContent.replace('—',''))||'');
+ $('pvCode').textContent=code?(code.length%4===0&&code.length>=8?code.replace(/(.{4})(?=.)/g,'$1 '):code):'•••• ••••';
  $('pvWho').textContent=f.elements.customer_name.value?'For '+f.elements.customer_name.value:'For a customer';
  if(mode==='plan'){const p=f.querySelector('input[name=plan]:checked');if(p){$('pvPlan').textContent=p.dataset.name;$('pvDur').textContent=dur(+p.dataset.minutes);$('pvDev').textContent=p.dataset.devices;$('pvPrice').textContent=cur+($('planPrice').value||p.dataset.price);}}
  else{const h=(+f.elements.duration_value.value||1)*({minutes:1,hours:60,days:1440,months:43200}[f.elements.duration_unit.value]||1440);$('pvPlan').textContent=f.elements.custom_name.value||'Custom';$('pvDur').textContent=dur(h);$('pvDev').textContent=f.elements.devices.value+(f.elements.rate_limit.value?' · '+f.elements.rate_limit.value:'');$('pvPrice').textContent=cur+($('customPrice').value||'0');}}

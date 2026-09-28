@@ -135,3 +135,21 @@ def voucher_profile(voucher, plan=None):
     rate = (voucher.rate_limit or '').strip()
     safe = ''.join(ch if ch.isalnum() else '-' for ch in rate).strip('-')
     return f'taptap-{voucher.max_devices}dev' + (f'-{safe}' if safe else ''), voucher.max_devices, rate
+
+
+def code_format_ctx(business, data=None):
+    """Context for templates/core/partials/code_format.html. `data` re-fills the form after an error."""
+    from .portal_deploy import default_pages
+    portal_len = portal_code_length(business)
+    data = data or {}
+    charset = data.get('code_charset') if data.get('code_charset') in CODE_CHARSETS else 'mixed'
+    return {'portal_len': portal_len, 'has_portal': 'login' in default_pages(business), 'formats': CODE_FORMATS,
+            'len_min': CODE_LENGTH_MIN, 'len_max': CODE_LENGTH_MAX, 'affix_max': CODE_AFFIX_MAX, 'random_min': CODE_RANDOM_MIN,
+            'form': {'code_length': data.get('code_length') or portal_len, 'code_charset': charset,
+                     'code_prefix': clean_affix(data.get('code_prefix')), 'code_suffix': clean_affix(data.get('code_suffix'))}}
+
+
+def code_format_from_post(post, business):
+    """Validated code format from a submitted form (raises CodeFormatError)."""
+    return code_format(post.get('code_length') or None, post.get('code_charset', 'mixed'),
+                       post.get('code_prefix', ''), post.get('code_suffix', ''), business)

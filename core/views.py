@@ -31,8 +31,8 @@ from .security import audit_business, summarize
 from .mikrotik import MikroTikService, MikroTikError, redact
 from .sync import sync_router, refresh_router_topology, snapshot_from_database
 from .tasks import enqueue_router_sync
-from .utils import (generate_codes, code_format, describe_format, portal_code_length, CodeFormatError,
-                    CODE_FORMATS, CODE_LENGTH_MIN, CODE_LENGTH_MAX, CODE_AFFIX_MAX, CODE_RANDOM_MIN, duration_to_routeros, log)
+from .utils import (generate_codes, code_format_from_post, code_format_ctx, describe_format, portal_code_length, CodeFormatError,
+                    duration_to_routeros, log)
 from .portal_deploy import default_pages
 
 import logging
@@ -140,9 +140,7 @@ def generate_vouchers(request):
     portal_len=portal_code_length(business)
     ctx={'plans':plans,'routers':routers,'designs':business.voucher_designs.all(),
          'agents':business.agents.filter(active=True),'owner':request.GET.get('agent',''),'methods':[m for m in PAYMENT_METHODS if m[0]!='auto'],
-         'portal_len':portal_len,'has_portal':'login' in default_pages(business),'code_formats':CODE_FORMATS,
-         'len_min':CODE_LENGTH_MIN,'len_max':CODE_LENGTH_MAX,'affix_max':CODE_AFFIX_MAX,'random_min':CODE_RANDOM_MIN,
-         'form':{'code_length':portal_len,'code_charset':'mixed','code_prefix':'','code_suffix':''}}
+         'cf':code_format_ctx(business)}
     if request.method=='POST':
         plan=get_object_or_404(plans,pk=request.POST.get('plan'))
         try: qty=max(1,min(500,int(request.POST.get('quantity','1'))))
@@ -150,11 +148,10 @@ def generate_vouchers(request):
         router=routers.filter(pk=request.POST.get('router')).first(); batch_name=request.POST.get('batch_name','').strip() or f'{plan.name} {timezone.localtime():%Y-%m-%d %H:%M}'
         agent=business.agents.filter(pk=request.POST.get('owner') or 0).first()
         try:
-            fmt=code_format(request.POST.get('code_length') or portal_len,request.POST.get('code_charset','mixed'),
-                            request.POST.get('code_prefix',''),request.POST.get('code_suffix',''),business)
+            fmt=code_format_from_post(request.POST,business)
             codes=generate_codes(qty,fmt['length'],fmt['charset'],fmt['prefix'],fmt['suffix'],business)
         except CodeFormatError as e:
-            messages.error(request,str(e)); ctx['form']=request.POST
+            messages.error(request,str(e)); ctx['cf']=code_format_ctx(business,request.POST)
             return render(request,'core/generate_vouchers.html',ctx,status=400)
         with transaction.atomic():
             batch=VoucherBatch.objects.create(business=business,name=batch_name,plan=plan,quantity=qty,note=request.POST.get('note','')[:255])

@@ -1,0 +1,55 @@
+{# Voucher code format picker: token size, characters, prefix, suffix. Needs the context from utils.code_format_ctx(). #}
+<div class="code-fmt" data-portal="{{ cf.portal_len }}" data-has-portal="{{ cf.has_portal|yesno:'1,0' }}" data-min="{{ cf.len_min }}" data-max="{{ cf.len_max }}" data-rmin="{{ cf.random_min }}">
+  <div class="d-flex justify-content-between align-items-baseline flex-wrap gap-2"><label class="m-0 fw-bold">{{ cf_title|default:"Voucher code" }}</label>
+    <small class="text-secondary">{% if cf.has_portal %}Your customer portal shows <b>{{ cf.portal_len }}</b> letter boxes{% else %}No customer portal yet — {{ cf.portal_len }} characters by default{% endif %}</small></div>
+  <div class="row g-3 mt-0">
+    <div class="col-md-5"><label class="small">Token size <span class="text-secondary fw-normal">(characters typed)</span></label>
+      <input class="form-control" type="number" name="code_length" min="{{ cf.len_min }}" max="{{ cf.len_max }}" step="1" value="{{ cf.form.code_length|default:cf.portal_len }}" aria-label="Token size">
+      <div class="d-flex flex-wrap gap-1 mt-2" data-chips></div></div>
+    <div class="col-md-7"><label class="small">Characters</label>
+      <div class="btn-group w-100 flex-wrap" role="group" aria-label="Characters">{% for k,l in cf.formats %}
+        <input type="radio" class="btn-check" name="code_charset" id="cs-{{ k }}" value="{{ k }}" {% if cf.form.code_charset == k %}checked{% endif %}>
+        <label class="btn btn-outline-secondary btn-sm" for="cs-{{ k }}">{{ l }}</label>{% endfor %}</div></div>
+    <div class="col-6"><label class="small">Prefix <span class="text-secondary fw-normal">(optional)</span></label>
+      <input class="form-control text-uppercase" name="code_prefix" maxlength="{{ cf.affix_max }}" placeholder="e.g. TT" value="{{ cf.form.code_prefix|default:'' }}" autocomplete="off" aria-label="Prefix"></div>
+    <div class="col-6"><label class="small">Suffix <span class="text-secondary fw-normal">(optional)</span></label>
+      <input class="form-control text-uppercase" name="code_suffix" maxlength="{{ cf.affix_max }}" placeholder="e.g. 26" value="{{ cf.form.code_suffix|default:'' }}" autocomplete="off" aria-label="Suffix"></div>
+  </div>
+  <div class="mt-3 p-2 rounded-3 bg-light d-flex flex-wrap align-items-center gap-2">
+    <span class="small text-secondary">Example</span><code class="fs-5 fw-bold text-dark" data-ex style="letter-spacing:.12em"></code><small class="ms-auto" data-info></small>
+  </div>
+  <small class="d-block mt-2" data-warn role="status"></small>
+  <small class="text-secondary d-block mt-1">The token size counts every character, prefix and suffix included — exactly what the customer types. Letters-and-numbers codes skip look-alikes (0/O, 1/I).</small>
+</div>
+<script>
+(function(){
+  const box=document.currentScript.previousElementSibling,f=box.closest('form'),D=box.dataset;
+  const PORTAL=+D.portal,HAS_PORTAL=D.hasPortal==='1',MIN=+D.min,MAX=+D.max,RMIN=+D.rmin;
+  const SETS={mixed:'ABCDEFGHJKLMNPQRSTUVWXYZ23456789',letters:'ABCDEFGHJKLMNPQRSTUVWXYZ',numbers:'0123456789'};
+  const q=s=>box.querySelector(s),len=q('[name=code_length]'),pre=q('[name=code_prefix]'),suf=q('[name=code_suffix]'),ex=q('[data-ex]'),info=q('[data-info]'),warn=q('[data-warn]'),chips=q('[data-chips]');
+  chips.innerHTML=[4,5,6,7,8,10,12].map(n=>`<button type="button" class="btn btn-sm ${n===PORTAL?'btn-outline-primary':'btn-outline-secondary'}" data-n="${n}">${n}${n===PORTAL&&HAS_PORTAL?' · portal':''}</button>`).join('');
+  chips.onclick=e=>{const b=e.target.closest('button[data-n]');if(b){len.value=b.dataset.n;upd();}};
+  const clean=el=>{const v=el.value.replace(/[^A-Za-z0-9]/g,'').toUpperCase();if(v!==el.value)el.value=v;return v;};
+  const rnd=(a,n)=>{let s='';const b=new Uint32Array(n);crypto.getRandomValues(b);for(let i=0;i<n;i++)s+=a[b[i]%a.length];return s;};
+  let last='';
+  function upd(){
+    if(box.closest('[hidden]'))return;
+    const cs=(box.querySelector('input[name=code_charset]:checked')||{}).value||'mixed',p=clean(pre),x=clean(suf),n=+len.value||0,r=n-p.length-x.length,
+          qty=(f&&f.elements.quantity?+f.elements.quantity.value:1)||1;
+    [].forEach.call(chips.children,b=>b.classList.toggle('active',+b.dataset.n===n));
+    warn.className='d-block mt-2';warn.textContent='';
+    if(n<MIN||n>MAX){ex.textContent='—';info.textContent='';warn.classList.add('text-danger');warn.textContent=`Token size must be between ${MIN} and ${MAX}.`;return;}
+    if(r<RMIN){ex.textContent='—';info.textContent='';warn.classList.add('text-danger');warn.textContent=`The prefix and suffix leave ${Math.max(r,0)} random character(s) — keep at least ${RMIN}.`;return;}
+    const key=cs+n+p+x;
+    if(key!==last){last=key;let body=rnd(SETS[cs],r);if(cs==='mixed'&&r>=2&&!(/\d/.test(body)&&/[A-Z]/.test(body)))body=body.slice(0,-2)+'7K';
+      ex.innerHTML=(p?`<span class="text-primary">${p}</span>`:'')+body+(x?`<span class="text-primary">${x}</span>`:'');}
+    const combos=Math.pow(SETS[cs].length,r);
+    info.textContent=`${n} characters · ${combos>=1e9?'billions of':combos.toLocaleString()} possible codes`;
+    if(qty*3>combos){warn.classList.add('text-danger');warn.textContent=`Too few possible codes for ${qty} voucher${qty===1?'':'s'} — use a bigger token or add letters.`;}
+    else if(combos<1e6){warn.classList.add('text-warning-emphasis');warn.textContent='Short codes are easy to guess. Fine for low-value vouchers; use 6+ characters for longer plans.';}
+    else if(HAS_PORTAL&&n!==PORTAL){warn.classList.add('text-warning-emphasis');warn.textContent=`Your customer portal shows ${PORTAL} letter boxes. Codes will still work, but change the boxes to ${n} in Portal Studio so they match.`;}
+  }
+  box.codeFmtUpdate=upd;
+  (f||box).addEventListener('input',upd);(f||box).addEventListener('change',upd);upd();
+})();
+</script>
