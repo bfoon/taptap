@@ -160,21 +160,31 @@ def send_function():
 
 
 def inventory_piece_script(cmd, url, check, nonce_value):
-    """RouterOS body for one table. The menu path is a trusted literal from SOURCES."""
+    """RouterOS body for one table.
+
+    RouterOS print filters belong after ``print as-value``.  Keeping the resource
+    path and the optional ``where`` expression separate is important for periodic
+    traffic samples such as /ip/firewall/connection.
+    """
     kind = str((cmd.params or {}).get('kind', ''))
     src = source(kind)
     if not src:
         raise ValueError(f'Unknown inventory source: {kind}')
-    menu = src['path'] + (f' where {src["where"]}' if src.get('where') else '')  # trusted literals only
+
+    menu = src['path']
+    where = f' where {src["where"]}' if src.get('where') else ''
     upload = f'{url}/api/agent/v1/inventory?c={cmd.pk}&n={nonce_value}'
-    # The menu is compiled at run time with :parse. Written directly, a menu this
-    # router does not have (e.g. /interface/wifi without the wifi package, /routing/table
-    # on RouterOS 6) is a *syntax* error: RouterOS rejects the whole batch script before
-    # running it and on-error never fires, so every table in that batch silently vanished.
-    # Through :parse it is an ordinary run-time error: caught, and uploaded as an empty table.
-    return (f':local rows [:toarray ""]; '
-            f':do {{ :set rows [[:parse ":return [{menu} print as-value]"]] }} on-error={{ :set rows [:toarray ""] }}; '
-            f'$ttSend rows=$rows u={_rs(upload)} chk="{check}"')
+
+    # Compile the RouterOS command at run time so optional menus missing on a
+    # particular RouterOS version become a caught run-time error instead of
+    # invalidating the entire returned command batch.
+    command = f'{menu} print as-value{where}'
+    return (
+        f':local rows [:toarray ""]; '
+        f':do {{ :set rows [[:parse ":return [{command}]"]] }} '
+        f'on-error={{ :set rows [:toarray ""] }}; '
+        f'$ttSend rows=$rows u={_rs(upload)} chk="{check}"'
+    )
 
 
 def parse_text_rows(body):
@@ -206,7 +216,6 @@ def start_agent_inventory_sync(job):
     if not agent or agent.revoked:
         raise ValueError('TapTap Link is not enrolled for this router.')
 
-    # Do not allow old inventory commands to mix with a new full synchronization.
     router.agent_commands.filter(kind='inventory_piece', status__in=['queued', 'sent']).update(
         status='cancelled', done_at=timezone.now(), result='Superseded by a newer full synchronization'
     )
@@ -440,7 +449,7 @@ def _topology_with_alerts(router, snap, now, job):
     before = online_snapshot(router)
     _rebuild_topology_and_analysis(router, snap, now)
     try:
-        apply_changes(router, before, online_snapshot(router))   # device offline alerts for Link routers
+        apply_changes(router, before, online_snapshot(router))
     except Exception as exc:
         job.summary = _merge_summary(job.summary, {'errors': [f'Device alerts: {exc}']})
     job.summary['topology_digest'] = digest
@@ -496,8 +505,6 @@ def _rebuild_topology_and_analysis(router, snap, now, topology=True):
         ))
         snap.save(update_fields=['load_balancing', 'updated_at'])
     except Exception:
-        # The raw snapshot remains useful even if a particular RouterOS version
-        # returns fields the WAN analyzer does not understand.
         pass
 
 
@@ -539,7 +546,7 @@ def receive_inventory_chunk(cmd, rows, part=0, final=False):
     try:
         process_inventory_piece.delay(cmd.pk)
     except Exception:
-        process_piece(cmd.pk)  # no worker available: process here
+        process_piece(cmd.pk)
     return {'accepted': len(rows), 'complete': True, 'queued_for_processing': True}
 
 
@@ -563,7 +570,7 @@ def process_piece(cmd_id):
         router = cmd.router
         now = timezone.now()
         clean_rows = [_clean(x) for x in rows if isinstance(x, dict)]
-        if kind in SAMPLE_SOURCES:   # traffic samples: feed the Traffic report, never the snapshot or a sync job
+        if kind in SAMPLE_SOURCES:
             from .traffic import dns_map_from_rows, ingest_connections
             if kind == 'traffic_dns':
                 cache.set(f'tt:linkdns:{router.pk}', dns_map_from_rows(clean_rows), 900)
@@ -623,8 +630,6 @@ def _record_piece(router, job_id, piece_summary):
         job.phase = f'TapTap Link inventory: {done}/{len(pieces)} sections'
         finished = pieces and done >= len(pieces)
         if not finished:
-            # Show the network map as soon as its own tables are in, instead of
-            # waiting for every configuration section.
             if not job.summary.get('topology_built'):
                 accounted = {(c.params or {}).get('kind') for c in received + failed}
                 if (TOPOLOGY_KINDS - OPTIONAL_KINDS) <= accounted:
@@ -642,7 +647,7 @@ def _record_piece(router, job_id, piece_summary):
                 _topology_with_alerts(router, snap, now, job)
             except Exception as exc:
                 job.summary = _merge_summary(job.summary, {'errors': [f'Topology rebuild: {exc}']})
-        if not received:  # nothing arrived at all: not a sync, let the next one retry
+        if not received:
             job.status, job.finished_at = 'failed', now
             job.phase = 'No RouterOS data arrived (router offline or busy) — will retry automatically'
             job.save(update_fields=['status', 'phase', 'summary', 'finished_at', 'updated_at'])
@@ -651,8 +656,17 @@ def _record_piece(router, job_id, piece_summary):
         job.phase = 'Synchronization complete through TapTap Link' + (f' ({len(failed)} section(s) not available on this router)' if failed else '')
         job.summary['config_sections'] = len((snap.sections if snap else {}) or {})
         job.save(update_fields=['status', 'progress', 'phase', 'summary', 'finished_at', 'updated_at'])
-    Router.objects.filter(pk=router.pk).update(status='Online', last_error='', last_tested_at=now, last_watch_at=now,
-                                               connection_mode='agent', ip_address='', username='', password='', use_ssl=False)
+    Router.objects.filter(pk=router.pk).update(
+        status='Online',
+        last_error='',
+        last_tested_at=now,
+        last_watch_at=now,
+        connection_mode='agent',
+        ip_address='',
+        username='',
+        password='',
+        use_ssl=False,
+    )
     if not router.sales_baseline_at:
         Router.objects.filter(pk=router.pk, sales_baseline_at__isnull=True).update(sales_baseline_at=now)
     log(router.business, 'Router Sync', f'{router.name}: full inventory synchronized through TapTap Link')
@@ -667,45 +681,50 @@ def inventory_command_ack(cmd, ok):
     _record_piece(cmd.router, params.get('job_id'), {'errors': [f'{label}: {cmd.result or "not available on this router"}']})
 
 
-# How long a Link sync may go without receiving any table before it is settled
-# with what arrived. Longer than ACK_WAIT['inventory_piece'] (600 s) so a slow
-# router that is still uploading one very large table is never cut short.
 STALL_MINUTES = 12
 
 
 def settle_stalled_jobs(router=None):
-    """Finish Link syncs that stopped making progress.
-
-    Tables that will never arrive (router rebooted mid-sync, batch lost, command
-    expired) used to hold the job at e.g. 89 % for up to 35 minutes, and a running
-    job blocks every new sync. Here the missing tables are marked as not delivered,
-    the job completes with the data that did arrive, and the topology is rebuilt.
-    """
+    """Finish Link syncs that stopped making progress."""
     now = timezone.now()
     cutoff = now - timedelta(minutes=STALL_MINUTES)
-    jobs = RouterSyncJob.objects.filter(status__in=['queued', 'running'], updated_at__lt=cutoff,
-                                        router__connection_mode='agent').select_related('router')
+    jobs = RouterSyncJob.objects.filter(
+        status__in=['queued', 'running'],
+        updated_at__lt=cutoff,
+        router__connection_mode='agent',
+    ).select_related('router')
     if router is not None:
         jobs = jobs.filter(router=router)
     settled = 0
     for job in jobs[:50]:
-        pieces = [c for c in job.router.agent_commands.filter(kind='inventory_piece')
-                  if (c.params or {}).get('job_id') == job.pk]
+        pieces = [
+            c for c in job.router.agent_commands.filter(kind='inventory_piece')
+            if (c.params or {}).get('job_id') == job.pk
+        ]
         if not pieces:
-            # Not a Link inventory job (e.g. a TapTap Tunnel/API sync or one never
-            # picked up by a worker): just close it so new syncs are not blocked.
             RouterSyncJob.objects.filter(pk=job.pk, status__in=['queued', 'running']).update(
-                status='failed', phase='Sync stopped responding — will retry automatically', finished_at=now)
+                status='failed',
+                phase='Sync stopped responding — will retry automatically',
+                finished_at=now,
+            )
             settled += 1
             continue
         pending = [c for c in pieces if c.status in ('queued', 'sent') and not (c.params or {}).get('received')]
         if pending:
             AgentCommand.objects.filter(pk__in=[c.pk for c in pending]).update(
-                status='cancelled', done_at=now, result='No answer from the router in time')
-        _record_piece(job.router, job.pk, {'errors': [f'{len(pending)} section(s) did not arrive in time.'] if pending else []})
-        # _record_piece finishes the job when every table is accounted for; if the
-        # job was never started on the router (no pieces), close it explicitly.
+                status='cancelled',
+                done_at=now,
+                result='No answer from the router in time',
+            )
+        _record_piece(
+            job.router,
+            job.pk,
+            {'errors': [f'{len(pending)} section(s) did not arrive in time.'] if pending else []},
+        )
         RouterSyncJob.objects.filter(pk=job.pk, status__in=['queued', 'running']).update(
-            status='failed', phase='No answer from the router — will retry automatically', finished_at=now)
+            status='failed',
+            phase='No answer from the router — will retry automatically',
+            finished_at=now,
+        )
         settled += 1
     return settled
