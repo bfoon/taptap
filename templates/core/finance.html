@@ -2,7 +2,7 @@
 {% block title %}Finance — TapTap{% endblock %}{% block heading %}Finance{% endblock %}
 {% block content %}
 {% with c=current_business.currency s=summary pq=period.as_dict %}
-{% if health.missing_count or health.unpriced or not health.auto %}
+{% if fin_full and 'finance.manage' in tt_perms %}{% if health.missing_count or health.unpriced or not health.auto %}
 <section class="sales-health mb-3">
   <i class="bi bi-clipboard2-pulse"></i>
   <div class="flex-grow-1">
@@ -17,7 +17,7 @@
 </section>
 <style>.sales-health{display:flex;gap:.9rem;align-items:center;flex-wrap:wrap;background:#fff8e8;border:1px solid #f2d69a;border-radius:14px;padding:.8rem 1rem;color:#6d531f}
 .sales-health>i{font-size:1.4rem;color:#b7791f}.sales-health b{display:block;color:#4d3a12}.sales-health small{display:block;font-size:.78rem}.sales-health input{max-width:150px}</style>
-{% endif %}
+{% endif %}{% endif %}
 <div class="filter-bar">
   <div class="range-pills" role="group" aria-label="Period">
     {% for key,label in presets.items %}{% if key != 'custom' %}<a href="?tab={{ tab }}&range={{ key }}" class="{% if period.preset == key %}on{% endif %}">{{ label }}</a>{% endif %}{% endfor %}
@@ -26,13 +26,13 @@
       <input class="form-control form-control-sm" type="date" name="end" value="{{ pq.end }}" aria-label="To"><button class="btn btn-sm btn-outline-secondary {% if period.preset == 'custom' %}active{% endif %}">Apply</button></form>
   </div>
   <div class="bar-actions">
-    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#saleModal"><i class="bi bi-plus-lg"></i> Record sale</button>
-    <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#expenseModal"><i class="bi bi-receipt"></i> Add expense</button>
+{% if 'finance.manage' in tt_perms %}<button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#saleModal"><i class="bi bi-plus-lg"></i> Record sale</button>
+    <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#expenseModal"><i class="bi bi-receipt"></i> Add expense</button>{% endif %}
     <div class="dropdown"><button class="btn btn-outline-secondary btn-sm dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-download"></i> Export</button>
       <ul class="dropdown-menu dropdown-menu-end">
-        <li><a class="dropdown-item" href="{% url 'finance_export' %}?type=sales&{{ query }}">Sales (CSV)</a></li>
+        {% if fin_full %}<li><a class="dropdown-item" href="{% url 'finance_export' %}?type=sales&{{ query }}">Sales (CSV)</a></li>
         <li><a class="dropdown-item" href="{% url 'finance_export' %}?type=expenses&{{ query }}">Expenses (CSV)</a></li>
-        <li><a class="dropdown-item" href="{% url 'finance_export' %}?type=pnl&{{ query }}">Profit &amp; loss (CSV)</a></li>
+        <li><a class="dropdown-item" href="{% url 'finance_export' %}?type=pnl&{{ query }}">Profit &amp; loss (CSV)</a></li>{% endif %}
         <li><a class="dropdown-item" href="{% url 'finance_export' %}?type=agents&{{ query }}">Agent balances (CSV)</a></li>
         <li><hr class="dropdown-divider"></li><li><button class="dropdown-item" onclick="window.print()">Print this page</button></li>
       </ul></div>
@@ -40,12 +40,12 @@
 </div>
 <p class="period-note">Showing <b>{{ period.label }}</b>, compared with the {{ period.days }} day{{ period.days|pluralize }} before.</p>
 
-<nav class="fin-tabs">
+<nav class="fin-tabs">{% if fin_full %}
   <a href="?tab=overview&range={{ period.preset }}&start={{ pq.start }}&end={{ pq.end }}" class="{% if tab == 'overview' %}on{% endif %}"><i class="bi bi-speedometer2"></i> Overview</a>
   <a href="?tab=sales&range={{ period.preset }}&start={{ pq.start }}&end={{ pq.end }}" class="{% if tab == 'sales' %}on{% endif %}"><i class="bi bi-bag-check"></i> Sales <span class="count">{{ s.sales_count }}</span></a>
-  <a href="?tab=expenses&range={{ period.preset }}&start={{ pq.start }}&end={{ pq.end }}" class="{% if tab == 'expenses' %}on{% endif %}"><i class="bi bi-receipt"></i> Expenses</a>
+  <a href="?tab=expenses&range={{ period.preset }}&start={{ pq.start }}&end={{ pq.end }}" class="{% if tab == 'expenses' %}on{% endif %}"><i class="bi bi-receipt"></i> Expenses</a>{% endif %}
   <a href="?tab=agents&range={{ period.preset }}&start={{ pq.start }}&end={{ pq.end }}" class="{% if tab == 'agents' %}on{% endif %}"><i class="bi bi-people"></i> Agents &amp; cash {% if s.outstanding > 0 %}<span class="count">{{ s.outstanding|money:c }} due</span>{% endif %}</a>
-  <a href="?tab=subscription" class="{% if tab == 'subscription' %}on{% endif %}"><i class="bi bi-credit-card"></i> TapTap subscription</a>
+  {% if fin_full %}<a href="?tab=subscription" class="{% if tab == 'subscription' %}on{% endif %}"><i class="bi bi-credit-card"></i> TapTap subscription</a>{% endif %}
 </nav>
 
 {% if tab == 'overview' %}
@@ -132,15 +132,15 @@
 
 {% elif tab == 'agents' %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2"><p class="text-secondary m-0 small">Agents sell your vouchers for a commission. Still to hand in = their sales − their commission − cash already received.</p>
-  <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#agentModal" data-agent='{}'><i class="bi bi-person-plus"></i> Add agent</button></div>
+{% if 'finance.manage' in tt_perms %}<button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#agentModal" data-agent='{}'><i class="bi bi-person-plus"></i> Add agent</button>{% endif %}</div>
 <div class="agent-grid">
 {% for r in s.agents %}<div class="agent-card"><header><span class="av">{{ r.agent.name|slice:':1'|upper }}</span><div class="flex-grow-1"><h4><a href="{% url 'agent_detail' r.agent.id %}" class="text-reset">{{ r.agent.name }}</a>{% if not r.agent.active %} <span class="badge text-bg-light">Inactive</span>{% endif %}</h4><small>{% if r.agent.location %}{{ r.agent.location }} · {% endif %}{% if r.agent.phone %}{{ r.agent.phone }} · {% endif %}{{ r.agent.commission_percent|floatformat:-2 }}% commission</small></div>
-  <button class="btn btn-sm btn-light" aria-label="Edit {{ r.agent.name }}" data-bs-toggle="modal" data-bs-target="#agentModal" data-agent='{"id":{{ r.agent.id }},"name":"{{ r.agent.name|escapejs }}","phone":"{{ r.agent.phone|escapejs }}","location":"{{ r.agent.location|escapejs }}","commission_percent":"{{ r.agent.commission_percent }}","active":{{ r.agent.active|yesno:"true,false" }}}'><i class="bi bi-pencil"></i></button></header>
+{% if 'finance.manage' in tt_perms %}<button class="btn btn-sm btn-light" aria-label="Edit {{ r.agent.name }}" data-bs-toggle="modal" data-bs-target="#agentModal" data-agent='{"id":{{ r.agent.id }},"name":"{{ r.agent.name|escapejs }}","phone":"{{ r.agent.phone|escapejs }}","location":"{{ r.agent.location|escapejs }}","commission_percent":"{{ r.agent.commission_percent }}","active":{{ r.agent.active|yesno:"true,false" }}}'><i class="bi bi-pencil"></i></button>{% endif %}</header>
   <div class="nums"><div><b>{{ r.holding }}</b>holding</div><div><b>{{ r.sold }}</b>sold</div><div><b>{{ r.commission|money:c }}</b>earned</div></div>
   <div class="owe {% if r.outstanding > 0 %}bad{% endif %}"><span class="text-secondary small">Still to hand in</span><strong>{{ r.outstanding|money:c }}</strong></div>
   <div class="collect-bar"><i style="width:{% if r.collection_rate > 100 %}100{% else %}{{ r.collection_rate }}{% endif %}%"></i></div>
   <div class="d-flex justify-content-between align-items-center mt-2"><small class="text-secondary">{{ r.collection_rate }}% collected{% if r.last_collection %} · last {{ r.last_collection|timesince }} ago{% endif %}</small>
-    <span class="d-flex gap-1"><a class="btn btn-sm btn-light" href="{% url 'agent_detail' r.agent.id %}">Statement</a><button class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#collectModal" data-agent-id="{{ r.agent.id }}" data-owed="{{ r.outstanding }}" data-name="{{ r.agent.name }}">Collect</button></span></div></div>
+    <span class="d-flex gap-1"><a class="btn btn-sm btn-light" href="{% url 'agent_detail' r.agent.id %}">Statement</a>{% if 'finance.collect' in tt_perms %}<button class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#collectModal" data-agent-id="{{ r.agent.id }}" data-owed="{{ r.outstanding }}" data-name="{{ r.agent.name }}">Collect</button>{% endif %}</span></div></div>
 {% empty %}<div class="panel text-center py-5" style="grid-column:1/-1"><i class="bi bi-people fs-1 text-primary"></i><h3 class="mt-2">No agents yet</h3><p>Add the shops and people who resell your vouchers to track commission and cash hand-ins.</p></div>{% endfor %}
 </div>
 <div class="panel mt-4"><div class="panel-head"><div><h3>Recent hand-ins</h3><p>Cash received from agents</p></div></div><div class="table-responsive"><table class="table table-money"><thead><tr><th>When</th><th>Agent</th><th>Method</th><th>Reference</th><th class="num">Amount</th></tr></thead><tbody>
@@ -151,7 +151,7 @@
 <div class="panel"><div class="panel-head"><div><h3>TapTap subscription payments</h3><p>What you pay for TapTap itself.</p></div><a class="btn btn-sm btn-outline-primary" href="{% url 'subscription' %}">Renew</a></div><div class="table-responsive"><table class="table"><thead><tr><th>Plan</th><th>Amount</th><th>Method</th><th>Status</th><th>Date</th></tr></thead><tbody>{% for x in subs %}<tr><td>{{ x.plan }}</td><td>D{{ x.amount }}</td><td>{{ x.payment_method }}</td><td>{{ x.payment_status }}</td><td>{{ x.created_at|date:'d M Y' }}</td></tr>{% empty %}<tr><td colspan="5" class="empty-table">No subscription payments yet.</td></tr>{% endfor %}</tbody></table></div></div>
 {% endif %}
 
-<div class="modal fade" id="saleModal" tabindex="-1" aria-labelledby="saleTitle"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post" action="{% url 'finance_sale_add' %}">{% csrf_token %}<input type="hidden" name="return_query" value="{{ query }}">
+{% if 'finance.manage' in tt_perms %}<div class="modal fade" id="saleModal" tabindex="-1" aria-labelledby="saleTitle"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post" action="{% url 'finance_sale_add' %}">{% csrf_token %}<input type="hidden" name="return_query" value="{{ query }}">
   <div class="modal-header border-0"><h5 class="modal-title fw-bold" id="saleTitle">Record a sale</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
   <div class="modal-body pt-0">
     <div class="sale-modes"><label><input type="radio" name="mode" value="stock" checked>From stock<small>Pick unsold vouchers</small></label><label><input type="radio" name="mode" value="code">By code<small>Codes already handed out</small></label><label><input type="radio" name="mode" value="manual">Amount only<small>No voucher</small></label></div>
@@ -192,7 +192,7 @@
     <div class="col-6"><label class="form-label">Status</label><select class="form-select" name="active"><option value="1">Active</option><option value="0">Inactive</option></select></div></div></div>
   <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save agent</button></div></form></div></div>
 
-<div class="modal fade" id="collectModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post" action="{% url 'finance_collection_add' %}">{% csrf_token %}<input type="hidden" name="return_query" value="{{ query }}"><input type="hidden" name="agent">
+{% endif %}{% if 'finance.collect' in tt_perms %}<div class="modal fade" id="collectModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post" action="{% url 'finance_collection_add' %}">{% csrf_token %}<input type="hidden" name="return_query" value="{{ query }}"><input type="hidden" name="agent">
   <div class="modal-header border-0"><h5 class="modal-title fw-bold">Collect cash from <span data-name></span></h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
   <div class="modal-body pt-0"><div class="row g-2"><div class="col-6"><label class="form-label">Amount ({{ c }})</label><input class="form-control" type="number" step="0.01" min="0" name="amount" required><small class="text-secondary">Owes <span data-owed></span></small></div>
     <div class="col-6"><label class="form-label">Received by</label><select class="form-select" name="method">{% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
@@ -200,13 +200,13 @@
     <div class="col-12"><label class="form-label">Note</label><input class="form-control" name="note"></div></div></div>
   <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success">Record hand-in</button></div></form></div></div>
 
-<div class="modal fade" id="settingsModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post" action="{% url 'finance_settings' %}">{% csrf_token %}<input type="hidden" name="return_query" value="{{ query }}">
+{% endif %}{% if 'finance.manage' in tt_perms %}<div class="modal fade" id="settingsModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post" action="{% url 'finance_settings' %}">{% csrf_token %}<input type="hidden" name="return_query" value="{{ query }}">
   <div class="modal-header border-0"><h5 class="modal-title fw-bold">Finance settings</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
   <div class="modal-body pt-0"><label class="form-label">Monthly sales target ({{ c }})</label><input class="form-control" type="number" step="1" min="0" name="monthly_revenue_target" value="{{ current_business.monthly_revenue_target|floatformat:0 }}">
     <div class="form-check form-switch mt-3"><input class="form-check-input" type="checkbox" name="auto_record_sales" id="autoRec" {% if current_business.auto_record_sales %}checked{% endif %}><label class="form-check-label" for="autoRec"><b>Record sales automatically</b><br><small class="text-secondary">When router sync sees an unsold voucher used for the first time, book it as a sale at its plan price. Sales you record by hand are never duplicated.</small></label></div></div>
   <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save settings</button></div></form></div></div>
 
-{{ charts|json_script:"finData" }}
+{% endif %}{{ charts|json_script:"finData" }}
 <script>window.TT_TARGET={target:{{ s.target|default:0|stringformat:'s' }},month:{{ s.month_revenue|default:0|stringformat:'s' }}};</script>
 {% endwith %}
 {% endblock %}
@@ -217,8 +217,8 @@
 (function(){
   const D=JSON.parse(document.getElementById('finData').textContent), C=TT.C, $=id=>document.getElementById(id);
   document.querySelectorAll('#saleModal input[name=mode]').forEach(r=>r.addEventListener('change',()=>{document.querySelectorAll('#saleModal [data-mode]').forEach(p=>p.hidden=p.dataset.mode!==r.value)}));
-  $('agentModal').addEventListener('show.bs.modal',e=>{const a=JSON.parse((e.relatedTarget&&e.relatedTarget.dataset.agent)||'{}'),f=e.target.querySelector('form');f.elements.id.value=a.id||'';f.elements.name.value=a.name||'';f.elements.phone.value=a.phone||'';f.elements.location.value=a.location||'';f.elements.commission_percent.value=a.commission_percent||10;f.elements.active.value=a.active===false?'0':'1';});
-  $('collectModal').addEventListener('show.bs.modal',e=>{const b=e.relatedTarget,f=e.target.querySelector('form');f.elements.agent.value=b.dataset.agentId;e.target.querySelector('[data-name]').textContent=b.dataset.name;e.target.querySelector('[data-owed]').textContent=TT.money(b.dataset.owed,2);f.elements.amount.value=Math.max(0,+b.dataset.owed).toFixed(2);});
+  $('agentModal')&&$('agentModal').addEventListener('show.bs.modal',e=>{const a=JSON.parse((e.relatedTarget&&e.relatedTarget.dataset.agent)||'{}'),f=e.target.querySelector('form');f.elements.id.value=a.id||'';f.elements.name.value=a.name||'';f.elements.phone.value=a.phone||'';f.elements.location.value=a.location||'';f.elements.commission_percent.value=a.commission_percent||10;f.elements.active.value=a.active===false?'0':'1';});
+  $('collectModal')&&$('collectModal').addEventListener('show.bs.modal',e=>{const b=e.relatedTarget,f=e.target.querySelector('form');f.elements.agent.value=b.dataset.agentId;e.target.querySelector('[data-name]').textContent=b.dataset.name;e.target.querySelector('[data-owed]').textContent=TT.money(b.dataset.owed,2);f.elements.amount.value=Math.max(0,+b.dataset.owed).toFixed(2);});
   const need=$('stillNeeded'), T=window.TT_TARGET; if(need) need.textContent=T.target>T.month?TT.money(T.target-T.month):'Target reached';
   if($('sparkRev')) TT.make('sparkRev',{type:'line',data:{labels:D.labels,datasets:[{data:D.revenue,borderColor:'#6fb6ff',borderWidth:2,fill:true,backgroundColor:'rgba(111,182,255,.18)'}]},options:{animation:false,plugins:{legend:{display:false},tooltip:{enabled:false}},scales:{x:{display:false},y:{display:false}}}});
   function flow(mode){

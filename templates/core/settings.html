@@ -22,6 +22,10 @@
   <label class="mt-3">Brand colour</label><div class="d-flex gap-2 align-items-center"><input type="color" class="form-control form-control-color" name="brand_color" value="{{ current_business.brand_color }}" aria-label="Brand colour"><small class="text-secondary">Used as a one-click palette in the Portal Studio.</small></div>
   <button class="btn btn-primary mt-4 w-100">Save settings</button>
 </div></div></form>
+<div class="row g-4 mt-1"><div class="col-xl-7"><div class="panel"><div class="panel-head"><div><h3>Team &amp; security</h3><p>Give staff their own logins with limited access, and keep your own password safe.</p></div></div>
+  <div class="d-flex gap-2 flex-wrap">{% if 'team.manage' in tt_perms %}<a class="btn btn-outline-primary" href="{% url 'team' %}"><i class="bi bi-person-badge"></i> Manage team accounts</a>{% endif %}
+  <a class="btn btn-outline-secondary" href="{% url 'account_password' %}"><i class="bi bi-key"></i> Change password</a>
+  <a class="btn btn-outline-secondary" href="{% url 'trusted_devices' %}"><i class="bi bi-laptop"></i> Trusted devices</a></div></div></div></div>
 {% endblock %}
 {% block scripts %}<script>
 document.getElementById('logoFile').addEventListener('change',function(){const f=this.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{const img=new Image();img.onload=()=>{const s=Math.min(1,256/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);c.getContext('2d').drawImage(img,0,0,c.width,c.height);const d=c.toDataURL('image/png');document.getElementById('logoData').value=d;document.getElementById('logoPrev').innerHTML='<img src="'+d+'" alt="New logo" style="width:100%;height:100%;object-fit:contain">';};img.src=r.result;};r.readAsDataURL(f);});

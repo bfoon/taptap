@@ -7,18 +7,11 @@ from .models import (
     RouterInterface,RouterNeighbor,RouterDevice,RouterInterfaceRole,RouterConfigSnapshot,RouterConfigChange,RouterSyncJob,SecurityAck,
 )
 
-PLAN_DAYS={'1 Month':30,'2 Months':60,'3 Months':90,'6 Months':180,'1 Year':365}
+from .subscriptions import PLAN_DAYS, activate_subscription  # noqa: E402
 
 @admin.action(description='Mark selected subscriptions as Paid and activate business')
 def mark_paid(modeladmin,request,queryset):
-    count=0
-    for sub in queryset.select_related('business'):
-        if sub.payment_status=='Paid': continue
-        days=PLAN_DAYS.get(sub.plan)
-        if not days: continue
-        now=timezone.now();base=max(now,sub.business.subscription_expires_at or now)
-        sub.payment_status='Paid';sub.starts_at=now;sub.expires_at=base+timedelta(days=days);sub.save(update_fields=['payment_status','starts_at','expires_at'])
-        sub.business.subscription_status='active';sub.business.subscription_expires_at=sub.expires_at;sub.business.save(update_fields=['subscription_status','subscription_expires_at']);count+=1
+    count=sum(1 for sub in queryset.select_related('business') if activate_subscription(sub))
     modeladmin.message_user(request,f'{count} subscription(s) activated.',messages.SUCCESS)
 
 @admin.register(Subscription)
@@ -90,3 +83,16 @@ from .models import WanSetup
 @admin.register(WanSetup)
 class WanSetupAdmin(admin.ModelAdmin):
     list_display = ('router', 'status', 'run_id', 'applied_at', 'confirmed_at'); list_filter = ('status',); readonly_fields = ('original', 'last_result', 'facts')
+
+
+from .models_team import TeamMember, UsageDaily, PlatformAudit  # noqa: E402
+
+
+@admin.register(TeamMember)
+class TeamMemberAdmin(admin.ModelAdmin):
+    list_display=('user','business','role','is_active','created_at');list_filter=('role','is_active');search_fields=('user__email','business__business_name')
+
+
+@admin.register(PlatformAudit)
+class PlatformAuditAdmin(admin.ModelAdmin):
+    list_display=('created_at','actor','business','action','details');list_filter=('action',);readonly_fields=('created_at',)

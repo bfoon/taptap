@@ -56,7 +56,8 @@ def _back(request, tab):
 def finance(request):
     business = _b(request)
     period = resolve_period(request.GET, 'month')
-    tab = request.GET.get('tab', 'overview')
+    fin_full = 'finance.view' in getattr(request, 'tt_perms', ())
+    tab = request.GET.get('tab', 'overview') if fin_full else 'agents'  # finance staff only see agents & cash
     summary = finance_summary(business, period)
     charts = finance_charts(business, period)
 
@@ -98,7 +99,7 @@ def finance(request):
               'unpriced_plans': list(business.vouchers.filter(used_at__isnull=False, sale__isnull=True, price=0)
                                      .values_list('plan_name', flat=True).distinct()[:8])}
     ctx = {
-        'health': health,
+        'health': health, 'fin_full': fin_full,
         'tab': tab, 'period': period, 'presets': PRESETS, 'summary': summary, 'charts': charts,
         'sales_page': Paginator(sales, 40).get_page(request.GET.get('sp')),
         'expenses_page': Paginator(expenses, 40).get_page(request.GET.get('ep')),
@@ -264,6 +265,7 @@ def finance_settings(request):
 @login_required
 def finance_export(request):
     business = _b(request); period = resolve_period(request.GET, 'month'); kind = request.GET.get('type', 'sales')
+    if 'finance.view' not in getattr(request, 'tt_perms', ()): kind = 'agents'
     resp = HttpResponse(content_type='text/csv')
     resp['Content-Disposition'] = f'attachment; filename="taptap-{kind}-{period.as_dict()["start"]}-to-{period.as_dict()["end"]}.csv"'
     w = csv.writer(resp)

@@ -1,0 +1,24 @@
+{% extends 'core/platform/base.html' %}{% load taptap_extras %}{% block title %}Businesses{% endblock %}{% block heading %}Businesses{% endblock %}
+{% block content %}
+<form method="get" class="d-flex flex-wrap gap-2 mb-3">
+  <input class="form-control form-control-sm" style="max-width:280px" name="q" value="{{ q }}" placeholder="Name, owner, email, phone or staff email" aria-label="Search">
+  <select class="form-select form-select-sm" style="max-width:170px" name="status" aria-label="Status">
+    <option value="">All statuses</option>{% for k,l in status_options %}<option value="{{ k }}" {% if status == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+  <select class="form-select form-select-sm" style="max-width:190px" name="sort" aria-label="Sort">
+    {% for k,l in sort_options %}<option value="{{ k }}" {% if sort == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+  <button class="btn btn-sm btn-primary">Filter</button>
+  <span class="flex-grow-1"></span>
+  <a class="btn btn-sm btn-outline-secondary" href="?{{ params }}&export=csv"><i class="bi bi-download"></i> CSV</a>
+</form>
+<div class="panel"><div class="table-responsive"><table class="table align-middle">
+  <thead><tr><th>Business</th><th>Owner</th><th>Status</th><th>Access until</th><th>Last active</th><th class="text-end">Team</th><th class="text-end">Paid to TapTap</th><th>Joined</th></tr></thead>
+  <tbody>{% for b in page_obj %}
+  <tr><td><a class="fw-semibold" href="{% url 'platform_business' b.id %}">{{ b.business_name }}</a></td>
+    <td>{{ b.owner_name }}<small class="d-block text-secondary">{{ b.user.email }} · {{ b.phone }}</small></td>
+    <td><span class="st {{ b.status_label }}">{{ b.status_label|title }}</span></td>
+    <td>{% if b.is_unlimited %}—{% else %}{{ b.access_expires_at|date:'d M Y' }}{% endif %}</td>
+    <td>{% if b.last_seen %}{{ b.last_seen|timesince }} ago{% else %}<span class="text-secondary">Not yet</span>{% endif %}</td>
+    <td class="text-end">{{ b.team_count }}</td><td class="text-end">{{ b.paid_total|default:0|money:'D' }}</td><td>{{ b.created_at|date:'d M Y' }}</td></tr>
+  {% empty %}<tr><td colspan="8" class="empty-table">No businesses match.</td></tr>{% endfor %}</tbody></table></div>
+  {% include 'core/partials/pager.html' with page=page_obj param='page' %}</div>
+{% endblock %}

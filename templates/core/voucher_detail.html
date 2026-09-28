@@ -30,13 +30,13 @@
       <span class="text-secondary small ms-2">{{ v.plan_name }} · {{ v.price|money:c }}</span>
     </div>
     <div class="d-flex flex-wrap gap-2">
-      {% if v.status == 'active' and not time_is_up %}
+      {% if 'vouchers.support' in tt_perms %}{% if v.status == 'active' and not time_is_up %}
         <button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#disableModal"><i class="bi bi-slash-circle"></i> Disable</button>
         <button class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#enableModal"><i class="bi bi-clock-history"></i> Add time</button>
       {% else %}
         <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#enableModal"><i class="bi bi-check-circle"></i> Enable{% if time_is_up %} &amp; add time{% endif %}</button>
       {% endif %}
-      <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#resetModal"><i class="bi bi-arrow-counterclockwise"></i> Reset devices</button>
+      <button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#resetModal"><i class="bi bi-arrow-counterclockwise"></i> Reset devices</button>{% endif %}
       <a class="btn btn-outline-primary" href="{% url 'voucher_card' v.id %}"><i class="bi bi-card-text"></i> Card / share</a>
     </div>
   </div>

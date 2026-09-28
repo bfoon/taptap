@@ -15,24 +15,24 @@
   </div>
 
   <div class="d-flex gap-2 flex-wrap">
-    <form method="post" action="{% url 'routers_sync_all' %}">
+{% if 'network.manage' in tt_perms %}<form method="post" action="{% url 'routers_sync_all' %}">
       {% csrf_token %}
       <button class="btn btn-outline-primary">
         <i class="bi bi-arrow-repeat"></i>
         Full MikroTik Sync
       </button>
-    </form>
+    </form>{% endif %}
 
-    <a class="btn btn-outline-danger"
+    {% if 'vouchers.manage' in tt_perms %}<a class="btn btn-outline-danger"
        href="{% url 'delete_expired' %}">
       Delete Expired
-    </a>
+    </a>{% endif %}
 
-    <a class="btn btn-primary"
+    {% if 'vouchers.create' in tt_perms %}<a class="btn btn-primary"
        href="{% url 'generate_vouchers' %}">
       <i class="bi bi-plus-circle"></i>
       Generate
-    </a>
+    </a>{% endif %}
   </div>
 </div>
 
@@ -129,7 +129,7 @@
     <span class="flex-grow-1"></span>
 
 
-    <a
+    {% if 'vouchers.create' in tt_perms %}<a
       class="btn btn-sm btn-outline-dark"
       href="{% url 'single_voucher' %}"
     >
@@ -144,7 +144,7 @@
     >
       <i class="bi bi-printer"></i>
       Print unsold{% if plan %} {{ plan }}{% endif %}
-    </a>
+    </a>{% endif %}
 
 
     <button
@@ -340,7 +340,7 @@
 
           <td class="text-end text-nowrap">
 
-            {% if v.status == 'active' and not v.sold_at and not v.used_at %}
+            {% if 'finance.manage' in tt_perms %}{% if v.status == 'active' and not v.sold_at and not v.used_at %}
 
               <button
                 type="button"
@@ -355,7 +355,7 @@
                 Sell
               </button>
 
-            {% endif %}
+            {% endif %}{% endif %}
 
 
             <a

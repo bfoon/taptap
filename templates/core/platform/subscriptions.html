@@ -1,0 +1,26 @@
+{% extends 'core/platform/base.html' %}{% load taptap_extras %}{% block title %}Subscriptions{% endblock %}{% block heading %}Subscription payments{% endblock %}
+{% block content %}
+<div class="kpi-grid mb-3">
+  <div class="kpi"><small>Confirmed (filtered)</small><strong>{{ totals.paid|default:0|money:'D' }}</strong><em>{{ totals.n_paid }} payment{{ totals.n_paid|pluralize }}</em></div>
+  <div class="kpi"><small>Pending (filtered)</small><strong>{{ totals.pending|default:0|money:'D' }}</strong><em>{{ totals.n_pending }} request{{ totals.n_pending|pluralize }}</em></div>
+</div>
+<form method="get" class="d-flex flex-wrap gap-2 mb-3">
+  <input class="form-control form-control-sm" style="max-width:220px" name="q" value="{{ q }}" placeholder="Business, email or reference" aria-label="Search">
+  <select class="form-select form-select-sm" style="max-width:150px" name="status" aria-label="Status"><option value="">All statuses</option>{% for s in statuses %}<option {% if status == s %}selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+  <select class="form-select form-select-sm" style="max-width:150px" name="plan" aria-label="Plan"><option value="">All plans</option>{% for p in plans %}<option {% if plan == p %}selected{% endif %}>{{ p }}</option>{% endfor %}</select>
+  <input class="form-control form-control-sm" style="max-width:150px" type="date" name="start" value="{{ start }}" aria-label="From"><input class="form-control form-control-sm" style="max-width:150px" type="date" name="end" value="{{ end }}" aria-label="To">
+  <button class="btn btn-sm btn-primary">Filter</button><span class="flex-grow-1"></span>
+  <a class="btn btn-sm btn-outline-secondary" href="?{{ params }}&export=csv"><i class="bi bi-download"></i> CSV</a>
+</form>
+<div class="panel"><div class="table-responsive"><table class="table align-middle">
+  <thead><tr><th>Requested</th><th>Business</th><th>Plan</th><th class="text-end">Amount</th><th>Method / ref</th><th>Status</th><th>Covers</th><th></th></tr></thead><tbody>
+  {% for s in page_obj %}<tr><td>{{ s.created_at|date:'d M Y H:i' }}</td><td><a href="{% url 'platform_business' s.business_id %}">{{ s.business.business_name }}</a></td><td>{{ s.plan }}</td><td class="text-end"><b>{{ s.amount|money:'D' }}</b></td>
+    <td>{{ s.payment_method }}{% if s.transaction_id %}<small class="d-block text-secondary">{{ s.transaction_id }}</small>{% endif %}</td><td><span class="st {{ s.payment_status }}">{{ s.payment_status }}</span></td>
+    <td>{% if s.expires_at %}{{ s.starts_at|date:'d M' }} – {{ s.expires_at|date:'d M Y' }}{% endif %}</td>
+    <td class="text-end text-nowrap">{% if s.payment_status == 'Pending' %}<form method="post" action="{% url 'platform_sub_action' s.id %}" class="d-inline-flex gap-1">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <input class="form-control form-control-sm" name="reference" placeholder="Ref" style="width:90px" aria-label="Payment reference">
+      {% if s.plan not in plan_days %}<input class="form-control form-control-sm" type="number" min="1" name="days" placeholder="Days" style="width:70px" required aria-label="Days">{% endif %}
+      <button class="btn btn-sm btn-success" name="action" value="confirm_sub">Confirm</button><button class="btn btn-sm btn-light" name="action" value="reject_sub" onclick="return confirm('Reject this request?')">Reject</button></form>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="8" class="empty-table">No payments match.</td></tr>{% endfor %}</tbody></table></div>
+  {% include 'core/partials/pager.html' with page=page_obj param='page' %}</div>
+{% endblock %}

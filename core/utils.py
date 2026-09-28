@@ -9,7 +9,9 @@ def generate_code():
   if not Voucher.objects.filter(code=c).exists(): return c
 def duration_to_routeros(hours):
  d,r=divmod(hours,24); return (f'{d}d' if d else '')+(f'{r}h' if r else '') or '1h'
-def log(business,typ,details,status='Success'): Activity.objects.create(business=business,type=typ,details=details,status=status)
+def log(business,typ,details,status='Success'):
+    from .team import current_actor
+    Activity.objects.create(business=business,type=typ,details=details[:255],status=status,actor=current_actor()[:150])
 
 
 def voucher_profile(voucher, plan=None):

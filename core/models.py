@@ -209,6 +209,7 @@ class Activity(models.Model):
     type=models.CharField(max_length=80)
     details=models.CharField(max_length=255)
     status=models.CharField(max_length=40,default='Success')
+    actor=models.CharField(max_length=150,blank=True,help_text='Who did it (owner, team member or TapTap support)')
     created_at=models.DateTimeField(auto_now_add=True)
 
 
@@ -926,3 +927,4 @@ class PortalDeployment(models.Model):
 
 # Registered here so Django loads it with the rest of the app's models.
 from .models_missing import MissingVoucherReport  # noqa: E402,F401
+from .models_team import TeamMember, UsageDaily, PlatformAudit  # noqa: E402,F401

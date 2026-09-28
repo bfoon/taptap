@@ -2,15 +2,15 @@
 {% block title %}{{ agent.name }} — Agent{% endblock %}{% block heading %}{{ agent.name }}{% endblock %}
 {% block content %}{% with c=current_business.currency %}
 <div class="d-flex flex-wrap gap-2 align-items-center mb-3 no-print">
-  <a class="btn btn-light btn-sm" href="{% url 'finance' %}?tab=agents"><i class="bi bi-arrow-left"></i> All agents</a>
+{% if 'finance.view' in tt_perms or 'finance.agents' in tt_perms %}<a class="btn btn-light btn-sm" href="{% url 'finance' %}?tab=agents"><i class="bi bi-arrow-left"></i> All agents</a>{% endif %}
   <span class="text-secondary small">{% if agent.location %}{{ agent.location }} · {% endif %}{% if agent.phone %}{{ agent.phone }} · {% endif %}{{ agent.commission_percent|floatformat:-2 }}% commission{% if not agent.active %} · <b>inactive</b>{% endif %}</span>
   <span class="flex-grow-1"></span>
-  <a class="btn btn-primary btn-sm" href="{% url 'generate_vouchers' %}?agent={{ agent.id }}"><i class="bi bi-stars"></i> New batch for {{ agent.name }}</a>
+{% if 'vouchers.create' in tt_perms %}<a class="btn btn-primary btn-sm" href="{% url 'generate_vouchers' %}?agent={{ agent.id }}"><i class="bi bi-stars"></i> New batch for {{ agent.name }}</a>
   {% if shop_batches %}<div class="dropdown"><button class="btn btn-outline-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-box-arrow-right"></i> Give a shop batch</button><div class="dropdown-menu dropdown-menu-end p-2" style="min-width:320px">
     {% for x in shop_batches %}<form method="post" action="{% url 'batch_assign' x.id %}" class="d-flex gap-2 align-items-center mb-1">{% csrf_token %}<input type="hidden" name="agent" value="{{ agent.id }}"><input type="hidden" name="settlement" value="credit"><input type="hidden" name="next" value="{{ request.path }}">
-      <span class="small flex-grow-1">{{ x.name }}<small class="d-block text-secondary">{{ x.left }} unsold · {{ x.plan|default:'' }}</small></span><button class="btn btn-sm btn-outline-primary">Give on credit</button></form>{% endfor %}</div></div>{% endif %}
-  <button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#collectModal"><i class="bi bi-cash-coin"></i> Collect cash</button>
-  <a class="btn btn-outline-secondary btn-sm" href="{% url 'voucher_print' %}?agent={{ agent.id }}"><i class="bi bi-printer"></i> Print their stock</a>
+      <span class="small flex-grow-1">{{ x.name }}<small class="d-block text-secondary">{{ x.left }} unsold · {{ x.plan|default:'' }}</small></span><button class="btn btn-sm btn-outline-primary">Give on credit</button></form>{% endfor %}</div></div>{% endif %}{% endif %}
+{% if 'finance.collect' in tt_perms %}<button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#collectModal"><i class="bi bi-cash-coin"></i> Collect cash</button>{% endif %}
+  {% if 'vouchers.create' in tt_perms %}<a class="btn btn-outline-secondary btn-sm" href="{% url 'voucher_print' %}?agent={{ agent.id }}"><i class="bi bi-printer"></i> Print their stock</a>{% endif %}
   <button class="btn btn-outline-secondary btn-sm" onclick="window.print()"><i class="bi bi-file-earmark-text"></i> Statement</button>
   {% if agent.phone %}<a class="btn btn-outline-success btn-sm" target="_blank" rel="noopener" id="waStatement" href="#"><i class="bi bi-whatsapp"></i> Send balance</a>{% endif %}
 </div>
@@ -31,7 +31,7 @@
       <td style="min-width:180px"><div class="stock-bar" style="height:8px"><i style="width:{{ x.sold|pct_of:x.total }}%;background:var(--green)"></i></div><small class="text-secondary">{{ x.sold }} of {{ x.total }} sold · {{ x.used }} used</small></td>
       <td class="text-end"><b>{{ x.left }}</b></td>
       <td class="text-end text-nowrap no-print"><a class="btn btn-sm btn-outline-secondary" href="{% url 'voucher_print' %}?batch={{ x.id }}" aria-label="Print batch"><i class="bi bi-printer"></i></a>
-        {% if x.left %}<form method="post" action="{% url 'batch_assign' x.id %}" class="d-inline" onsubmit="return confirm('Take the {{ x.left }} unsold voucher(s) back to the shop?')">{% csrf_token %}<input type="hidden" name="agent" value=""><input type="hidden" name="next" value="{{ request.path }}"><button class="btn btn-sm btn-outline-danger">Take back</button></form>{% endif %}</td></tr>
+        {% if x.left and 'vouchers.create' in tt_perms %}<form method="post" action="{% url 'batch_assign' x.id %}" class="d-inline" onsubmit="return confirm('Take the {{ x.left }} unsold voucher(s) back to the shop?')">{% csrf_token %}<input type="hidden" name="agent" value=""><input type="hidden" name="next" value="{{ request.path }}"><button class="btn btn-sm btn-outline-danger">Take back</button></form>{% endif %}</td></tr>
     {% empty %}<tr><td colspan="5" class="empty-table">No batches yet. <a href="{% url 'generate_vouchers' %}?agent={{ agent.id }}">Create one for {{ agent.name }}</a>.</td></tr>{% endfor %}</tbody></table></div></div></div>
   <div class="col-xl-4"><div class="panel h-100"><div class="panel-head"><div><h3>Stock in hand</h3><p>Unsold vouchers by plan</p></div></div>
     {% for h in holding %}<div class="stock-row"><b>{{ h.plan_name }}</b><span class="text-secondary">{{ h.n }}</span><b>{{ h.v|money:c }}</b></div>{% empty %}<p class="text-secondary small">{{ agent.name }} holds no unsold vouchers.</p>{% endfor %}</div></div>

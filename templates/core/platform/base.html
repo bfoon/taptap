@@ -1,0 +1,31 @@
+{% load static %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{% block title %}Platform{% endblock %} — TapTap</title>
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet"><link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" rel="stylesheet">
+<link href="{% static 'css/app.css' %}" rel="stylesheet"><link href="{% static 'css/business.css' %}" rel="stylesheet">
+<style>
+.sidebar .brand-mark{background:#102033}.pf-badge{font-size:.62rem;background:#ffcf5c;color:#402c00;border-radius:999px;padding:.05rem .45rem;margin-left:.3rem;font-weight:800;letter-spacing:.03em}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:.8rem}
+.kpi{background:#fff;border:1px solid #e3e9f1;border-radius:16px;padding:.85rem 1rem}.kpi small{display:block;font-size:.7rem;font-weight:700;color:#8a9aab;text-transform:uppercase;letter-spacing:.04em}
+.kpi strong{display:block;font-size:1.45rem;line-height:1.2;color:#102033;font-variant-numeric:tabular-nums}.kpi em{font-style:normal;font-size:.76rem;color:#6b7c8f}.kpi em.up{color:#138453}.kpi em.down{color:#b42323}
+.st{display:inline-block;border-radius:999px;padding:.1rem .55rem;font-size:.72rem;font-weight:700}.st.paid{background:#e4f7ee;color:#138453}.st.trial{background:#eef4ff;color:#1558b8}
+.st.expired{background:#fdeaea;color:#b42323}.st.unlimited{background:#f3e8ff;color:#7a3db8}.st.suspended{background:#e9ecef;color:#495057}.st.Pending{background:#fff4dc;color:#9a6200}.st.Paid{background:#e4f7ee;color:#138453}.st.Rejected{background:#e9ecef;color:#495057}
+.chart-box{position:relative;height:260px}.feat-bar{display:flex;align-items:center;gap:.6rem;font-size:.82rem;margin:.3rem 0}.feat-bar span{width:120px;flex:none}.feat-bar i{height:10px;border-radius:5px;background:#1769e0;display:block}
+.section-title{font-size:.8rem;font-weight:800;color:#8a9aab;text-transform:uppercase;letter-spacing:.05em;margin:1.6rem 0 .6rem}
+</style>{% block extra_head %}{% endblock %}</head>
+<body class="app-shell">
+<aside class="sidebar d-none d-lg-flex"><a class="brand" href="{% url 'platform_overview' %}"><span class="brand-mark"><i class="bi bi-wifi"></i></span><span>TapTap<small>Platform console</small></span></a><nav>
+{% with n=request.resolver_match.url_name %}
+<a href="{% url 'platform_overview' %}" class="{% if n == 'platform_overview' %}active{% endif %}"><i class="bi bi-speedometer"></i> Analytics</a>
+<a href="{% url 'platform_businesses' %}" class="{% if n == 'platform_businesses' or n == 'platform_business' %}active{% endif %}"><i class="bi bi-buildings"></i> Businesses</a>
+<a href="{% url 'platform_subscriptions' %}" class="{% if n == 'platform_subscriptions' %}active{% endif %}"><i class="bi bi-credit-card-2-front"></i> Subscriptions</a>
+<a href="{% url 'platform_audit' %}" class="{% if n == 'platform_audit' %}active{% endif %}"><i class="bi bi-journal-text"></i> Support log</a>
+<div class="nav-label">Tools</div><a href="/admin/"><i class="bi bi-database-gear"></i> Django admin</a>
+{% if current_business %}<a href="{% url 'dashboard' %}"><i class="bi bi-grid-1x2"></i> My business</a>{% endif %}
+{% endwith %}</nav><div class="sidebar-bottom"><a href="{% url 'account_password' %}"><i class="bi bi-key"></i> My password</a><a href="{% url 'logout' %}"><i class="bi bi-box-arrow-left"></i> Sign out</a></div></aside>
+<div class="mobile-top d-lg-none"><a class="brand compact" href="{% url 'platform_overview' %}"><span class="brand-mark"><i class="bi bi-wifi"></i></span><span>TapTap</span></a>
+  <div class="d-flex gap-2"><a class="btn btn-sm btn-light" href="{% url 'platform_businesses' %}">Businesses</a><a class="btn btn-sm btn-light" href="{% url 'platform_subscriptions' %}">Payments</a></div></div>
+<main class="main-content"><header class="topbar"><div><span class="eyebrow">TapTap platform <span class="pf-badge">SUPERUSER</span></span><h1>{% block heading %}Platform{% endblock %}</h1></div>
+<div class="top-actions"><form method="get" action="{% url 'platform_businesses' %}" class="d-none d-md-flex"><input class="form-control form-control-sm" name="q" placeholder="Find a business, email or phone" aria-label="Find a business" style="min-width:240px"></form><div class="avatar">{{ user.email|slice:':1'|upper }}</div></div></header>
+{% if messages %}<div class="mb-3">{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show">{{ message }}<button class="btn-close" data-bs-dismiss="alert"></button></div>{% endfor %}</div>{% endif %}
+{% block content %}{% endblock %}<footer class="app-footer">TapTap platform console</footer></main>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script>
+{% block scripts %}{% endblock %}</body></html>

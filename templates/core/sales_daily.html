@@ -1,0 +1,38 @@
+{% extends 'core/base.html' %}{% load taptap_extras %}{% block title %}Daily sales — TapTap{% endblock %}{% block heading %}Daily sales{% endblock %}
+{% block extra_head %}<style>
+.day-nav{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}.day-nav input{max-width:170px}
+.week-bars{display:flex;gap:.5rem;align-items:flex-end;height:140px;padding-top:.5rem}.week-bars a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;text-decoration:none;color:#4e6479;font-size:.72rem}
+.week-bars i{display:block;width:100%;max-width:46px;background:#cfe0fb;border-radius:8px 8px 3px 3px;min-height:3px}.week-bars a.on i{background:#1769e0}.week-bars b{font-size:.7rem;color:#102033}
+</style>{% endblock %}
+{% block content %}{% with c=current_business.currency %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <div class="day-nav">
+    <a class="btn btn-sm btn-light" href="?date={{ prev_day|date:'Y-m-d' }}" aria-label="Previous day"><i class="bi bi-chevron-left"></i></a>
+    <form method="get" class="d-flex gap-2"><input class="form-control form-control-sm" type="date" name="date" value="{{ day|date:'Y-m-d' }}" max="{% now 'Y-m-d' %}" aria-label="Day" onchange="this.form.submit()"></form>
+    {% if next_day %}<a class="btn btn-sm btn-light" href="?date={{ next_day|date:'Y-m-d' }}" aria-label="Next day"><i class="bi bi-chevron-right"></i></a>{% endif %}
+    {% if not is_today %}<a class="btn btn-sm btn-outline-primary" href="?">Today</a>{% endif %}
+  </div>
+  <span class="text-secondary small">{{ day|date:'l, d F Y' }}{% if is_today %} · so far today{% endif %}</span>
+</div>
+<div class="metric-grid">
+  <div class="metric-card"><span class="metric-icon orange"><i class="bi bi-cash-stack"></i></span><div><small>SALES</small><strong>{{ total|money:c }}</strong><em>{% if change is not None %}{% if change >= 0 %}+{% endif %}{{ change }}% vs day before{% else %}—{% endif %}</em></div></div>
+  <div class="metric-card"><span class="metric-icon blue"><i class="bi bi-ticket-perforated"></i></span><div><small>VOUCHERS SOLD</small><strong>{{ count }}</strong><em>transactions</em></div></div>
+  <div class="metric-card"><span class="metric-icon green"><i class="bi bi-receipt"></i></span><div><small>AVERAGE SALE</small><strong>{{ avg|money:c }}</strong><em>per voucher</em></div></div>
+  <div class="metric-card"><span class="metric-icon purple"><i class="bi bi-percent"></i></span><div><small>DISCOUNTS</small><strong>{{ discounts|money:c }}</strong><em>given</em></div></div>
+</div>
+<div class="row g-4 mt-1">
+  <div class="col-xl-5"><div class="panel h-100"><div class="panel-head"><div><h3>Last 7 days</h3><p>Tap a day to open it</p></div></div>
+    <div class="week-bars">{% for w in week %}<a href="?date={{ w.day|date:'Y-m-d' }}" class="{% if w.day == day %}on{% endif %}" title="{{ w.amount|money:c }} · {{ w.count }} sold"><b>{{ w.amount|money:c }}</b><i style="height:{{ w.pct }}%"></i>{{ w.day|date:'D' }}</a>{% endfor %}</div></div></div>
+  <div class="col-xl-7"><div class="panel h-100"><div class="panel-head"><div><h3>By plan</h3><p>What sold</p></div></div>
+    <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Plan</th><th class="text-end">Sold</th><th class="text-end">Amount</th></tr></thead><tbody>
+    {% for r in by_plan %}<tr><td>{{ r.plan_name }}</td><td class="text-end">{{ r.n }}</td><td class="text-end"><b>{{ r.v|money:c }}</b></td></tr>{% empty %}<tr><td colspan="3" class="empty-table">No sales on this day.</td></tr>{% endfor %}</tbody></table></div></div></div>
+  <div class="col-md-6"><div class="panel"><div class="panel-head"><div><h3>By payment method</h3></div></div>
+    <table class="table table-sm"><tbody>{% for r in by_method %}<tr><td>{{ r.payment_method|title }}</td><td class="text-end">{{ r.n }}</td><td class="text-end"><b>{{ r.v|money:c }}</b></td></tr>{% empty %}<tr><td class="empty-table">—</td></tr>{% endfor %}</tbody></table></div></div>
+  <div class="col-md-6"><div class="panel"><div class="panel-head"><div><h3>By seller</h3></div></div>
+    <table class="table table-sm"><tbody>{% for r in by_agent %}<tr><td>{{ r.agent__name|default:'Shop' }}</td><td class="text-end">{{ r.n }}</td><td class="text-end"><b>{{ r.v|money:c }}</b></td></tr>{% empty %}<tr><td class="empty-table">—</td></tr>{% endfor %}</tbody></table></div></div>
+</div>
+<div class="panel mt-4"><div class="panel-head"><div><h3>Sales</h3><p>Every sale recorded on this day</p></div></div>
+  <div class="table-responsive"><table class="table"><thead><tr><th>Time</th><th>Plan</th><th>Site</th><th>Seller</th><th>Method</th><th class="text-end">Amount</th></tr></thead><tbody>
+  {% for s in sales %}<tr><td>{{ s.sold_at|date:'H:i' }}</td><td>{{ s.plan_name }}</td><td>{{ s.router.name|default:'—' }}</td><td>{{ s.agent.name|default:'Shop' }}</td><td>{{ s.get_payment_method_display }}</td><td class="text-end"><b>{{ s.amount|money:c }}</b></td></tr>
+  {% empty %}<tr><td colspan="6" class="empty-table">No sales recorded on this day.</td></tr>{% endfor %}</tbody></table></div></div>
+{% endwith %}{% endblock %}

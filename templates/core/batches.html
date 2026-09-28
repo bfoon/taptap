@@ -6,13 +6,13 @@
 <div class="page-actions">
   <p>Every batch belongs to your shop or to an agent. Hand batches to agents, move them between agents, take them back, and record missing stock.</p>
   <div class="d-flex gap-2 text-nowrap flex-wrap">
-    <a class="btn btn-outline-danger" href="{% url 'missing_vouchers' %}">
+{% if 'vouchers.support' in tt_perms or 'vouchers.create' in tt_perms %}<a class="btn btn-outline-danger" href="{% url 'missing_vouchers' %}">
       <i class="bi bi-exclamation-triangle"></i> Missing reports
-    </a>
+    </a>{% endif %}{% if 'vouchers.create' in tt_perms %}
     <a class="btn btn-outline-primary" href="{% url 'single_voucher' %}">
       <i class="bi bi-person"></i> Single voucher
     </a>
-    <a class="btn btn-primary" href="{% url 'generate_vouchers' %}">New Batch</a>
+    <a class="btn btn-primary" href="{% url 'generate_vouchers' %}">New Batch</a>{% endif %}
   </div>
 </div>
 

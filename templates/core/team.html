@@ -1,0 +1,78 @@
+{% extends 'core/base.html' %}{% block title %}Team — TapTap{% endblock %}{% block heading %}Team accounts{% endblock %}
+{% block extra_head %}<style>
+.role-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:.75rem}
+.role-card{border:1px solid #e3e9f1;border-radius:14px;padding:.8rem .9rem;background:#fff}.role-card b{display:block}.role-card small{color:#6b7c8f;font-size:.78rem}
+.role-card ul{margin:.45rem 0 0;padding-left:1rem;font-size:.74rem;color:#4e6479}
+.role-pill{display:inline-block;border-radius:999px;padding:.12rem .55rem;font-size:.72rem;font-weight:700;background:#eef4ff;color:#1558b8}
+.role-pill.owner{background:#fff4dc;color:#9a6200}.role-pill.off{background:#f1f3f5;color:#8a9aab}
+.member-row.off td{opacity:.6}.perm-list{columns:2;font-size:.82rem}@media(max-width:576px){.perm-list{columns:1}}
+</style>{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <p class="text-secondary m-0">Give each staff member their own login. They only see and can only do what their role allows — the server checks every page and action.</p>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#memberModal" data-member='{}'><i class="bi bi-person-plus"></i> Add team member</button>
+</div>
+
+<div class="panel">
+  <div class="table-responsive"><table class="table align-middle">
+    <thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Last sign-in</th><th class="text-end">Use (30 days)</th><th></th></tr></thead>
+    <tbody>
+      <tr><td><b>{{ owner.get_full_name|default:current_business.owner_name }}</b><small class="d-block text-secondary">{{ owner.email }}</small></td>
+        <td><span class="role-pill owner">Owner</span></td><td>Active</td><td>{{ owner.last_login|date:'d M Y H:i'|default:'—' }}</td><td class="text-end">—</td><td></td></tr>
+      {% for m in members %}
+      <tr class="member-row {% if not m.is_active %}off{% endif %}">
+        <td><b>{{ m.name }}</b><small class="d-block text-secondary">{{ m.user.email }}{% if m.phone %} · {{ m.phone }}{% endif %}</small></td>
+        <td><span class="role-pill">{{ m.role_label }}</span>{% if m.extra_permissions %}<small class="d-block text-secondary">+ {{ m.extra_permissions|length }} extra</small>{% endif %}</td>
+        <td>{% if m.is_active %}Active{% if m.must_change_password %}<small class="d-block text-secondary">Temporary password</small>{% endif %}{% else %}<span class="role-pill off">Switched off</span>{% endif %}</td>
+        <td>{{ m.user.last_login|date:'d M Y H:i'|default:'Never' }}</td>
+        <td class="text-end"><small>{{ m.usage.views|default:0 }} pages · {{ m.usage.logins|default:0 }} sign-ins</small></td>
+        <td class="text-end text-nowrap">{% if m.can_edit %}
+          <button class="btn btn-sm btn-light" aria-label="Edit {{ m.name }}" data-bs-toggle="modal" data-bs-target="#memberModal"
+            data-member='{"id":{{ m.id }},"first_name":"{{ m.user.first_name|escapejs }}","last_name":"{{ m.user.last_name|escapejs }}","email":"{{ m.user.email|escapejs }}","phone":"{{ m.phone|escapejs }}","role":"{{ m.role }}","extra":[{% for e in m.extra_permissions %}"{{ e }}"{% if not forloop.last %},{% endif %}{% endfor %}]}'><i class="bi bi-pencil"></i></button>
+          <div class="dropdown d-inline"><button class="btn btn-sm btn-light dropdown-toggle" data-bs-toggle="dropdown" aria-label="More actions"></button>
+            <div class="dropdown-menu dropdown-menu-end">
+              <form method="post" action="{% url 'team_member_action' m.id %}">{% csrf_token %}
+                {% if m.is_active %}<button class="dropdown-item" name="action" value="deactivate">Switch off</button>{% else %}<button class="dropdown-item" name="action" value="activate">Switch on</button>{% endif %}
+                <button class="dropdown-item" name="action" value="reset_password" onclick="return confirm('Give {{ m.name|escapejs }} a new temporary password?')">Reset password</button>
+                <button class="dropdown-item text-danger" name="action" value="delete" onclick="return confirm('Remove {{ m.name|escapejs }} for good? Their past records stay.')">Remove</button>
+              </form></div></div>{% endif %}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="empty-table">No team members yet. Add your cashier, finance or support staff so they don't need your password.</td></tr>
+      {% endfor %}
+    </tbody></table></div>
+</div>
+
+<h3 class="mt-4 mb-2 h5">What each role can do</h3>
+<div class="role-grid">
+  <div class="role-card"><b>Owner</b><small>Everything, including billing and the team. There is one owner per business.</small></div>
+  {% for key,label,desc,perms in roles %}<div class="role-card"><b>{{ label }}</b><small>{{ desc }}</small>
+    <ul>{% for p in perms %}<li>{{ p }}</li>{% endfor %}</ul></div>{% endfor %}
+</div>
+
+<div class="modal fade" id="memberModal" tabindex="-1" aria-labelledby="memberTitle"><div class="modal-dialog modal-dialog-centered modal-lg"><form class="modal-content" method="post" action="{% url 'team_member_save' %}">{% csrf_token %}
+  <input type="hidden" name="id">
+  <div class="modal-header border-0"><h5 class="modal-title fw-bold" id="memberTitle">Add team member</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body pt-0"><div class="row g-2">
+    <div class="col-sm-6"><label class="form-label">First name</label><input class="form-control" name="first_name" required maxlength="150"></div>
+    <div class="col-sm-6"><label class="form-label">Last name</label><input class="form-control" name="last_name" maxlength="150"></div>
+    <div class="col-sm-6 new-only"><label class="form-label">Email (their login)</label><input class="form-control" type="email" name="email" maxlength="150"></div>
+    <div class="col-sm-6"><label class="form-label">Phone</label><input class="form-control" name="phone" maxlength="60"></div>
+    <div class="col-sm-6 new-only"><label class="form-label">Password <small class="text-secondary">(leave blank to generate one)</small></label><input class="form-control" type="text" name="password" autocomplete="new-password" minlength="8"></div>
+    <div class="col-sm-6"><label class="form-label">Role</label><select class="form-select" name="role">{% for key,label,desc,perms in roles %}<option value="{{ key }}" data-desc="{{ desc }}">{{ label }}</option>{% endfor %}</select><small class="text-secondary d-block mt-1" id="roleDesc"></small></div>
+  </div>
+  {% if extras %}<details class="mt-3"><summary class="small fw-semibold">Extra access on top of the role (optional)</summary>
+    <div class="perm-list mt-2">{% for k,v in extras %}<label class="form-check"><input class="form-check-input" type="checkbox" name="extra" value="{{ k }}"> {{ v }}</label>{% endfor %}</div></details>{% endif %}
+  </div>
+  <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save</button></div>
+</form></div></div>
+{% endblock %}
+{% block scripts %}<script>
+(function(){const modal=document.getElementById('memberModal'),form=modal.querySelector('form'),sel=form.role,desc=document.getElementById('roleDesc');
+function showDesc(){desc.textContent=sel.selectedOptions[0]?sel.selectedOptions[0].dataset.desc:'';}sel.addEventListener('change',showDesc);
+modal.addEventListener('show.bs.modal',e=>{const m=JSON.parse(e.relatedTarget.dataset.member||'{}');const edit=!!m.id;
+  form.id.value=m.id||'';form.first_name.value=m.first_name||'';form.last_name.value=m.last_name||'';form.phone.value=m.phone||'';form.email.value=m.email||'';form.password.value='';
+  form.email.required=!edit;modal.querySelectorAll('.new-only').forEach(el=>el.classList.toggle('d-none',edit));
+  sel.value=m.role||'viewer';form.querySelectorAll('input[name=extra]').forEach(c=>c.checked=(m.extra||[]).includes(c.value));
+  document.getElementById('memberTitle').textContent=edit?'Edit '+(m.first_name||m.email):'Add team member';showDesc();});})();
+</script>{% endblock %}

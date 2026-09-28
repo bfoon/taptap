@@ -1,0 +1,75 @@
+{% extends 'core/platform/base.html' %}{% load static taptap_extras %}{% block title %}Analytics{% endblock %}{% block heading %}Platform analytics{% endblock %}
+{% block content %}
+{% if rev.pending_count %}<div class="alert alert-warning d-flex align-items-center gap-2"><i class="bi bi-hourglass-split"></i><span class="flex-grow-1"><b>{{ rev.pending_count }} payment request{{ rev.pending_count|pluralize }}</b> waiting for confirmation ({{ rev.pending_amount|money:'D' }}).</span><a class="btn btn-sm btn-dark" href="{% url 'platform_subscriptions' %}?status=Pending">Review</a></div>{% endif %}
+
+<div class="section-title">Subscription revenue</div>
+<div class="kpi-grid">
+  <div class="kpi"><small>This month</small><strong>{{ rev.month|money:'D' }}</strong><em class="{% if rev.change is not None and rev.change >= 0 %}up{% elif rev.change is not None %}down{% endif %}">{% if rev.change is not None %}{% if rev.change >= 0 %}+{% endif %}{{ rev.change }}% vs last month{% else %}Last month {{ rev.last_month|money:'D' }}{% endif %}</em></div>
+  <div class="kpi"><small>Last month</small><strong>{{ rev.last_month|money:'D' }}</strong><em>confirmed payments</em></div>
+  <div class="kpi"><small>Year to date</small><strong>{{ rev.ytd|money:'D' }}</strong><em>since 1 January</em></div>
+  <div class="kpi"><small>All time</small><strong>{{ rev.all|money:'D' }}</strong><em>{{ rev.paid_count }} paid subscriptions</em></div>
+  <div class="kpi"><small>Per paying business</small><strong>{{ rev.arpa|money:'D' }}</strong><em>lifetime average</em></div>
+  <div class="kpi"><small>Awaiting confirmation</small><strong>{{ rev.pending_amount|money:'D' }}</strong><em>{{ rev.pending_count }} request{{ rev.pending_count|pluralize }}</em></div>
+</div>
+
+<div class="section-title">Subscriptions</div>
+<div class="kpi-grid">
+  <div class="kpi"><small>Businesses</small><strong>{{ counts.total }}</strong><em>+{{ counts.new_30 }} in 30 days · +{{ counts.new_month }} this month</em></div>
+  <div class="kpi"><small>Paid &amp; active</small><strong>{{ counts.paid }}</strong><em><a href="{% url 'platform_businesses' %}?status=paid">View</a></em></div>
+  <div class="kpi"><small>On trial</small><strong>{{ counts.trial }}</strong><em><a href="{% url 'platform_businesses' %}?status=trial">View</a></em></div>
+  <div class="kpi"><small>Expired</small><strong>{{ counts.expired }}</strong><em><a href="{% url 'platform_businesses' %}?status=expired">Win them back</a></em></div>
+  <div class="kpi"><small>Unlimited</small><strong>{{ counts.unlimited }}</strong><em>complimentary</em></div>
+  <div class="kpi"><small>Trial → paid</small><strong>{{ counts.conversion }}%</strong><em>{{ counts.paying_ever }} ever paid</em></div>
+</div>
+
+<div class="row g-4 mt-1">
+  <div class="col-xl-8"><div class="panel h-100"><div class="panel-head"><div><h3>Revenue by month</h3><p>Confirmed subscription payments, last 12 months</p></div></div><div class="chart-box"><canvas id="revChart"></canvas></div></div></div>
+  <div class="col-xl-4"><div class="panel h-100"><div class="panel-head"><div><h3>Revenue by plan</h3><p>All time</p></div></div>
+    <table class="table table-sm"><thead><tr><th>Plan</th><th class="text-end">Paid</th><th class="text-end">Revenue</th></tr></thead><tbody>
+    {% for p in by_plan %}<tr><td>{{ p.plan }}</td><td class="text-end">{{ p.n }}</td><td class="text-end"><b>{{ p.v|money:'D' }}</b></td></tr>{% empty %}<tr><td colspan="3" class="empty-table">No paid subscriptions yet.</td></tr>{% endfor %}</tbody></table></div></div>
+</div>
+
+<div class="section-title">Software usage</div>
+<div class="kpi-grid">
+  <div class="kpi"><small>Active today</small><strong>{{ active.dau }}</strong><em>businesses</em></div>
+  <div class="kpi"><small>Active 7 days</small><strong>{{ active.wau }}</strong><em>businesses</em></div>
+  <div class="kpi"><small>Active 30 days</small><strong>{{ active.mau }}</strong><em>{{ active.users_30 }} people signed in</em></div>
+  <div class="kpi"><small>Stickiness</small><strong>{{ active.stickiness }}%</strong><em>daily ÷ monthly active</em></div>
+  <div class="kpi"><small>Page views (30d)</small><strong>{{ usage_totals.v|default:0 }}</strong><em>{{ usage_totals.l|default:0 }} sign-ins</em></div>
+  <div class="kpi"><small>Team accounts</small><strong>{{ counts.team }}</strong><em>active staff logins</em></div>
+</div>
+<div class="row g-4 mt-1">
+  <div class="col-xl-8"><div class="panel h-100"><div class="panel-head"><div><h3>Daily activity</h3><p>Active businesses, sign-ins and new sign-ups — last 30 days</p></div></div><div class="chart-box"><canvas id="useChart"></canvas></div></div></div>
+  <div class="col-xl-4"><div class="panel h-100"><div class="panel-head"><div><h3>Most used features</h3><p>Page views, last 30 days</p></div></div>
+    {% with top=features.0.views|default:1 %}{% for f in features %}<div class="feat-bar"><span>{{ f.label }}</span><i style="width:{% widthratio f.views top 100 %}%"></i><small class="text-secondary">{{ f.views }}</small></div>{% empty %}<p class="empty-mini">No usage recorded yet. Usage is counted from now on.</p>{% endfor %}{% endwith %}</div></div>
+</div>
+
+<div class="section-title">Network activity across all customers</div>
+<div class="kpi-grid">
+  <div class="kpi"><small>Routers</small><strong>{{ platform.online }}/{{ platform.routers }}</strong><em>online now</em></div>
+  <div class="kpi"><small>Vouchers created (30d)</small><strong>{{ platform.vouchers_30 }}</strong><em>all businesses</em></div>
+  <div class="kpi"><small>Customer voucher sales (30d)</small><strong>{{ platform.sales_30.v|default:0|money:'D' }}</strong><em>{{ platform.sales_30.n }} sales through TapTap</em></div>
+</div>
+
+<div class="row g-4 mt-1">
+  <div class="col-xl-6"><div class="panel h-100"><div class="panel-head"><div><h3>Most active businesses</h3><p>Last 30 days</p></div></div>
+    <table class="table table-sm"><thead><tr><th>Business</th><th class="text-end">Days used</th><th class="text-end">Pages</th><th class="text-end">Sign-ins</th></tr></thead><tbody>
+    {% for r in top_biz %}<tr><td><a href="{% url 'platform_business' r.business %}">{{ r.business__business_name }}</a></td><td class="text-end">{{ r.d }}</td><td class="text-end">{{ r.v }}</td><td class="text-end">{{ r.l }}</td></tr>{% empty %}<tr><td colspan="4" class="empty-table">No usage yet.</td></tr>{% endfor %}</tbody></table></div></div>
+  <div class="col-xl-6"><div class="panel h-100"><div class="panel-head"><div><h3>Needs attention</h3><p>Help owners before they churn</p></div></div>
+    <h6 class="small fw-bold mt-1">Paid access ending within 7 days</h6>
+    <ul class="list-unstyled small">{% for b in expiring %}<li><a href="{% url 'platform_business' b.id %}">{{ b.business_name }}</a> — {{ b.subscription_expires_at|date:'d M' }} ({{ b.phone }})</li>{% empty %}<li class="text-secondary">None</li>{% endfor %}</ul>
+    <h6 class="small fw-bold">Trials ending within 3 days</h6>
+    <ul class="list-unstyled small">{% for b in trials_ending %}<li><a href="{% url 'platform_business' b.id %}">{{ b.business_name }}</a> — {{ b.trial_ends_at|date:'d M' }} ({{ b.phone }})</li>{% empty %}<li class="text-secondary">None</li>{% endfor %}</ul>
+    <h6 class="small fw-bold">With access but no sign-in for 14 days</h6>
+    <ul class="list-unstyled small mb-0">{% for b in dormant %}<li><a href="{% url 'platform_business' b.id %}">{{ b.business_name }}</a> — {{ b.owner_name }}, {{ b.phone }}</li>{% empty %}<li class="text-secondary">None</li>{% endfor %}</ul></div></div>
+</div>
+{{ months|json_script:"monthsData" }}{{ days|json_script:"daysData" }}
+{% endblock %}
+{% block scripts %}<script src="{% static 'vendor/chart.umd.min.js' %}"></script><script>
+(function(){if(!window.Chart)return;const m=JSON.parse(document.getElementById('monthsData').textContent),d=JSON.parse(document.getElementById('daysData').textContent);
+const base={responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom',labels:{boxWidth:10}}},scales:{y:{beginAtZero:true,grid:{color:'#eef2f6'}},x:{grid:{display:false}}}};
+new Chart(document.getElementById('revChart'),{data:{labels:m.map(x=>x.label),datasets:[{type:'bar',label:'Revenue (D)',data:m.map(x=>x.amount),backgroundColor:'#1769e0',borderRadius:6,yAxisID:'y'},{type:'line',label:'Payments',data:m.map(x=>x.count),borderColor:'#f59e0b',backgroundColor:'#f59e0b',tension:.3,yAxisID:'y1'}]},
+ options:{...base,scales:{...base.scales,y1:{beginAtZero:true,position:'right',grid:{display:false},ticks:{precision:0}}}}});
+new Chart(document.getElementById('useChart'),{type:'line',data:{labels:d.map(x=>x.label),datasets:[{label:'Active businesses',data:d.map(x=>x.businesses),borderColor:'#1769e0',backgroundColor:'#1769e022',fill:true,tension:.3},{label:'Sign-ins',data:d.map(x=>x.logins),borderColor:'#18a66a',tension:.3},{label:'New sign-ups',data:d.map(x=>x.signups),borderColor:'#f59e0b',tension:.3}]},options:{...base,scales:{...base.scales,y:{...base.scales.y,ticks:{precision:0}}}}});
+})();
+</script>{% endblock %}

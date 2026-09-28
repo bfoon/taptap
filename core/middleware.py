@@ -5,7 +5,7 @@ class SubscriptionAccessMiddleware:
     PREFIX_ALLOW=('/admin/','/static/','/api/','/p/')
     def __init__(self,get_response): self.get_response=get_response
     def __call__(self,request):
-        if request.user.is_authenticated and hasattr(request.user,'business') and not any(request.path.startswith(p) for p in self.PREFIX_ALLOW):
+        if request.user.is_authenticated and not getattr(request,'tt_view_as',None) and hasattr(request.user,'business') and not any(request.path.startswith(p) for p in self.PREFIX_ALLOW):
             try: name=resolve(request.path_info).url_name
             except Resolver404: name=None
             if name not in self.ALLOWED and not request.user.business.has_access:

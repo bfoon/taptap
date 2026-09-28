@@ -2,6 +2,7 @@ from django.urls import path
 from . import views, views_business as vb, views_studio as vs, views_wan as vw, views_agents as va, views_auth
 
 from . import views_ads, views_ports, views_live, views_traffic, views_missing, views_link
+from . import views_team as vteam, views_platform as vp
 
 urlpatterns = [
     path('',views.home,name='home'), path('register/',views_auth.register,name='register'), path('login/',views_auth.login_view,name='login'), path('verify/',views_auth.verify_code,name='verify_code'), path('verify/resend/',views_auth.resend_code,name='resend_code'), path('verify/cancel/',views_auth.cancel_verification,name='cancel_verification'), path('account/devices/',views_auth.trusted_devices,name='trusted_devices'), path('account/devices/remove/',views_auth.trusted_device_remove,name='trusted_devices_remove_all'), path('account/devices/<int:pk>/remove/',views_auth.trusted_device_remove,name='trusted_device_remove'), path('logout/',views.logout_view,name='logout'),
@@ -63,4 +64,15 @@ urlpatterns = [
     path('routers/<int:pk>/link/status/',views_link.router_link_status,name='router_link_status'),
     path('notifications/',views_link.notifications,name='notifications'), path('notifications/test/',views_link.notifications_test,name='notifications_test'),
     path('n/off/<str:token>/',views_link.notifications_off,name='notifications_off'),
+    # Team accounts, daily sales and own password
+    path('team/',vteam.team,name='team'), path('team/save/',vteam.team_member_save,name='team_member_save'),
+    path('team/<int:pk>/action/',vteam.team_member_action,name='team_member_action'),
+    path('sales/today/',vteam.sales_daily,name='sales_daily'), path('account/password/',vteam.account_password,name='account_password'),
+    # Platform console (app owner / superusers)
+    path('platform/',vp.overview,name='platform_overview'), path('platform/businesses/',vp.businesses,name='platform_businesses'),
+    path('platform/businesses/<int:pk>/',vp.business_detail,name='platform_business'),
+    path('platform/businesses/<int:pk>/action/',vp.business_action,name='platform_business_action'),
+    path('platform/subscriptions/',vp.subscriptions,name='platform_subscriptions'),
+    path('platform/subscriptions/<int:pk>/action/',vp.sub_action,name='platform_sub_action'),
+    path('platform/audit/',vp.audit_log,name='platform_audit'), path('platform/view-as/stop/',vp.view_as_stop,name='platform_view_as_stop'),
 ]

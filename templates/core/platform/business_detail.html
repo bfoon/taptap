@@ -1,0 +1,80 @@
+{% extends 'core/platform/base.html' %}{% load taptap_extras %}{% block title %}{{ b.business_name }}{% endblock %}{% block heading %}{{ b.business_name }}{% endblock %}
+{% block content %}
+{% url 'platform_business_action' b.id as act %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  <a class="btn btn-sm btn-light" href="{% url 'platform_businesses' %}"><i class="bi bi-arrow-left"></i> Businesses</a>
+  <span class="st {{ status }}">{{ status|title }}</span>
+  <span class="text-secondary small">Joined {{ b.created_at|date:'d M Y' }} · {% if b.is_unlimited %}unlimited access{% else %}access until {{ b.access_expires_at|date:'d M Y H:i' }}{% endif %}</span>
+  <span class="flex-grow-1"></span>
+  <form method="post" action="{{ act }}" class="d-flex gap-2">{% csrf_token %}<input type="hidden" name="action" value="view_as">
+    <button class="btn btn-sm btn-dark" {% if not b.user.is_active %}disabled title="Reactivate the account first"{% endif %}><i class="bi bi-person-video3"></i> Open as owner</button></form>
+</div>
+
+<div class="kpi-grid mb-4">
+  <div class="kpi"><small>Owner</small><strong style="font-size:1rem">{{ b.owner_name }}</strong><em>{{ b.user.email }}<br>{{ b.phone }}{% if b.email and b.email != b.user.email %}<br>Alerts: {{ b.email }}{% endif %}</em></div>
+  <div class="kpi"><small>Last owner sign-in</small><strong style="font-size:1rem">{{ b.user.last_login|date:'d M Y H:i'|default:'Never' }}</strong><em>{{ devices }} trusted device{{ devices|pluralize }}{% if not b.user.is_active %} · <b class="text-danger">suspended</b>{% endif %}</em></div>
+  <div class="kpi"><small>Paid to TapTap</small><strong>{{ stats.paid_total|money:'D' }}</strong><em>all time</em></div>
+  <div class="kpi"><small>Usage (30d)</small><strong>{{ stats.views_30 }}</strong><em>pages · {{ stats.logins_30 }} sign-ins{% if stats.last_seen %} · last {{ stats.last_seen|timesince }} ago{% endif %}</em></div>
+  <div class="kpi"><small>Routers</small><strong>{{ stats.online }}/{{ stats.routers }}</strong><em>online · {{ stats.vouchers }} vouchers</em></div>
+  <div class="kpi"><small>Their sales (30d)</small><strong>{{ stats.sales_30.v|default:0|money:b.currency }}</strong><em>{{ stats.sales_30.n }} voucher sales</em></div>
+</div>
+
+<div class="row g-4">
+  <div class="col-xl-7">
+    <div class="panel mb-4"><div class="panel-head"><div><h3>Usage — last 30 days</h3><p>Page views per day</p></div></div>
+      <div class="d-flex align-items-end gap-1" style="height:110px">{% for d in days %}<div title="{{ d.label }}: {{ d.views }} pages" style="flex:1;background:{% if d.views %}#1769e0{% else %}#e3e9f1{% endif %};border-radius:3px;height:{{ d.pct }}%"></div>{% endfor %}</div>
+      <div class="row mt-3 small">
+        <div class="col-md-6"><b>Who uses it</b><table class="table table-sm mt-1"><tbody>{% for u in per_user %}<tr><td>{{ u.user__first_name|default:u.user__email }}</td><td class="text-end">{{ u.v }} pages</td><td class="text-end">{{ u.l }} sign-ins</td></tr>{% empty %}<tr><td class="text-secondary">No usage yet</td></tr>{% endfor %}</tbody></table></div>
+        <div class="col-md-6"><b>Features used</b><table class="table table-sm mt-1"><tbody>{% for k,v in features %}<tr><td>{{ k }}</td><td class="text-end">{{ v }}</td></tr>{% empty %}<tr><td class="text-secondary">—</td></tr>{% endfor %}</tbody></table></div>
+      </div></div>
+
+    <div class="panel mb-4"><div class="panel-head"><div><h3>Subscription payments</h3><p>Requests and confirmed payments</p></div></div>
+      <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Requested</th><th>Plan</th><th>Amount</th><th>Method / ref</th><th>Status</th><th>Covers</th><th></th></tr></thead><tbody>
+      {% for s in subs %}<tr><td>{{ s.created_at|date:'d M Y' }}</td><td>{{ s.plan }}</td><td>{{ s.amount|money:'D' }}</td><td>{{ s.payment_method }}{% if s.transaction_id %}<small class="d-block text-secondary">{{ s.transaction_id }}</small>{% endif %}</td>
+        <td><span class="st {{ s.payment_status }}">{{ s.payment_status }}</span></td><td>{% if s.expires_at %}{{ s.starts_at|date:'d M' }} – {{ s.expires_at|date:'d M Y' }}{% endif %}</td>
+        <td class="text-end text-nowrap">{% if s.payment_status == 'Pending' %}<form method="post" action="{% url 'platform_sub_action' s.id %}" class="d-inline-flex gap-1">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}">
+          <input class="form-control form-control-sm" name="reference" placeholder="Ref" style="width:90px" aria-label="Payment reference">
+          <button class="btn btn-sm btn-success" name="action" value="confirm_sub">Confirm</button><button class="btn btn-sm btn-light" name="action" value="reject_sub" onclick="return confirm('Reject this request?')">Reject</button></form>{% endif %}</td></tr>
+      {% empty %}<tr><td colspan="7" class="empty-table">No subscription requests yet.</td></tr>{% endfor %}</tbody></table></div></div>
+
+    <div class="panel mb-4"><div class="panel-head"><div><h3>Team</h3><p>Staff logins under this business</p></div></div>
+      <table class="table table-sm"><tbody><tr><td>{{ b.owner_name }}<small class="d-block text-secondary">{{ b.user.email }}</small></td><td>Owner</td><td>{{ b.user.last_login|date:'d M Y'|default:'Never' }}</td></tr>
+      {% for m in team %}<tr><td>{{ m.name }}<small class="d-block text-secondary">{{ m.user.email }}</small></td><td>{{ m.role_label }}{% if not m.is_active %} · off{% endif %}</td><td>{{ m.user.last_login|date:'d M Y'|default:'Never' }}</td></tr>{% endfor %}</tbody></table></div>
+
+    <div class="panel"><div class="panel-head"><div><h3>Recent activity in their account</h3></div></div>
+      <ul class="list-unstyled small mb-0">{% for a in activities %}<li class="py-1 border-bottom"><span class="text-secondary">{{ a.created_at|date:'d M H:i' }}</span> <b>{{ a.type }}</b> — {{ a.details }}{% if a.actor %} <span class="text-secondary">· {{ a.actor }}</span>{% endif %}</li>{% empty %}<li class="text-secondary">Nothing yet.</li>{% endfor %}</ul></div>
+  </div>
+
+  <div class="col-xl-5">
+    <div class="panel mb-4"><h3 class="h6 fw-bold">Record a payment</h3><p class="small text-secondary">Money received outside the app (cash, Wave, bank). Access starts from today or their current expiry, whichever is later.</p>
+      <form method="post" action="{{ act }}" class="row g-2">{% csrf_token %}<input type="hidden" name="action" value="record_payment">
+        <div class="col-7"><select class="form-select form-select-sm" name="package" aria-label="Package"><option value="">Custom…</option>{% for code,p in packages.items %}<option value="{{ code }}">{{ p.0 }} — D{{ p.1 }}</option>{% endfor %}</select></div>
+        <div class="col-5"><input class="form-control form-control-sm" name="amount" placeholder="Amount (optional)" aria-label="Amount"></div>
+        <div class="col-7"><input class="form-control form-control-sm" name="plan" placeholder="Custom plan name" aria-label="Custom plan name"></div>
+        <div class="col-5"><input class="form-control form-control-sm" type="number" min="1" name="days" placeholder="Days (custom)" aria-label="Days"></div>
+        <div class="col-6"><select class="form-select form-select-sm" name="method" aria-label="Method"><option>Cash</option><option>Wave</option><option>QMoney</option><option>Afrimoney</option><option>Bank transfer</option><option>Manual</option></select></div>
+        <div class="col-6"><input class="form-control form-control-sm" name="reference" placeholder="Reference" aria-label="Reference"></div>
+        <div class="col-12"><button class="btn btn-sm btn-success w-100">Record payment &amp; activate</button></div></form></div>
+
+    <div class="panel mb-4"><h3 class="h6 fw-bold">Access</h3>
+      <form method="post" action="{{ act }}" class="d-flex gap-2 mb-2">{% csrf_token %}<input class="form-control form-control-sm" type="number" min="1" max="3650" name="days" placeholder="Days" required aria-label="Days">
+        <button class="btn btn-sm btn-outline-primary text-nowrap" name="action" value="extend_paid">Extend paid</button><button class="btn btn-sm btn-outline-secondary text-nowrap" name="action" value="extend_trial">Extend trial</button></form>
+      <small class="text-secondary d-block mb-2">Free extensions (goodwill, outage credit) — no payment is recorded.</small>
+      <form method="post" action="{{ act }}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary w-100" name="action" value="toggle_unlimited">{% if b.is_unlimited %}Turn off unlimited access{% else %}Give unlimited access{% endif %}</button></form></div>
+
+    <div class="panel mb-4"><h3 class="h6 fw-bold">Help the owner sign in</h3>
+      <form method="post" action="{{ act }}" class="mb-2">{% csrf_token %}<button class="btn btn-sm btn-outline-warning w-100" name="action" value="reset_owner_password" onclick="return confirm('Create a new temporary password for the owner?')"><i class="bi bi-key"></i> Reset owner password</button></form>
+      <form method="post" action="{{ act }}" class="mb-2">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary w-100" name="action" value="revoke_devices"><i class="bi bi-laptop"></i> Clear trusted devices ({{ devices }})</button></form>
+      <form method="post" action="{{ act }}" class="d-flex gap-2">{% csrf_token %}<input type="hidden" name="action" value="change_owner_email"><input class="form-control form-control-sm" type="email" name="email" placeholder="New login email" required aria-label="New login email"><button class="btn btn-sm btn-outline-secondary text-nowrap">Change email</button></form></div>
+
+    <div class="panel mb-4"><h3 class="h6 fw-bold">Account</h3>
+      <form method="post" action="{{ act }}">{% csrf_token %}<input class="form-control form-control-sm mb-2" name="note" placeholder="Reason (saved in the support log)" aria-label="Reason">
+      {% if b.user.is_active %}<button class="btn btn-sm btn-outline-danger w-100" name="action" value="suspend" onclick="return confirm('Suspend {{ b.business_name|escapejs }}? The owner and all staff are signed out.')">Suspend account</button>
+      {% else %}<button class="btn btn-sm btn-success w-100" name="action" value="reactivate">Reactivate account</button>{% endif %}</form></div>
+
+    <div class="panel"><h3 class="h6 fw-bold">Support log</h3>
+      <form method="post" action="{{ act }}" class="d-flex gap-2 mb-2">{% csrf_token %}<input type="hidden" name="action" value="note"><input class="form-control form-control-sm" name="note" placeholder="Add a note (call, request, promise…)" required aria-label="Note"><button class="btn btn-sm btn-primary">Save</button></form>
+      <ul class="list-unstyled small mb-0">{% for a in audit %}<li class="py-1 border-bottom"><span class="text-secondary">{{ a.created_at|date:'d M H:i' }}</span> <b>{{ a.action }}</b>{% if a.details %} — {{ a.details }}{% endif %} <span class="text-secondary">· {{ a.actor.email|default:'—' }}</span></li>{% empty %}<li class="text-secondary">No support actions yet.</li>{% endfor %}</ul></div>
+  </div>
+</div>
+{% endblock %}
