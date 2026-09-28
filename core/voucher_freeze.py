@@ -25,6 +25,9 @@ logger = logging.getLogger('taptap.vouchers')
 
 LINK_CHUNK = 50
 
+MANUAL_WARNING = ('The Wi-Fi staff paused your internet to give you this notice. Your remaining time is kept. '
+                  'Press "I agree" to confirm you have read it and to continue.')
+
 DEFAULT_WARNING = ('This voucher has been used on more devices than it allows. Sharing or reselling a voucher '
                    'is not permitted. Your internet was paused — your remaining time is kept. '
                    'Press "I agree" to confirm you will use it only on your allowed device(s).')
@@ -119,7 +122,7 @@ def why_not_freezable(v, now=None):
     return None
 
 
-def freeze(vouchers, user=None, reason='', kind='freeze', source='user'):
+def freeze(vouchers, user=None, reason='', kind='freeze', source='user', message=''):
     """Freeze these vouchers. Returns {'done': n, 'skipped': [(code, why)], 'router': [(ok, msg)]}."""
     from .voucher_history import record, channel
     from .utils import log
@@ -138,8 +141,9 @@ def freeze(vouchers, user=None, reason='', kind='freeze', source='user'):
             left = time_left_seconds(v, now)
             before = v.status
             v.frozen_at, v.frozen_by, v.freeze_kind, v.freeze_reason, v.frozen_left = now, _who(user), kind, reason, left
+            v.warning_message = (message or '').strip()[:1500] if kind == 'warning' else ''
             v.status = 'disabled'
-            v.save(update_fields=['frozen_at', 'frozen_by', 'freeze_kind', 'freeze_reason', 'frozen_left', 'status'])
+            v.save(update_fields=['frozen_at', 'frozen_by', 'freeze_kind', 'freeze_reason', 'frozen_left', 'status', 'warning_message'])
             v._freeze_before = before
             done.append(v)
     out['router'] = _apply_on_routers(done, True, user=user)
@@ -148,7 +152,8 @@ def freeze(vouchers, user=None, reason='', kind='freeze', source='user'):
         from .durations import text as mtext
         record(v, 'warned' if kind == 'warning' else 'frozen', user=user, source=source, reason=reason, via=channel(v.router),
                router_result='; '.join(m for _, m in out['router'])[:255], status_before=v._freeze_before, status_after='frozen',
-               text=('Time left kept: ' + mtext(max(1, left // 60))) if left is not None else 'Not used yet — full time kept')
+               text=('Time left kept: ' + mtext(max(1, left // 60))) if left is not None else 'Not used yet — full time kept',
+               **({'message': v.warning_message} if v.warning_message else {}))
     out['done'] = len(done)
     if done:
         log(done[0].business, 'Voucher Warned' if kind == 'warning' else 'Voucher Frozen',
@@ -173,7 +178,8 @@ def unfreeze(vouchers, user=None, reason='', source='user', event='unfrozen'):
             v._paused, v._kind = paused, v.freeze_kind
             v.status = 'active'
             v.frozen_at, v.frozen_by, v.freeze_kind, v.freeze_reason, v.frozen_left = None, None, '', '', None
-            v.save(update_fields=['expires_at', 'status', 'frozen_at', 'frozen_by', 'freeze_kind', 'freeze_reason', 'frozen_left'])
+            v.warning_message = ''
+            v.save(update_fields=['expires_at', 'status', 'frozen_at', 'frozen_by', 'freeze_kind', 'freeze_reason', 'frozen_left', 'warning_message'])
             done.append(v)
     out['router'] = _apply_on_routers(done, False, user=user)
     from .durations import text as mtext
@@ -214,7 +220,7 @@ def portal_block(voucher):
     b = voucher.business
     if voucher.freeze_kind == 'warning':
         return {'success': False, 'blocked': True, 'kind': 'warning', 'code': voucher.code, 'can_accept': True,
-                'title': 'Warning', 'message': warning_text(b), 'keep': keep,
+                'title': 'Warning', 'message': (voucher.warning_message or '').strip() or warning_text(b), 'keep': keep,
                 'button': 'I agree', 'contact': b.phone or ''}
     return {'success': False, 'blocked': True, 'kind': 'freeze', 'code': voucher.code, 'can_accept': False,
             'title': 'This voucher is paused', 'keep': keep, 'contact': b.phone or '',

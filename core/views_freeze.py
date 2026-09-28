@@ -57,3 +57,41 @@ def batch_freeze(request, pk):
     qs = batch.vouchers.select_related('router')
     qs = qs.filter(frozen_at__isnull=False) if request.POST.get('action') == 'unfreeze' else qs.filter(frozen_at__isnull=True)
     return _run(request, list(qs), 'batches')
+
+
+# ─────────────────────────── manual warning (Owner / Admin) ───────────────────────────
+
+def _warn(request, vouchers, default):
+    try:
+        out = vf.freeze(vouchers, request.user, request.POST.get('reason', ''), kind='warning',
+                        message=request.POST.get('message', '').strip() or vf.MANUAL_WARNING)
+        _say(request, out, 'warned — internet paused until the customer reads the message and presses "I agree"')
+    except vf.FreezeError as e:
+        messages.error(request, str(e))
+    return _back(request, default)
+
+
+@login_required
+@require_POST
+def voucher_warn(request, pk):
+    """Warn the customer of one voucher (every device using it)."""
+    v = get_object_or_404(_b(request).vouchers.select_related('router'), pk=pk)
+    return _warn(request, [v], f'/vouchers/{pk}/')
+
+
+@login_required
+@require_POST
+def session_warn(request):
+    """Warn from Active Users: find the voucher the device is logged in with."""
+    from .models import VoucherCodeAlias
+    business = _b(request)
+    code = request.POST.get('user', '').strip()
+    v = business.vouchers.select_related('router').filter(code__iexact=code).first() if code else None
+    if not v and code:
+        alias = VoucherCodeAlias.objects.filter(business=business, code__iexact=code, voucher__deleted_at__isnull=True).select_related('voucher__router').first()
+        v = alias.voucher if alias else None
+    if not v:
+        messages.error(request, f'{code or "This device"} is not logged in with a TapTap voucher, so it cannot be warned. '
+                                'You can disconnect it instead.')
+        return _back(request, 'active_users')
+    return _warn(request, [v], 'active_users')

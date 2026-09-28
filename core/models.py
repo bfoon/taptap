@@ -201,6 +201,7 @@ class Voucher(models.Model):
     freeze_kind=models.CharField(max_length=10,blank=True,default='',choices=[('freeze','Frozen'),('warning','Warning')])
     freeze_reason=models.CharField(max_length=255,blank=True)
     frozen_left=models.PositiveIntegerField(null=True,blank=True,help_text='Seconds left when frozen (empty: clock had not started)')
+    warning_message=models.TextField(blank=True,help_text='What the customer reads on the warning page (manual warning). Empty = the shared-use text')
     objects=AliveManager()
     all_objects=BinQuerySet.as_manager()
     @property

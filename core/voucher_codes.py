@@ -6,7 +6,9 @@ history all stay attached, so nothing is counted twice. Only the code changes:
 * the old code is kept as a ``VoucherCodeAlias`` — it can never be issued again, and
   searching for it still finds the voucher;
 * the hotspot user on the MikroTik is RENAMED (``set name=``), which keeps its used
-  uptime, so the customer does not get the time again;
+  uptime, so the customer does not get the time again. A voucher logs in with its code
+  as BOTH username and password, so the password is changed to the new code as well
+  (TapTap vouchers always; router-made ones when their password was the old code);
 * the change is written to the voucher history (who, when, why, old → new, router answer);
 * router sync keeps it that way: if the old name is seen on a router it is renamed
   again, never imported as a second voucher.
@@ -50,6 +52,20 @@ def aliases(business):
             VoucherCodeAlias.objects.filter(business=business).select_related('voucher', 'voucher__router')}
 
 
+def _force(voucher):
+    """TapTap made this voucher, so its password IS its code: always set it with the name."""
+    return getattr(voucher, 'source', '') == 'taptap'
+
+
+def _password_follows_code(voucher, row, old):
+    """Should the router password change with the code? TapTap vouchers: always. Router-made
+    vouchers: only when the password was the old code (or empty), so a separate password is kept."""
+    if _force(voucher):
+        return True
+    pw = row.get('password')
+    return pw is None or str(pw).strip().upper() in ('', str(old).upper())
+
+
 def _rename_on_router(voucher, old, new, user=None):
     """(via, result, ok) — rename the hotspot user, keeping its used uptime."""
     from .voucher_history import channel
@@ -60,7 +76,7 @@ def _rename_on_router(voucher, old, new, user=None):
     if via == 'TapTap Link':
         from .linkops import send
         try:
-            send(router, 'hotspot_user_rename', {'name': old, 'new_name': new},
+            send(router, 'hotspot_user_rename', {'name': old, 'new_name': new, 'password': _force(voucher)},
                  label=f'Rename voucher {old} → {new}', user=user, minutes=60 * 24 * 3)
             return via, 'Queued — the router renames it at its next check-in', True
         except ValueError as exc:
@@ -72,9 +88,15 @@ def _rename_on_router(voucher, old, new, user=None):
             users = svc.resource('/ip/hotspot/user')
             rows = users.get(name=old)
             if rows:
-                users.set(id=rows[0]['id'], name=new)
-                return via, 'Renamed on the router (used time kept)', True
-            if users.get(name=new):
+                fields = {'name': new}
+                if _password_follows_code(voucher, rows[0], old):
+                    fields['password'] = new
+                users.set(id=rows[0]['id'], **fields)
+                return via, 'Renamed on the router (used time kept)' + (', password updated' if 'password' in fields else ''), True
+            rows = users.get(name=new)
+            if rows:
+                if _password_follows_code(voucher, rows[0], old):
+                    users.set(id=rows[0]['id'], password=new)
                 return via, 'Already renamed on the router', True
         finally:
             svc.close()
@@ -137,7 +159,11 @@ def rename_with_service(svc, pairs, present):
         if new.upper() in present:
             users.remove(id=rows[0]['id'])
         else:
-            users.set(id=rows[0]['id'], name=new)
+            pw = rows[0].get('password')
+            fields = {'name': new}
+            if pw is None or str(pw).strip().upper() in ('', str(old).upper()):
+                fields['password'] = new
+            users.set(id=rows[0]['id'], **fields)
 
 
 def heal(router, pairs, present=()):
@@ -174,3 +200,57 @@ def heal(router, pairs, present=()):
             svc.close()
     except Exception:
         logger.exception('Could not rename old voucher codes on %s', router.name)
+
+
+# ─────────────────────── repair: codes changed before the password fix ───────────────────────
+
+REPAIR_EVERY = 600
+
+
+def stale_passwords(business, router, rows):
+    """Current codes on this router whose password is still an OLD code — vouchers whose code was
+    changed while only the name was renamed, so the new code could not log in."""
+    olds = {}
+    for a in (VoucherCodeAlias.objects.filter(business=business, voucher__router=router, voucher__deleted_at__isnull=True)
+              .select_related('voucher')):
+        entry = olds.setdefault(a.voucher.code.upper(), [set(), a.voucher.source])
+        entry[0].add(a.code.upper())
+    out = []
+    for r in rows or []:
+        name = str(r.get('name', '')).strip()
+        entry = olds.get(name.upper())
+        if not entry:
+            continue
+        pw = r.get('password')
+        if pw is None or str(pw).startswith('•'):
+            continue   # password not readable: the rename fix will not guess
+        pw = str(pw).strip().upper()
+        if pw != name.upper() and (pw in entry[0] or pw == '' or entry[1] == 'taptap'):
+            out.append(name)
+    return out
+
+
+def repair_passwords(router, names, svc=None):
+    """Set password = code for these names. Direct API with an open `svc`, else a TapTap Link command."""
+    names = [n for n in dict.fromkeys(names or []) if n][:500]
+    if not names:
+        return 0
+    if svc is not None:
+        users = svc.resource('/ip/hotspot/user')
+        for n in names:
+            rows = users.get(name=n)
+            if rows:
+                users.set(id=rows[0]['id'], password=n)
+        return len(names)
+    key = f'code-repass:{router.pk}'
+    if cache.get(key):
+        return 0
+    cache.set(key, 1, REPAIR_EVERY)
+    from .linkops import send
+    for i in range(0, len(names), 100):
+        try:
+            send(router, 'hotspot_users_repass', {'names': names[i:i + 100]},
+                 label=f'Fix login of {len(names[i:i + 100])} voucher(s) whose code was changed', minutes=60 * 24)
+        except ValueError:
+            break
+    return len(names)

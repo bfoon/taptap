@@ -333,6 +333,13 @@ def sync_router(router, progress=None):
                 summary['codes_renamed'] = len(renamed_seen)
             except Exception as exc:
                 summary['errors'].append(f'Could not rename {len(renamed_seen)} changed voucher code(s): {exc}')
+        try:
+            from .voucher_codes import repair_passwords, stale_passwords
+            fixed = repair_passwords(router, stale_passwords(router.business, router, [_clean(r) for r in router_rows]), svc=svc)
+            if fixed:
+                summary['code_logins_repaired'] = fixed
+        except Exception as exc:
+            summary['errors'].append(f'Could not repair the login of changed voucher codes: {exc}')
         if binned_seen:
             try:
                 remove_with_service(svc, binned_seen)

@@ -39,6 +39,7 @@
         {% if 'vouchers.support' in tt_perms %}<button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#freezeModal"><i class="bi bi-play-circle"></i> Unfreeze</button>{% endif %}
       {% else %}
       {% if 'vouchers.support' in tt_perms and v.status == 'active' and not time_is_up %}<button class="btn btn-outline-info" data-bs-toggle="modal" data-bs-target="#freezeModal"><i class="bi bi-snow"></i> Freeze</button>{% endif %}
+      {% if 'vouchers.warn' in tt_perms and not v.frozen_at and not v.deleted_at and v.status == 'active' and not time_is_up %}<button class="btn btn-outline-warning" data-bs-toggle="modal" data-bs-target="#warnModal"><i class="bi bi-exclamation-octagon"></i> Warn</button>{% endif %}
       {% if 'vouchers.support' in tt_perms %}{% if v.status == 'active' and not time_is_up %}
         <button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#disableModal"><i class="bi bi-slash-circle"></i> Disable</button>
         <button class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#enableModal"><i class="bi bi-clock-history"></i> Add time</button>
@@ -57,6 +58,7 @@
   <div class="alert {% if v.freeze_kind == 'warning' %}alert-warning{% else %}alert-info{% endif %} mt-3 mb-0 d-flex gap-2"><i class="bi {% if v.freeze_kind == 'warning' %}bi-exclamation-octagon{% else %}bi-snow{% endif %} mt-1"></i><div>
     <b>{% if v.freeze_kind == 'warning' %}Warning sent{% else %}Frozen{% endif %} {{ v.frozen_at|date:'d M Y H:i' }}{% if v.frozen_by %} by {{ v.frozen_by.get_full_name|default:v.frozen_by.username }}{% elif v.freeze_kind == 'warning' %} automatically{% endif %}.</b>
     {{ v.freeze_reason }}<br>
+    {% if v.warning_message %}<span class="small">Customer sees: “{{ v.warning_message|truncatechars:200 }}”</span><br>{% endif %}
     <small>Internet is off and the clock stands still{% if v.frozen_left is not None %} with <b>{{ v.frozen_left|duration_short }}</b> left{% else %} (not used yet — full time kept){% endif %}.
     {% if v.freeze_kind == 'warning' %}The customer sees the warning page on the portal and continues by pressing “I agree” — or you can unfreeze it here.{% else %}It continues from where it stopped when you unfreeze it.{% endif %}</small>
   </div></div>
@@ -221,6 +223,19 @@
 </form></div></div>
 
 {% if 'vouchers.support' in tt_perms and not v.deleted_at %}
+{% if 'vouchers.warn' in tt_perms and not v.frozen_at %}
+<div class="modal fade" id="warnModal" tabindex="-1" aria-labelledby="warnTitle"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'voucher_warn' v.id %}">{% csrf_token %}
+  <div class="modal-header"><h5 class="modal-title" id="warnTitle">Warn the customer of {{ v.code }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body">
+    <p class="small">Internet pauses at once on every device using this voucher{% if v.router %} (on {{ v.router.name }}){% endif %} and the clock stands still. When they open the Wi-Fi page they see your message and continue by pressing <b>“I agree”</b> — their time is kept. You can also lift it yourself with Unfreeze.</p>
+    <label class="form-label" for="warnMsg">Message the customer sees</label>
+    <textarea id="warnMsg" name="message" class="form-control" rows="4" maxlength="1500">{{ manual_warning }}</textarea>
+    <label class="form-label mt-3" for="warnReason">Reason <span class="text-secondary">(required, for your team — the customer does not see it)</span></label>
+    <input id="warnReason" name="reason" class="form-control" maxlength="255" required placeholder="e.g. Downloading too much, abusive behaviour, late payment">
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-warning"><i class="bi bi-exclamation-octagon"></i> Send warning</button></div>
+</form></div></div>
+{% endif %}
 <div class="modal fade" id="freezeModal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'voucher_freeze' v.id %}">{% csrf_token %}
   <input type="hidden" name="action" value="{% if v.frozen_at %}unfreeze{% else %}freeze{% endif %}">
   <div class="modal-header"><h5 class="modal-title">{% if v.frozen_at %}Unfreeze{% else %}Freeze{% endif %} {{ v.code }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>

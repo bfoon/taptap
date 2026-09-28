@@ -465,6 +465,12 @@
                     <i class="bi bi-wifi-off"></i> Disconnect user
                   </button>
                 </form>
+                {% if 'vouchers.warn' in tt_perms and x.user %}
+                <button type="button" class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#sessionWarn"
+                        data-user="{{ x.user }}" data-device="{{ x.mac_address|default:x.address|default:'' }}">
+                  <i class="bi bi-exclamation-octagon"></i> Warn
+                </button>
+                {% endif %}
               </div>
             </div>
           </td>
@@ -727,4 +733,22 @@
   }
 })();
 </script>
+{% if 'vouchers.warn' in tt_perms %}
+<div class="modal fade" id="sessionWarn" tabindex="-1" aria-labelledby="swTitle"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'session_warn' %}">{% csrf_token %}
+  <input type="hidden" name="user">
+  <div class="modal-header"><h5 class="modal-title" id="swTitle">Warn <span data-who></span></h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body">
+    <p class="small">The device is disconnected and the voucher is paused (time kept). The customer sees your message on the Wi-Fi page and continues by pressing <b>“I agree”</b>. Every device using the same voucher is paused.</p>
+    <label class="form-label" for="swMsg">Message the customer sees</label>
+    <textarea id="swMsg" name="message" class="form-control" rows="4" maxlength="1500">{{ manual_warning }}</textarea>
+    <label class="form-label mt-3" for="swReason">Reason <span class="text-secondary">(required, for your team)</span></label>
+    <input id="swReason" name="reason" class="form-control" maxlength="255" required placeholder="e.g. Downloading too much">
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-warning"><i class="bi bi-exclamation-octagon"></i> Send warning</button></div>
+</form></div></div>
+<script>
+document.getElementById('sessionWarn').addEventListener('show.bs.modal',function(e){var d=e.relatedTarget.dataset,f=this.querySelector('form');
+  f.elements.user.value=d.user;this.querySelector('[data-who]').textContent=d.user+(d.device?' ('+d.device+')':'');f.elements.reason.value='';});
+</script>
+{% endif %}
 {% endblock %}

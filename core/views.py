@@ -253,6 +253,7 @@ def voucher_detail(request,pk):
     """Everything about one voucher: details, devices, sale, router state and full history."""
     from . import voucher_history as vh
     from .shared_use import case_for
+    from .voucher_freeze import MANUAL_WARNING
     from .models import SessionIncident, VoucherSale
     business=b(request)
     # Vouchers in the bin still open here, read-only, so their history stays reachable.
@@ -270,6 +271,7 @@ def voucher_detail(request,pk):
         'extend_choices':[('30 min',0,0,30),('1 hour',0,1,0),('3 hours',0,3,0),('12 hours',0,12,0),('1 day',1,0,0),('3 days',3,0,0),('1 week',7,0,0),('30 days',30,0,0)],
         'old_codes':v.code_aliases.select_related('changed_by') if v.pk else [],
         'shared_case':case_for(v) if not v.deleted_at else None,
+        'manual_warning':MANUAL_WARNING,
     })
 
 
@@ -730,7 +732,8 @@ def _router_rows(business,method):
 
 @login_required
 def active_users(request):
-    rows,errors=_router_rows(b(request),'active_users');return render(request,'core/active_users.html',{'rows':rows,'errors':errors})
+    from .voucher_freeze import MANUAL_WARNING
+    rows,errors=_router_rows(b(request),'active_users');return render(request,'core/active_users.html',{'rows':rows,'errors':errors,'manual_warning':MANUAL_WARNING})
 
 
 @login_required

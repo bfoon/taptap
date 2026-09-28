@@ -404,6 +404,13 @@ def _users(router, rows, now):
             heal_codes(router, renamed_seen, present)
         except Exception as exc:
             summary['errors'].append(f'Could not queue renaming of changed voucher codes: {exc}')
+    try:
+        from .voucher_codes import repair_passwords, stale_passwords
+        fixed = repair_passwords(router, stale_passwords(router.business, router, [_clean(r) for r in rows]))
+        if fixed:
+            summary['code_logins_repaired'] = fixed
+    except Exception as exc:
+        summary['errors'].append(f'Could not queue the login repair of changed voucher codes: {exc}')
     if binned_seen:
         try:
             heal(router, binned_seen)

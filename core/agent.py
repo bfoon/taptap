@@ -39,7 +39,7 @@ DEFAULT_EXPIRY = {'reboot': 5, 'port_restart': 5, 'interface_set': 15, 'port_off
 POLICY = 'ftp,read,write,test,reboot,sensitive'
 SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
-    'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'hotspot_users_disable', 'disconnect', 'binding_set',
+    'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
 }
@@ -310,9 +310,19 @@ def command_body(cmd):
                     f':do {{ /ip hotspot active remove [find user=$n] }} on-error={{}} }}')
         return f':foreach n in={{{names}}} do={{ /ip hotspot user set [find name=$n] disabled=no }}'
     if k == 'hotspot_user_rename':
-        # Changing a voucher code: rename keeps the used uptime on the router.
+        # Changing a voucher code: rename keeps the used uptime on the router. The voucher logs in
+        # with its code as username AND password, so the password follows the code: always for
+        # TapTap vouchers ('password': true), otherwise only when it was the old code or empty.
+        force = 'true' if p.get('password') else 'false'
         return (f':local id [/ip hotspot user find name={name()}]; :if ([:len $id] > 0) do={{ '
-                f'/ip hotspot user set $id name={name("new_name")} }}')
+                f':local u [:pick $id 0]; :local pw [/ip hotspot user get $u password]; '
+                f':if ({force} or $pw = {name()} or [:len $pw] = 0) do={{ '
+                f'/ip hotspot user set $u name={name("new_name")} password={name("new_name")} }} '
+                f'else={{ /ip hotspot user set $u name={name("new_name")} }} }}')
+    if k == 'hotspot_users_repass':
+        # Repair: vouchers whose code was changed before the password followed the code.
+        names = ';'.join(rs(n) for n in p.get('names', []))
+        return f':foreach n in={{{names}}} do={{ :do {{ /ip hotspot user set [find name=$n] password=$n }} on-error={{}} }}'
     if k == 'hotspot_user_remove':
         return f'/ip hotspot user remove [find name={name()}]'
     if k == 'hotspot_users_remove':
@@ -401,7 +411,7 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
             raise ValueError(f'Invalid {key}.')
     if params and 'mac' in params and not MAC_RE.match(str(params['mac'])):
         raise ValueError('Invalid MAC address.')
-    if kind in ('hotspot_users_remove', 'hotspot_users_disable'):
+    if kind in ('hotspot_users_remove', 'hotspot_users_disable', 'hotspot_users_repass'):
         names = (params or {}).get('names') or []
         if not isinstance(names, list) or not 1 <= len(names) <= 100 or not all(NAME_RE.match(str(n)) for n in names):
             raise ValueError('Invalid voucher list.')
