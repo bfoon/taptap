@@ -107,6 +107,7 @@
     <div class="hide-sm"><small>Vouchers</small><div class="dv-tags">{% for v in d.vouchers|slice:':4' %}<span class="dv-mono">{{ v }}</span>{% empty %}<span>none yet</span>{% endfor %}{% if d.vouchers|length > 4 %}<span>+{{ d.vouchers|length|add:'-4' }}</span>{% endif %}</div></div>
     <div class="hide-sm"><small>Seen</small><span class="small">{{ d.last_seen|timesince }} ago</span><small>{{ d.visits }} visit{{ d.visits|pluralize }} since {{ d.first_seen|date:'d M' }}</small></div>
     <div class="d-flex gap-1">
+      <a class="btn btn-sm btn-outline-primary" href="{% url 'device_detail' d.id %}" title="What uses this device's data" aria-label="Data use of {% firstof d.label d.model 'this device' %}"><i class="bi bi-bar-chart"></i> Data</a>
       <button class="btn btn-sm btn-light" data-bs-toggle="modal" data-bs-target="#dv{{ d.id }}" aria-label="Details"><i class="bi bi-three-dots"></i></button>
     </div>
   </div>

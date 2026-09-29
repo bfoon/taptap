@@ -331,3 +331,76 @@ def device_action(request, pk):
     elif action == 'delete':
         sig.delete(); messages.success(request, 'Device forgotten.')
     return redirect(request.POST.get('next') or 'devices')
+
+
+# ───────────────────────────── One device: what uses its data ─────────────────────────────
+DEVICE_PERIODS = {'24h': ('Last 24 hours', 1), '7d': ('Last 7 days', 7), '30d': ('Last 30 days', 30)}
+
+
+@login_required
+def device_detail(request, pk):
+    """Charts and top lists of the apps and sites that use this device's data."""
+    from collections import defaultdict
+    from django.db.models import Sum
+    from .models import DeviceAppUsage, UsageRecord
+    business = _b(request)
+    d = get_object_or_404(business.device_signatures.select_related('router'), pk=pk)
+    period = request.GET.get('period') if request.GET.get('period') in DEVICE_PERIODS else '7d'
+    label, days = DEVICE_PERIODS[period]
+    now = timezone.now()
+    start = now - timedelta(days=days)
+    macs = [str(m).upper() for m in (d.macs or []) if m] or ([d.last_mac.upper()] if d.last_mac else [])
+    # MAC first (phones' random MACs are all listed on the device); vouchers only when no MAC is known
+    match = Q(mac__in=macs) if macs else Q(username__in=[str(v) for v in (d.vouchers or [])] or ['-'])
+    qs = DeviceAppUsage.objects.filter(business=business, hour__gte=start).filter(match)
+    tot = qs.aggregate(dn=Sum('download'), up=Sum('upload'))
+    down, up = tot['dn'] or 0, tot['up'] or 0
+    total = down + up
+    apps = list(qs.values('app', 'category').annotate(dn=Sum('download'), up=Sum('upload')).order_by())
+    for a in apps:
+        a['total'] = a['dn'] + a['up']
+        a['pct'] = round(a['total'] * 100 / total, 1) if total else 0
+    apps.sort(key=lambda a: -a['total'])
+    sites = list(qs.exclude(domain='many sites').values('domain', 'app').annotate(dn=Sum('download'), up=Sum('upload')).order_by())
+    for s in sites:
+        s['total'] = s['dn'] + s['up']
+        s['pct'] = round(s['total'] * 100 / total, 1) if total else 0
+    sites.sort(key=lambda s: -s['total'])
+    cats = defaultdict(int)
+    for a in apps:
+        cats[a['category']] += a['total']
+    from .traffic import CATEGORY_ORDER
+    categories = [{'name': c, 'total': cats[c]} for c in CATEGORY_ORDER if cats.get(c)] + \
+                 [{'name': c, 'total': v} for c, v in cats.items() if c not in CATEGORY_ORDER and v]
+    # over time: hours for a day, days otherwise; the 5 biggest apps + everything else
+    top5 = [a['app'] for a in apps[:5]]
+    step = 'hour' if days == 1 else 'day'
+    tz = timezone.get_current_timezone()
+    if step == 'hour':
+        first = timezone.localtime(now).replace(minute=0, second=0, microsecond=0) - timedelta(hours=23)
+        slots = [first + timedelta(hours=i) for i in range(24)]
+        key = lambda h: timezone.localtime(h).replace(minute=0, second=0, microsecond=0)
+        fmt = '%H:%M'
+    else:
+        first = timezone.localtime(now).date() - timedelta(days=days - 1)
+        slots = [first + timedelta(days=i) for i in range(days)]
+        key = lambda h: timezone.localtime(h).date()
+        fmt = '%d %b'
+    grid = defaultdict(lambda: defaultdict(int))
+    for h, app, dn, u in qs.values_list('hour', 'app', 'download', 'upload'):
+        grid[key(h)][app if app in top5 else 'Everything else'] += dn + u
+    series_names = top5 + (['Everything else'] if any('Everything else' in grid[s] for s in grid) else [])
+    timeline = {'labels': [s.strftime(fmt) for s in slots],
+                'series': [{'name': n, 'data': [round(grid[s].get(n, 0) / 1024 ** 2, 1) for s in slots]} for n in series_names]}
+    busiest = max(slots, key=lambda s: sum(grid[s].values())) if grid else None
+    # everything the hotspot counted for these MACs (includes traffic between connection samples)
+    counted = UsageRecord.objects.filter(business=business, hour__gte=start, mac_address__in=macs).aggregate(
+        dn=Sum('download'), up=Sum('upload')) if macs else {'dn': 0, 'up': 0}
+    counted_total = (counted['dn'] or 0) + (counted['up'] or 0)
+    return render(request, 'core/device_detail.html', {
+        'd': d, 'period': period, 'periods': DEVICE_PERIODS, 'period_label': label, 'macs': macs,
+        'down': down, 'up': up, 'total': total, 'apps': apps[:15], 'sites': sites[:20], 'top_app': apps[0] if apps else None,
+        'categories': categories, 'timeline': timeline, 'busiest': busiest.strftime('%d %b %H:00' if step == 'hour' else '%a %d %b') if busiest and grid[busiest] else '',
+        'counted_total': counted_total, 'coverage': round(total * 100 / counted_total) if counted_total else None,
+        'chart_data': {'timeline': timeline, 'categories': categories, 'step': step},
+    })

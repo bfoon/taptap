@@ -92,3 +92,17 @@ def pct(value):
     except Exception: return value
     text = format(v.normalize(), 'f')
     return text.rstrip('0').rstrip('.') if '.' in text else text
+
+
+@register.filter
+def data_size(value):
+    """Bytes as 1.2 GB / 340 MB / 12 KB."""
+    try:
+        v = float(value or 0)
+    except (TypeError, ValueError):
+        return value
+    for unit, size in (('TB', 1024 ** 4), ('GB', 1024 ** 3), ('MB', 1024 ** 2), ('KB', 1024)):
+        if v >= size:
+            n = v / size
+            return f'{n:.1f} {unit}' if n < 100 else f'{n:.0f} {unit}'
+    return f'{int(v)} B'

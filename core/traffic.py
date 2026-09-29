@@ -23,7 +23,7 @@ from django.db.models import F
 from django.db.models.functions import Greatest
 from django.utils import timezone
 
-from .models import AppUsage, TrafficSample, UsageRecord
+from .models import AppUsage, DeviceAppUsage, TrafficSample, UsageRecord
 
 logger = logging.getLogger('taptap.traffic')
 BUCKET_MIN = 5
@@ -249,6 +249,9 @@ def collect_sessions(router, active, now=None):
         now_list.append({'user': user, 'mac': mac, 'ip': str(s.get('address', '')), 'sid': sid, 'down_bps': rate_down, 'up_bps': rate_up,
                          'session_down': b_down, 'session_up': b_up, 'uptime': str(s.get('uptime', ''))})
     cache.set(skey, cur, 3600)
+    ipmap = {x['ip']: [x['mac'], x['user']] for x in now_list if x['ip']}
+    if ipmap:
+        cache.set(f'tt:tr:ipmap:{router.pk}', ipmap, 3600)
     for (user, mac), (dn, up, peak) in per_user.items():
         obj, created = UsageRecord.objects.get_or_create(router=router, username=user, mac_address=mac, hour=hour,
                                                          defaults={'business': router.business, 'download': dn, 'upload': up, 'peak_bps': peak})
@@ -291,6 +294,7 @@ def ingest_connections(router, conns, dns, now):
     prev = cache.get(key)
     cur = {}
     agg = defaultdict(lambda: [0, 0])
+    per_dev = defaultdict(lambda: [0, 0])     # (client ip, app, category, domain) → [down, up]
     for c in conns:
         cid = str(c.get('id') or c.get('.id') or '')
         src_ip, _ = _split_addr(c.get('src-address'))
@@ -315,10 +319,16 @@ def ingest_connections(router, conns, dns, now):
         app, cat, domain = classify(dns.get(dst_ip, ''), port, str(c.get('protocol', '')).lower())
         a = agg[(app, cat, domain)]
         a[0] += d_down; a[1] += d_up
+        d = per_dev[(src_ip, app, cat, domain)]
+        d[0] += d_down; d[1] += d_up
     cache.set(key, cur, 3600)
     if not agg:
         return 0
     hour = floor_hour(now)
+    try:
+        _store_per_device(router, per_dev, hour)
+    except Exception as exc:   # the per-router report must never suffer from this
+        logger.info('device app usage %s: %s', router, exc)
     rows = sorted(agg.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))
     keep, rest = rows[:40], rows[40:]
     if rest:
@@ -332,9 +342,33 @@ def ingest_connections(router, conns, dns, now):
     return len(keep)
 
 
+DEVICE_TOP = 15   # sites kept per device per sample; the rest is summed as "Other"
+
+
+def _store_per_device(router, per_dev, hour):
+    """Save the sample split by device: IP → MAC and voucher from the live hotspot sessions."""
+    ipmap = cache.get(f'tt:tr:ipmap:{router.pk}') or {}
+    by_ip = defaultdict(list)
+    for (ip, app, cat, domain), v in per_dev.items():
+        by_ip[ip].append(((app, cat, domain), v))
+    for ip, rows in by_ip.items():
+        mac, user = (ipmap.get(ip) or ['', ''])
+        rows.sort(key=lambda kv: -(kv[1][0] + kv[1][1]))
+        keep, rest = rows[:DEVICE_TOP], rows[DEVICE_TOP:]
+        if rest:
+            keep.append((('Other', 'Other', 'many sites'), [sum(v[0] for _, v in rest), sum(v[1] for _, v in rest)]))
+        for (app, cat, domain), (dn, up) in keep:
+            obj, created = DeviceAppUsage.objects.get_or_create(
+                router=router, hour=hour, mac=(mac or '').upper()[:32], ip=ip[:45], app=app, domain=domain[:120],
+                defaults={'business': router.business, 'category': cat, 'username': (user or '')[:120], 'download': dn, 'upload': up})
+            if not created:
+                DeviceAppUsage.objects.filter(pk=obj.pk).update(download=F('download') + dn, upload=F('upload') + up)
+
+
 def prune():
     """Keep the tables small: 5-minute detail for 90 days, hourly usage for 180 days."""
     now = timezone.now()
     TrafficSample.objects.filter(bucket__lt=now - timedelta(days=90)).delete()
+    DeviceAppUsage.objects.filter(hour__lt=now - timedelta(days=45)).delete()   # per-device detail: 45 days
     AppUsage.objects.filter(hour__lt=now - timedelta(days=90)).delete()
     UsageRecord.objects.filter(hour__lt=now - timedelta(days=180)).delete()

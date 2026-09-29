@@ -809,6 +809,24 @@ class AppUsage(models.Model):
         indexes=[models.Index(fields=['business','hour'],name='appusage_business_hour_idx')]
 
 
+class DeviceAppUsage(models.Model):
+    """Traffic per device, app and site in one hour (the connection table split by customer IP)."""
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='device_app_usage')
+    router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='device_app_usage')
+    hour=models.DateTimeField(db_index=True)
+    mac=models.CharField(max_length=32,blank=True,db_index=True)
+    ip=models.CharField(max_length=45,blank=True)
+    username=models.CharField(max_length=120,blank=True,db_index=True,help_text='Voucher code of the session, when known')
+    app=models.CharField(max_length=60)
+    category=models.CharField(max_length=40)
+    domain=models.CharField(max_length=120)
+    download=models.BigIntegerField(default=0)
+    upload=models.BigIntegerField(default=0)
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['router','hour','mac','ip','app','domain'],name='uniq_device_app_usage')]
+        indexes=[models.Index(fields=['business','mac','hour'],name='devapp_mac_hour_idx')]
+
+
 # ─────────────────────────────── Device presence alerts ───────────────────────────────
 class AlertRule(models.Model):
     """Which devices you want to hear about when they go offline (or never hear about)."""
