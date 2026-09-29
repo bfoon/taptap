@@ -227,6 +227,11 @@ def portal_check(request, slug):
     if v.frozen_at: return JsonResponse(portal_block(v), status=403)   # warning page (with "I agree") or paused page
     if v.status != 'active': return JsonResponse({'success': False, 'message': 'This voucher has been disabled. Ask staff for help.'}, status=403)
     if v.expires_at and v.expires_at <= timezone.now(): return JsonResponse({'success': False, 'message': 'This voucher has expired.'}, status=403)
+    # Sticky vouchers: only the devices this voucher is locked to may use it (core/device_lock.py)
+    from . import device_lock
+    lock = device_lock.claim(v, mac=data.get('mac', ''), fp=data.get('fp', ''), source='portal')
+    if not lock.allowed:
+        return JsonResponse(device_lock.portal_block(v, lock.message), status=403)
     PortalPage.objects.filter(pk=page.pk).update(connects=page.connects + 1)
     if data.get('fp'):
         try:

@@ -283,6 +283,8 @@ def voucher_detail(request,pk):
     return render(request,'core/voucher_detail.html',{
         'v':v,'state_key':state_key,'state_label':state_label,'ends_at':end,'time_left':left,'time_is_up':vh.time_is_up(v,now),
         'timeline':vh.timeline(v,now),'bindings':v.device_bindings.order_by('slot_no'),
+        'free_slots':max(0,max(1,v.max_devices or 1)-v.device_bindings.count()),
+        'empty_slots':[i for i in range(1,max(1,v.max_devices or 1)+1) if i not in set(v.device_bindings.values_list('slot_no',flat=True))][:10],
         'sale':VoucherSale.objects.filter(voucher=v).select_related('agent','recorded_by').first(),
         'incidents':SessionIncident.objects.filter(voucher=v).select_related('router').order_by('-first_seen')[:20],
         'mirror':mirror,'channel':vh.channel(v.router),'max_extend':vh.MAX_EXTEND_HOURS,
@@ -1033,6 +1035,11 @@ def settings_view(request):
         business.currency=(f.get('currency','D').strip() or 'D')[:8]
         color=f.get('brand_color','#1769e0').strip()
         if re.fullmatch(r'#[0-9a-fA-F]{6}',color): business.brand_color=color
+        sticky_changed=False
+        if f.get('devices_form'):
+            new=(bool(f.get('device_lock')),bool(f.get('sticky_sessions')),f.get('sticky_keepalive') if f.get('sticky_keepalive') in ('none','30m','2h','12h') else '2h')
+            sticky_changed=new[1:]!=(business.sticky_sessions,business.sticky_keepalive)
+            business.device_lock,business.sticky_sessions,business.sticky_keepalive=new
         if 'serial_format' in f:
             try:
                 business.serial_format,business.serial_digits,business.serial_reset=serials.clean(f.get('serial_format'),f.get('serial_digits'),f.get('serial_reset'))
@@ -1046,13 +1053,17 @@ def settings_view(request):
         elif logo.startswith('data:image/') and len(logo)<400_000: business.logo_data=logo
         business.save()
         messages.success(request,'Settings saved. Portal pages and voucher designs use the new details straight away.')
+        if sticky_changed or f.get('sticky_apply'):
+            from .sticky import apply_all
+            for ok,msg in apply_all(business,request.user):
+                (messages.info if ok else messages.warning)(request,'Sticky sessions — '+msg)
         from .portal_deploy import schedule_redeploy; schedule_redeploy(business)
         if pending_email:
             from .views_auth import start_email_change
             resp=start_email_change(request,pending_email,'/settings/')
             if resp: return resp
         return redirect('settings')
-    return render(request,'core/settings.html',{'sn':serials.settings_ctx(business)})
+    return render(request,'core/settings.html',{'sn':serials.settings_ctx(business),'keepalive_choices':business._meta.get_field('sticky_keepalive').choices})
 @login_required
 def support(request): return render(request,'core/support.html')
 

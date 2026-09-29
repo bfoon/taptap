@@ -349,6 +349,11 @@ def sync_router(router, progress=None):
                 summary['errors'].append(f'Could not remove {len(binned_seen)} deleted voucher(s): {exc}')
         notify(40, 'Router vouchers imported — pushing TapTap vouchers')
 
+        try:   # sticky sessions on every hotspot profile (Settings → Voucher devices)
+            from .sticky import apply_api
+            apply_api(svc, router.business)
+        except Exception as exc:
+            summary['errors'].append(f'Sticky sessions: {exc}')
         # 3) Push only TapTap-authored vouchers. MikroTik imports are already authoritative on the router.
         for voucher in router.vouchers.filter(source='taptap'):
             try:

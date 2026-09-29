@@ -278,6 +278,11 @@ class MikroTikService:
         values = {'shared_users': str(max(1, int(max_devices or 1)))}
         if rate_limit:
             values['rate_limit'] = rate_limit
+        try:   # sticky sessions: devices log back in by themselves, idle devices stay logged in
+            from .sticky import api_values
+            values.update(api_values(self.router.business))
+        except Exception:
+            pass
         if existing:
             profiles.set(id=existing[0]['id'], **values)
             return existing[0]['id']

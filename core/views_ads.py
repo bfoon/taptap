@@ -227,6 +227,11 @@ def portal_state(request, slug):
         except Exception:
             pass
     block = portal_block(v)
+    if not block and v.status == 'active':
+        from . import device_lock          # sticky vouchers: refuse devices the voucher is not locked to
+        lock = device_lock.claim(v, mac=data.get('mac', ''), fp=data.get('fp', ''), source='portal')
+        if not lock.allowed:
+            block = device_lock.portal_block(v, lock.message)
     return _cors(JsonResponse(block or {'ok': True}))
 
 

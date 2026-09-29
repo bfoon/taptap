@@ -270,6 +270,7 @@ def watch_router(router, force=False):
 
         # ---------------- active sessions → activation + enforcement ----------------
         open_now = {}
+        lock_rows = []
         for s in active:
             user = str(s.get('user', '')).strip()
             if not user or user.upper().startswith('T-'):
@@ -288,10 +289,18 @@ def watch_router(router, force=False):
                 Voucher.objects.filter(pk=v.pk, expires_at__isnull=True).update(expires_at=v.expires_at)
             problem = voucher_problem(v, now)
             if not problem:
+                lock_rows.append((v, s))
                 continue
             mac = str(s.get('mac-address', '')).upper()
             key = (user.upper(), mac)
             open_now[key] = (s, v, problem)
+        # Sticky vouchers: lock the devices using each voucher, disconnect any other device at once.
+        if lock_rows:
+            try:
+                from .device_lock import enforce_sessions
+                summary['locked_out'] = enforce_sessions(router, lock_rows, svc=svc)
+            except Exception:
+                logger.exception('device lock on %s', router.name)
 
         incidents = {(i.username.upper(), i.mac_address.upper()): i for i in
                      SessionIncident.objects.filter(router=router, status__in=['open', 'ignored'])}

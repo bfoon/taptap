@@ -242,8 +242,11 @@ def enable(voucher, user=None, reason='', add_hours=None, now=None, add_minutes=
 
 
 def reset_devices(voucher, user=None, reason=''):
-    macs = list(voucher.device_bindings.values_list('current_mac', flat=True))
-    voucher.device_bindings.all().delete()
+    """Free every device slot of a sticky voucher: the next devices to log in are locked instead.
+    Only people with voucher-support rights reach this (owner, admin, voucher support)."""
+    from . import device_lock
+    macs = device_lock.release_all(voucher)
+    device_lock.unlock_on_router(voucher)     # clear the router-side MAC lock and its MAC cookies
     via, result, ok = _router_apply(voucher, 'reset', user=user)
     record(voucher, 'mac_reset', user=user, reason=reason, via=via, router_result=result,
            status_before=voucher.status, status_after=voucher.status, devices_removed=macs or None)

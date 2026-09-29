@@ -35,6 +35,11 @@ class Business(models.Model):
     live_sync=models.BooleanField(default=True,help_text='Check routers every few seconds for voucher, session and binding changes')
     auto_enforce=models.BooleanField(default=True,help_text='Automatically disconnect sessions whose voucher has expired or been disabled')
     enforce_grace_minutes=models.PositiveSmallIntegerField(default=5,help_text='Wait this long before fixing automatically')
+    # Sticky vouchers — see core/device_lock.py and core/sticky.py
+    device_lock=models.BooleanField(default=True,help_text='A voucher stays locked to the devices that first used it, until staff reset it')
+    sticky_sessions=models.BooleanField(default=True,help_text='Devices log back in by themselves when they come back (MAC cookie), idle devices are not logged out')
+    sticky_keepalive=models.CharField(max_length=10,default='2h',choices=[('none','Never — keep the session until the voucher ends'),('30m','30 minutes'),('2h','2 hours'),('12h','12 hours')],
+        help_text='How long the router keeps an unreachable device logged in (it logs back in by itself anyway)')
     # Vouchers used on more devices than they allow
     shared_warning_mode=models.CharField(max_length=10,default='manual',choices=[('manual','Manual — I decide'),('auto','Automatic — warn at once')],
         help_text='Automatic: as soon as a voucher is seen on more devices than it allows, its internet stops and the customer must accept a warning')
@@ -327,9 +332,11 @@ class VoucherDeviceBinding(models.Model):
     business=models.ForeignKey(Business,on_delete=models.CASCADE)
     voucher=models.ForeignKey(Voucher,on_delete=models.CASCADE,related_name='device_bindings')
     slot_no=models.PositiveIntegerField(default=1)
-    device_token_hash=models.CharField(max_length=128)
-    current_mac=models.CharField(max_length=32)
+    device_token_hash=models.CharField(max_length=128,blank=True,help_text='Device ID from the portal (stays the same when a phone changes its MAC)')
+    current_mac=models.CharField(max_length=32,blank=True)
     previous_mac=models.CharField(max_length=32,blank=True)
+    label=models.CharField(max_length=120,blank=True,help_text='Phone / laptop model when known')
+    locked_by=models.CharField(max_length=20,blank=True,help_text='portal or router: where the device was first seen')
     first_bound_at=models.DateTimeField(auto_now_add=True)
     last_seen_at=models.DateTimeField(auto_now=True)
     class Meta: unique_together=('voucher','slot_no')

@@ -282,6 +282,8 @@ def command_body(cmd):
         for prof in p.get('profiles', []):
             lines.append(f':if ([:len [/ip hotspot user profile find name={rs(prof["name"])}]] = 0) do={{ /ip hotspot user profile add name={rs(prof["name"])} '
                          f'shared-users={int(prof.get("shared") or 1)}' + (f' rate-limit={rs(prof["rate"])}' if prof.get('rate') else '') + ' }')
+            if p.get('sticky'):   # sticky sessions (see core/sticky.py)
+                lines.append(f'/ip hotspot user profile set [find name={rs(prof["name"])}] ' + ' '.join(f'{k}={rs(str(v))}' for k, v in p['sticky'].items()))
         for u in p.get('users', []):
             extra = (f' limit-uptime={rs(u["lim"])}' if u.get('lim') else '') + f' disabled={"yes" if u.get("dis") else "no"}'
             lines.append(f':if ([:len [/ip hotspot user find name={rs(u["n"])}]] = 0) do={{ /ip hotspot user add name={rs(u["n"])} password={rs(u["n"])} '
@@ -309,6 +311,18 @@ def command_body(cmd):
             return (f':foreach n in={{{names}}} do={{ /ip hotspot user set [find name=$n] disabled=yes; '
                     f':do {{ /ip hotspot active remove [find user=$n] }} on-error={{}} }}')
         return f':foreach n in={{{names}}} do={{ /ip hotspot user set [find name=$n] disabled=no }}'
+    if k == 'hotspot_user_mac':
+        # Lock a one-device voucher to its device on the router (00:00:00:00:00:00 = any device).
+        return (f':local id [/ip hotspot user find name={name()}]; :if ([:len $id] > 0) do={{ /ip hotspot user set $id mac-address={rs(p["mac"])} }}; '
+                + (f':do {{ /ip hotspot cookie remove [find user={name()}] }} on-error={{}}' if p.get('mac') == '00:00:00:00:00:00' else ':nothing'))
+    if k == 'hotspot_kick':
+        # Remove one foreign device from a locked voucher, keeping the locked devices online.
+        return (f':do {{ /ip hotspot active remove [find user={rs(p["user"])} mac-address={rs(p["mac"])}] }} on-error={{}}; '
+                f':do {{ /ip hotspot cookie remove [find user={rs(p["user"])} mac-address={rs(p["mac"])}] }} on-error={{}}')
+    if k == 'hotspot_sticky':
+        from .sticky import script
+        from types import SimpleNamespace
+        return script(SimpleNamespace(sticky_sessions=bool(p.get('on')), sticky_keepalive=p.get('keepalive') or '2h'))
     if k == 'hotspot_user_rename':
         # Changing a voucher code: rename keeps the used uptime on the router. The voucher logs in
         # with its code as username AND password, so the password follows the code: always for
@@ -430,6 +444,14 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
             hours = (params or {}).get('hours')
             if not isinstance(hours, int) or not 1 <= hours <= 8760:
                 raise ValueError('Extra time must be between 1 hour and 1 year.')
+    if kind in ('hotspot_user_mac', 'hotspot_kick'):
+        mac = str((params or {}).get('mac', ''))
+        if not re.match(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$', mac):
+            raise ValueError('Invalid MAC address.')
+        if kind == 'hotspot_kick' and not NAME_RE.match(str((params or {}).get('user', ''))):
+            raise ValueError('Invalid voucher.')
+    if kind == 'hotspot_sticky' and str((params or {}).get('keepalive', '2h')) not in ('none', '30m', '2h', '12h'):
+        raise ValueError('Invalid keepalive.')
     if kind == 'hotspot_user_rename' and not NAME_RE.match(str((params or {}).get('new_name', ''))):
         raise ValueError('Invalid new code.')
     if kind == 'security_fix':
@@ -469,7 +491,8 @@ def push_pending_vouchers(router, limit=25):
         prof, shared, rate = voucher_profile(v, plan)
         profiles[prof] = {'name': prof, 'shared': shared, 'rate': rate}
         users.append({'n': v.code, 'prof': prof, 'lim': router_limit(v), 'dis': v.status != 'active', 'c': f'TapTap voucher {v.code}'})
-    queue(router, 'hotspot_users', {'users': users, 'profiles': list(profiles.values()), 'ids': [v.pk for v in todo]},
+    from .sticky import profile_values
+    queue(router, 'hotspot_users', {'users': users, 'profiles': list(profiles.values()), 'ids': [v.pk for v in todo], 'sticky': profile_values(router.business)},
           label=f'Send {len(users)} voucher(s) to the router', minutes=60 * 24)
     Voucher.objects.filter(pk__in=[v.pk for v in todo]).update(mikrotik_sync_status='Queued', mikrotik_sync_error='')
     return len(users)
@@ -778,6 +801,7 @@ def ingest_sessions(router, rows, now):
     codes = [r['user'] for r in rows if r.get('user') and not r['user'].upper().startswith('T-')]
     vouchers = {v.code.upper(): v for v in Voucher.objects.filter(business=router.business, code__in=codes)}
     bad = {}
+    lock_rows = []
     for s in rows:
         v = vouchers.get(str(s.get('user', '')).upper())
         if not v:
@@ -791,6 +815,14 @@ def ingest_sessions(router, rows, now):
         problem = voucher_problem(v, now)
         if problem:
             bad[(v.code.upper(), str(s.get('mac-address', '')).upper())] = (s, v, problem)
+        else:
+            lock_rows.append((v, s))
+    if lock_rows:   # sticky vouchers: lock devices, remove foreign ones (queued on TapTap Link)
+        try:
+            from .device_lock import enforce_sessions
+            enforce_sessions(router, lock_rows)
+        except Exception:
+            logger.exception('device lock (link) on %s', router)
     business = router.business
     open_ = {(i.username.upper(), i.mac_address.upper()): i for i in SessionIncident.objects.filter(router=router, status__in=['open', 'ignored'])}
     grace = timedelta(minutes=business.enforce_grace_minutes or 0)
