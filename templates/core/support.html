@@ -1,1 +1,76 @@
-{% extends 'core/base.html' %}{% block title %}Support — TapTap{% endblock %}{% block heading %}Support{% endblock %}{% block content %}<div class="row g-4"><div class="col-md-4"><div class="support-card"><i class="bi bi-router"></i><h3>Router setup</h3><p>Enable RouterOS API, use a dedicated account and test connectivity from TapTap.</p></div></div><div class="col-md-4"><div class="support-card"><i class="bi bi-ticket-perforated"></i><h3>Voucher help</h3><p>Create a plan first, then generate vouchers and optionally sync them to a router.</p></div></div><div class="col-md-4"><div class="support-card"><i class="bi bi-shield-check"></i><h3>Security</h3><p>Reset device bindings when a legitimate customer changes device, and review sharing alerts.</p></div></div></div>{% endblock %}
+{% extends 'core/base.html' %}{% block title %}Support — TapTap{% endblock %}{% block heading %}Help Center{% endblock %}
+{% block extra_head %}<style>
+.hc-hero{background:linear-gradient(135deg,#1769e0,#0b2e6b);color:#fff;border-radius:20px;padding:1.6rem 1.4rem;margin-bottom:1.2rem}
+.hc-hero h2{font-size:1.5rem;font-weight:800;margin:0 0 .3rem}.hc-hero p{opacity:.85;margin:0 0 1rem}
+.hc-search{position:relative;max-width:640px}.hc-search input{padding:.85rem 1rem .85rem 2.8rem;border-radius:14px;border:0;font-size:1.02rem;box-shadow:0 10px 30px #0003}
+.hc-search i{position:absolute;left:1rem;top:50%;transform:translateY(-50%);color:#6b7c8f;font-size:1.1rem}
+.hc-hint{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.7rem}.hc-hint button{border:1px solid #ffffff55;background:#ffffff1a;color:#fff;border-radius:999px;padding:.15rem .7rem;font-size:.78rem}
+.hc-hint button:hover{background:#fff;color:#0b2e6b}
+.hc-results{margin-top:.9rem;background:var(--panel,#fff);color:var(--ink,#102033);border-radius:14px;max-height:420px;overflow:auto;box-shadow:0 12px 30px #0003}
+.hc-results a{display:flex;gap:.7rem;padding:.7rem .9rem;border-bottom:1px solid var(--border,#eef2f6);text-decoration:none;color:inherit}.hc-results a:hover,.hc-results a:focus{background:var(--surface-2,#f3f6fa)}
+.hc-results i{font-size:1.2rem;color:#1769e0}.hc-results b{display:block}.hc-results small{color:#6b7c8f}.hc-results mark{padding:0;background:#fff3c4}
+.hc-health{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1.2rem}.hc-r{display:flex;align-items:center;gap:.5rem;border:1px solid var(--border,#e3e9f1);background:var(--panel,#fff);border-radius:12px;padding:.45rem .7rem;font-size:.84rem;text-decoration:none;color:inherit}
+.hc-r .dot{width:9px;height:9px;border-radius:50%;background:#18a66a}.hc-r.off{border-color:#f3c4c4;background:#fff6f6}.hc-r.off .dot{background:#e5484d}
+.hc-cats{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1rem}
+.hc-cat{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:1rem}.hc-cat h3{font-size:1rem;font-weight:800;display:flex;gap:.5rem;align-items:center}
+.hc-cat h3 i{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;background:#eef4ff;color:#1769e0}
+.hc-cat a{display:flex;justify-content:space-between;gap:.5rem;padding:.4rem 0;border-bottom:1px dashed var(--border,#eef2f6);text-decoration:none;color:inherit;font-size:.9rem}.hc-cat a:last-child{border:0}
+.hc-cat a:hover span{color:#1769e0;text-decoration:underline}.hc-cat small{color:#8a9aab;white-space:nowrap}
+.hc-pop{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:.8rem;margin-bottom:1.4rem}
+.hc-pop a{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:.9rem;text-decoration:none;color:inherit;transition:transform .15s,border-color .15s}
+.hc-pop a:hover{transform:translateY(-2px);border-color:#1769e0}.hc-pop i{font-size:1.4rem;color:#1769e0}.hc-pop b{display:block;margin:.35rem 0 .2rem;line-height:1.25}.hc-pop small{color:#6b7c8f}
+.hc-contact{display:flex;flex-wrap:wrap;gap:1rem;align-items:center;justify-content:space-between;background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:1rem 1.2rem;margin-top:1.4rem}
+.sec-title{font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#8a9aab;margin:0 0 .6rem}
+</style>{% endblock %}
+{% block content %}
+<div class="hc-hero">
+  <h2>How can we help?</h2>
+  <p>{{ total }} step-by-step guides for routers, vouchers, fair usage, your login page and your team.</p>
+  <div class="hc-search"><i class="bi bi-search" aria-hidden="true"></i>
+    <input id="hcQ" class="form-control" type="search" placeholder="Describe the problem, e.g. “router offline”, “timed out”, “slow users”…" aria-label="Search the guides" autocomplete="off" aria-controls="hcResults"></div>
+  <div class="hc-hint" aria-label="Common searches">    <button type="button" data-s="router offline">router offline</button><button type="button" data-s="timed out">timed out</button><button type="button" data-s="no trusted ca">no trusted CA</button>
+    <button type="button" data-s="voucher not working">voucher not working</button><button type="button" data-s="shared voucher">shared voucher</button>
+    <button type="button" data-s="slow heavy users">slow heavy users</button><button type="button" data-s="logo">logo</button></div>
+  <div class="hc-results" id="hcResults" role="region" aria-live="polite" hidden></div>
+</div>
+
+{% if routers %}
+<p class="sec-title">Your routers now</p>
+<div class="hc-health">{% for r in routers %}
+  {% if r.online %}<span class="hc-r"><span class="dot"></span><b>{{ r.name }}</b><small class="text-secondary">{{ r.mode }} · online</small></span>
+  {% else %}<a class="hc-r off" href="{% url 'support_guide' r.fix %}" title="{{ r.error }}"><span class="dot"></span><b>{{ r.name }}</b><small>{{ r.mode }} · offline — <u>fix it</u></small></a>{% endif %}
+{% endfor %}</div>
+{% endif %}
+
+<p class="sec-title">Most used</p>
+<div class="hc-pop">{% for g in popular %}<a href="{% url 'support_guide' g.slug %}"><i class="bi {{ g.icon }}"></i><b>{{ g.title }}</b><small>{{ g.summary|truncatechars:90 }}</small></a>{% endfor %}</div>
+
+<p class="sec-title">All guides</p>
+<div class="hc-cats">{% for c in categories %}{% if c.guides %}
+  <section class="hc-cat" aria-labelledby="cat-{{ c.key }}"><h3 id="cat-{{ c.key }}"><i class="bi {{ c.icon }}"></i>{{ c.label }}</h3>
+    {% for g in c.guides %}<a href="{% url 'support_guide' g.slug %}"><span>{{ g.title }}</span><small>{{ g.minutes }} min</small></a>{% endfor %}</section>
+{% endif %}{% endfor %}</div>
+
+<div class="hc-contact"><div><b>Still stuck?</b><div class="text-secondary small">Tell us the router name and what you see — a screenshot helps.</div></div>
+  {% if chat_url %}<a class="btn btn-primary" href="{{ chat_url }}"><i class="bi bi-chat-dots"></i> Chat with TapTap support</a>{% endif %}</div>
+{{ index_json|json_script:"hcIndex" }}
+{% endblock %}
+{% block scripts %}<script>
+(function(){
+  var idx=JSON.parse(document.getElementById('hcIndex').textContent),q=document.getElementById('hcQ'),out=document.getElementById('hcResults'),base='{% url "support_guide" "x" %}'.replace(/x\/$/,'');
+  var SYN={offline:['not checking in','grey','stopped'],slow:['fair usage','speed','throttle'],sharing:['shared'],logo:['brand','portal'],error:['failed','cannot'],wifi:['hotspot','login page']};
+  function esc(t){return String(t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function run(){var s=q.value.trim().toLowerCase();if(s.length<2){out.hidden=true;return;}
+    var words=s.split(/\s+/),exp=[];words.forEach(function(w){exp.push(w);(SYN[w]||[]).forEach(function(x){exp.push(x);});});
+    function re(w){return new RegExp('(^|[^a-z0-9])'+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'),'i');}
+    var res=idx.map(function(g){var sc=0;exp.forEach(function(w){var r=re(w);if(r.test(g.title))sc+=5;if(r.test(g.text))sc+=1;});if(g.text.indexOf(s)>=0)sc+=6;return [sc,g];})
+      .filter(function(x){return x[0]>0;}).sort(function(a,b){return b[0]-a[0];}).slice(0,8);
+    out.hidden=false;
+    out.innerHTML=res.length?res.map(function(x){var g=x[1],t=esc(g.title);words.forEach(function(w){if(w.length>2)t=t.replace(new RegExp('(^|[^a-z0-9])('+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','ig'),'$1<mark>$2</mark>');});
+      return '<a href="'+base+g.slug+'/"><i class="bi '+g.icon+'"></i><span><b>'+t+'</b><small>'+esc(g.cat)+' · '+esc(g.summary)+'</small></span></a>';}).join('')
+      :'<div class="p-3 small">No guide matches “'+esc(q.value)+'”. Try other words, or chat with support below.</div>';}
+  q.addEventListener('input',run);
+  q.addEventListener('keydown',function(e){if(e.key==='Enter'){var a=out.querySelector('a');if(a){location.href=a.href;}}});
+  document.querySelectorAll('[data-s]').forEach(function(b){b.addEventListener('click',function(){q.value=b.dataset.s;run();q.focus();});});
+})();
+</script>{% endblock %}

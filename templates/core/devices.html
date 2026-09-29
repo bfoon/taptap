@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}
+{% extends 'core/base.html' %}{% load taptap_extras %}
 {% block title %}Devices — TapTap{% endblock %}
 {% block heading %}Devices{% endblock %}
 {% block extra_head %}<style>
@@ -17,13 +17,52 @@
 .dv-share{background:#fff;border:1px solid #f3c4c4;border-left:4px solid #d64545;border-radius:14px;padding:.8rem 1rem;margin-bottom:.6rem}
 .dv-share b{font-size:.9rem}.dv-share small{color:var(--muted)}
 .dv-howto{background:#f3f7fb;border-radius:14px;padding:1rem 1.1rem;font-size:.84rem;color:#3d5166}
+.ds{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:.8rem}
+.ds-box{position:relative;display:flex;gap:.4rem}.ds-box .form-control{padding-left:2.2rem;font-size:1rem}.ds-ic{position:absolute;left:.8rem;top:50%;transform:translateY(-50%);color:#8a9aab}
+.ds-list{position:absolute;left:0;right:120px;top:calc(100% + 4px);z-index:30;list-style:none;margin:0;padding:.3rem;background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:12px;box-shadow:0 12px 30px #0b223722;max-height:280px;overflow:auto}
+.ds-list li{padding:.35rem .6rem;border-radius:8px;cursor:pointer;font-family:ui-monospace,Menlo,monospace;font-size:.85rem}.ds-list li[aria-selected=true],.ds-list li:hover{background:#1769e0;color:#fff}
+.ds-quick{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.55rem;align-items:center}.ds-chip{border:1px solid var(--border,#e3e9f1);background:var(--panel,#fff);border-radius:999px;padding:.2rem .7rem;font-size:.78rem;font-weight:600;color:inherit}
+.ds-chip:hover,.ds-chip.on{background:#1769e0;border-color:#1769e0;color:#fff}.ds-clear{font-size:.78rem;margin-left:.3rem}
+.ds-help{margin-top:.7rem;border-top:1px dashed var(--border,#e3e9f1);padding-top:.7rem}.ds-help-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:.35rem}
+.ds-ex{display:flex;gap:.5rem;align-items:baseline;text-align:left;border:0;background:var(--surface-2,#f3f6fa);border-radius:8px;padding:.35rem .55rem;font-size:.78rem;color:inherit}.ds-ex code{white-space:nowrap}.ds-ex:hover{outline:2px solid #1769e0}
+.ds-result{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin-top:.7rem;font-size:.85rem}.ds-result select{width:auto}
+.ds-tag{display:inline-flex;align-items:center;gap:.25rem;background:#e8f0fe;color:#1558b8;border-radius:999px;padding:.1rem .2rem .1rem .6rem;font-family:ui-monospace,Menlo,monospace;font-size:.78rem}
+.ds-tag.neg{background:#fdeaea;color:#a12b2b}.ds-tag button{border:0;background:none;color:inherit;font-size:1rem;line-height:1;padding:0 .3rem}
+.dv-why{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.3rem}.dv-why span{font-size:.7rem;background:#fff4dc;color:#7a5200;border-radius:6px;padding:.05rem .4rem}
 @media(max-width:1000px){.dv-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.dv-row{grid-template-columns:44px 1fr auto}.dv-row .hide-sm{display:none}}
 </style>{% endblock %}
 {% block content %}
 <div class="page-actions">
   <div><h2 class="section-title">Know every device, even when its MAC changes</h2><p>Your login pages record a device signature — model, system, screen and browser traits — next to its MAC address and voucher. Modern phones switch MAC addresses; the signature stays the same.</p></div>
-  <form class="d-flex gap-2" method="get"><input type="hidden" name="view" value="{{ view }}"><input class="form-control" name="q" value="{{ q }}" placeholder="Model, MAC, IP or voucher" aria-label="Search devices"><button class="btn btn-dark"><i class="bi bi-search"></i></button></form>
 </div>
+
+<section class="ds mb-3" aria-label="Search devices">
+  <form method="get" id="dsForm" autocomplete="off">
+    <input type="hidden" name="view" value="{{ view }}">
+    <div class="ds-box">
+      <i class="bi bi-search ds-ic" aria-hidden="true"></i>
+      <input id="dsQ" class="form-control" name="q" value="{{ q }}" placeholder="Search: tecno · os:android · is:online · app:youtube · used>2gb · voucher:KW7…"
+             role="combobox" aria-expanded="false" aria-controls="dsList" aria-autocomplete="list" aria-label="Search devices">
+      <ul class="ds-list" id="dsList" role="listbox" hidden></ul>
+      <button type="button" class="btn btn-light ds-help-btn" data-bs-toggle="collapse" data-bs-target="#dsHelp" aria-expanded="false" aria-controls="dsHelp" title="How to search"><i class="bi bi-question-lg"></i></button>
+      <button class="btn btn-dark">Search</button>
+    </div>
+    <div class="ds-quick">{% for label, query in quick %}<button type="button" class="ds-chip{% if q == query %} on{% endif %}" data-q="{{ query }}">{{ label }}</button>{% endfor %}
+      {% if q %}<a class="ds-clear" href="?view={{ view }}">Clear search</a>{% endif %}</div>
+  </form>
+  <div class="collapse" id="dsHelp"><div class="ds-help">
+    <p class="small mb-2">Mix words and filters — everything must match. Click one to add it.</p>
+    <div class="ds-help-grid">{% for ex, txt in search_help %}<button type="button" class="ds-ex" data-add="{{ ex }}"><code>{{ ex }}</code><span>{{ txt }}</span></button>{% endfor %}</div>
+  </div></div>
+  {% if search %}
+  <div class="ds-result">
+    <span><b>{{ search.total }}</b> device{{ search.total|pluralize }} found</span>
+    {% for c in search.chips %}<span class="ds-tag {% if c.text|slice:':1' == '-' %}neg{% endif %}">{{ c.text }}<button type="button" data-drop="{{ c.text }}" aria-label="Remove {{ c.text }}">×</button></span>{% endfor %}
+    <label class="ms-auto small d-flex align-items-center gap-1">Sort <select class="form-select form-select-sm" id="dsSort" aria-label="Sort">{% for k, l in search_sorts.items %}<option value="{{ k }}" {% if search.sort == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></label>
+  </div>
+  {% for e in search.errors %}<div class="alert alert-warning py-1 px-2 small mt-2 mb-0">{{ e }}</div>{% endfor %}
+  {% endif %}
+</section>
 
 {% if not collecting and not stats.total %}
 <div class="dv-howto mb-3"><b><i class="bi bi-lightbulb"></i> How to start collecting</b><br>Publish a login page in <a href="{% url 'portal_studio' %}">Portal Studio</a> (hosted, or export it to your router). Device identification is on by default under <i>Page › Device identification</i>. For router-served pages, import the walled-garden line included in the export so phones can report to TapTap before they log in.</div>
@@ -101,11 +140,11 @@
   {% for d in devices %}
   <div class="dv-row">
     <span class="dv-ic {{ d.os|lower }}"><i class="bi {% if d.device_type == 'phone' %}bi-phone{% elif d.device_type == 'tablet' %}bi-tablet{% else %}bi-laptop{% endif %}"></i></span>
-    <div><b>{% firstof d.label d.model d.os 'Unknown device' %}</b><small>{{ d.os }} {{ d.os_version }}{% if d.browser %} · {{ d.browser }}{% endif %}{% if d.components.screen %} · {{ d.components.screen }}{% endif %}</small>
+    <div><b>{% firstof d.label d.model d.os 'Unknown device' %}</b><small>{{ d.os }} {{ d.os_version }}{% if d.browser %} · {{ d.browser }}{% endif %}{% if d.components.screen %} · {{ d.components.screen }}{% endif %}</small>{% if d.why %}<div class="dv-why">{% for w in d.why %}<span>{{ w }}</span>{% endfor %}</div>{% endif %}
       <div class="dv-tags mt-1">{% if d.flagged %}<span class="flag">Flagged</span>{% endif %}{% if d.random_macs %}<span class="rand" title="The phone generates random MAC addresses">Random MAC</span>{% endif %}{% if d.macs|length > 1 %}<span>{{ d.macs|length }} MACs</span>{% endif %}<span class="dv-mono" title="Device signature">{{ d.fingerprint|slice:':10' }}</span></div></div>
     <div class="hide-sm"><small>Last MAC · IP</small><span class="dv-mono">{{ d.last_mac|default:'—' }}</span><small>{{ d.last_ip|default:'' }}{% if d.router %} · {{ d.router.name }}{% endif %}</small></div>
     <div class="hide-sm"><small>Vouchers</small><div class="dv-tags">{% for v in d.vouchers|slice:':4' %}<span class="dv-mono">{{ v }}</span>{% empty %}<span>none yet</span>{% endfor %}{% if d.vouchers|length > 4 %}<span>+{{ d.vouchers|length|add:'-4' }}</span>{% endif %}</div></div>
-    <div class="hide-sm"><small>Seen</small><span class="small">{{ d.last_seen|timesince }} ago</span><small>{{ d.visits }} visit{{ d.visits|pluralize }} since {{ d.first_seen|date:'d M' }}</small></div>
+    <div class="hide-sm"><small>Seen</small><span class="small">{{ d.last_seen|timesince }} ago{% if d.used7 is not None %} · <b>{{ d.used7|data_size }}</b> in 7 days{% endif %}</span><small>{{ d.visits }} visit{{ d.visits|pluralize }} since {{ d.first_seen|date:'d M' }}</small></div>
     <div class="d-flex gap-1">
       <a class="btn btn-sm btn-outline-primary" href="{% url 'device_detail' d.id %}" title="What uses this device's data" aria-label="Data use of {% firstof d.label d.model 'this device' %}"><i class="bi bi-bar-chart"></i> Data</a>
       <button class="btn btn-sm btn-light" data-bs-toggle="modal" data-bs-target="#dv{{ d.id }}" aria-label="Details"><i class="bi bi-three-dots"></i></button>
@@ -140,3 +179,35 @@
 {% endif %}
 <p class="small text-secondary mt-3"><i class="bi bi-shield-lock"></i> Signatures identify devices, not people, and are kept only in your TapTap account. The login page shows a short notice you can edit in Portal Studio.</p>
 {% endblock %}
+{% block scripts %}{{ search_suggest|json_script:"dsSuggest" }}<script>
+(function(){
+  var f=document.getElementById('dsForm'),q=document.getElementById('dsQ'),list=document.getElementById('dsList'),all=JSON.parse(document.getElementById('dsSuggest').textContent),sel=-1,shown=[];
+  function tokens(){return q.value.match(/(?:[^\s"]+|"[^"]*")+/g)||[];}
+  function go(){f.submit();}
+  function add(t){var v=q.value.trim();q.value=(v?v+' ':'')+t;q.focus();hide();}
+  function hide(){list.hidden=true;q.setAttribute('aria-expanded','false');sel=-1;}
+  function render(){var t=(q.value.slice(0,q.selectionStart).match(/[^\s]*$/)||[''])[0].replace(/^-/,'').toLowerCase();
+    if(t.length<1){hide();return;}
+    shown=all.filter(function(s){return s.toLowerCase().indexOf(t)===0&&s.toLowerCase()!==t;}).slice(0,8);
+    if(!shown.length){hide();return;}
+    list.innerHTML=shown.map(function(s,i){return '<li role="option" id="ds'+i+'" aria-selected="'+(i===sel)+'">'+s.replace(/</g,'&lt;')+'</li>';}).join('');
+    list.hidden=false;q.setAttribute('aria-expanded','true');}
+  function pick(i){var s=shown[i];if(!s)return;var before=q.value.slice(0,q.selectionStart),after=q.value.slice(q.selectionStart);
+    var neg=/(^|\s)-[^\s]*$/.test(before)?'-':'';before=before.replace(/[^\s]*$/,'');q.value=before+neg+s+' '+after.replace(/^[^\s]*/,'').trimStart();hide();q.focus();}
+  q.addEventListener('input',function(){sel=-1;render();});
+  q.addEventListener('keydown',function(e){if(list.hidden)return;
+    if(e.key==='ArrowDown'){sel=Math.min(sel+1,shown.length-1);render();e.preventDefault();}
+    else if(e.key==='ArrowUp'){sel=Math.max(sel-1,0);render();e.preventDefault();}
+    else if((e.key==='Enter'||e.key==='Tab')&&sel>=0){pick(sel);e.preventDefault();}
+    else if(e.key==='Escape'){hide();}
+    if(sel>=0)q.setAttribute('aria-activedescendant','ds'+sel);});
+  list.addEventListener('mousedown',function(e){var li=e.target.closest('li');if(li){e.preventDefault();pick([].indexOf.call(list.children,li));}});
+  q.addEventListener('blur',function(){setTimeout(hide,150);});
+  document.querySelectorAll('[data-q]').forEach(function(b){b.addEventListener('click',function(){q.value=b.dataset.q;go();});});
+  document.querySelectorAll('[data-add]').forEach(function(b){b.addEventListener('click',function(){add(b.dataset.add);});});
+  document.querySelectorAll('[data-drop]').forEach(function(b){b.addEventListener('click',function(){
+    var t=b.dataset.drop;q.value=tokens().filter(function(x){return x.replace(/"/g,'').toLowerCase()!==t.replace(/"/g,'').toLowerCase()&&x.toLowerCase()!==t.toLowerCase();}).join(' ');go();});});
+  var s=document.getElementById('dsSort');if(s)s.addEventListener('change',function(){q.value=tokens().filter(function(x){return !/^sort:/i.test(x);}).concat(s.value==='seen'?[]:['sort:'+s.value]).join(' ');go();});
+  document.addEventListener('keydown',function(e){if(e.key==='/'&&document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='TEXTAREA'){e.preventDefault();q.focus();q.select();}});
+})();
+</script>{% endblock %}

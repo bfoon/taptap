@@ -263,14 +263,16 @@ def devices(request):
     qs = business.device_signatures.select_related('router')
     q = request.GET.get('q', '').strip()
     view = request.GET.get('view', 'all')
-    if q:
-        qs = qs.filter(Q(label__icontains=q) | Q(model__icontains=q) | Q(os__icontains=q) | Q(macs__icontains=q.upper())
-                       | Q(vouchers__icontains=q.upper()) | Q(ips__icontains=q) | Q(fingerprint__startswith=q.lower()))
     if view == 'flagged':
         qs = qs.filter(flagged=True)
     elif view == 'today':
         qs = qs.filter(last_seen__gte=timezone.now() - timedelta(hours=24))
-    items = list(qs[:300])
+    from . import device_search as ds
+    search_info = None
+    if q:
+        items, search_info = ds.search(business, q, qs)
+    else:
+        items = list(qs[:300])
     if view == 'multimac':
         items = [d for d in items if len(d.macs or []) > 1]
     all_sigs = business.device_signatures
@@ -290,7 +292,11 @@ def devices(request):
                                                  'shared_open': [c for c in shared if c['open']], 'shared_waiting': [c for c in shared if c['waiting']],
                                                  'shared_done': [c for c in shared if not c['open'] and not c['waiting']],
                                                  'warning_text': warning_text(business), 'custom_warning': business.shared_warning_text,
-                                                 'q': q, 'view': view, 'collecting': collecting})
+                                                 'q': q, 'view': view, 'collecting': collecting, 'search': search_info,
+                                                 'search_help': ds.HELP, 'search_suggest': ds.suggestions(business), 'search_sorts': ds.SORTS,
+                                                 'quick': [('Online now', 'is:online'), ('Heavy users', 'used>2gb sort:data'), ('Slowed', 'is:slowed'),
+                                                           ('Shared vouchers', 'is:shared'), ('Random MAC', 'is:random'), ('New today', 'is:new'),
+                                                           ('Video watchers', 'app:youtube sort:data'), ('iPhones', 'os:ios')]})
 
 
 @login_required

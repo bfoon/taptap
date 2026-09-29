@@ -1065,7 +1065,9 @@ def settings_view(request):
         return redirect('settings')
     return render(request,'core/settings.html',{'sn':serials.settings_ctx(business),'keepalive_choices':business._meta.get_field('sticky_keepalive').choices})
 @login_required
-def support(request): return render(request,'core/support.html')
+def support(request):
+    from .views_help import support as help_center
+    return help_center(request)
 
 
 @login_required

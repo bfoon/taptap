@@ -1,6 +1,7 @@
 from django.urls import path
 from . import views, views_business as vb, views_studio as vs, views_wan as vw, views_agents as va, views_auth
 
+from . import views_help as vhelp
 from . import views_ads, views_ports, views_live, views_traffic, views_missing, views_link
 from . import views_team as vteam, views_platform as vp, views_detail as vdetail, views_bin as vbin, views_freeze as vfz
 from . import views_fup as vfup
@@ -96,4 +97,6 @@ urlpatterns = [
     # Fair usage (data speed steps), managed from the Security Center
     path('security/fair-usage/slowed/',vfup.fup_slowed,name='fup_slowed'), path('security/fair-usage/new/',vfup.fup_edit,name='fup_new'), path('security/fair-usage/<int:pk>/',vfup.fup_edit,name='fup_edit'),
     path('security/fair-usage/<int:pk>/action/',vfup.fup_action,name='fup_action'), path('vouchers/<int:pk>/fair-usage/',vfup.fup_lift,name='fup_lift'),
+    # Support › Help Center guides
+    path('support/guides/<slug:slug>/',vhelp.support_guide,name='support_guide'),
 ]

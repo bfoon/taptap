@@ -115,3 +115,15 @@ def get_item(d, key):
         return d.get(key)
     except AttributeError:
         return None
+
+
+@register.filter
+def guide_md(text):
+    """Help-guide text: escape, then **bold** and `code`."""
+    import re
+    from django.utils.html import escape
+    from django.utils.safestring import mark_safe
+    t = escape(str(text or ''))
+    t = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', t)
+    t = re.sub(r'`(.+?)`', r'<code>\1</code>', t)
+    return mark_safe(t)

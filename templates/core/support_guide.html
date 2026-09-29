@@ -1,0 +1,68 @@
+{% extends 'core/base.html' %}{% load taptap_extras %}{% block title %}{{ g.title }} — Help — TapTap{% endblock %}{% block heading %}Help Center{% endblock %}
+{% block extra_head %}<style>
+.hg{max-width:860px}.hg-head h2{font-size:1.45rem;font-weight:800;margin:.2rem 0 .3rem}.hg-meta{display:flex;flex-wrap:wrap;gap:.8rem;color:#6b7c8f;font-size:.85rem}
+.hg-progress{height:8px;border-radius:4px;background:var(--surface-2,#eef2f6);overflow:hidden;margin:1rem 0 .3rem}.hg-progress i{display:block;height:100%;background:#18a66a;width:0;transition:width .3s}
+.hg-steps{list-style:none;margin:1rem 0 0;padding:0;counter-reset:st}
+.hg-step{position:relative;background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:1rem 1rem 1rem 3.6rem;margin-bottom:.7rem;transition:border-color .2s,opacity .2s}
+.hg-step .num{position:absolute;left:1rem;top:1rem;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#1769e0;color:#fff;font-weight:800}
+.hg-step.done{border-color:#18a66a}.hg-step.done .num{background:#18a66a}.hg-step.done h3{text-decoration:line-through;opacity:.7}
+.hg-step h3{font-size:1.02rem;font-weight:800;margin:0 0 .3rem}.hg-step p{margin:0;line-height:1.55}
+.hg-tip{margin-top:.6rem;background:#fff8e6;border-left:3px solid #f59e0b;border-radius:8px;padding:.45rem .7rem;font-size:.86rem;color:#6b4a00}
+.hg-code{position:relative;margin-top:.6rem}.hg-code pre{background:#0d1724;color:#d8e6f4;border-radius:10px;padding:.7rem .9rem;font-size:.8rem;margin:0;white-space:pre-wrap}
+.hg-code button{position:absolute;top:.4rem;right:.4rem}
+.hg-check{display:inline-flex;align-items:center;gap:.4rem;margin-top:.6rem;font-size:.84rem;color:#4e6479;cursor:pointer}
+.hg-prob{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:14px;margin-bottom:.5rem}
+.hg-prob summary{padding:.75rem 1rem;font-weight:700;cursor:pointer;list-style:none;display:flex;gap:.5rem;align-items:center}.hg-prob summary::before{content:'\F285';font-family:bootstrap-icons;transition:transform .2s}
+.hg-prob[open] summary::before{transform:rotate(90deg)}.hg-prob ul{margin:0;padding:0 1rem .8rem 2.4rem}.hg-prob li{margin-bottom:.35rem;line-height:1.5}
+.hg-rel{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.6rem}.hg-rel a{border:1px solid var(--border,#e3e9f1);border-radius:12px;padding:.7rem;text-decoration:none;color:inherit;background:var(--panel,#fff)}
+.hg-rel a:hover{border-color:#1769e0}.hg-rel i{color:#1769e0;margin-right:.3rem}
+.hg-foot{display:flex;flex-wrap:wrap;gap:.6rem;justify-content:space-between;align-items:center;margin-top:1.4rem;padding-top:1rem;border-top:1px solid var(--border,#e3e9f1)}
+.hg-help button{margin-left:.3rem}
+@media print{.sidebar,.topbar,.mobile-top,.hg-check,.hg-foot,.hg-code button,.hg-actions{display:none!important}.main-content{margin:0!important}}
+</style>{% endblock %}
+{% block content %}
+<div class="hg">
+  <nav aria-label="breadcrumb" class="small"><a href="{% url 'support' %}" class="text-decoration-none"><i class="bi bi-arrow-left"></i> Help Center</a> <span class="text-secondary">· {{ category }}</span></nav>
+  <div class="hg-head"><h2><i class="bi {{ g.icon }} text-primary"></i> {{ g.title }}</h2>
+    <p class="lead fs-6 mb-2">{{ g.summary }}</p>
+    <div class="hg-meta"><span><i class="bi bi-clock"></i> About {{ g.minutes }} minutes</span><span><i class="bi bi-list-ol"></i> {{ steps|length }} steps</span>
+      <span class="hg-actions"><button type="button" class="btn btn-sm btn-light" onclick="window.print()"><i class="bi bi-printer"></i> Print</button></span></div></div>
+  <div class="hg-progress" aria-hidden="true"><i id="hgBar"></i></div><small class="text-secondary" id="hgDone" aria-live="polite"></small>
+
+  <ol class="hg-steps">{% for s in steps %}
+    <li class="hg-step" data-i="{{ forloop.counter }}"><span class="num">{{ forloop.counter }}</span>
+      <h3>{{ s.title }}</h3><p>{{ s.body|guide_md }}</p>
+      {% if s.code %}<div class="hg-code"><pre><code>{{ s.code }}</code></pre><button type="button" class="btn btn-sm btn-light" data-copy>Copy</button></div>{% endif %}
+      {% if s.tip %}<div class="hg-tip"><i class="bi bi-lightbulb"></i> {{ s.tip|guide_md }}</div>{% endif %}
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        {% if s.link %}<a class="btn btn-sm btn-outline-primary mt-2" href="{{ s.link.url }}" target="_blank" rel="noopener">{{ s.link.label }} <i class="bi bi-box-arrow-up-right"></i></a>{% endif %}
+        <label class="hg-check"><input type="checkbox" class="form-check-input m-0"> Done</label></div>
+    </li>{% endfor %}</ol>
+
+  {% if problems %}<h3 class="h5 fw-bold mt-4">If something goes wrong</h3>
+  {% for p in problems %}<details class="hg-prob"{% if forloop.first and g.category == 'trouble' %} open{% endif %}><summary>{{ p.symptom|guide_md }}</summary><ul>{% for f in p.fixes %}<li>{{ f|guide_md }}</li>{% endfor %}</ul></details>{% endfor %}{% endif %}
+
+  {% if related %}<h3 class="h6 fw-bold mt-4">Related guides</h3>
+  <div class="hg-rel">{% for r in related %}<a href="{% url 'support_guide' r.slug %}"><i class="bi {{ r.icon }}"></i>{{ r.title }}</a>{% endfor %}</div>{% endif %}
+
+  <div class="hg-foot">
+    <div class="hg-help small" id="hgHelp">Did this guide help? <button type="button" class="btn btn-sm btn-light" data-vote="yes">👍 Yes</button><button type="button" class="btn btn-sm btn-light" data-vote="no">👎 Not really</button></div>
+    <div class="d-flex gap-2">{% if prev %}<a class="btn btn-sm btn-light" href="{% url 'support_guide' prev.slug %}">← {{ prev.title|truncatechars:28 }}</a>{% endif %}
+      {% if next %}<a class="btn btn-sm btn-light" href="{% url 'support_guide' next.slug %}">{{ next.title|truncatechars:28 }} →</a>{% endif %}</div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script>
+(function(){
+  var key='tt-guide-{{ g.slug }}',done={};try{done=JSON.parse(localStorage.getItem(key)||'{}');}catch(e){}
+  var steps=[].slice.call(document.querySelectorAll('.hg-step')),bar=document.getElementById('hgBar'),lab=document.getElementById('hgDone');
+  function paint(){var n=0;steps.forEach(function(li){var on=!!done[li.dataset.i];li.classList.toggle('done',on);li.querySelector('input').checked=on;if(on)n++;});
+    bar.style.width=(n*100/steps.length)+'%';lab.textContent=n?(n===steps.length?'All steps done — nice work!':n+' of '+steps.length+' steps done'):'';}
+  steps.forEach(function(li){li.querySelector('input').addEventListener('change',function(e){done[li.dataset.i]=e.target.checked;try{localStorage.setItem(key,JSON.stringify(done));}catch(x){}paint();});});
+  paint();
+  document.querySelectorAll('[data-copy]').forEach(function(b){b.addEventListener('click',function(){var t=b.parentNode.querySelector('code').textContent;
+    (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy';},1500);}).catch(function(){});});});
+  document.querySelectorAll('[data-vote]').forEach(function(b){b.addEventListener('click',function(){var h=document.getElementById('hgHelp');
+    h.innerHTML=b.dataset.vote==='yes'?'Thanks! Glad it helped.':'Sorry about that. {% if chat_url %}<a href="{{ chat_url }}">Chat with TapTap support</a> and tell us what was missing.{% else %}Tell TapTap support what was missing.{% endif %}';});});
+})();
+</script>{% endblock %}
