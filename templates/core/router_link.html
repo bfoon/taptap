@@ -137,7 +137,7 @@
 {% endif %}
 
 <section class="panel mb-3" id="troubleshoot">
-  <div class="panel-head"><div><h3><i class="bi bi-life-preserver"></i> If the router stops checking in</h3><p>Paste these into WinBox › New Terminal on {{ router.name }}. None of them contain the token, so they are safe to share with a technician.</p></div></div>
+  <div class="panel-head"><div><h3><i class="bi bi-life-preserver"></i> If the router stops checking in</h3> {% include "core/partials/help_link.html" with slug="troubleshoot-link" label="Full troubleshooting guide" %}<p>Paste these into WinBox › New Terminal on {{ router.name }}. None of them contain the token, so they are safe to share with a technician.</p></div></div>
   <div class="lk-fix">
     {% for step in fixes %}
     <div class="lk-fix-step"><div class="lk-fix-head"><b>{{ forloop.counter }}. {{ step.title }}</b><button type="button" class="btn btn-sm btn-outline-primary" data-copy="fix{{ forloop.counter }}"><i class="bi bi-clipboard"></i> Copy</button></div>

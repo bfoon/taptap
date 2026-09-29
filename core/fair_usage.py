@@ -9,6 +9,9 @@ customer:
   4. put a speed cap on each of its session IPs on the router (a simple queue named
      "TTFUP-<code>-<ip>", placed at the top so it wins over the hotspot's own queue),
      or take it off.
+Shared vouchers (more than one device) are measured PER DEVICE: every device gets the policy's
+allowance, and only the device that used it is slowed — the other devices on the voucher keep
+full speed. A device is followed across MAC changes through its sticky-voucher slot.
 Caps exist only while the session is online: when a session ends the cap on that IP is
 removed, so a DHCP address given to someone else is never slowed by mistake. At the start
 of a new period everyone is back to full speed.
@@ -94,18 +97,55 @@ def codes_of(voucher):
     return [voucher.code] + list(VoucherCodeAlias.objects.filter(voucher=voucher).values_list('code', flat=True))
 
 
-def used_bytes(voucher, policy, now=None):
-    """Data this voucher used in the current period (free night hours left out)."""
+def used_bytes(voucher, policy, now=None, macs=None):
+    """Data this voucher used in the current period (free night hours left out).
+    With `macs`, only what those device MAC addresses used (one device of a shared voucher)."""
     from .models import UsageRecord
     start, _, _ = window(policy, voucher, now)
     start = start.replace(minute=0, second=0, microsecond=0)   # usage is stored per hour
     rows = UsageRecord.objects.filter(business_id=voucher.business_id, username__in=codes_of(voucher), hour__gte=start)
+    if macs is not None:
+        rows = rows.filter(mac_address__in=[m.upper() for m in macs if m])
     total = 0
     for hour, down, up in rows.values_list('hour', 'download', 'upload'):
         if policy.is_free_hour(timezone.localtime(hour).hour):
             continue
         total += down + (up if policy.counts == 'total' else 0)
     return total
+
+
+def shared(voucher):
+    return int(voucher.max_devices or 1) > 1
+
+
+def device_of(voucher, mac, bindings=None):
+    """(key, label, macs) for one device of a shared voucher. The sticky-voucher slot keeps the
+    same device together when its MAC changes; otherwise the MAC is the device."""
+    mac = (mac or '').upper()
+    for b in bindings if bindings is not None else voucher.device_bindings.all():
+        if mac and mac in {(b.current_mac or '').upper(), (b.previous_mac or '').upper()}:
+            return f'slot{b.slot_no}', (b.label or b.current_mac or f'Device {b.slot_no}'), [m for m in {b.current_mac, b.previous_mac} if m]
+    return (mac or 'unknown'), mac or 'Unknown device', [mac] if mac else []
+
+
+def device_usage(voucher, policy, now=None):
+    """[{key, label, used, tier}] — data per device of a shared voucher in the current period."""
+    from .models import UsageRecord
+    start, _, _ = window(policy, voucher, now)
+    start = start.replace(minute=0, second=0, microsecond=0)
+    bindings = list(voucher.device_bindings.all())
+    per = {}
+    for hour, mac, down, up in UsageRecord.objects.filter(business_id=voucher.business_id, username__in=codes_of(voucher),
+                                                          hour__gte=start).values_list('hour', 'mac_address', 'download', 'upload'):
+        if policy.is_free_hour(timezone.localtime(hour).hour):
+            continue
+        key, label, _ = device_of(voucher, mac, bindings)
+        d = per.setdefault(key, {'key': key, 'label': label, 'used': 0})
+        d['used'] += down + (up if policy.counts == 'total' else 0)
+    for d in per.values():
+        d['used_gb'] = d['used'] / GB
+        d['tier'] = tier_for(d['used'], policy.tiers)
+    return sorted(per.values(), key=lambda d: -d['used'])
 
 
 def tier_for(used, tiers):
@@ -125,7 +165,7 @@ def status(voucher, now=None):
     now = now or timezone.now()
     used = used_bytes(voucher, pol, now)
     start, key, resets = window(pol, voucher, now)
-    st = FairUsageState.objects.filter(voucher=voucher, policy=pol).first()
+    st = FairUsageState.objects.filter(voucher=voucher, policy=pol, device='').first()
     lifted = bool(st and st.lifted_until and st.lifted_until > now)
     tier = 0 if lifted else tier_for(used, pol.tiers)
     nxt = pol.tiers[tier] if tier < len(pol.tiers) else None
@@ -137,7 +177,21 @@ def status(voucher, now=None):
             'down_pct': min(100, round(down_bps * 100 / cap_down)) if cap_down else 0,
             'sessions': [{**s, 'down': bps_text(s.get('down_bps')), 'up': bps_text(s.get('up_bps'))} for s in sessions],
             'peak': bps_text(_peak_bps(voucher, start))}
+    devices = []
+    if shared(voucher):
+        # each device is measured on its own: the voucher-wide speed only reflects the heaviest device
+        states = {x.device: x for x in FairUsageState.objects.filter(voucher=voucher, policy=pol).exclude(device='')}
+        for d in device_usage(voucher, pol, now):
+            dst = states.get(d['key'])
+            dl = bool(dst and dst.lifted_until and dst.lifted_until > now) or lifted
+            t = 0 if dl else d['tier']
+            devices.append({**d, 'tier': t, 'speed': speed_text(pol.tiers[t - 1]['down']) if t else '',
+                            'next_gb': pol.tiers[t]['gb'] if t < len(pol.tiers) else None})
+        tier = max([d['tier'] for d in devices] or [0])
+        used = max([d['used'] for d in devices] or [0])
+        nxt = pol.tiers[tier] if tier < len(pol.tiers) else None
     return {'live': live, 'policy': pol, 'used': used, 'used_gb': used / GB, 'tier': tier, 'lifted': lifted, 'lifted_until': st.lifted_until if lifted else None,
+            'per_device': shared(voucher), 'devices': devices,
             'speed': {'down': speed_text(pol.tiers[tier - 1]['down']), 'up': speed_text(pol.tiers[tier - 1]['up'])} if tier else None,
             'next': {'gb': nxt['gb'], 'down': speed_text(nxt['down'])} if nxt else None, 'resets_at': resets, 'period_start': start,
             'steps': [{**t, 'down_text': speed_text(t['down']), 'up_text': speed_text(t['up']), 'reached': used >= t['gb'] * GB,
@@ -155,9 +209,11 @@ def lift(voucher, user=None, now=None):
     _, key, resets = window(pol, voucher, now)
     until = resets if pol.period != 'voucher' or not resets else min(resets, now + timedelta(days=1))
     until = until or now + timedelta(days=1)
-    st, _ = FairUsageState.objects.get_or_create(voucher=voucher, policy=pol, defaults={'period_key': key})
-    st.lifted_until, st.lifted_by = until, user if getattr(user, 'is_authenticated', False) else None
+    st, _ = FairUsageState.objects.get_or_create(voucher=voucher, policy=pol, device='', defaults={'period_key': key})
+    who = user if getattr(user, 'is_authenticated', False) else None
+    st.lifted_until, st.lifted_by = until, who
     st.save(update_fields=['lifted_until', 'lifted_by', 'updated_at'])
+    FairUsageState.objects.filter(voucher=voucher, policy=pol).exclude(device='').update(lifted_until=until, lifted_by=who)   # every device
     record(voucher, 'fup_lifted', user=user, reason='Full speed given back', text=f'Until {timezone.localtime(until):%d %b %H:%M} ({pol.name})')
     return until
 
@@ -190,7 +246,7 @@ def desired_caps(router, active, now=None):
     for s in active:
         code, ip = str(s.get('user', '')).strip(), str(s.get('address', '')).strip()
         if code and IP_RE.match(ip):
-            by_code.setdefault(code.upper(), set()).add(ip)
+            by_code.setdefault(code.upper(), []).append((ip, str(s.get('mac-address', '')).upper()))
     if not by_code:
         return {}
     vouchers = {v.code.upper(): v for v in Voucher.objects.filter(business=router.business, code__in=[c for c in by_code] + [c.lower() for c in by_code])}
@@ -198,34 +254,57 @@ def desired_caps(router, active, now=None):
     for a in VoucherCodeAlias.objects.filter(business=router.business, code__in=list(by_code)).select_related('voucher'):
         vouchers.setdefault(a.code.upper(), a.voucher)
     caps = {}
-    for code, ips in by_code.items():
+
+    def step(v, pol, used, key, device='', label=''):
+        """Update the state of one voucher (or one device) and return its tier."""
+        st, _ = FairUsageState.objects.get_or_create(voucher=v, policy=pol, device=device, defaults={'period_key': key, 'device_label': label[:120]})
+        if st.period_key != key:     # new day / week: full speed, lift forgotten
+            st.period_key, st.lifted_until, st.lifted_by = key, None, None
+        whole = st if not device else FairUsageState.objects.filter(voucher=v, policy=pol, device='').first()
+        lifted = bool(st.lifted_until and st.lifted_until > now) or bool(whole and whole.lifted_until and whole.lifted_until > now)
+        tier = 0 if lifted else tier_for(used, pol.tiers)
+        who = f'{label} ' if device else ''
+        if tier != st.tier:
+            if tier > st.tier:
+                t = pol.tiers[tier - 1]
+                record(v, 'fup_slowed', source='auto', reason=pol.name,
+                       text=(f'Device {who}— ' if device else '') + f'used {used / GB:.2f} GB — speed now {speed_text(t["down"])} down / {speed_text(t["up"])} up'
+                            + (' (the other devices keep their speed)' if device else ''))
+            else:
+                record(v, 'fup_restored', source='auto', reason=pol.name,
+                       text=(f'Device {who}— ' if device else '') + ('back to full speed' if not tier else f'step {tier}'))
+            st.tier, st.changed_at = tier, now
+        st.used_bytes, st.device_label = used, (label or st.device_label)[:120]
+        st.save()
+        return tier
+
+    for code, sess in by_code.items():
         v = vouchers.get(code)
         if not v or v.deleted_at:
             continue
         pol = policy_for(v, pols)
         if not pol or not pol.tiers:
             continue
-        used = used_bytes(v, pol, now)
         _, key, _ = window(pol, v, now)
-        st, _ = FairUsageState.objects.get_or_create(voucher=v, policy=pol, defaults={'period_key': key})
-        if st.period_key != key:     # new day / week: full speed, lift forgotten
-            st.period_key, st.lifted_until, st.lifted_by = key, None, None
-        lifted = bool(st.lifted_until and st.lifted_until > now)
-        tier = 0 if lifted else tier_for(used, pol.tiers)
-        if tier != st.tier:
-            if tier > st.tier:
+        if not shared(v):
+            tier = step(v, pol, used_bytes(v, pol, now), key)
+            if tier:
                 t = pol.tiers[tier - 1]
-                record(v, 'fup_slowed', source='auto', reason=pol.name,
-                       text=f'Used {used / GB:.2f} GB — speed now {speed_text(t["down"])} down / {speed_text(t["up"])} up')
-            else:
-                record(v, 'fup_restored', source='auto', reason=pol.name, text='Back to full speed' if not tier else f'Step {tier}')
-            st.tier, st.changed_at = tier, now
-        st.used_bytes = used
-        st.save()
-        if tier:
-            t = pol.tiers[tier - 1]
-            for ip in sorted(ips):
-                caps[_qname(v.code, ip)] = (ip, f'{kbps(t["up"])}k/{kbps(t["down"])}k', v.code, tier)
+                for ip in sorted({ip for ip, _ in sess}):
+                    caps[_qname(v.code, ip)] = (ip, f'{kbps(t["up"])}k/{kbps(t["down"])}k', v.code, tier)
+            continue
+        # Shared voucher: judge each device on its own data; cap only that device's addresses.
+        bindings = list(v.device_bindings.all())
+        devices = {}
+        for ip, mac in sess:
+            dkey, label, macs = device_of(v, mac, bindings)
+            devices.setdefault(dkey, {'label': label, 'macs': macs, 'ips': set()})['ips'].add(ip)
+        for dkey, d in devices.items():
+            tier = step(v, pol, used_bytes(v, pol, now, macs=d['macs']) if d['macs'] else 0, key, device=dkey, label=d['label'])
+            if tier:
+                t = pol.tiers[tier - 1]
+                for ip in sorted(d['ips']):
+                    caps[_qname(v.code, ip)] = (ip, f'{kbps(t["up"])}k/{kbps(t["down"])}k', v.code, tier)
     return caps
 
 
@@ -382,7 +461,7 @@ def slowed(business, now=None):
         if st.tier > len(pol.tiers):
             continue
         nxt = pol.tiers[st.tier] if st.tier < len(pol.tiers) else None
-        rows.append({'state': st, 'voucher': v, 'policy': pol, 'tier': st.tier, 'steps': len(pol.tiers),
+        rows.append({'state': st, 'voucher': v, 'policy': pol, 'tier': st.tier, 'steps': len(pol.tiers), 'device': st.device_label if st.device else '',
                      'used': st.used_bytes, 'used_gb': st.used_bytes / GB, 'since': st.changed_at,
                      'next': {'gb': nxt['gb'], 'down': speed_text(nxt['down'])} if nxt else None,
                      **bandwidth(v, st, now)})

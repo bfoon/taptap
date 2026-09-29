@@ -78,6 +78,7 @@
     <div class="panel form-panel sticky-xl-top" style="top:1rem">
       <div class="big-icon"><i class="bi bi-link-45deg"></i></div>
       <h3>Register router via TapTap Link</h3>
+      <p class="mb-2">{% include "core/partials/help_link.html" with slug="add-router-link" label="Step-by-step guide" %} · {% include "core/partials/help_link.html" with slug="troubleshoot-link" label="Not connecting?" %}</p>
       <p class="text-secondary">Recommended for the cloud. No IP address, API username, password or port-forwarding is required.</p>
       <form method="post" action="{% url 'router_agent_register' %}">
         {% csrf_token %}

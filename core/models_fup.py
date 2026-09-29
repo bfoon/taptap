@@ -44,7 +44,7 @@ class FairUsagePolicy(models.Model):
 
 
 class FairUsageState(models.Model):
-    """Where one voucher stands under its policy in the current period."""
+    """Where one voucher (or one device of a shared voucher) stands under its policy in the current period."""
     voucher = models.ForeignKey('core.Voucher', on_delete=models.CASCADE, related_name='fair_usage')
     policy = models.ForeignKey(FairUsagePolicy, on_delete=models.CASCADE, related_name='states')
     period_key = models.CharField(max_length=20)
@@ -54,6 +54,9 @@ class FairUsageState(models.Model):
     lifted_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     changed_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Shared vouchers are measured per device, so only the device that used the data is slowed.
+    device = models.CharField(max_length=40, blank=True, default='', help_text="'' = the whole voucher; otherwise one device of a shared voucher")
+    device_label = models.CharField(max_length=120, blank=True)
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['voucher', 'policy'], name='uniq_fup_state')]
+        constraints = [models.UniqueConstraint(fields=['voucher', 'policy', 'device'], name='uniq_fup_state_device')]

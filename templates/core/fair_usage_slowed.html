@@ -26,7 +26,7 @@
 <div class="sl-card">
   <div class="sl-top">
     <div><span class="dot {% if r.online %}on{% endif %}" title="{% if r.online %}Online now{% else %}Not online{% endif %}"></span>
-      <a class="sl-code" href="{% url 'voucher_detail' v.id %}">{{ v.code }}</a>
+      <a class="sl-code" href="{% url 'voucher_detail' v.id %}">{{ v.code }}</a>{% if r.device %} <span class="badge text-bg-light border" title="Only this device of the shared voucher is slowed"><i class="bi bi-phone"></i> {{ r.device }}</span>{% endif %}
       <span class="text-secondary small ms-2">{{ v.plan_name }}{% if v.agent %} · {{ v.agent.name }}{% endif %}{% if v.router %} · {{ v.router.name }}{% endif %}</span></div>
     <div class="d-flex align-items-center gap-2">
       <span class="badge text-bg-warning">Step {{ r.tier }} of {{ r.steps }} · {{ r.policy.name }}</span>

@@ -25,7 +25,7 @@
 </section>
 
 <section class="panel mb-3" id="fair-usage">
-  <div class="panel-head"><div><h3><i class="bi bi-speedometer2"></i> Fair usage — slow down heavy data users</h3>
+  <div class="panel-head"><div><h3><i class="bi bi-speedometer2"></i> Fair usage — slow down heavy data users {% include "core/partials/help_link.html" with slug="fair-usage" label="How to set it up" %}</h3>
     <p>Speed steps down as a voucher uses more data: per day, per week or over the whole voucher. Everyone is back to full speed when the period resets. Caps are set on your routers at each live sync.</p></div>
     <div class="d-flex gap-2"><a class="btn btn-outline-warning btn-sm" href="{% url 'fup_slowed' %}"><i class="bi bi-speedometer"></i> Slowed now</a>
     {% if 'network.manage' in tt_perms %}<a class="btn btn-primary btn-sm" href="{% url 'fup_new' %}"><i class="bi bi-plus-circle"></i> New policy</a>{% endif %}</div></div>

@@ -78,20 +78,41 @@ def online(uid):
 
 
 def set_typing(thread_id, user):
-    cache.set(f'chat:typing:{thread_id}:{user.pk}', display_name(user).split(' ')[0], TYPING_SECONDS)
+    info = {'name': display_name(user).split(' ')[0], 'initials': initials(user), 'agent': is_agent(user)}
+    cache.set(f'chat:typing:{thread_id}:{user.pk}', info, TYPING_SECONDS)
     key = f'chat:typers:{thread_id}'
     ids = set(cache.get(key) or []); ids.add(user.pk)
     cache.set(key, list(ids), 60)
 
 
-def typing_names(thread_id, exclude_id):
+def typing_info(thread_id, exclude_id):
+    """Who is typing in a conversation right now: [{name, initials, agent}]."""
     out = []
     for uid in cache.get(f'chat:typers:{thread_id}') or []:
         if uid == exclude_id:
             continue
         n = cache.get(f'chat:typing:{thread_id}:{uid}')
-        if n:
+        if isinstance(n, dict):
             out.append(n)
+        elif n:
+            out.append({'name': n, 'initials': n[:1].upper(), 'agent': False})
+    return out
+
+
+def typing_names(thread_id, exclude_id):
+    return [t['name'] for t in typing_info(thread_id, exclude_id)]
+
+
+def typing_map(thread_ids, exclude_id):
+    """{thread_id: ['Awa', ...]} for every conversation where someone is typing (shown in the list)."""
+    keys = {f'chat:typers:{t}': t for t in thread_ids}
+    found = cache.get_many(list(keys))
+    out = {}
+    for k, uids in found.items():
+        tid = keys[k]
+        names = typing_names(tid, exclude_id) if uids else []
+        if names:
+            out[tid] = names
     return out
 
 

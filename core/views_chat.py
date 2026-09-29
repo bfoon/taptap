@@ -84,7 +84,7 @@ def chat_state(request):
         t = next(x for x in threads if x.pk == open_id)
         if request.GET.get('typing') == '1':
             chat.set_typing(open_id, user)
-        extra['typing'] = chat.typing_names(open_id, user.pk)
+        extra['typing'] = chat.typing_info(open_id, user.pk)
         if t.kind == 'direct':
             other = t.user_b_id if t.user_a_id == user.pk else t.user_a_id
             r = ChatRead.objects.filter(thread=t, user_id=other).first()
@@ -94,6 +94,7 @@ def chat_state(request):
               for u in chat.colleagues(user, biz)]
     return JsonResponse({'ok': True, 'me': {'id': user.pk, 'name': chat.display_name(user), 'agent': chat.is_agent(user)},
                          'threads': _threads_json(request, threads), 'new': new, 'top': top, 'people': people,
+                         'typing_threads': chat.typing_map(ids, user.pk),
                          'prefs': {'sound': p.sound, 'popups': p.popups, 'email_missed': p.email_missed, 'email_after': p.email_after_minutes},
                          **extra})
 

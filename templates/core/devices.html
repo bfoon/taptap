@@ -78,7 +78,7 @@
 
 {% if view == 'all' or view == 'shared' %}
 <section class="panel mb-3">
-  <div class="panel-head"><div><h3><i class="bi bi-people-fill text-warning"></i> Vouchers used on more devices than they allow</h3>
+  <div class="panel-head"><div><h3><i class="bi bi-people-fill text-warning"></i> Vouchers used on more devices than they allow</h3> {% include "core/partials/help_link.html" with slug="shared-auto-warn" %}
     <p>Same code on different devices — usually a shared or resold voucher.
       {% if current_business.shared_warning_mode == 'auto' %}<b>Automatic warnings are on:</b> the internet stops and the customer must press “I agree” on a warning page to continue.{% else %}<b>Manual:</b> decide for each voucher below.{% endif %}</p></div>
     {% if 'vouchers.manage' in tt_perms %}<button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#sharedSettings"><i class="bi bi-gear"></i> Warning settings</button>{% endif %}</div>

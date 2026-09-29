@@ -8,7 +8,7 @@
   var CSRF = root.dataset.csrf || '';
   var FULL = root.dataset.full === '1';
   var S = { open: false, view: 'list', thread: null, threads: [], people: [], me: {}, prefs: {}, top: 0, msgs: [], seen: 0,
-            attach: null, first: true, lastTyping: 0, timer: null, big: FULL, filter: '' };
+            attach: null, first: true, lastTyping: 0, timer: null, big: FULL, filter: '', typers: [], typingThreads: {} };
   var COLORS = ['#1769e0', '#7c3aed', '#18a66a', '#e5484d', '#f59e0b', '#0ea5a4', '#db2777', '#65a30d', '#2563eb', '#ea580c'];
   var EMOJI = ['👍', '🙏', '😀', '😂', '🎉', '✅', '❤️', '🔥', '👀', '💰', '📶', '⚠️'];
   var ICON = {
@@ -118,14 +118,37 @@
       var ini = t.kind === 'team' ? '👥' : t.initials;
       return '<button class="ttc-row' + (t.unread ? ' unread' : '') + '" data-t="' + t.id + '">' +
         (t.kind === 'support' && !t.inbox ? '<span class="ttc-av' + (t.online ? ' on' : '') + '" style="background:linear-gradient(135deg,#7c3aed,#1769e0)">TT</span>' : av(ini, t.title, t.online)) +
-        '<span class="ttc-mid"><b>' + esc(t.title) + (t.inbox && t.status ? ' <span class="ttc-tag ' + t.status + '">' + (t.status === 'solved' ? 'Solved' : 'Open') + '</span>' : '') + '</b><small>' + esc(t.last || t.sub || 'Say hello 👋') + '</small></span>' +
+        '<span class="ttc-mid"><b>' + esc(t.title) + (t.inbox && t.status ? ' <span class="ttc-tag ' + t.status + '">' + (t.status === 'solved' ? 'Solved' : 'Open') + '</span>' : '') + '</b>' +
+        (S.typingThreads[t.id] ? '<small class="ttc-tt"><span class="ttc-mini-dots"><i></i><i></i><i></i></span> ' + esc(typingText(S.typingThreads[t.id], t)) + '</small>' : '<small>' + esc(t.last || t.sub || 'Say hello 👋') + '</small>') + '</span>' +
         '<span class="ttc-end">' + esc(when(t.last_at)) + (t.unread ? '<span class="ttc-count' + (t.muted ? ' muted' : '') + '">' + t.unread + '</span>' : '') + '</span></button>';
     }
     if (mine.length || !S.me.agent) h += '<div class="ttc-sec">Conversations</div>' + (mine.length ? mine.map(row).join('') : '<div class="ttc-empty">No conversations.</div>');
     if (S.me.agent) h += '<div class="ttc-sec">Support inbox · all businesses</div>' + (inbox.length ? inbox.map(row).join('') : '<div class="ttc-empty">No support conversations yet.</div>');
+    h += '<div class="ttc-sec">Help</div><a class="ttc-row" href="/support/"><span class="ttc-av" style="background:linear-gradient(135deg,#18a66a,#0ea5a4)">?</span><span class="ttc-mid"><b>How-to guides</b><small>Add a router, fix connections, fair usage, sharing…</small></span></a>';
     body.innerHTML = h;
     var inp = $('.ttc-search input', body);
     inp.addEventListener('input', function () { S.filter = inp.value; var pos = inp.selectionStart; render(); var n = $('.ttc-search input', body); n.focus(); n.setSelectionRange(pos, pos); });
+  }
+
+  function typingText(names, t) {
+    if (t && t.kind === 'direct') return 'typing…';
+    return names.slice(0, 2).join(' and ') + (names.length > 2 ? ' and others' : '') + (names.length > 1 ? ' are' : ' is') + ' typing…';
+  }
+  // The "someone is typing" bubble at the bottom of the conversation (three bouncing dots).
+  function renderTyping() {
+    var box = $('.ttc-msgs', body); if (!box) return;
+    var nearBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 90;
+    box.querySelectorAll('.ttc-typing-b').forEach(function (n) { n.remove(); });
+    var t = S.thread || {};
+    S.typers.slice(0, 3).forEach(function (p) {
+      var asTapTap = p.agent && t.kind === 'support' && !t.agent_view, name = asTapTap ? p.name + ' · TapTap Support' : p.name;
+      var el = document.createElement('div'); el.className = 'ttc-typing-b';
+      el.innerHTML = (t.kind !== 'direct' ? '<div class="ttc-who">' + esc(name) + '</div>' : '') +
+        '<div class="ttc-m' + (asTapTap ? ' agent' : '') + '">' + (asTapTap ? '<span class="ttc-av" style="background:linear-gradient(135deg,#7c3aed,#1769e0)">TT</span>' : av(p.initials, p.name)) +
+        '<div class="ttc-b ttc-dots" role="status" aria-label="' + esc(p.name) + ' is typing"><i></i><i></i><i></i></div></div>';
+      box.appendChild(el);
+    });
+    if (nearBottom) body.scrollTop = body.scrollHeight;
   }
 
   function renderThread() {
@@ -137,7 +160,10 @@
     head.innerHTML = headHTML(t.title, (info.sub || t.sub || ''), '<button class="ttc-ib" data-a="back" title="Back">' + ICON.back + '</button>', right);
     var h = '<div class="ttc-msgs">', prev = null, lastDay = '';
     if (S.more) h += '<button class="ttc-sys" data-a="older" style="border:0;background:none;cursor:pointer;text-decoration:underline">Show older messages</button>';
-    if (!S.msgs.length) h += '<div class="ttc-empty">' + (t.kind === 'support' && !t.agent_view ? 'Ask TapTap anything — routers, vouchers, billing. We usually reply within minutes during the day.' : 'No messages yet. Say hello 👋') + '</div>';
+    if (!S.msgs.length) h += '<div class="ttc-empty">' + (t.kind === 'support' && !t.agent_view ? 'Ask TapTap anything — routers, vouchers, billing. We usually reply within minutes during the day.' +
+      '<div style="margin-top:14px;text-align:left"><b style="font-size:12px;text-transform:uppercase;letter-spacing:.06em">Quick answers</b>' +
+      [['troubleshoot-link', 'Router not connecting?'], ['add-router-link', 'Add a MikroTik router'], ['fair-usage', 'Set up fair usage'], ['shared-auto-warn', 'Stop voucher sharing']].map(function (g) {
+        return '<a class="ttc-page" href="/support/guides/' + g[0] + '/">📘 <span>' + g[1] + '</span></a>'; }).join('') + '</div>' : 'No messages yet. Say hello 👋') + '</div>';
     var lastMine = 0; S.msgs.forEach(function (m) { if (m.mine) lastMine = m.id; });
     S.msgs.forEach(function (m) {
       var day = dayLabel(m.at); if (day !== lastDay) { h += '<div class="ttc-day">' + day + '</div>'; lastDay = day; prev = null; }
@@ -154,6 +180,7 @@
       prev = m;
     });
     body.innerHTML = h + '</div>';
+    renderTyping();
     if (!$('.ttc-comp', foot)) {
       foot.innerHTML = '<div class="ttc-attach ttc-hidden"></div><div class="ttc-comp">' +
         '<button class="ttc-tb" data-a="emoji" title="Emoji">' + ICON.smile + '</button>' +
@@ -190,7 +217,7 @@
     var a = b.dataset.a;
     if (a === 'close') setOpen(false);
     else if (a === 'big') { S.big = !S.big; root.classList.toggle('big', S.big); }
-    else if (a === 'back') { S.view = 'list'; S.thread = null; store('thread', null); render(); poll(); }
+    else if (a === 'back') { S.view = 'list'; S.thread = null; S.typers = []; store('thread', null); render(); poll(); }
     else if (a === 'settings') { S.view = 'settings'; render(); }
     else if (a === 'test') { var s = S.prefs.sound; S.prefs.sound = true; chime('mention'); S.prefs.sound = s; }
     else if (a === 'notif') Notification.requestPermission().then(render);
@@ -300,7 +327,7 @@
     var q = '/chat/state/?since=' + (S.first ? -1 : S.top) + (S.view === 'thread' && S.thread && S.open ? '&open=' + S.thread.id : '');
     api(q).then(function (d) {
       polling = false; if (!d.ok) { schedule(60000); return; }
-      S.me = d.me; S.prefs = d.prefs; S.people = d.people; S.threads = d.threads;
+      S.me = d.me; S.prefs = d.prefs; S.people = d.people; S.threads = d.threads; S.typingThreads = d.typing_threads || {};
       var incoming = S.first ? [] : d.new;
       S.first = false; S.top = Math.max(S.top, d.top);
       var viewing = S.open && S.view === 'thread' && S.thread && !document.hidden ? S.thread.id : 0, changed = false, maxHere = 0;
@@ -323,8 +350,8 @@
       if (S.open) {
         if (S.view === 'thread') {
           if (changed) renderThread();
-          var names = d.typing || []; typing.classList.toggle('ttc-hidden', !names.length);
-          typing.innerHTML = names.length ? '<i></i><i></i><i></i> ' + esc(names.join(', ')) + (names.length > 1 ? ' are' : ' is') + ' typing…' : '';
+          var ty = d.typing || [], sig = JSON.stringify(ty), was = JSON.stringify(S.typers);
+          S.typers = ty; if (changed || sig !== was) renderTyping();
           var info = S.threads.filter(function (x) { return x.id === (S.thread && S.thread.id); })[0];
           var sub = head.querySelector('small'); if (info && sub) sub.textContent = info.sub || '';
         } else if (S.view === 'list' && !(document.activeElement && document.activeElement.closest && document.activeElement.closest('.ttc-search'))) render();
@@ -339,5 +366,13 @@
   if (th) { S.view = 'thread'; S.thread = { id: th }; }
   poll();
   setTimeout(function () { if (wasOpen || FULL) setOpen(true); }, 400);
-  window.TapChat = { open: function (id) { setOpen(true); if (id) openThread(id); } };
+  function supportId() { var t = S.threads.filter(function (x) { return x.kind === 'support' && !x.inbox; })[0]; return t && t.id; }
+  window.TapChat = {
+    open: function (id) { setOpen(true); if (id) openThread(id); },
+    // "Chat with TapTap support" buttons in the help center
+    openSupport: function () {
+      var id = supportId(); if (id) { setOpen(true); openThread(id); return; }
+      api('/chat/state/?since=-1').then(function (d) { if (d.ok) { S.threads = d.threads; var i = supportId(); setOpen(true); if (i) openThread(i); } });
+    }
+  };
 })();

@@ -248,3 +248,48 @@ class SlowedDetailsTests(TestCase):
             TeamMember.objects.create(business=self.biz, user=u, role=role)
             self.client.force_login(u)
             self.assertEqual(self.client.get(reverse('fup_slowed'), **HTML).status_code, code, role)
+
+
+class SharedVoucherPerDeviceTests(TestCase):
+    """A voucher for several devices: only the device that used the data is slowed."""
+    def setUp(self):
+        cache.clear()
+        self.now = timezone.make_aware(datetime.combine(timezone.localdate(), time(13, 30)))
+        owner = User.objects.create_user('pd@example.com', 'pd@example.com', 'pw')
+        self.biz = Business.objects.create(user=owner, business_name='B', owner_name='O', phone='1', trial_ends_at=self.now + timedelta(days=7))
+        self.router = Router.objects.create(business=self.biz, name='R', ip_address='10.0.0.1', username='u', password='p')
+        VoucherPlan.objects.create(business=self.biz, name='Family', price=100, duration_minutes=1440, max_devices=3)
+        self.v = Voucher.objects.create(business=self.biz, router=self.router, code='FAM1', plan_name='Family', duration_minutes=1440,
+                                        max_devices=3, used_at=self.now - timedelta(hours=2))
+        self.pol = FairUsagePolicy.objects.create(business=self.biz, name='Daily', period='day', counts='total',
+                                                  tiers=[{'gb': 2, 'down': 5, 'up': 2}, {'gb': 5, 'down': 1, 'up': 0.5}])
+        self.hour = self.now.replace(minute=0, second=0, microsecond=0)
+
+    def use(self, mac, gb):
+        UsageRecord.objects.create(business=self.biz, router=self.router, username='FAM1', mac_address=mac, hour=self.hour, download=int(gb * GB))
+
+    def test_only_the_heavy_device_is_capped(self):
+        self.use('AA:00:00:00:00:01', 3.0)      # heavy downloader
+        self.use('AA:00:00:00:00:02', 0.4)
+        self.use('AA:00:00:00:00:03', 0.1)
+        active = [{'user': 'FAM1', 'address': '10.5.50.11', 'mac-address': 'AA:00:00:00:00:01'},
+                  {'user': 'FAM1', 'address': '10.5.50.12', 'mac-address': 'AA:00:00:00:00:02'},
+                  {'user': 'FAM1', 'address': '10.5.50.13', 'mac-address': 'AA:00:00:00:00:03'}]
+        caps = fu.desired_caps(self.router, active, self.now)
+        self.assertEqual([c[0] for c in caps.values()], ['10.5.50.11'])        # only the heavy device's IP
+        self.assertEqual(list(caps.values())[0][1], '2000k/5000k')
+        st = fu.status(self.v, self.now)
+        self.assertTrue(st['per_device'])
+        tiers = {d['label']: d['tier'] for d in st['devices']}
+        self.assertEqual(tiers['AA:00:00:00:00:01'], 1)
+        self.assertEqual(tiers['AA:00:00:00:00:02'], 0)
+
+    def test_device_followed_across_mac_change(self):
+        from .models import VoucherDeviceBinding
+        VoucherDeviceBinding.objects.create(business=self.biz, voucher=self.v, slot_no=1, device_token_hash='fp1',
+                                            current_mac='AA:00:00:00:00:09', previous_mac='AA:00:00:00:00:01', label='Pixel 8')
+        self.use('AA:00:00:00:00:01', 1.5)      # before the phone changed its MAC
+        self.use('AA:00:00:00:00:09', 1.0)      # after: same device, 2.5 GB in total
+        caps = fu.desired_caps(self.router, [{'user': 'FAM1', 'address': '10.5.50.20', 'mac-address': 'AA:00:00:00:00:09'}], self.now)
+        self.assertEqual(len(caps), 1)
+        self.assertEqual(fu.status(self.v, self.now)['devices'][0]['label'], 'Pixel 8')
