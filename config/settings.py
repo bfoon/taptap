@@ -35,6 +35,7 @@ INSTALLED_APPS = ['django.contrib.admin', 'django.contrib.auth', 'django.contrib
 MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'whitenoise.middleware.WhiteNoiseMiddleware',
               'django.contrib.sessions.middleware.SessionMiddleware', 'django.middleware.common.CommonMiddleware',
               'django.middleware.csrf.CsrfViewMiddleware', 'django.contrib.auth.middleware.AuthenticationMiddleware',
+              'core.admin_otp.AdminOTPMiddleware',
               'django.contrib.messages.middleware.MessageMiddleware', 'django.middleware.clickjacking.XFrameOptionsMiddleware',
               'core.team.TeamAccessMiddleware', 'core.middleware.SubscriptionAccessMiddleware']
 ROOT_URLCONF = 'config.urls'
@@ -152,3 +153,4 @@ AUTH_EMAIL_OTP = env_bool('AUTH_EMAIL_OTP', True)
 TRUSTED_DEVICE_DAYS = int(os.getenv('TRUSTED_DEVICE_DAYS', '30'))
 # Reject addresses whose domain cannot receive mail (DNS MX lookup; skipped when DNS is unreachable).
 EMAIL_CHECK_DOMAIN = env_bool('EMAIL_CHECK_DOMAIN', True)
+

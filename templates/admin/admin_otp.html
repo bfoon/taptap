@@ -1,0 +1,49 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+  .otp-wrap{max-width:460px;margin:54px auto}
+  .otp-card{background:var(--body-bg);border:1px solid var(--hairline-color);border-radius:10px;padding:26px}
+  .otp-title{font-size:1.35rem;font-weight:700;margin:0 0 8px}
+  .otp-help{color:var(--body-quiet-color);line-height:1.55;margin-bottom:22px}
+  .otp-code{font-size:2rem;letter-spacing:.45rem;text-align:center;font-weight:700;width:100%;box-sizing:border-box;padding:.7rem}
+  .otp-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:18px}
+  .otp-secondary{background:transparent!important;border:1px solid var(--hairline-color)!important;color:var(--body-fg)!important}
+  .otp-security{margin-top:18px;padding:12px 14px;border-radius:8px;background:var(--darkened-bg);font-size:.83rem;color:var(--body-quiet-color)}
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block content %}
+<div class="otp-wrap">
+  <div class="otp-card">
+    <h1 class="otp-title">Administrator security verification</h1>
+    <p class="otp-help">
+      Your password was accepted. Enter the 6-digit one-time security code sent to
+      <strong>{{ masked_email }}</strong>. The code expires in {{ otp_minutes }} minute{{ otp_minutes|pluralize }}.
+    </p>
+
+    <form method="post" autocomplete="off">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ next }}">
+
+      <label for="id_code"><strong>Security code</strong></label>
+      <input class="otp-code" id="id_code" name="code" type="text" inputmode="numeric"
+             pattern="[0-9]{6}" maxlength="6" minlength="6" autocomplete="one-time-code" autofocus required>
+
+      <div class="otp-actions">
+        <button type="submit" name="action" value="verify" class="button default">Verify and open Admin</button>
+        <button type="submit" name="action" value="resend" class="button otp-secondary" formnovalidate>Send another code</button>
+        <button type="submit" name="action" value="cancel" class="button otp-secondary" formnovalidate>Cancel sign-in</button>
+      </div>
+    </form>
+
+    <div class="otp-security">
+      Direct links to other Django Admin pages remain blocked until this security check succeeds.
+    </div>
+  </div>
+</div>
+{% endblock %}
