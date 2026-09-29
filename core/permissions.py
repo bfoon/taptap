@@ -108,6 +108,8 @@ MEMBER_ALLOWED = {
     'home', 'login', 'register', 'logout', 'verify_code', 'resend_code', 'cancel_verification',
     'trusted_devices', 'trusted_device_remove', 'trusted_devices_remove_all', 'support', 'subscription',
     'live_tick', 'account_password',
+    # live chat: everyone in a business can chat (the views check who may see which conversation)
+    'chat_page', 'chat_state', 'chat_history', 'chat_send', 'chat_read', 'chat_direct', 'chat_settings', 'chat_support_action',
 }
 
 # Landing pages tried in order when a member opens a page they can't use (e.g. the dashboard after login).

@@ -31,7 +31,8 @@ logger = logging.getLogger('taptap')
 VIEW_AS_KEY = 'tt_view_as'
 SKIP_PREFIXES = ('/admin/', '/static/', '/api/', '/p/', '/b/', '/n/off/', '/media/')   # /b/ = public Bonanza pages
 PLATFORM_OPEN = {'logout', 'login', 'home', 'verify_code', 'resend_code', 'cancel_verification', 'account_password',
-                 'trusted_devices', 'trusted_device_remove', 'trusted_devices_remove_all'}
+                 'trusted_devices', 'trusted_device_remove', 'trusted_devices_remove_all',
+                 'chat_page', 'chat_state', 'chat_history', 'chat_send', 'chat_read', 'chat_direct', 'chat_settings', 'chat_support_action'}
 _BUSINESS_REL = User._meta.get_field('business')
 _actor = ContextVar('tt_actor', default='')
 
@@ -157,6 +158,9 @@ class TeamAccessMiddleware:
         if role is None:
             if name in PLATFORM_OPEN:
                 return None
+            from .chat import is_agent
+            if is_agent(request.user):          # support agents without a business work from the chat inbox
+                return redirect('chat_page')
             logout(request)
             messages.error(request, 'This login is not linked to a TapTap business.')
             return redirect('login')

@@ -1,0 +1,10 @@
+Hi {{ name }},
+
+You have {{ count }} unread message{{ count|pluralize }} on TapTap chat.
+{% for g in groups %}
+— {{ g.title }} —{% for i in g.items %}
+{{ i.who }} ({{ i.when|date:"d M H:i" }}): {{ i.body }}{% endfor %}
+{% endfor %}
+Reply here: {{ site }}/chat/
+
+(Turn these emails off in the chat window → settings.)

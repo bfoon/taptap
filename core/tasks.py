@@ -142,3 +142,10 @@ def redeploy_portal(business_id):
         return
     for dep in business.portal_deployments.select_related('router').filter(status__in=['installed', 'queued', 'failed']):
         deploy(dep.router)
+
+
+@shared_task(ignore_result=True)
+def chat_email_missed():
+    """Email chat messages people have not read (Chat settings → email me unread messages)."""
+    from .chat import email_missed
+    return email_missed()

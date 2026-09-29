@@ -1125,3 +1125,4 @@ class BonanzaSpin(models.Model):
     created_at=models.DateTimeField(auto_now_add=True)
     class Meta: ordering=['-created_at']
 from .models_fup import FairUsagePolicy, FairUsageState  # noqa: E402,F401
+from .models_chat import SupportAgent, ChatThread, ChatMessage, ChatRead, ChatPrefs  # noqa: E402,F401

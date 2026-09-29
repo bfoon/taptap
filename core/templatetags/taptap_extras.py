@@ -106,3 +106,12 @@ def data_size(value):
             n = v / size
             return f'{n:.1f} {unit}' if n < 100 else f'{n:.0f} {unit}'
     return f'{int(v)} B'
+
+
+@register.filter
+def get_item(d, key):
+    """{{ mydict|get_item:key }}"""
+    try:
+        return d.get(key)
+    except AttributeError:
+        return None

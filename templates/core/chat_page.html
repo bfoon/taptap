@@ -1,0 +1,9 @@
+{% extends base_template %}
+{% block title %}Chat — TapTap{% endblock %}{% block heading %}{% if is_agent %}Support inbox{% else %}Chat{% endif %}{% endblock %}
+{% block chat_full %}1{% endblock %}
+{% block content %}
+<style>#ttChatPage .ttc{position:relative!important;right:auto!important;bottom:auto!important;z-index:1}#ttChatPage .ttc .ttc-panel{position:relative;bottom:auto;right:auto;width:100%!important;height:calc(100vh - 200px)!important;animation:none;box-shadow:0 10px 30px rgba(10,20,35,.1)}#ttChatPage .ttc .ttc-toasts{position:fixed;right:18px;bottom:18px}</style>
+<p class="text-secondary mb-3">{% if is_agent %}Every business's TapTap Support conversation is in the <b>Support inbox</b> list. Mark a conversation solved with the ✓ button. Your team room and direct messages are here too.{% else %}Your team room, direct messages and TapTap support. The same chat is in the corner of every page.{% endif %}</p>
+<div id="ttChatPage"></div>
+<script>document.addEventListener('DOMContentLoaded',function(){var c=document.getElementById('ttChat'),p=document.getElementById('ttChatPage');if(c&&p)p.appendChild(c);});</script>
+{% endblock %}

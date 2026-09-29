@@ -1,0 +1,27 @@
+{% extends 'core/platform/base.html' %}{% load taptap_extras %}{% block title %}Support team{% endblock %}{% block heading %}Support team{% endblock %}
+{% block content %}
+<div class="row g-3">
+<div class="col-lg-7"><div class="panel">
+  <div class="d-flex justify-content-between align-items-center mb-2"><h3 class="h6 fw-bold m-0">Who answers TapTap Support chats</h3>
+    <a class="btn btn-sm btn-primary" href="{% url 'chat_page' %}"><i class="bi bi-chat-dots"></i> Open support inbox{% if open_threads %} <span class="badge text-bg-light">{{ open_threads }} open</span>{% endif %}</a></div>
+  <p class="small text-secondary">Superusers are always on the support team. Add other people by email: they see every business's Support conversation, get chimes and pop-ups for new ones, and missed-message emails. They don't get access to the platform pages.</p>
+  <div class="table-responsive"><table class="table align-middle">
+    <thead><tr><th>Person</th><th>Title</th><th>Status</th><th></th></tr></thead><tbody>
+    {% for u in supers %}<tr><td><b>{{ u.get_full_name|default:u.email }}</b><small class="d-block text-secondary">{{ u.email }}</small></td><td>Superuser</td>
+      <td>{% if online|get_item:u.pk %}<span class="text-success">● Online</span>{% else %}<span class="text-secondary">Away</span>{% endif %}</td><td></td></tr>{% endfor %}
+    {% for a in agents %}<tr><td><b>{{ a.user.get_full_name|default:a.user.email }}</b><small class="d-block text-secondary">{{ a.user.email }}{% if a.added_by %} · added by {{ a.added_by.email }}{% endif %}</small></td><td>{{ a.title }}</td>
+      <td>{% if not a.active %}<span class="badge text-bg-secondary">Paused</span>{% elif online|get_item:a.user_id %}<span class="text-success">● Online</span>{% else %}<span class="text-secondary">Away</span>{% endif %}</td>
+      <td class="text-end text-nowrap"><form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="id" value="{{ a.id }}">
+        {% if a.active %}<button class="btn btn-sm btn-outline-secondary" name="action" value="pause">Pause</button>{% else %}<button class="btn btn-sm btn-outline-primary" name="action" value="resume">Resume</button>{% endif %}
+        <button class="btn btn-sm btn-outline-danger" name="action" value="remove" onclick="return confirm('Remove from the support team?')">Remove</button></form></td></tr>{% endfor %}
+    </tbody></table></div>
+</div></div>
+<div class="col-lg-5"><div class="panel"><h3 class="h6 fw-bold">Add to the support team</h3>
+  <form method="post">{% csrf_token %}<input type="hidden" name="action" value="add">
+    <label class="form-label small">Email of an existing TapTap login</label><input class="form-control mb-2" name="email" type="email" required placeholder="support@taptapnetwork.com">
+    <label class="form-label small">Title shown to customers</label><input class="form-control mb-3" name="title" maxlength="60" placeholder="TapTap Support">
+    <button class="btn btn-primary">Add</button></form>
+  <p class="small text-secondary mt-3 mb-0">Tip: a support person without their own business opens straight into the support inbox when they sign in.</p>
+</div></div>
+</div>
+{% endblock %}

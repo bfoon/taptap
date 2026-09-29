@@ -154,3 +154,5 @@ TRUSTED_DEVICE_DAYS = int(os.getenv('TRUSTED_DEVICE_DAYS', '30'))
 # Reject addresses whose domain cannot receive mail (DNS MX lookup; skipped when DNS is unreachable).
 EMAIL_CHECK_DOMAIN = env_bool('EMAIL_CHECK_DOMAIN', True)
 
+CELERY_BEAT_SCHEDULE['taptap-chat-email'] = {'task': 'core.tasks.chat_email_missed', 'schedule': 60.0, 'options': {'expires': 120}}
+CELERY_TASK_ROUTES['core.tasks.chat_email_missed'] = {'queue': 'live'}

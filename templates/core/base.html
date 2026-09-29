@@ -43,4 +43,4 @@ function cur(){try{return localStorage.getItem('tt-theme')||'light';}catch(e){re
 function apply(t){var d=t==='dark'||(t==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches),h=document.documentElement;h.setAttribute('data-theme',d?'dark':'light');h.setAttribute('data-bs-theme',d?'dark':'light');
 b.innerHTML='<i class="bi '+icons[t]+'"></i>';b.title='Theme: '+names[t]+' (click to change)';}
 b.addEventListener('click',function(){var t=order[(order.indexOf(cur())+1)%3];try{localStorage.setItem('tt-theme',t);}catch(e){}apply(t);});
-try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',function(){if(cur()==='auto')apply('auto');});}catch(e){}apply(cur());})();</script></body></html>
+try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',function(){if(cur()==='auto')apply('auto');});}catch(e){}apply(cur());})();</script>{% if user.is_authenticated %}<link href="{% static 'css/chat.css' %}" rel="stylesheet"><div id="ttChat" data-csrf="{{ csrf_token }}" data-full="{% block chat_full %}0{% endblock %}"></div><script src="{% static 'js/chat.js' %}" defer></script>{% endif %}</body></html>

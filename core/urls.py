@@ -5,8 +5,14 @@ from . import views_ads, views_ports, views_live, views_traffic, views_missing, 
 from . import views_team as vteam, views_platform as vp, views_detail as vdetail, views_bin as vbin, views_freeze as vfz
 from . import views_fup as vfup
 from . import views_bonanza as vbz
+from . import views_chat as vchat
 
 urlpatterns = [
+    path('chat/',vchat.chat_page,name='chat_page'), path('chat/state/',vchat.chat_state,name='chat_state'),
+    path('chat/t/<int:pk>/',vchat.chat_history,name='chat_history'), path('chat/send/',vchat.chat_send,name='chat_send'),
+    path('chat/read/',vchat.chat_read,name='chat_read'), path('chat/direct/',vchat.chat_direct,name='chat_direct'),
+    path('chat/settings/',vchat.chat_settings,name='chat_settings'), path('chat/support/',vchat.chat_support_action,name='chat_support_action'),
+    path('platform/support-team/',vchat.platform_support_team,name='platform_support_team'),
     path('bonanza/',vbz.bonanza_list,name='bonanza_list'), path('bonanza/new/',vbz.bonanza_edit,name='bonanza_new'),
     path('bonanza/<int:pk>/',vbz.bonanza_edit,name='bonanza_edit'), path('bonanza/<int:pk>/status/',vbz.bonanza_status,name='bonanza_status'),
     path('bonanza/<int:pk>/winners/',vbz.bonanza_spins,name='bonanza_spins'), path('bonanza/payout/<int:pk>/',vbz.bonanza_payout,name='bonanza_payout'),

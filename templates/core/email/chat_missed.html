@@ -1,0 +1,11 @@
+<!doctype html><html><body style="margin:0;background:#f4f7fb;font-family:Arial,Helvetica,sans-serif;color:#102033">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:16px;overflow:hidden">
+<tr><td style="background:linear-gradient(135deg,#0f2a4d,#1769e0);background-color:#1769e0;padding:20px 24px;color:#fff">
+  <div style="font-size:13px;opacity:.85">TapTap chat</div><div style="font-size:21px;font-weight:bold;margin-top:4px">{{ count }} unread message{{ count|pluralize }}</div></td></tr>
+<tr><td style="padding:20px 24px"><p style="margin:0 0 14px">Hi {{ name }}, here is what you missed:</p>
+{% for g in groups %}<div style="font-size:12px;font-weight:bold;letter-spacing:.06em;text-transform:uppercase;color:#6b7c90;margin:16px 0 6px">{{ g.title }}</div>
+{% for i in g.items %}<div style="background:#eef2f7;border-radius:12px;padding:10px 12px;margin:0 0 6px"><b style="font-size:13px">{{ i.who }}</b> <span style="font-size:11px;color:#6b7c90">{{ i.when|date:"d M H:i" }}</span><div style="font-size:14px;margin-top:3px;white-space:pre-wrap">{{ i.body }}</div></div>{% endfor %}{% endfor %}
+<p style="margin:20px 0 0"><a href="{{ site }}/chat/" style="background:#1769e0;color:#fff;text-decoration:none;padding:11px 18px;border-radius:10px;font-weight:bold;display:inline-block">Open chat and reply</a></p>
+</td></tr><tr><td style="padding:14px 24px;background:#f8fafc;font-size:12px;color:#6b7c90">You get this because you had unread messages for a while. Turn these emails off in the chat window → settings.</td></tr>
+</table></td></tr></table></body></html>
