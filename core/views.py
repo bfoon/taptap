@@ -804,6 +804,10 @@ def ip_bindings(request):
 @login_required
 def ip_binding_action(request):
     r=get_object_or_404(b(request).routers,pk=request.POST.get('router_id'));action=request.POST.get('action');item=request.POST.get('item_id')
+    if action!='delete':
+        # Old toggle endpoint: turning a binding on must go through the IP Binding page, which asks for the payment first.
+        messages.info(request,'Use the switch on the IP Binding page — a bypass needs its payment recorded before it goes on.')
+        return redirect('ip_bindings')
     if _on_link(r):
         from .linkops import send, QUEUED
         bnd=SyncedIPBinding.objects.filter(router=r,mikrotik_id=item).first()
@@ -814,7 +818,7 @@ def ip_binding_action(request):
                 send(r,'binding_set',{'mac':bnd.mac_address,'enabled':bnd.disabled},label=f'{"Enable" if bnd.disabled else "Disable"} binding {bnd.mac_address}',user=request.user)
                 SyncedIPBinding.objects.filter(pk=bnd.pk).update(disabled=not bnd.disabled)
             messages.success(request,QUEUED)
-        except ValueEError as e: messages.error(request,str(e))
+        except ValueError as e: messages.error(request,str(e))
         return redirect('ip_bindings')
     try:
         svc=MikroTikService(r).connect()

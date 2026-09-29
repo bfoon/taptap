@@ -68,8 +68,8 @@ def policies(business):
 def policy_for(voucher, pols):
     """The plan's own policy first, then an 'all plans' policy."""
     plan = (voucher.plan_name or '').lower()
-    for p in pols:
-        if any(x.name.lower() == plan for x in p.plans.all()):
+    for p in pols:   # by plan name, or by the router profile the plan maps to (vouchers imported from the router)
+        if any(plan and plan in {x.name.lower(), (x.mikrotik_profile_name or '').lower()} for x in p.plans.all()):
             return p
     for p in pols:
         if not p.plans.all():
@@ -308,43 +308,106 @@ def desired_caps(router, active, now=None):
     return caps
 
 
+FULL_EVERY = 300      # seconds: resend every cap to TapTap Link routers this often, even without changes
+LIST = 'TTFUP'        # address list of capped devices: kept out of FastTrack so the caps really apply
+
+
 def enforce(router, active, now=None, svc=None):
-    """Bring the router's fair-usage caps in line with who is online now. Returns a small summary."""
+    """Bring the router's fair-usage caps in line with who is online now. Returns a small summary.
+
+    Strict: Direct API / Tunnel routers are checked against what is really on the router every
+    time (a cap someone deleted, or lost in a reboot, is put back at once). TapTap Link routers get
+    the full set again every 5 minutes. Caps are moved above the hotspot's own queues and their
+    devices are kept out of FastTrack, which would otherwise skip every queue."""
     want = desired_caps(router, active, now)
     key = f'tt:fup:{router.pk}'
     had = cache.get(key) or {}
-    to_set = {n: c for n, c in want.items() if list(had.get(n) or []) != [c[0], c[1]]}
-    to_remove = [n for n in had if n not in want]
-    if not to_set and not to_remove:
-        return {'capped': len(want)}
     try:
         if svc is not None:
-            _apply_api(svc, to_set, to_remove)
+            out = _reconcile_api(svc, want)
         else:
-            _apply_link(router, to_set, to_remove)
+            full = not cache.get(f'tt:fup:full:{router.pk}')
+            to_set = want if full else {n: c for n, c in want.items() if list(had.get(n) or []) != [c[0], c[1]]}
+            to_remove = [n for n in had if n not in want]
+            if to_set or to_remove or (full and want):
+                _apply_link(router, to_set, to_remove)
+            if full:
+                cache.set(f'tt:fup:full:{router.pk}', 1, FULL_EVERY)
+            out = {'set': len(to_set), 'removed': len(to_remove)}
     except Exception as exc:
         logger.info('fair usage on %s: %s', router, exc)
         return {'capped': len(had), 'error': str(exc)[:200]}
     cache.set(key, {n: [c[0], c[1]] for n, c in want.items()}, STATE_TTL)
-    return {'capped': len(want), 'set': len(to_set), 'removed': len(to_remove)}
+    return {'capped': len(want), **out}
+
+
+def _reconcile_api(svc, want):
+    """Make the router's TTFUP queues exactly `want`, read back from the router itself."""
+    queues = svc.resource('/queue/simple')
+    rows = queues.get()
+    have = {str(r.get('name', '')): r for r in rows if str(r.get('name', '')).startswith('TTFUP-')}
+    changed = removed = 0
+    top = next((r for r in rows if r.get('id')), None)
+    for name, (ip, limit, code, tier) in want.items():
+        r = have.get(name)
+        target = f'{ip}/32'
+        if r:
+            if str(r.get('target', '')) != target or str(r.get('max-limit', '')) != limit or str(r.get('disabled', 'false')) == 'true':
+                queues.set(id=r['id'], target=target, max_limit=limit, disabled='no'); changed += 1
+            continue
+        fields = {'name': name, 'target': target, 'max_limit': limit, 'comment': f'TapTap fair usage: {code} step {tier}'}
+        try:
+            queues.add(place_before=top['id'], **fields) if top else queues.add(**fields)
+        except Exception:
+            queues.add(**fields)
+        changed += 1
+    for name, r in have.items():
+        if name not in want:
+            queues.remove(id=r['id']); removed += 1
+    # Above the hotspot's dynamic queues (a device that logs in again gets a new one on top).
+    if want:
+        try:
+            rows = queues.get()
+            ours = [r['id'] for r in rows if str(r.get('name', '')).startswith('TTFUP-')]
+            first = next((r for r in rows if r.get('id')), None)
+            if ours and first and first['id'] not in ours:
+                queues.call('move', {'numbers': ','.join(ours), 'destination': first['id']})
+        except Exception as exc:
+            logger.info('fair usage move: %s', exc)
+    _fasttrack_guard_api(svc, {c[0] for c in want.values()})
+    return {'set': changed, 'removed': removed}
+
+
+def _fasttrack_guard_api(svc, ips):
+    """Keep capped devices out of FastTrack: address list TTFUP + two accept rules above the fasttrack rule."""
+    try:
+        al = svc.resource('/ip/firewall/address-list')
+        cur = {str(r.get('address', '')): r for r in al.get(list=LIST)}
+        for ip in ips:
+            if ip in cur:
+                al.set(id=cur[ip]['id'], timeout='30m')
+            else:
+                al.add(list=LIST, address=ip, timeout='30m', comment='TapTap fair usage')
+        for ip, r in cur.items():
+            if ip not in ips and r.get('id'):
+                al.remove(id=r['id'])
+        if not ips:
+            return
+        flt = svc.resource('/ip/firewall/filter')
+        rules = flt.get()
+        mine = [r for r in rules if str(r.get('comment', '')) == 'TapTap fair usage: no fasttrack']
+        ft = next((r for r in rules if str(r.get('action', '')) == 'fasttrack-connection' and str(r.get('disabled', 'false')) != 'true'), None)
+        if ft and len(mine) < 2:
+            for direction in ('src_address_list', 'dst_address_list'):
+                if not any(r.get(direction.replace('_', '-')) == LIST for r in mine):
+                    flt.add(chain='forward', action='accept', place_before=ft['id'], comment='TapTap fair usage: no fasttrack', **{direction: LIST})
+    except Exception as exc:
+        logger.info('fair usage fasttrack guard: %s', exc)
 
 
 def _apply_api(svc, to_set, to_remove):
+    """Kept for callers that remove caps (clear_router)."""
     queues = svc.resource('/queue/simple')
-    for name, (ip, limit, code, tier) in to_set.items():
-        found = queues.get(name=name)
-        if found:
-            queues.set(id=found[0]['id'], target=f'{ip}/32', max_limit=limit)
-            continue
-        fields = {'name': name, 'target': f'{ip}/32', 'max_limit': limit, 'comment': f'TapTap fair usage: {code} step {tier}'}
-        first = queues.get()
-        if first:
-            try:
-                queues.add(place_before=first[0]['id'], **fields)   # top of the list: wins over the hotspot queue
-                continue
-            except Exception:
-                pass
-        queues.add(**fields)
     for name in to_remove:
         for row in queues.get(name=name):
             queues.remove(id=row['id'])
@@ -365,7 +428,7 @@ def clear_router(router, svc=None):
     key = f'tt:fup:{router.pk}'
     had = cache.get(key) or {}
     if had:
-        (_apply_api(svc, {}, list(had)) if svc is not None else _apply_link(router, {}, list(had)))
+        (_reconcile_api(svc, {}) if svc is not None else _apply_link(router, {}, list(had)))
         cache.delete(key)
 
 
@@ -378,10 +441,21 @@ def link_script(p):
         out.append(f':if ([:len [/queue simple find name={n}]] = 0) do={{ '
                    f':do {{ /queue simple add name={n} target={t} max-limit={l} comment="TapTap fair usage" place-before=0 }} '
                    f'on-error={{ /queue simple add name={n} target={t} max-limit={l} comment="TapTap fair usage" }} }} '
-                   f'else={{ /queue simple set [find name={n}] target={t} max-limit={l} }}')
+                   f'else={{ /queue simple set [find name={n}] target={t} max-limit={l} disabled=no }}')
+        # keep the device out of FastTrack (which skips queues)
+        out.append(f':do {{ :if ([:len [/ip firewall address-list find list={LIST} address={ip}]] = 0) do={{ '
+                   f'/ip firewall address-list add list={LIST} address={ip} timeout=30m comment="TapTap fair usage" }} '
+                   f'else={{ /ip firewall address-list set [find list={LIST} address={ip}] timeout=30m }} }} on-error={{}}')
     if p.get('remove'):
         names = ';'.join(rs(n) for n in p['remove'])
         out.append(f':foreach n in={{{names}}} do={{ :do {{ /queue simple remove [find name=$n] }} on-error={{}} }}')
+    if p.get('set'):
+        # caps above the hotspot's own queues, and FastTrack skipped for capped devices
+        out.append(':do { /queue simple move [find name~"^TTFUP-"] destination=[:pick [/queue simple find] 0] } on-error={}')
+        out.append(':do { :local ft [/ip firewall filter find action=fasttrack-connection disabled=no]; '
+                   ':if ([:len $ft] > 0 and [:len [/ip firewall filter find comment="TapTap fair usage: no fasttrack"]] = 0) do={ '
+                   f'/ip firewall filter add chain=forward action=accept src-address-list={LIST} comment="TapTap fair usage: no fasttrack" place-before=[:pick $ft 0]; '
+                   f'/ip firewall filter add chain=forward action=accept dst-address-list={LIST} comment="TapTap fair usage: no fasttrack" place-before=[:pick $ft 0] }} }} on-error={{}}')
     return '\n'.join(out) or ':log info "TapTap fair usage: nothing to change"'
 
 
@@ -466,3 +540,9 @@ def slowed(business, now=None):
                      'next': {'gb': nxt['gb'], 'down': speed_text(nxt['down'])} if nxt else None,
                      **bandwidth(v, st, now)})
     return rows
+
+
+def refresh(business):
+    """A policy changed: the next sync sends every router its full set of caps again."""
+    for rid in business.routers.values_list('id', flat=True):
+        cache.delete(f'tt:fup:full:{rid}')

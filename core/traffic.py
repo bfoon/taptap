@@ -219,9 +219,11 @@ def collect_sessions(router, active, now=None):
     ts = now.timestamp()
     skey = f'tt:tr:ss:{router.pk}'
     prev = cache.get(skey) or {}
+    first_pass = not prev
     cur, per_user, now_list = {}, defaultdict(lambda: [0, 0, 0]), []
     tot_down = tot_up = 0
     dt_all = None
+    from .sync import _routeros_seconds
     for s in active:
         sid = str(s.get('id', ''))
         user = str(s.get('user', '')).strip() or '(unknown)'
@@ -230,25 +232,33 @@ def collect_sessions(router, active, now=None):
         cur[sid] = (b_up, b_down, ts, user, mac)
         p = prev.get(sid)
         d_up = d_down = 0
-        if p and b_up >= p[0] and b_down >= p[1] and 3 <= ts - p[2] <= MAX_GAP:
+        rate_down = rate_up = 0
+        if p and p[3] == user and b_up >= p[0] and b_down >= p[1]:
+            # Every byte between two readings is real use — counted even after a long gap (fair usage must
+            # not miss data because a sync was late). Speed is only worked out over a normal gap.
             d_up, d_down = b_up - p[0], b_down - p[1]
-            dt = ts - p[2]; dt_all = dt
-            rate_down, rate_up = int(d_down * 8 / dt), int(d_up * 8 / dt)
-        elif not p and prev:
-            # A session that started since the last pass: everything it used is new.
-            from .sync import _routeros_seconds
-            if _routeros_seconds(s.get('uptime')) <= MAX_GAP:
-                d_up, d_down = b_up, b_down
-            rate_down = rate_up = 0
-        else:
-            rate_down = rate_up = 0
+            dt = ts - p[2]
+            if 3 <= dt <= MAX_GAP:
+                dt_all = dt
+                rate_down, rate_up = int(d_down * 8 / dt), int(d_up * 8 / dt)
+        elif p:
+            # Same session id but the counters went back (router reused the id): all of it is new.
+            d_up, d_down = b_up, b_down
+        elif not first_pass or _routeros_seconds(s.get('uptime')) <= MAX_GAP:
+            # A session TapTap has not seen before: everything it used is new.
+            d_up, d_down = b_up, b_down
         if d_up or d_down:
             agg = per_user[(user, mac)]
             agg[0] += d_down; agg[1] += d_up; agg[2] = max(agg[2], rate_down)
             tot_down += d_down; tot_up += d_up
         now_list.append({'user': user, 'mac': mac, 'ip': str(s.get('address', '')), 'sid': sid, 'down_bps': rate_down, 'up_bps': rate_up,
                          'session_down': b_down, 'session_up': b_up, 'uptime': str(s.get('uptime', ''))})
-    cache.set(skey, cur, 3600)
+    # Keep the last reading of sessions missing from this read for an hour: a read that briefly
+    # misses a session must not make TapTap count that session's whole history again.
+    for sid, p in prev.items():
+        if sid not in cur and ts - p[2] < 3600:
+            cur[sid] = p
+    cache.set(skey, cur, 2 * 86400)
     ipmap = {x['ip']: [x['mac'], x['user']] for x in now_list if x['ip']}
     if ipmap:
         cache.set(f'tt:tr:ipmap:{router.pk}', ipmap, 3600)

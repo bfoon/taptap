@@ -111,6 +111,10 @@ def _bindings_payload(business):
     qs = business.synced_ip_bindings.select_related('router').filter(is_present=True).order_by('router__name', 'comment', 'mac_address')
     expiries = {(e.router_id, e.binding_id): e for e in IPBindingAccessExpiry.objects.filter(business=business)}
     rows = [_binding_dict(b, expiries) for b in qs]
+    from .bypass_pay import last_payments
+    paid = last_payments(business, {r['mac'] for r in rows if r.get('mac')})
+    for r in rows:
+        r['paid'] = paid.get(r.get('mac'))
     return {'rows': rows, 'counts': {'total': len(rows), 'active': sum(1 for r in rows if r['active']), 'disabled': sum(1 for r in rows if not r['active']),
                                      'bypassed': sum(1 for r in rows if r['type'] == 'bypassed'), 'blocked': sum(1 for r in rows if r['type'] == 'blocked')}}
 
@@ -125,6 +129,14 @@ def ip_bindings(request):
             messages.error(request, 'That MAC address is not valid. Use the form AA:BB:CC:DD:EE:FF.')
             return redirect('ip_bindings')
         kind = request.POST.get('type', 'bypassed') if request.POST.get('type') in TYPES else 'bypassed'
+        from . import bypass_pay
+        pay = None
+        if kind == 'bypassed' and request.POST.get('start_disabled') != 'on':
+            try:   # free internet for a device = a sale: the payment comes first
+                pay = bypass_pay.parse(request.POST)
+            except bypass_pay.PaymentNeeded as e:
+                messages.error(request, f'Not added: {e}')
+                return redirect('ip_bindings')
         binding = SyncedIPBinding.objects.create(business=business, router=r, mac_address=mac, address=request.POST.get('address', '').strip(),
                                                  server=request.POST.get('server', 'all').strip() or 'all', binding_type=kind,
                                                  comment=request.POST.get('comment', '').strip() or 'TapTap', disabled=request.POST.get('start_disabled') == 'on',
@@ -138,6 +150,8 @@ def ip_bindings(request):
                                            'comment': binding.comment, 'disabled': binding.disabled}, label=f'Add binding {binding.comment or mac}', user=request.user)
                 binding.sync_status = 'Queued'; binding.save(update_fields=['sync_status', 'updated_at'])
                 hours = request.POST.get('hours')
+                if pay:
+                    bypass_pay.book(business, binding, pay, request.user, hours=int(hours) if hours and hours.isdigit() else None)
                 if hours and hours.isdigit():
                     IPBindingAccessExpiry.objects.update_or_create(business=business, router=r, binding_id=f'mac:{mac}',
                                                                    defaults={'mac_address': mac, 'expires_at': timezone.now() + timedelta(hours=int(hours))})
@@ -155,14 +169,18 @@ def ip_bindings(request):
             if hours and hours.isdigit() and binding.mikrotik_id:
                 IPBindingAccessExpiry.objects.update_or_create(business=business, router=r, binding_id=binding.mikrotik_id,
                                                                defaults={'mac_address': mac, 'expires_at': timezone.now() + timedelta(hours=int(hours))})
-            messages.success(request, f'Binding for {binding.comment or mac} added on {r.name}.')
+            if pay:
+                bypass_pay.book(business, binding, pay, request.user, hours=int(hours) if hours and hours.isdigit() else None)
+            messages.success(request, f'Binding for {binding.comment or mac} added on {r.name}.' + (f' Payment of {business.currency}{pay["amount"]} booked in Finance.' if pay and not pay['free'] else ''))
             push_event(business.pk, f'Binding {binding.comment or mac} added on {r.name}')
         except Exception as e:
             binding.sync_status = 'Error'; binding.sync_error = str(e); binding.save(update_fields=['sync_status', 'sync_error', 'updated_at'])
             messages.warning(request, f'Saved in TapTap but the router did not accept it: {e}')
         return redirect('ip_bindings')
     payload = _bindings_payload(business)
+    from .models import PAYMENT_METHODS
     return render(request, 'core/ip_bindings.html', {'payload': payload, 'routers': business.routers.all().order_by('name'),
+                                                     'pay_methods': [m for m in PAYMENT_METHODS if m[0] != 'auto'],
                                                      'never_synced': not business.synced_ip_bindings.exists()})
 
 
@@ -194,7 +212,7 @@ def _apply(svc, b, action, value=None):
     return b
 
 
-def _binding_set_via_link(request, router, group, action, value, errors):
+def _binding_set_via_link(request, router, group, action, value, errors, ok_list=None):
     """IP binding changes for a TapTap Link router: queued commands + optimistic mirror update."""
     from .linkops import send
     n = 0
@@ -224,6 +242,8 @@ def _binding_set_via_link(request, router, group, action, value, errors):
             b.sync_status = 'Queued'
             b.save(update_fields=['disabled', 'binding_type', 'comment', 'sync_status', 'updated_at'])
             n += 1
+            if ok_list is not None:
+                ok_list.append(b)
         except ValueError as exc:
             errors.append(f'{b.comment or b.mac_address}: {exc}')
     return n
@@ -237,18 +257,39 @@ def ip_binding_set(request):
     ids = [int(x) for x in request.POST.getlist('ids') if str(x).isdigit()][:300]
     action = request.POST.get('action', '')
     value = request.POST.get('value', '').strip()
-    if action not in ('enable', 'disable', 'type', 'comment', 'delete', 'timed'):
+    if action not in ('enable', 'disable', 'type', 'comment', 'delete', 'timed', 'collect'):
         return JsonResponse({'ok': False, 'message': 'Unknown action.'}, status=400)
     if action == 'type' and value not in TYPES:
         return JsonResponse({'ok': False, 'message': 'Unknown type.'}, status=400)
     items = list(business.synced_ip_bindings.select_related('router').filter(pk__in=ids).exclude(mikrotik_id=''))
+    # Turning on free internet for a device is a sale: no bypass goes on before its payment is entered.
+    from . import bypass_pay
+    if action == 'collect':
+        items = list(business.synced_ip_bindings.select_related('router').filter(pk__in=ids))
+    activating = [b for b in items if (action in ('enable', 'timed') and b.binding_type == 'bypassed' and b.disabled)
+                  or (action == 'type' and value == 'bypassed' and b.binding_type != 'bypassed' and not b.disabled)]
+    pay = None
+    if activating or action == 'collect':
+        try:
+            pay = bypass_pay.parse(request.POST)
+        except bypass_pay.PaymentNeeded as e:
+            return JsonResponse({'ok': False, 'need_payment': True, 'ids': [b.pk for b in (activating or items)], 'message': str(e)}, status=400)
+    hours = max(1, min(24 * 90, int(value or 24))) if action == 'timed' and str(value or '24').isdigit() else None
+    if action == 'collect':
+        for b in items:
+            bypass_pay.book(business, b, pay, request.user, activated=not b.disabled)
+        payload = _bindings_payload(business)
+        n = len(items)
+        return JsonResponse({'ok': True, 'done': n, 'message': (f'{business.currency}{pay["amount"]} × {n} booked in Finance.' if not pay['free']
+                                                                 else f'Free access noted for {n} device(s).'), **payload})
+    succeeded = []
     by_router = {}
     for b in items:
         by_router.setdefault(b.router, []).append(b)
     done, errors, rows = 0, [], []
     for router, group in by_router.items():
         if _on_link(router):
-            done += _binding_set_via_link(request, router, group, action, value, errors)
+            done += _binding_set_via_link(request, router, group, action, value, errors, succeeded)
             continue
         try:
             with MikroTikService(router, timeout=getattr(settings, 'MIKROTIK_LIVE_TIMEOUT', 5)) as svc:
@@ -264,16 +305,25 @@ def ip_binding_set(request):
                                 IPBindingAccessExpiry.objects.filter(router=router, binding_id=b.mikrotik_id).delete()
                             _apply(svc, b, action, value)
                         done += 1
+                        succeeded.append(b)
                     except Exception as exc:
                         errors.append(f'{b.comment or b.mac_address}: {exc}')
         except Exception as exc:
             errors.append(f'{router.name}: {exc}')
+    booked = 0
+    for b in activating:
+        if b in succeeded:     # book only what really went on
+            bypass_pay.book(business, b, pay, request.user, hours=hours)
+            booked += 1
     if done:
         label = {'enable': 'enabled', 'disable': 'disabled', 'type': f'set to {value}', 'comment': 'renamed', 'delete': 'deleted', 'timed': f'enabled for {value} h'}[action]
         log(business, 'IP Binding', f'{done} binding(s) {label}')
         push_event(business.pk, f'{done} binding(s) {label}')
     payload = _bindings_payload(business)
-    return JsonResponse({'ok': not errors, 'done': done, 'message': '; '.join(errors)[:500] if errors else f'{done} binding(s) updated on the router.', **payload})
+    msg = '; '.join(errors)[:500] if errors else f'{done} binding(s) updated on the router.'
+    if booked and pay and not pay['free']:
+        msg += f' {business.currency}{pay["amount"]} × {booked} booked in Finance.'
+    return JsonResponse({'ok': not errors, 'done': done, 'message': msg, **payload})
 
 
 # ─────────────────────────── Enforcement ───────────────────────────

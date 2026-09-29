@@ -52,6 +52,7 @@ def fup_edit(request, pk=None):
             else:
                 pol.free_from = pol.free_to = None
             pol.save()
+            from .fair_usage import refresh; refresh(pol.business)
             pol.plans.set(business.plans.filter(pk__in=[int(x) for x in request.POST.getlist('plans') if x.isdigit()]))
             from .utils import log
             log(business, 'Fair Usage', f'Policy {pol.name} saved ({len(tiers)} step(s), {pol.get_period_display().lower()})')
@@ -81,6 +82,7 @@ def fup_action(request, pk):
     if action == 'toggle':
         pol.active = not pol.active
         pol.save(update_fields=['active'])
+        from .fair_usage import refresh; refresh(pol.business)
         messages.success(request, f'{pol.name} is {"on" if pol.active else "off — customers go back to full speed at the next sync"}.')
     elif action == 'delete':
         name = pol.name
