@@ -36,7 +36,7 @@
 .ib-toast.show{display:block}.ib-toast.bad{background:#b42323}
 .ib-live{font-size:.74rem;color:#6c7c90}
 .ib-pay{border:1px solid #bfe6cf;background:#effaf3;color:#138453;border-radius:999px;font-size:.72rem;font-weight:800;padding:.15rem .55rem;margin-left:.4rem;cursor:pointer;white-space:nowrap}
-.ib-pay:hover{background:#dff5e8}.ib-paid{display:block;font-size:.68rem;color:#138453}.ib-unpaid{display:block;font-size:.68rem;color:#9a6200}
+.ib-pay:hover{background:#dff5e8}.ib-paid{display:block;font-size:.68rem;color:#138453}.ib-slow{display:block;font-size:.68rem;color:#b45309;font-weight:700}.ib-fu{display:block;font-size:.68rem;color:#6c7c90}.ib-unpaid{display:block;font-size:.68rem;color:#9a6200}
 @media(max-width:900px){.ib-legend{grid-template-columns:1fr}.ib-hide-sm{display:none}}
 </style>{% endblock %}
 {% block content %}
@@ -128,6 +128,7 @@
       '<td><button class="ib-sw'+(b?' busy':'')+'" role="switch" aria-checked="'+x.active+'" data-sw="'+x.id+'" title="'+(x.active?'Active on the router — click to turn off':'Disabled on the router — click to turn on')+'"><span class="ib-track"></span><span class="ib-lab">'+(b?'Saving…':(x.active?'Active':'Disabled'))+'</span></button></td>'+
       '<td><b>'+esc(x.comment||'—')+'</b>'+until(x.until)+(x.type==='bypassed'?'<button class="ib-pay" data-pay="'+x.id+'" title="Record cash / mobile money for this device">💵 Collect</button>':'')+
         (x.paid?'<span class="ib-paid" title="Recorded by '+esc(x.paid.by||'—')+'">Last paid '+esc(x.paid.amount)+' · '+esc(x.paid.method)+' · '+new Date(x.paid.at).toLocaleDateString()+'</span>':(x.type==='bypassed'?'<span class="ib-unpaid">No payment recorded</span>':''))+
+        (x.fup?(x.fup.tier?'<span class="ib-slow" title="Fair usage: '+esc(x.fup.policy)+'">🐢 Slowed to '+esc(x.fup.speed)+' · '+x.fup.used_gb+' GB</span>':'<span class="ib-fu">'+x.fup.used_gb+' GB used'+(x.fup.next_gb?' · slows at '+x.fup.next_gb+' GB':'')+'</span>'):'')+
         (x.error?'<span class="ib-err">'+esc(x.error)+'</span>':'')+'</td>'+
       '<td><span class="ib-mac">'+esc(x.mac||'—')+'</span></td><td class="ib-hide-sm">'+esc(x.address||'—')+'</td>'+
       '<td><select class="form-select form-select-sm ib-type '+x.type+'" data-type="'+x.id+'" aria-label="Type">'+['bypassed','regular','blocked'].map(function(t){return '<option'+(t===x.type?' selected':'')+'>'+t+'</option>';}).join('')+'</select></td>'+

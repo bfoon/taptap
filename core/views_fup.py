@@ -47,6 +47,7 @@ def fup_edit(request, pk=None):
             pol.active = request.POST.get('active') == '1'
             pol.period = request.POST.get('period') if request.POST.get('period') in dict(PERIODS) else 'day'
             pol.counts = request.POST.get('counts') if request.POST.get('counts') in dict(COUNTS) else 'total'
+            pol.bypass = request.POST.get('bypass') == '1'
             if request.POST.get('free_hours') == '1':
                 pol.free_from, pol.free_to = _hour(request.POST.get('free_from')), _hour(request.POST.get('free_to'))
             else:
@@ -127,7 +128,11 @@ def fup_slowed(request):
     policy = request.GET.get('policy', '')
     if policy.isdigit():
         rows = [r for r in rows if r['policy'].pk == int(policy)]
+    bypass = fu.slowed_bypass(business)
+    if policy.isdigit():
+        bypass = [r for r in bypass if r['policy'].pk == int(policy)]
     return render(request, 'core/fair_usage_slowed.html', {
+        'bypass_rows': bypass,
         'rows': rows, 'online': sum(1 for r in rows if r['online']), 'policies': business.fair_usage_policies.filter(active=True),
         'policy': policy, 'can_lift': 'vouchers.support' in request.tt_perms or 'network.manage' in request.tt_perms,
     })

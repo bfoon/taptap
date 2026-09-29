@@ -23,6 +23,7 @@ class FairUsagePolicy(models.Model):
     tiers = models.JSONField(default=list, blank=True)
     free_from = models.PositiveSmallIntegerField(null=True, blank=True, help_text='Hour (0–23): data used from here…')
     free_to = models.PositiveSmallIntegerField(null=True, blank=True, help_text='…until this hour does not count')
+    bypass = models.BooleanField(default=False, help_text='Also slow down devices that get internet through an IP-binding bypass')
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -45,7 +46,8 @@ class FairUsagePolicy(models.Model):
 
 class FairUsageState(models.Model):
     """Where one voucher (or one device of a shared voucher) stands under its policy in the current period."""
-    voucher = models.ForeignKey('core.Voucher', on_delete=models.CASCADE, related_name='fair_usage')
+    voucher = models.ForeignKey('core.Voucher', on_delete=models.CASCADE, related_name='fair_usage', null=True, blank=True,
+                                help_text='Empty for an IP-binding bypass device (device = "bypass:<MAC>")')
     policy = models.ForeignKey(FairUsagePolicy, on_delete=models.CASCADE, related_name='states')
     period_key = models.CharField(max_length=20)
     used_bytes = models.BigIntegerField(default=0)

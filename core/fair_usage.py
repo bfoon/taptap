@@ -12,6 +12,9 @@ customer:
 Shared vouchers (more than one device) are measured PER DEVICE: every device gets the policy's
 allowance, and only the device that used it is slowed — the other devices on the voucher keep
 full speed. A device is followed across MAC changes through its sticky-voucher slot.
+IP-binding bypass devices (free internet without a voucher) are covered too when a policy has
+"bypass" ticked: the router's hotspot host counters give their data, and they are capped per
+device exactly like a voucher.
 Caps exist only while the session is online: when a session ends the cap on that IP is
 removed, so a DHCP address given to someone else is never slowed by mistake. At the start
 of a new period everyone is back to full speed.
@@ -89,6 +92,9 @@ def window(policy, voucher, now=None):
         start = timezone.make_aware(datetime.combine(monday, time.min), tz)
         return start, f'w{monday:%Y%m%d}', start + timedelta(days=7)
     from .voucher_history import ends_at
+    if voucher is None:
+        start = timezone.make_aware(datetime.combine(now.date(), time.min), tz)
+        return start, f'd{now:%Y%m%d}', start + timedelta(days=1)
     return voucher.used_at or voucher.created_at, 'v', ends_at(voucher)
 
 
@@ -146,6 +152,71 @@ def device_usage(voucher, policy, now=None):
         d['used_gb'] = d['used'] / GB
         d['tier'] = tier_for(d['used'], policy.tiers)
     return sorted(per.values(), key=lambda d: -d['used'])
+
+
+# ─────────────────────────── IP-binding bypass devices ───────────────────────────
+BYPASS = 'BYPASS:'
+
+
+def bypass_rows(hosts):
+    """Hotspot host entries of bypassed devices → rows that look like sessions (user = 'BYPASS:<MAC>')."""
+    out = []
+    for h in hosts or []:
+        if str(h.get('bypassed', '')).lower() not in ('true', 'yes'):
+            continue
+        mac = str(h.get('mac-address', '')).upper()
+        if not mac:
+            continue
+        out.append({'user': BYPASS + mac, 'mac-address': mac, 'address': str(h.get('address', '') or h.get('to-address', '')),
+                    'bytes-in': h.get('bytes-in', 0), 'bytes-out': h.get('bytes-out', 0), 'uptime': str(h.get('uptime', '')),
+                    'id': 'h' + str(h.get('id', h.get('.id', mac))), 'bypass': True})
+    return out
+
+
+def bypass_policy(pols):
+    return next((p for p in pols if p.bypass and p.tiers), None)
+
+
+def bypass_window(policy, business, mac, now=None):
+    """(start, key) — day / week as usual; 'whole voucher' = since the device's last bypass payment (else today)."""
+    if policy.period in ('day', 'week'):
+        start, key, _ = window(policy, None, now)
+        return start, key
+    from .models import VoucherSale
+    s = (VoucherSale.objects.filter(business=business, voucher__isnull=True, reference=mac, plan_name__startswith='Bypass access')
+         .order_by('-sold_at').values_list('sold_at', flat=True).first())
+    if s:
+        return s, f'p{s:%Y%m%d%H%M}'
+    now = timezone.localtime(now or timezone.now())
+    start = timezone.make_aware(datetime.combine(now.date(), time.min), timezone.get_current_timezone())
+    return start, f'd{now:%Y%m%d}'
+
+
+def bypass_used(business, policy, mac, now=None):
+    from .models import UsageRecord
+    start, _ = bypass_window(policy, business, mac, now)
+    start = start.replace(minute=0, second=0, microsecond=0)
+    total = 0
+    for hour, down, up in UsageRecord.objects.filter(business=business, username=BYPASS + mac, hour__gte=start).values_list('hour', 'download', 'upload'):
+        if policy.is_free_hour(timezone.localtime(hour).hour):
+            continue
+        total += down + (up if policy.counts == 'total' else 0)
+    return total
+
+
+def bypass_status(business, macs, now=None):
+    """{MAC: {'used_gb', 'tier', 'speed', ...}} for the IP binding page."""
+    pol = bypass_policy(policies(business))
+    if not pol or not macs:
+        return {}
+    out = {}
+    for mac in macs:
+        used = bypass_used(business, pol, mac, now)
+        tier = tier_for(used, pol.tiers)
+        nxt = pol.tiers[tier] if tier < len(pol.tiers) else None
+        out[mac] = {'policy': pol.name, 'used_gb': round(used / GB, 2), 'tier': tier,
+                    'speed': speed_text(pol.tiers[tier - 1]['down']) if tier else '', 'next_gb': nxt['gb'] if nxt else None}
+    return out
 
 
 def tier_for(used, tiers):
@@ -242,18 +313,22 @@ def desired_caps(router, active, now=None):
     pols = policies(router.business)
     if not pols:
         return {}
-    by_code = {}
+    by_code, bypass = {}, {}
     for s in active:
         code, ip = str(s.get('user', '')).strip(), str(s.get('address', '')).strip()
-        if code and IP_RE.match(ip):
+        if not code or not IP_RE.match(ip):
+            continue
+        if code.upper().startswith(BYPASS):
+            bypass.setdefault(code[len(BYPASS):].upper(), set()).add(ip)
+        else:
             by_code.setdefault(code.upper(), []).append((ip, str(s.get('mac-address', '')).upper()))
+    caps = _bypass_caps(router, bypass, pols, now) if bypass else {}
     if not by_code:
-        return {}
+        return caps
     vouchers = {v.code.upper(): v for v in Voucher.objects.filter(business=router.business, code__in=[c for c in by_code] + [c.lower() for c in by_code])}
     from .models import VoucherCodeAlias
     for a in VoucherCodeAlias.objects.filter(business=router.business, code__in=list(by_code)).select_related('voucher'):
         vouchers.setdefault(a.code.upper(), a.voucher)
-    caps = {}
 
     def step(v, pol, used, key, device='', label=''):
         """Update the state of one voucher (or one device) and return its tier."""
@@ -305,6 +380,42 @@ def desired_caps(router, active, now=None):
                 t = pol.tiers[tier - 1]
                 for ip in sorted(d['ips']):
                     caps[_qname(v.code, ip)] = (ip, f'{kbps(t["up"])}k/{kbps(t["down"])}k', v.code, tier)
+    return caps
+
+
+def _bypass_caps(router, bypass, pols, now):
+    """Caps for IP-binding bypass devices under the policy that has 'bypass' ticked."""
+    from .models_fup import FairUsageState
+    from .utils import log
+    pol = bypass_policy(pols)
+    if not pol:
+        return {}
+    caps = {}
+    names = {b.mac_address.upper(): (b.comment or b.mac_address) for b in router.business.synced_ip_bindings.filter(mac_address__in=list(bypass))}
+    for mac, ips in bypass.items():
+        used = bypass_used(router.business, pol, mac, now)
+        _, key = bypass_window(pol, router.business, mac, now)
+        st = FairUsageState.objects.filter(voucher__isnull=True, policy=pol, device='bypass:' + mac).first() or \
+            FairUsageState.objects.create(voucher=None, policy=pol, device='bypass:' + mac, period_key=key, device_label=names.get(mac, mac)[:120])
+        if st.period_key != key:
+            st.period_key, st.lifted_until, st.lifted_by = key, None, None
+        lifted = bool(st.lifted_until and st.lifted_until > now)
+        tier = 0 if lifted else tier_for(used, pol.tiers)
+        who = names.get(mac, mac)
+        if tier != st.tier:
+            if tier > st.tier:
+                t = pol.tiers[tier - 1]
+                log(router.business, 'Fair Usage', f'Bypass device {who} ({mac}) used {used / GB:.2f} GB — slowed to {speed_text(t["down"])} ({pol.name})')
+            else:
+                log(router.business, 'Fair Usage', f'Bypass device {who} ({mac}) back to ' + ('full speed' if not tier else f'step {tier}'))
+            st.tier, st.changed_at = tier, now
+        st.used_bytes, st.device_label = used, who[:120]
+        st.save()
+        if tier:
+            t = pol.tiers[tier - 1]
+            tag = 'BP' + mac.replace(':', '')
+            for ip in sorted(ips):
+                caps[_qname(tag, ip)] = (ip, f'{kbps(t["up"])}k/{kbps(t["down"])}k', who, tier)
     return caps
 
 
@@ -517,6 +628,21 @@ def bandwidth(voucher, st, now=None):
         'down_pct': min(100, round(down * 100 / cap_down)) if cap_down else 0, 'up_pct': min(100, round(up * 100 / cap_up)) if cap_up else 0,
         'peak': bps_text(_peak_bps(voucher, start)), 'resets_at': resets,
     }
+
+
+def slowed_bypass(business, now=None):
+    """IP-binding bypass devices slowed right now."""
+    from .models_fup import FairUsageState
+    now = now or timezone.now()
+    rows = []
+    for st in (FairUsageState.objects.filter(voucher__isnull=True, policy__business=business, policy__active=True, tier__gt=0,
+                                             updated_at__gte=now - timedelta(minutes=30)).select_related('policy').order_by('-tier', '-used_bytes')):
+        if st.tier > len(st.policy.tiers):
+            continue
+        t = st.policy.tiers[st.tier - 1]
+        rows.append({'name': st.device_label, 'mac': st.device[len('bypass:'):], 'policy': st.policy, 'tier': st.tier, 'steps': len(st.policy.tiers),
+                     'used_gb': st.used_bytes / GB, 'since': st.changed_at, 'cap': {'down': speed_text(t['down']), 'up': speed_text(t['up'])}})
+    return rows
 
 
 def slowed(business, now=None):

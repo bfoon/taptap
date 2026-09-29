@@ -113,8 +113,11 @@ def _bindings_payload(business):
     rows = [_binding_dict(b, expiries) for b in qs]
     from .bypass_pay import last_payments
     paid = last_payments(business, {r['mac'] for r in rows if r.get('mac')})
+    from .fair_usage import bypass_status
+    fup = bypass_status(business, [r['mac'].upper() for r in rows if r.get('mac') and r.get('type') == 'bypassed' and r.get('active')])
     for r in rows:
         r['paid'] = paid.get(r.get('mac'))
+        r['fup'] = fup.get((r.get('mac') or '').upper())
     return {'rows': rows, 'counts': {'total': len(rows), 'active': sum(1 for r in rows if r['active']), 'disabled': sum(1 for r in rows if not r['active']),
                                      'bypassed': sum(1 for r in rows if r['type'] == 'bypassed'), 'blocked': sum(1 for r in rows if r['type'] == 'blocked')}}
 

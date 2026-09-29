@@ -325,14 +325,21 @@ def watch_router(router, force=False):
             SessionIncident.objects.filter(pk__in=ended).update(status='ended', fixed_at=now, fixed_by='router')
 
         # ---------------- traffic & consumption ----------------
+        # IP-binding bypass devices: their data comes from the hotspot host list (they have no session)
+        try:
+            from .fair_usage import bypass_rows
+            bypassed = bypass_rows(svc.hotspot_hosts())
+        except Exception as exc:
+            logger.info('bypass hosts %s: %s', router, exc)
+            bypassed = []
         try:
             from .traffic import collect
-            summary['traffic'] = collect(router, svc, active, now)
+            summary['traffic'] = collect(router, svc, active + bypassed, now)
         except Exception as exc:  # reporting must never break voucher sync
             logger.info('traffic collection %s: %s', router, exc)
         try:   # fair usage: slow down / restore customers by data used
             from .fair_usage import enforce
-            summary['fair_usage'] = enforce(router, active, now, svc=svc)
+            summary['fair_usage'] = enforce(router, active + bypassed, now, svc=svc)
         except Exception as exc:
             logger.info('fair usage %s: %s', router, exc)
 

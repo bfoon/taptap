@@ -33,7 +33,7 @@
   <div class="d-flex flex-wrap align-items-center gap-3 py-2 border-top">
     <div class="flex-grow-1" style="min-width:220px"><b>{{ p.name }}</b> {% if p.active %}<span class="badge text-bg-success">On</span>{% else %}<span class="badge text-bg-secondary">Off</span>{% endif %}
       <small class="d-block text-secondary">{{ p.get_period_display }} · {{ p.get_counts_display|lower }} · {% for x in p.plans.all %}{{ x.name }}{% if not forloop.last %}, {% endif %}{% empty %}all other plans{% endfor %}{% if p.has_free_hours %} · {{ p.free_from }}:00–{{ p.free_to }}:00 free{% endif %}</small></div>
-    <div class="d-flex flex-wrap gap-1">{% for s in p.steps %}<span class="badge rounded-pill text-bg-light border">{{ s }}</span>{% endfor %}</div>
+    <div class="d-flex flex-wrap gap-1">{% for s in p.steps %}<span class="badge rounded-pill text-bg-light border">{{ s }}</span>{% endfor %}{% if p.bypass %}<span class="badge rounded-pill text-bg-info" title="IP-binding bypass devices are slowed by this policy too">+ bypass devices</span>{% endif %}</div>
     <div class="small text-nowrap">{% if p.slowed %}<a href="{% url 'fup_slowed' %}?policy={{ p.id }}" class="text-warning-emphasis fw-bold">{{ p.slowed }} slowed now →</a>{% else %}<span class="text-secondary">nobody slowed</span>{% endif %}</div>
     {% if 'network.manage' in tt_perms %}<div class="d-flex gap-1"><a class="btn btn-sm btn-light" href="{% url 'fup_edit' p.id %}">Edit</a>
       <form method="post" action="{% url 'fup_action' p.id %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" name="action" value="toggle">{% if p.active %}Turn off{% else %}Turn on{% endif %}</button></form></div>{% endif %}

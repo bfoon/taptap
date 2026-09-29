@@ -244,7 +244,8 @@ def collect_sessions(router, active, now=None):
         elif p:
             # Same session id but the counters went back (router reused the id): all of it is new.
             d_up, d_down = b_up, b_down
-        elif not first_pass or _routeros_seconds(s.get('uptime')) <= MAX_GAP:
+        elif not first_pass or (not s.get('bypass') and _routeros_seconds(s.get('uptime')) <= MAX_GAP):
+            # (bypass hosts have no reliable uptime: on the very first reading only their baseline is taken)
             # A session TapTap has not seen before: everything it used is new.
             d_up, d_down = b_up, b_down
         if d_up or d_down:

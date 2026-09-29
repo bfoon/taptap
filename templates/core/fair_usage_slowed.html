@@ -22,6 +22,13 @@
   </form>
 </div>
 
+{% if bypass_rows %}
+<section class="panel mb-3"><h3 class="h6 fw-bold mb-2"><i class="bi bi-hdd-network"></i> IP-binding bypass devices slowed ({{ bypass_rows|length }})</h3>
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Device</th><th>Policy · step</th><th>Speed cap</th><th>Data used</th><th>Since</th></tr></thead><tbody>
+  {% for b in bypass_rows %}<tr><td><b>{{ b.name }}</b><small class="d-block font-monospace text-secondary">{{ b.mac }}</small></td><td>{{ b.policy.name }} · {{ b.tier }}/{{ b.steps }}</td>
+    <td>{{ b.cap.down }} down · {{ b.cap.up }} up</td><td>{{ b.used_gb|floatformat:2 }} GB</td><td>{{ b.since|date:'d M H:i' }}</td></tr>{% endfor %}
+  </tbody></table></div><small class="text-secondary">Manage these devices under <a href="{% url 'ip_bindings' %}">IP Binding</a>.</small></section>
+{% endif %}
 {% for r in rows %}{% with v=r.voucher %}
 <div class="sl-card">
   <div class="sl-top">

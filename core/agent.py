@@ -90,7 +90,7 @@ def rs(value):
     return f'"{v}"'
 
 
-SCRIPT_VERSION = 4   # v4: direct scheduler execution + single-instance guard
+SCRIPT_VERSION = 5   # v5: reports IP-binding bypass devices (fair usage); v4: direct scheduler execution + single-instance guard
 
 
 def agent_script(url, token, check):
@@ -125,6 +125,15 @@ def agent_script(url, token, check):
       :set n ($n + 1)
     }}
   }}
+  :local bp ""
+  :local k 0
+  :do {{ :foreach h in=[/ip hotspot host find where bypassed=yes] do={{
+    :if ($k < 200) do={{
+      :local e [/ip hotspot host get $h]
+      :set bp ($bp . ($e->"mac-address") . "," . ($e->"address") . "," . ($e->"bytes-in") . "," . ($e->"bytes-out") . "," . ($e->".id") . ";")
+      :set k ($k + 1)
+    }}
+  }} }} on-error={{}}
   :local ic ""
   :local m 0
   :foreach i in=[/interface find where running=yes] do={{
@@ -134,7 +143,7 @@ def agent_script(url, token, check):
       :set m ($m + 1)
     }}
   }}
-  :local body ("id=" . [/system identity get name] . "&ver=" . $ver . "&up=" . $up . "&cpu=" . $cpu . "&mf=" . $mf . "&mt=" . $mt . "&board=" . $board . "&n=" . [:len [/ip hotspot active find]] . "&sv={SCRIPT_VERSION}&ifc=" . $ic . "&act=" . $a)
+  :local body ("id=" . [/system identity get name] . "&ver=" . $ver . "&up=" . $up . "&cpu=" . $cpu . "&mf=" . $mf . "&mt=" . $mt . "&board=" . $board . "&n=" . [:len [/ip hotspot active find]] . "&sv={SCRIPT_VERSION}&ifc=" . $ic . "&act=" . $a . "&bp=" . $bp)
   :local res [/tool fetch url=($url . "/poll") http-method=post http-data=$body http-header-field=("Authorization: Bearer " . $tok) output=user as-value check-certificate={check} duration=8s idle-timeout=5s]
   :if (($res->"status") = "finished") do={{
     :local cmd ($res->"data")
@@ -507,6 +516,19 @@ def parse_sessions(raw):
     return rows
 
 
+def parse_bypass(raw):
+    """IP-binding bypass devices reported by the heartbeat (v5+): rows shaped like sessions."""
+    from .fair_usage import BYPASS
+    rows = []
+    for rec in str(raw or '').split(';'):
+        f = rec.split(',')
+        if len(f) >= 4 and f[0]:
+            mac = f[0].upper()
+            rows.append({'user': BYPASS + mac, 'mac-address': mac, 'address': f[1], 'bytes-in': f[2], 'bytes-out': f[3],
+                         'id': 'h' + (f[4] if len(f) > 4 else mac), 'uptime': '', 'bypass': True})
+    return rows
+
+
 def handle_poll(agent, data, ip, url):
     """Record heartbeat/live sessions and return RouterOS commands to run."""
     from .notify import notify
@@ -590,7 +612,7 @@ def handle_poll(agent, data, ip, url):
     except Exception as exc:
         logger.info('link counters %s: %s', router, exc)
     try:
-        ingest_sessions(router, rows, now)
+        ingest_sessions(router, rows + parse_bypass(data.get('bp', '')), now)   # bypass devices: usage + fair usage
     except Exception as exc:
         logger.info('session ingest %s: %s', router, exc)
     try:

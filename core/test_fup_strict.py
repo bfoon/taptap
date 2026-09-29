@@ -84,3 +84,49 @@ class StrictTests(TestCase):
             cache.delete(f'tt:fup:full:{self.router.pk}')           # 5 minutes later
             fu.enforce(self.router, self.active, self.now)
             self.assertEqual(m.call_count, 2)
+
+
+class BypassFairUsageTests(TestCase):
+    """IP-binding bypass devices are measured from the hotspot host counters and capped per device."""
+    def setUp(self):
+        cache.clear()
+        self.now = timezone.make_aware(datetime.combine(timezone.localdate(), time(13, 30)))
+        owner = User.objects.create_user('bp@example.com', 'bp@example.com', 'pw')
+        self.biz = Business.objects.create(user=owner, business_name='B', owner_name='O', phone='1', trial_ends_at=self.now + timedelta(days=7))
+        self.router = Router.objects.create(business=self.biz, name='R', ip_address='10.0.0.1', username='u', password='p')
+        from .models import SyncedIPBinding
+        SyncedIPBinding.objects.create(business=self.biz, router=self.router, mikrotik_id='*5', mac_address='BB:00:00:00:00:01',
+                                       binding_type='bypassed', disabled=False, comment='Tenant 19', is_present=True)
+        self.pol = FairUsagePolicy.objects.create(business=self.biz, name='Daily', period='day', counts='total', bypass=True,
+                                                  tiers=[{'gb': 1, 'down': 2, 'up': 1}])
+        self.hosts = [{'id': '*H1', 'mac-address': 'BB:00:00:00:00:01', 'address': '10.5.50.99', 'bypassed': 'true', 'bytes-in': 0, 'bytes-out': 0},
+                      {'id': '*H2', 'mac-address': 'CC:00:00:00:00:02', 'address': '10.5.50.3', 'bypassed': 'false', 'bytes-in': 0, 'bytes-out': 0}]
+
+    def test_bypass_device_counted_and_capped(self):
+        rows = fu.bypass_rows(self.hosts)
+        self.assertEqual([r['user'] for r in rows], ['BYPASS:BB:00:00:00:00:01'])      # only bypassed hosts
+        collect_sessions(self.router, rows, self.now)
+        grown = [{**rows[0], 'bytes-out': int(1.2 * GB)}]
+        collect_sessions(self.router, grown, self.now + timedelta(minutes=2))
+        caps = fu.desired_caps(self.router, grown, self.now + timedelta(minutes=2))
+        self.assertEqual(len(caps), 1)
+        name, cap = next(iter(caps.items()))
+        self.assertTrue(name.startswith('TTFUP-BPBB0000000001-'))
+        self.assertEqual((cap[0], cap[1]), ('10.5.50.99', '1000k/2000k'))
+        self.assertEqual(fu.slowed_bypass(self.biz)[0]['name'], 'Tenant 19')
+        st = fu.bypass_status(self.biz, ['BB:00:00:00:00:01'], self.now + timedelta(minutes=2))
+        self.assertEqual(st['BB:00:00:00:00:01']['tier'], 1)
+
+    def test_not_capped_when_policy_does_not_cover_bypass(self):
+        self.pol.bypass = False; self.pol.save()
+        rows = fu.bypass_rows(self.hosts)
+        from .models import UsageRecord
+        UsageRecord.objects.create(business=self.biz, router=self.router, username='BYPASS:BB:00:00:00:00:01', mac_address='BB:00:00:00:00:01',
+                                   hour=self.now.replace(minute=0, second=0, microsecond=0), download=5 * GB)
+        self.assertEqual(fu.desired_caps(self.router, rows, self.now), {})
+
+    def test_link_heartbeat_reports_bypass_devices(self):
+        from .agent import agent_script, parse_bypass
+        self.assertIn('/ip hotspot host find where bypassed=yes', agent_script('https://t.example', 'TOK', 'yes'))
+        rows = parse_bypass('BB:00:00:00:00:01,10.5.50.99,100,2000,*H1;')
+        self.assertEqual((rows[0]['user'], rows[0]['address'], rows[0]['bytes-out']), ('BYPASS:BB:00:00:00:00:01', '10.5.50.99', '2000'))
