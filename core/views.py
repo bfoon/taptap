@@ -148,7 +148,9 @@ def generate_vouchers(request):
         plan=get_object_or_404(plans,pk=request.POST.get('plan'))
         try: qty=max(1,min(500,int(request.POST.get('quantity','1'))))
         except ValueError: qty=1
-        router=routers.filter(pk=request.POST.get('router')).first(); batch_name=request.POST.get('batch_name','').strip() or f'{plan.name} {timezone.localtime():%Y-%m-%d %H:%M}'
+        router_id=(request.POST.get('router') or '').strip()
+        router=routers.filter(pk=int(router_id)).first() if router_id.isdigit() else None
+        batch_name=request.POST.get('batch_name','').strip() or f'{plan.name} {timezone.localtime():%Y-%m-%d %H:%M}'
         agent=business.agents.filter(pk=request.POST.get('owner') or 0).first()
         try:
             fmt=code_format_from_post(request.POST,business)
@@ -810,7 +812,7 @@ def ip_binding_action(request):
                 send(r,'binding_set',{'mac':bnd.mac_address,'enabled':bnd.disabled},label=f'{"Enable" if bnd.disabled else "Disable"} binding {bnd.mac_address}',user=request.user)
                 SyncedIPBinding.objects.filter(pk=bnd.pk).update(disabled=not bnd.disabled)
             messages.success(request,QUEUED)
-        except ValueError as e: messages.error(request,str(e))
+        except ValueEError as e: messages.error(request,str(e))
         return redirect('ip_bindings')
     try:
         svc=MikroTikService(r).connect()
