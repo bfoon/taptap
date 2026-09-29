@@ -204,7 +204,7 @@ def _pay_instantly(s, prize):
                 raise ValueError('The prize has no plan set.')
             from .serials import allocate as _serials
             reward = Voucher.objects.create(
-                business=v.business, router=v.router, code=generate_code(business=v.business), serial=_serials(v.business, 1, plan=plan.name)[0], plan_name=plan.name, price=0,
+                business=v.business, router=v.router, code=generate_code(business=v.business), serial=_serials(v.business, 1, plan=plan.name)[0], created_by_label=f'Bonanza prize — {s.bonanza.name}'[:150], plan_name=plan.name, price=0,
                 duration_minutes=plan.duration_minutes, max_devices=plan.max_devices,
                 source='taptap', customer_name=v.customer_name, customer_phone=v.customer_phone,
                 mikrotik_sync_status='Pending')

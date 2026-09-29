@@ -71,7 +71,7 @@ def register(request):
                 user = User.objects.create_user(username=email,email=email,password=form.cleaned_data['password'],first_name=form.cleaned_data['owner_name'])
                 business = Business.objects.create(user=user,business_name=form.cleaned_data['business_name'],owner_name=form.cleaned_data['owner_name'],phone=form.cleaned_data['phone'],trial_ends_at=timezone.now()+timedelta(days=settings.TRIAL_DAYS))
                 from .durations import best_unit
-                for n,p,h,d in DEFAULT_PLANS: VoucherPlan.objects.create(business=business,name=n,price=p,duration_minutes=h*60,duration_unit=best_unit(h*60),max_devices=d)
+                for n,p,h,d in DEFAULT_PLANS: VoucherPlan.objects.create(business=business,name=n,price=p,duration_minutes=h*60,duration_unit=best_unit(h*60),max_devices=d,created_by_label='TapTap starter plans')
             login(request,user); messages.success(request,f'Welcome to TapTap. Your {settings.TRIAL_DAYS}-day trial is active.'); return redirect('dashboard')
     return render(request,'core/register.html',{'form':form})
 

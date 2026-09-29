@@ -35,11 +35,17 @@ PLATFORM_OPEN = {'logout', 'login', 'home', 'verify_code', 'resend_code', 'cance
                  'chat_page', 'chat_state', 'chat_history', 'chat_send', 'chat_read', 'chat_direct', 'chat_settings', 'chat_support_action'}
 _BUSINESS_REL = User._meta.get_field('business')
 _actor = ContextVar('tt_actor', default='')
+_actor_user = ContextVar('tt_actor_user', default=None)   # the logged-in User making this request
 
 
 def current_actor():
     """Label of whoever is making the current request (used in the activity log)."""
     return _actor.get()
+
+
+def current_user():
+    """The logged-in User making the current request, or None (background jobs, router sync)."""
+    return _actor_user.get()
 
 
 def attach_business(user, business):
@@ -85,15 +91,16 @@ class TeamAccessMiddleware:
             if early is not None:
                 return early
             token = _actor.set(self._actor_label(request))
+            utoken = _actor_user.set(request.user)
             early = self._gate(request)
             if early is not None:
-                _actor.reset(token)
+                _actor.reset(token); _actor_user.reset(utoken)
                 return early
         try:
             response = self.get_response(request)
         finally:
             if token is not None:
-                _actor.reset(token)
+                _actor.reset(token); _actor_user.reset(utoken)
         self._after(request, response)
         return response
 

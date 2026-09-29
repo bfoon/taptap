@@ -11,7 +11,7 @@
 <div class="dt-head">
   <div><a class="small text-decoration-none" href="{% url 'batches' %}"><i class="bi bi-arrow-left"></i> All batches</a>
     <h2>{{ batch.name }}</h2>
-    <span class="text-secondary small">{{ batch.plan|default:'No plan' }} · created {{ batch.created_at|date:'d M Y H:i' }}{% if batch.agent %} · held by {{ batch.agent.name }}{% else %} · shop stock{% endif %}</span></div>
+    <span class="text-secondary small">{{ batch.plan|default:'No plan' }} · created {{ batch.created_at|date:'d M Y H:i' }} by {% include 'core/partials/created_by.html' with obj=batch %}{% if batch.agent %} · held by {{ batch.agent.name }}{% else %} · shop stock{% endif %}</span></div>
   <div class="d-flex flex-wrap gap-2">
     {% if 'vouchers.create' in tt_perms %}<a class="btn btn-sm btn-outline-primary" href="{% url 'voucher_print' %}?batch={{ batch.id }}"><i class="bi bi-printer"></i> Print</a>{% endif %}
     {% if batch.plan and 'vouchers.view' in tt_perms %}<a class="btn btn-sm btn-light" href="{% url 'plan_detail' batch.plan.id %}"><i class="bi bi-tag"></i> Plan details</a>{% endif %}

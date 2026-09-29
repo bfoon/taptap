@@ -144,6 +144,7 @@
         {% if v.customer_name or v.customer_phone %}<div><span>Customer</span><b>{{ v.customer_name|default:'' }} {{ v.customer_phone|default:'' }}</b></div>{% endif %}
         {% if v.note %}<div><span>Note</span><b>{{ v.note }}</b></div>{% endif %}
         <div><span>Created</span><b>{{ v.created_at|date:'d M Y H:i' }}</b></div>
+        <div><span>Created by</span><b>{% include 'core/partials/created_by.html' with obj=v %}</b></div>
         <div><span>Sold</span><b>{{ v.sold_at|date:'d M Y H:i'|default:'Not sold' }}</b></div>
         <div><span>First used</span><b>{{ v.used_at|date:'d M Y H:i'|default:'Not used yet' }}</b></div>
         <div><span>{% if time_is_up %}Time ran out{% else %}Ends{% endif %}</span><b>{% if ends_at %}{{ ends_at|date:'d M Y H:i' }}{% elif v.is_unlimited %}Never — no time limit{% else %}Clock starts on first login{% endif %}</b></div>

@@ -72,6 +72,26 @@ class AliveManager(models.Manager.from_queryset(BinQuerySet)):
     def get_queryset(self): return super().get_queryset().filter(deleted_at__isnull=True)
 
 
+def stamp_creator(obj, router=None):
+    """Fill created_by / created_by_label on a new row from whoever is making the request
+    (owner, team member with role, or TapTap support viewing the business). Rows made by router
+    sync or background jobs get a plain label instead. Existing labels are never changed."""
+    if obj.created_by_label or obj.created_by_id:
+        return
+    if getattr(obj, 'source', '') == 'mikrotik':
+        r = router or getattr(obj, 'router', None) or getattr(obj, 'imported_from_router', None)
+        obj.created_by_label = f'Imported from router {r.name}' if r else 'Imported from router'
+        return
+    try:
+        from .team import current_actor, current_user
+        u, label = current_user(), current_actor()
+    except Exception:
+        u, label = None, ''
+    if u is not None and getattr(u, 'is_authenticated', False):
+        obj.created_by = u
+    obj.created_by_label = (label or (u.get_full_name() or u.email or u.username if obj.created_by_id else '') or 'TapTap (automatic)')[:150]
+
+
 class VoucherPlan(models.Model):
     SOURCE=[('taptap','TapTap'),('mikrotik','MikroTik')]
     business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='plans',null=True,blank=True)
@@ -97,8 +117,16 @@ class VoucherPlan(models.Model):
     deleted_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
     delete_reason=models.CharField(max_length=255,blank=True)
     delete_info=models.JSONField(default=dict,blank=True)
+    created_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
+    created_by_label=models.CharField(max_length=150,blank=True,help_text='Who created it (name and role at the time)')
+    created_at=models.DateTimeField(null=True,blank=True)
     objects=AliveManager()
     all_objects=BinQuerySet.as_manager()
+    def save(self,*a,**k):
+        if not self.pk:
+            stamp_creator(self)
+            if not self.created_at: self.created_at=timezone.now()
+        return super().save(*a,**k)
     class Meta:
         # Only live plans need unique names, so a deleted plan's name can be used again.
         constraints=[models.UniqueConstraint(fields=['business','name'],condition=models.Q(deleted_at__isnull=True),name='uniq_live_plan_name')]
@@ -161,8 +189,13 @@ class VoucherBatch(models.Model):
     deleted_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
     delete_reason=models.CharField(max_length=255,blank=True)
     delete_info=models.JSONField(default=dict,blank=True)
+    created_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
+    created_by_label=models.CharField(max_length=150,blank=True,help_text='Who created it (name and role at the time)')
     objects=AliveManager()
     all_objects=BinQuerySet.as_manager()
+    def save(self,*a,**k):
+        if not self.pk: stamp_creator(self)
+        return super().save(*a,**k)
 
 
 class Voucher(models.Model):
@@ -192,6 +225,8 @@ class Voucher(models.Model):
     mikrotik_sync_status=models.CharField(max_length=30,default='Pending')
     mikrotik_sync_error=models.TextField(blank=True)
     serial=models.CharField(max_length=60,blank=True,db_index=True,help_text='Printed serial number (set when the voucher is created)')
+    created_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
+    created_by_label=models.CharField(max_length=150,blank=True,help_text='Who created it (name and role at the time)')
     created_at=models.DateTimeField(auto_now_add=True)
     # Recycle bin: a deleted voucher keeps its code forever (it can never be issued again).
     deleted_at=models.DateTimeField(null=True,blank=True,db_index=True)
@@ -210,6 +245,9 @@ class Voucher(models.Model):
     warning_message=models.TextField(blank=True,help_text='What the customer reads on the warning page (manual warning). Empty = the shared-use text')
     objects=AliveManager()
     all_objects=BinQuerySet.as_manager()
+    def save(self,*a,**k):
+        if not self.pk: stamp_creator(self)
+        return super().save(*a,**k)
     @property
     def is_deleted(self): return self.deleted_at is not None
     @property

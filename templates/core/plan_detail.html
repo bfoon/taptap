@@ -12,7 +12,8 @@
 <div class="dt-head">
   <div>{% if 'plans.manage' in tt_perms %}<a class="small text-decoration-none" href="{% url 'plans' %}"><i class="bi bi-arrow-left"></i> All plans</a>{% endif %}
     <h2>{{ plan.name }} {% if not plan.active %}<span class="badge text-bg-secondary align-middle">Inactive</span>{% endif %}</h2>
-    <span class="text-secondary small">{{ plan.price|money:c }} · {{ plan.duration_text }} · {{ plan.max_devices }} device{{ plan.max_devices|pluralize }}</span></div>
+    <span class="text-secondary small">{{ plan.price|money:c }} · {{ plan.duration_text }} · {{ plan.max_devices }} device{{ plan.max_devices|pluralize }}
+      · created {% if plan.created_at %}{{ plan.created_at|date:'d M Y H:i' }} {% endif %}by {% include 'core/partials/created_by.html' with obj=plan %}</span></div>
   <div class="d-flex flex-wrap gap-2">
     {% if 'vouchers.create' in tt_perms and plan.active %}<a class="btn btn-sm btn-primary" href="{% url 'generate_vouchers' %}?plan={{ plan.id }}"><i class="bi bi-plus-circle"></i> Generate vouchers</a>{% endif %}
     {% if 'vouchers.view' in tt_perms %}<a class="btn btn-sm btn-light" href="{% url 'vouchers' %}?plan={{ plan.name|urlencode }}"><i class="bi bi-ticket-perforated"></i> Open in Vouchers</a>{% endif %}
@@ -45,7 +46,7 @@
   </div></div>
   <div class="col-xl-7"><div class="panel h-100"><div class="panel-head"><div><h3>Batches of this plan</h3><p>Newest first</p></div></div>
     <div class="bt-scroll"><table class="table table-sm align-middle mb-0"><thead><tr><th>Batch</th><th>Holder</th><th class="text-end">Vouchers</th><th class="text-end">Not used</th><th class="text-end">Used</th><th>Created</th></tr></thead><tbody>
-    {% for x in batches %}<tr><td><a class="fw-semibold" href="{% url 'batch_detail' x.id %}">{{ x.name }}</a></td><td>{{ x.agent.name|default:'Shop' }}</td><td class="text-end">{{ x.actual }}</td><td class="text-end">{{ x.unused }}</td><td class="text-end">{{ x.used }}</td><td>{{ x.created_at|date:'d M Y' }}</td></tr>
+    {% for x in batches %}<tr><td><a class="fw-semibold" href="{% url 'batch_detail' x.id %}">{{ x.name }}</a></td><td>{{ x.agent.name|default:'Shop' }}</td><td class="text-end">{{ x.actual }}</td><td class="text-end">{{ x.unused }}</td><td class="text-end">{{ x.used }}</td><td>{{ x.created_at|date:'d M Y' }}<small class="d-block text-secondary">{% include 'core/partials/created_by.html' with obj=x %}</small></td></tr>
     {% empty %}<tr><td colspan="6" class="empty-table">No batches use this plan yet.</td></tr>{% endfor %}</tbody></table></div>
   </div></div>
 </div>
