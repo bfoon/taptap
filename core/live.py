@@ -321,6 +321,11 @@ def watch_router(router, force=False):
             summary['traffic'] = collect(router, svc, active, now)
         except Exception as exc:  # reporting must never break voucher sync
             logger.info('traffic collection %s: %s', router, exc)
+        try:   # fair usage: slow down / restore customers by data used
+            from .fair_usage import enforce
+            summary['fair_usage'] = enforce(router, active, now, svc=svc)
+        except Exception as exc:
+            logger.info('fair usage %s: %s', router, exc)
 
         # ---------------- port guards, timed actions, nightly backup ----------------
         try:

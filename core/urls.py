@@ -3,6 +3,7 @@ from . import views, views_business as vb, views_studio as vs, views_wan as vw, 
 
 from . import views_ads, views_ports, views_live, views_traffic, views_missing, views_link
 from . import views_team as vteam, views_platform as vp, views_detail as vdetail, views_bin as vbin, views_freeze as vfz
+from . import views_fup as vfup
 from . import views_bonanza as vbz
 
 urlpatterns = [
@@ -86,4 +87,7 @@ urlpatterns = [
     path('platform/audit/',vp.audit_log,name='platform_audit'), path('platform/view-as/stop/',vp.view_as_stop,name='platform_view_as_stop'),
     # Batch and plan details (summary + scrollable voucher lists)
     path('batches/<int:pk>/',vdetail.batch_detail,name='batch_detail'), path('plans/<int:pk>/',vdetail.plan_detail,name='plan_detail'),
+    # Fair usage (data speed steps), managed from the Security Center
+    path('security/fair-usage/new/',vfup.fup_edit,name='fup_new'), path('security/fair-usage/<int:pk>/',vfup.fup_edit,name='fup_edit'),
+    path('security/fair-usage/<int:pk>/action/',vfup.fup_action,name='fup_action'), path('vouchers/<int:pk>/fair-usage/',vfup.fup_lift,name='fup_lift'),
 ]

@@ -1,0 +1,83 @@
+{% extends 'core/base.html' %}{% block title %}{% if pol %}{{ pol.name }}{% else %}New fair usage policy{% endif %} — TapTap{% endblock %}{% block heading %}Fair usage policy{% endblock %}
+{% block extra_head %}<style>
+.fu-step{display:grid;grid-template-columns:auto 1fr 1fr 1fr auto;gap:.5rem;align-items:end;padding:.6rem;border:1px solid var(--border,#e3e9f1);border-radius:12px;margin-bottom:.5rem}
+.fu-step .n{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:#1769e0;color:#fff;font-weight:800;font-size:.8rem;align-self:center}
+.fu-step label{font-size:.7rem;font-weight:700;text-transform:uppercase;color:#6b7c8f;letter-spacing:.03em;margin-bottom:.15rem;display:block}
+@media(max-width:640px){.fu-step{grid-template-columns:auto 1fr 1fr}.fu-step .del{grid-column:3}}
+.stairs{display:flex;align-items:flex-end;gap:4px;height:170px;padding:0;margin-top:2rem}.stairs div{flex:1;border-radius:8px 8px 0 0;position:relative;min-width:40px;transition:height .3s}
+.stairs b{position:absolute;top:-1.35rem;left:0;right:0;text-align:center;font-size:.74rem;white-space:nowrap}
+.stairs small{position:absolute;bottom:.3rem;left:0;right:0;text-align:center;font-size:.68rem;color:#fff;font-weight:700}
+.stair-x{display:flex;gap:4px;font-size:.7rem;color:#6b7c8f}.stair-x span{flex:1;min-width:40px;text-align:center}
+</style>{% endblock %}
+{% block content %}
+<a class="small text-decoration-none" href="{% url 'security' %}#fair-usage"><i class="bi bi-arrow-left"></i> Security Center</a>
+<form method="post" id="fuForm" class="row g-4 mt-0">{% csrf_token %}
+<div class="col-xl-7">
+  <div class="panel mb-4">
+    <div class="row g-2">
+      <div class="col-md-7"><label class="form-label small fw-bold" for="fuName">Name</label><input id="fuName" class="form-control" name="name" required maxlength="80" value="{{ pol.name|default:'' }}" placeholder="e.g. Daily fair usage"></div>
+      <div class="col-md-5 d-flex align-items-end"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" id="fuOn" name="active" value="1" {% if not pol or pol.active %}checked{% endif %}><label class="form-check-label" for="fuOn">Policy is on</label></div></div>
+      <div class="col-md-7"><label class="form-label small fw-bold" for="fuPeriod">Count data</label><select id="fuPeriod" class="form-select" name="period">{% for k,l in periods %}<option value="{{ k }}" {% if pol.period == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-md-5"><label class="form-label small fw-bold" for="fuCounts">What counts</label><select id="fuCounts" class="form-select" name="counts">{% for k,l in counts %}<option value="{{ k }}" {% if pol.counts == k or not pol and k == 'total' %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-12"><label class="form-label small fw-bold">Plans</label>
+        <div class="d-flex flex-wrap gap-2">{% for p in plans %}<label class="btn btn-sm btn-outline-primary {% if p.id in chosen %}active{% endif %}" {% if p.taken_by %}title="Already in “{{ p.taken_by }}”"{% endif %}><input class="form-check-input me-1" type="checkbox" name="plans" value="{{ p.id }}" {% if p.id in chosen %}checked{% endif %}> {{ p.name }}{% if p.taken_by %} <small class="opacity-75">({{ p.taken_by }})</small>{% endif %}</label>{% endfor %}</div>
+        <small class="text-secondary">Tick none to cover every plan that has no policy of its own. A plan’s own policy always wins over an “all plans” one.</small></div>
+      <div class="col-12"><div class="form-check mt-1"><input class="form-check-input" type="checkbox" id="fuFree" name="free_hours" value="1" {% if pol.has_free_hours %}checked{% endif %}>
+        <label class="form-check-label" for="fuFree">Free hours: data used between
+        <select class="form-select form-select-sm d-inline-block w-auto" name="free_from" aria-label="Free from">{% for h in hours %}<option value="{{ h }}" {% if pol.free_from == h or not pol.has_free_hours and h == 0 %}selected{% endif %}>{{ h|stringformat:"02d" }}:00</option>{% endfor %}</select>
+        and <select class="form-select form-select-sm d-inline-block w-auto" name="free_to" aria-label="Free until">{% for h in hours %}<option value="{{ h }}" {% if pol.free_to == h or not pol.has_free_hours and h == 6 %}selected{% endif %}>{{ h|stringformat:"02d" }}:00</option>{% endfor %}</select>
+        does not count — rewards night-time downloads and eases peak hours.</label></div></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2"><h3 class="h5 fw-bold m-0">Speed steps</h3>
+      <div class="d-flex flex-wrap gap-1" id="presets"></div></div>
+    <p class="small text-secondary">Each step: after this much data in the period, the voucher’s speed drops to this. Add more steps to slow it further. Speeds are per device, in Mb/s (0.5 = 500 kb/s).</p>
+    <div id="steps"></div>
+    <button type="button" class="btn btn-sm btn-outline-primary" id="addStep"><i class="bi bi-plus"></i> Add a step</button>
+  </div>
+</div>
+<div class="col-xl-5"><div class="panel position-sticky" style="top:1rem">
+  <h3 class="h6 fw-bold">What a customer experiences</h3>
+  <div class="stairs" id="stairs" aria-hidden="true"></div><div class="stair-x" id="stairX" aria-hidden="true"></div>
+  <p class="small mt-3 mb-2" id="story"></p>
+  <ul class="small text-secondary ps-3">
+    <li>Checked at every live sync (every minute or two). A customer slowed down sees it at once — no need to log in again.</li>
+    <li>Speed caps sit only on connected devices and are removed when they log off, so an IP address given to someone else is never slowed.</li>
+    <li>From a voucher’s page you can give one customer full speed back until the period resets.</li>
+  </ul>
+  <button class="btn btn-primary w-100"><i class="bi bi-check2"></i> Save policy</button>
+  {% if pol %}</form><form method="post" action="{% url 'fup_action' pol.id %}" class="mt-2">{% csrf_token %}<button class="btn btn-outline-danger w-100" name="action" value="delete" onclick="return confirm('Delete {{ pol.name|escapejs }}? Slowed customers go back to full speed.')">Delete policy</button></form>{% else %}</form>{% endif %}
+</div></div>
+<input type="hidden" form="fuForm" name="tiers_json" id="tiersJson">
+{% endblock %}
+{% block scripts %}<script>
+(function(){
+  var tiers={{ tiers_json|safe }}, presets={{ presets_json|safe }}, box=document.getElementById('steps');
+  function sp(m){m=+m||0;return m>=1?(Math.round(m*100)/100)+' Mb/s':Math.round(m*1000)+' kb/s';}
+  function row(t){var d=document.createElement('div');d.className='fu-step';
+    d.innerHTML='<span class="n"></span><div><label>After (GB)</label><input class="form-control form-control-sm" type="number" min="0.1" step="0.1" data-k="gb" value="'+(t.gb||'')+'" required></div>'+
+      '<div><label>Download (Mb/s)</label><input class="form-control form-control-sm" type="number" min="0.032" step="0.001" data-k="down" value="'+(t.down||'')+'" required></div>'+
+      '<div><label>Upload (Mb/s)</label><input class="form-control form-control-sm" type="number" min="0.032" step="0.001" data-k="up" value="'+(t.up||'')+'"></div>'+
+      '<button type="button" class="btn btn-sm btn-outline-danger del" aria-label="Remove step"><i class="bi bi-trash"></i></button>';
+    box.appendChild(d);}
+  function read(){return [].map.call(box.children,function(d){var g=function(k){return parseFloat(d.querySelector('[data-k='+k+']').value);};return {gb:g('gb'),down:g('down'),up:g('up')||g('down')};})
+    .filter(function(t){return t.gb>0&&t.down>0;}).sort(function(a,b){return a.gb-b.gb;});}
+  function draw(){ [].forEach.call(box.children,function(d,i){d.querySelector('.n').textContent=i+1;});
+    var t=read(), per=document.getElementById('fuPeriod'), p=per.options[per.selectedIndex].text.split(' (')[0].toLowerCase();
+    var top=Math.max(10,(t[0]||{down:10}).down*1.6), cols=['#18a66a','#f59e0b','#ea580c','#e11d48','#9f1239','#7f1d1d','#450a0a'];
+    var bars=[{label:'Full speed',h:100,c:cols[0]}].concat(t.map(function(s,i){return {label:sp(s.down),h:Math.max(6,Math.min(92,s.down/top*100)),c:cols[i+1]};}));
+    document.getElementById('stairs').innerHTML=bars.map(function(b){return '<div style="height:'+b.h+'%;background:'+b.c+'"><b>'+b.label+'</b></div>';}).join('');
+    document.getElementById('stairX').innerHTML='<span>0 GB</span>'+t.map(function(s){return '<span>'+s.gb+' GB</span>';}).join('');
+    document.getElementById('story').innerHTML=t.length?('Counted '+p+': full speed until <b>'+t[0].gb+' GB</b>, then '+t.map(function(s,i){return (i?'after <b>'+s.gb+' GB</b> ':'')+'<b>'+sp(s.down)+'</b> down / '+sp(s.up)+' up';}).join(', then ')+'.'):'Add at least one step.';
+    document.getElementById('tiersJson').value=JSON.stringify(t);}
+  tiers.forEach(row); if(!tiers.length) row({});
+  presets.forEach(function(p){var b=document.createElement('button');b.type='button';b.className='btn btn-sm btn-light';b.textContent=p.name;
+    b.onclick=function(){box.innerHTML='';p.tiers.forEach(row);document.getElementById('fuPeriod').value=p.period;draw();};document.getElementById('presets').appendChild(b);});
+  document.getElementById('addStep').onclick=function(){var t=read(),l=t[t.length-1];row(l?{gb:+(l.gb*2).toFixed(1),down:+(l.down/2).toFixed(3),up:+(l.up/2).toFixed(3)}:{gb:2,down:5,up:2});draw();};
+  box.addEventListener('input',draw);box.addEventListener('click',function(e){var x=e.target.closest('.del');if(x){x.closest('.fu-step').remove();draw();}});
+  document.getElementById('fuPeriod').addEventListener('change',draw);
+  document.getElementById('fuForm').addEventListener('submit',draw);
+  draw();
+})();
+</script>{% endblock %}

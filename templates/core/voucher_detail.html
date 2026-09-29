@@ -89,6 +89,24 @@
   {% endif %}
 </section>
 
+{% if fup %}<div class="panel mt-3" id="fair-usage">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+    <div><h3 class="h6 fw-bold mb-1"><i class="bi bi-speedometer2"></i> Fair usage · {{ fup.policy.name }}</h3>
+      <small class="text-secondary">{{ fup.policy.get_period_display }} · resets {% if fup.resets_at %}{{ fup.resets_at|date:'d M H:i' }}{% else %}when the voucher ends{% endif %}{% if fup.policy.has_free_hours %} · {{ fup.policy.free_from|stringformat:"02d" }}:00–{{ fup.policy.free_to|stringformat:"02d" }}:00 not counted{% endif %}</small></div>
+    <div class="text-end"><b class="fs-5">{{ fup.used_gb|floatformat:2 }} GB</b> <small class="text-secondary">used</small><br>
+      {% if fup.lifted %}<span class="badge text-bg-info">Full speed given back until {{ fup.lifted_until|date:'d M H:i' }}</span>
+      {% elif fup.speed %}<span class="badge text-bg-warning">Slowed to {{ fup.speed.down }} down · {{ fup.speed.up }} up</span>
+      {% else %}<span class="badge text-bg-success">Full speed</span>{% endif %}</div>
+  </div>
+  <div class="d-flex gap-1 mt-2" aria-hidden="true">{% for s in fup.steps %}<div class="flex-fill rounded {% if s.reached %}bg-warning{% else %}bg-body-secondary{% endif %}" style="height:8px" title="{{ s.gb }} GB → {{ s.down_text }}"></div>{% endfor %}</div>
+  <div class="d-flex flex-wrap gap-3 small text-secondary mt-1">{% for s in fup.steps %}<span{% if s.current %} class="fw-bold text-body"{% endif %}>{{ s.gb }} GB → {{ s.down_text }}</span>{% endfor %}</div>
+  {% if fup.next and not fup.lifted %}<small class="d-block mt-1">Next step at {{ fup.next.gb }} GB → {{ fup.next.down }}.</small>{% endif %}
+  {% if 'vouchers.support' in tt_perms or 'network.manage' in tt_perms %}
+  <form method="post" action="{% url 'fup_lift' v.id %}" class="mt-2">{% csrf_token %}
+    {% if fup.lifted %}<button class="btn btn-sm btn-outline-secondary" name="action" value="restore">Put the limits back</button>
+    {% else %}<button class="btn btn-sm btn-outline-primary" name="action" value="lift"><i class="bi bi-lightning-charge"></i> Full speed until the period resets</button>{% endif %}
+  </form>{% endif %}
+</div>{% endif %}
 {% if shared_case %}{% with sc=shared_case %}
 <section class="vd-share mb-3">
   <div class="d-flex flex-wrap justify-content-between gap-2 align-items-start">

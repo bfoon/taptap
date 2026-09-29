@@ -256,6 +256,15 @@ def reset_mac(request,pk):
     return _voucher_back(request,v)
 
 
+def _fup_status(v):
+    if v.deleted_at: return None
+    try:
+        from .fair_usage import status
+        return status(v)
+    except Exception:
+        return None
+
+
 @login_required
 def voucher_detail(request,pk):
     """Everything about one voucher: details, devices, sale, router state and full history."""
@@ -279,6 +288,7 @@ def voucher_detail(request,pk):
         'extend_choices':[('30 min',0,0,30),('1 hour',0,1,0),('3 hours',0,3,0),('12 hours',0,12,0),('1 day',1,0,0),('3 days',3,0,0),('1 week',7,0,0),('30 days',30,0,0)],
         'old_codes':v.code_aliases.select_related('changed_by') if v.pk else [],
         'shared_case':case_for(v) if not v.deleted_at else None,
+        'fup':_fup_status(v),
         'manual_warning':MANUAL_WARNING,
     })
 
@@ -741,7 +751,20 @@ def _router_rows(business,method):
 @login_required
 def active_users(request):
     from .voucher_freeze import MANUAL_WARNING
-    rows,errors=_router_rows(b(request),'active_users');return render(request,'core/active_users.html',{'rows':rows,'errors':errors,'manual_warning':MANUAL_WARNING})
+    rows,errors=_router_rows(b(request),'active_users')
+    try:   # fair usage: who is slowed down right now
+        from .models_fup import FairUsageState
+        codes=[str(x.get('user','')) for x in rows if x.get('user')]
+        recent=timezone.now()-timedelta(minutes=30)
+        slowed={s.voucher.code.upper():s for s in FairUsageState.objects.filter(voucher__business=b(request),voucher__code__in=codes,tier__gt=0,updated_at__gte=recent)
+                .select_related('voucher','policy')}
+        for x in rows:
+            s=slowed.get(str(x.get('user','')).upper())
+            if s and s.tier<=len(s.policy.tiers):
+                x['fup_speed']=s.policy.tiers[s.tier-1]['down']; x['fup_gb']=round(s.used_bytes/1024**3,2)
+    except Exception:
+        pass
+    return render(request,'core/active_users.html',{'rows':rows,'errors':errors,'manual_warning':MANUAL_WARNING})
 
 
 @login_required
@@ -909,8 +932,9 @@ def security(request):
         except Exception: r.sec_scanned=None
     incidents=list(business.session_incidents.select_related('router','voucher').filter(status__in=['open','ignored']).order_by('status','fix_due_at'))
     recent_fixed=list(business.session_incidents.select_related('router').filter(status__in=['fixed','ended']).order_by('-fixed_at')[:12])
+    from .views_fup import security_context
     return render(request,'core/security.html',{'incidents':incidents,'recent_fixed':recent_fixed,'summary':summary,'routers':routers,
-        'fix_labels':{k:v[3] for k,v in MikroTikService.SECURITY_FIXES.items()}})
+        'fix_labels':{k:v[3] for k,v in MikroTikService.SECURITY_FIXES.items()},**security_context(business)})
 
 
 @login_required

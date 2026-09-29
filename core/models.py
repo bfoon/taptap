@@ -263,7 +263,7 @@ class VoucherEvent(models.Model):
     EVENTS=[('disabled','Disabled'),('enabled','Enabled'),('extended','Time added'),('mac_reset','Devices reset'),
             ('enforced','Disconnected by enforcement'),('router_disabled','Disabled on the router'),
             ('router_enabled','Enabled on the router'),('sale_voided','Sale voided'),('deleted','Deleted'),('note','Note'),
-            ('code_changed','Code changed'),('frozen','Frozen'),('unfrozen','Unfrozen'),('warned','Warning sent'),
+            ('code_changed','Code changed'),('fup_slowed','Slowed down (fair usage)'),('fup_restored','Back to full speed'),('fup_lifted','Full speed given back'),('frozen','Frozen'),('unfrozen','Unfrozen'),('warned','Warning sent'),
             ('warning_accepted','Warning accepted by the customer'),('shared_resolved','Shared use resolved')]
     SOURCES=[('user','User'),('auto','Automatic'),('router','Router')]
     business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='voucher_events')
@@ -1106,3 +1106,4 @@ class BonanzaSpin(models.Model):
     ip=models.CharField(max_length=64,blank=True)
     created_at=models.DateTimeField(auto_now_add=True)
     class Meta: ordering=['-created_at']
+from .models_fup import FairUsagePolicy, FairUsageState  # noqa: E402,F401

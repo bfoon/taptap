@@ -84,6 +84,8 @@ URL_PERMS = {
     'voucher_freeze': 'vouchers.support', 'voucher_warn': 'vouchers.warn', 'session_warn': 'vouchers.warn', 'vouchers_freeze': 'vouchers.manage', 'batch_freeze': 'vouchers.manage',
     'shared_resolve': 'vouchers.support', 'shared_settings': 'vouchers.manage', 'vouchers_delete': 'vouchers.manage', 'batch_delete': 'vouchers.manage',
     'voucher_bin': 'vouchers.view',
+    'fup_new': 'network.manage', 'fup_edit': 'network.manage', 'fup_action': 'network.manage',
+    'fup_lift': ('vouchers.support', 'network.manage'),
     'plans': 'plans.manage', 'plan_update': 'plans.manage', 'plan_delete': 'plans.manage',
     'reports': 'reports.view', 'reports_data': 'reports.view', 'reports_export': 'reports.view',
     'finance': ('finance.view', 'finance.agents'), 'finance_export': ('finance.view', 'finance.agents'),

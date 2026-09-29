@@ -39,7 +39,7 @@ DEFAULT_EXPIRY = {'reboot': 5, 'port_restart': 5, 'interface_set': 15, 'port_off
 POLICY = 'ftp,read,write,test,reboot,sensitive'
 SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
-    'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
+    'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
 }
@@ -365,6 +365,9 @@ def command_body(cmd):
         lim = rs(f'{int(float(p.get("up", 0)) * 1000)}k/{int(float(p.get("down", 0)) * 1000)}k')
         return (f':if ([:len [/queue simple find name={q}]] = 0) do={{ /queue simple add name={q} target={name()} max-limit={lim} comment="Managed by TapTap" }} '
                 f'else={{ /queue simple set [find name={q}] target={name()} max-limit={lim} }}')
+    if k == 'fup_queues':
+        from .fair_usage import link_script
+        return link_script(p)
     if k == 'unlimit':
         return f'/queue simple remove [find name={rs(p.get("queue") or ("TapTap limit " + p["name"]))}]'
     if k == 'backup':
@@ -415,6 +418,9 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
         names = (params or {}).get('names') or []
         if not isinstance(names, list) or not 1 <= len(names) <= 100 or not all(NAME_RE.match(str(n)) for n in names):
             raise ValueError('Invalid voucher list.')
+    if kind == 'fup_queues':
+        from .fair_usage import validate_link_params
+        validate_link_params(params or {})
     if kind == 'hotspot_user_extend':
         secs = (params or {}).get('seconds')
         if secs is not None:
@@ -764,6 +770,11 @@ def ingest_sessions(router, rows, now):
     from .sync import _routeros_seconds
     from .traffic import collect_sessions
     collect_sessions(router, rows, now)
+    try:   # fair usage: slow down / restore customers by data used (TapTap Link)
+        from .fair_usage import enforce
+        enforce(router, rows, now)
+    except Exception:
+        logger.exception('fair usage (link) on %s', router)
     codes = [r['user'] for r in rows if r.get('user') and not r['user'].upper().startswith('T-')]
     vouchers = {v.code.upper(): v for v in Voucher.objects.filter(business=router.business, code__in=codes)}
     bad = {}

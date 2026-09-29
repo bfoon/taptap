@@ -255,7 +255,7 @@
                 {{ x.user|default:'?'|slice:":1"|upper }}
               </span>
               <div>
-                <b>{{ x.user|default:'—' }}</b>
+                <b>{{ x.user|default:'—' }}</b>{% if x.fup_speed %} <span class="badge text-bg-warning" title="Fair usage: {{ x.fup_gb }} GB used">Slowed · {{ x.fup_speed }} Mb/s</span>{% endif %}
                 {% if x.missing_reported %}
                   <span class="badge text-bg-danger ms-1">Reported missing</span>
                 {% endif %}
