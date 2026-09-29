@@ -252,6 +252,11 @@ def collect_sessions(router, active, now=None):
     ipmap = {x['ip']: [x['mac'], x['user']] for x in now_list if x['ip']}
     if ipmap:
         cache.set(f'tt:tr:ipmap:{router.pk}', ipmap, 3600)
+    # every session's live speed, by voucher code (the "now" list above keeps only the top 25)
+    by_user = defaultdict(list)
+    for x in now_list:
+        by_user[x['user'].upper()].append({k: x[k] for k in ('ip', 'mac', 'down_bps', 'up_bps', 'session_down', 'session_up', 'uptime')})
+    cache.set(f'tt:tr:users:{router.pk}', {'at': now.isoformat(), 'users': dict(by_user)}, 600)
     for (user, mac), (dn, up, peak) in per_user.items():
         obj, created = UsageRecord.objects.get_or_create(router=router, username=user, mac_address=mac, hour=hour,
                                                          defaults={'business': router.business, 'download': dn, 'upload': up, 'peak_bps': peak})

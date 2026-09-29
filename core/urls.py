@@ -88,6 +88,6 @@ urlpatterns = [
     # Batch and plan details (summary + scrollable voucher lists)
     path('batches/<int:pk>/',vdetail.batch_detail,name='batch_detail'), path('plans/<int:pk>/',vdetail.plan_detail,name='plan_detail'),
     # Fair usage (data speed steps), managed from the Security Center
-    path('security/fair-usage/new/',vfup.fup_edit,name='fup_new'), path('security/fair-usage/<int:pk>/',vfup.fup_edit,name='fup_edit'),
+    path('security/fair-usage/slowed/',vfup.fup_slowed,name='fup_slowed'), path('security/fair-usage/new/',vfup.fup_edit,name='fup_new'), path('security/fair-usage/<int:pk>/',vfup.fup_edit,name='fup_edit'),
     path('security/fair-usage/<int:pk>/action/',vfup.fup_action,name='fup_action'), path('vouchers/<int:pk>/fair-usage/',vfup.fup_lift,name='fup_lift'),
 ]

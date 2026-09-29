@@ -101,6 +101,14 @@
   <div class="d-flex gap-1 mt-2" aria-hidden="true">{% for s in fup.steps %}<div class="flex-fill rounded {% if s.reached %}bg-warning{% else %}bg-body-secondary{% endif %}" style="height:8px" title="{{ s.gb }} GB → {{ s.down_text }}"></div>{% endfor %}</div>
   <div class="d-flex flex-wrap gap-3 small text-secondary mt-1">{% for s in fup.steps %}<span{% if s.current %} class="fw-bold text-body"{% endif %}>{{ s.gb }} GB → {{ s.down_text }}</span>{% endfor %}</div>
   {% if fup.next and not fup.lifted %}<small class="d-block mt-1">Next step at {{ fup.next.gb }} GB → {{ fup.next.down }}.</small>{% endif %}
+  <div class="row g-2 mt-2 small">
+    <div class="col-sm-4"><span class="text-secondary d-block">Speed cap</span>{% if fup.speed and not fup.lifted %}<b>{{ fup.speed.down }}</b> down · {{ fup.speed.up }} up <span class="text-secondary">(per device)</span>{% else %}<b>None</b> — full speed{% endif %}</div>
+    <div class="col-sm-4"><span class="text-secondary d-block">Using now</span>{% if fup.live.online %}<b>{{ fup.live.down_now }}</b> down · {{ fup.live.up_now }} up
+      {% if fup.speed and not fup.lifted %}<div class="progress mt-1" style="height:6px" role="progressbar" aria-label="Share of the cap in use" aria-valuenow="{{ fup.live.down_pct }}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar {% if fup.live.down_pct >= 90 %}bg-danger{% elif fup.live.down_pct >= 60 %}bg-warning{% else %}bg-success{% endif %}" style="width:{{ fup.live.down_pct }}%"></div></div><span class="text-secondary">{{ fup.live.down_pct }}% of the cap</span>{% endif %}
+      {% else %}<b class="text-secondary">Offline</b>{% endif %}</div>
+    <div class="col-sm-4"><span class="text-secondary d-block">Peak this period</span><b>{{ fup.live.peak }}</b></div>
+  </div>
+  {% for s in fup.live.sessions %}<div class="small text-secondary mt-1"><i class="bi bi-phone"></i> <span class="font-monospace">{{ s.ip }}</span> · <span class="font-monospace">{{ s.mac }}</span> · {{ s.router }} · ↓ {{ s.down }} ↑ {{ s.up }}</div>{% endfor %}
   {% if 'vouchers.support' in tt_perms or 'network.manage' in tt_perms %}
   <form method="post" action="{% url 'fup_lift' v.id %}" class="mt-2">{% csrf_token %}
     {% if fup.lifted %}<button class="btn btn-sm btn-outline-secondary" name="action" value="restore">Put the limits back</button>

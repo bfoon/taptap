@@ -1,0 +1,58 @@
+{% extends 'core/base.html' %}{% block title %}Slowed vouchers — TapTap{% endblock %}{% block heading %}Slowed by fair usage{% endblock %}
+{% block extra_head %}<style>
+.sl-card{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:1rem;margin-bottom:.8rem}
+.sl-top{display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:center;justify-content:space-between}
+.sl-code{font:800 1.05rem ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em}
+.sl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.8rem;margin-top:.8rem}
+.sl-grid small{display:block;font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#8a9aab}
+.sl-grid b{font-size:1.02rem}.sl-grid em{display:block;font-style:normal;font-size:.75rem;color:#6b7c8f}
+.meter{height:10px;border-radius:5px;background:var(--surface-2,#eef2f6);overflow:hidden;margin:.3rem 0 .15rem}.meter i{display:block;height:100%;border-radius:5px;background:#18a66a;transition:width .4s}
+.meter i.hot{background:#f59e0b}.meter i.full{background:#e5484d}
+.steps{display:flex;gap:3px;margin-top:.35rem}.steps span{flex:1;height:6px;border-radius:3px;background:var(--surface-2,#eef2f6)}.steps span.on{background:#f59e0b}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;background:#9aa8b6;margin-right:.3rem}.dot.on{background:#18a66a;box-shadow:0 0 0 3px #18a66a33}
+.sess{font-size:.78rem;color:#4e6479;margin-top:.6rem;border-top:1px dashed var(--border,#e3e9f1);padding-top:.5rem}.sess span{font-family:ui-monospace,monospace}
+</style>{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <div><a class="small text-decoration-none" href="{% url 'security' %}#fair-usage"><i class="bi bi-arrow-left"></i> Security Center</a>
+    <p class="text-secondary m-0">{{ rows|length }} voucher{{ rows|length|pluralize }} slowed · {{ online }} online now. Live speeds come from the last sync and refresh every 30 seconds.</p></div>
+  <form method="get" class="d-flex gap-2 align-items-center">
+    <select class="form-select form-select-sm" name="policy" onchange="this.form.submit()" aria-label="Policy"><option value="">All policies</option>{% for p in policies %}<option value="{{ p.id }}" {% if policy == p.id|stringformat:'s' %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select>
+    <label class="form-check form-switch m-0 small text-nowrap"><input class="form-check-input" type="checkbox" id="auto" checked> Auto-refresh</label>
+  </form>
+</div>
+
+{% for r in rows %}{% with v=r.voucher %}
+<div class="sl-card">
+  <div class="sl-top">
+    <div><span class="dot {% if r.online %}on{% endif %}" title="{% if r.online %}Online now{% else %}Not online{% endif %}"></span>
+      <a class="sl-code" href="{% url 'voucher_detail' v.id %}">{{ v.code }}</a>
+      <span class="text-secondary small ms-2">{{ v.plan_name }}{% if v.agent %} · {{ v.agent.name }}{% endif %}{% if v.router %} · {{ v.router.name }}{% endif %}</span></div>
+    <div class="d-flex align-items-center gap-2">
+      <span class="badge text-bg-warning">Step {{ r.tier }} of {{ r.steps }} · {{ r.policy.name }}</span>
+      {% if can_lift %}<form method="post" action="{% url 'fup_lift' v.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="btn btn-sm btn-outline-primary" name="action" value="lift" title="Full speed until the period resets"><i class="bi bi-lightning-charge"></i> Full speed</button></form>{% endif %}
+    </div>
+  </div>
+  <div class="sl-grid">
+    <div><small>Speed cap (per device)</small><b>{{ r.cap.down }}</b> <span class="text-secondary small">down</span> · <b>{{ r.cap.up }}</b> <span class="text-secondary small">up</span>
+      <div class="steps" aria-hidden="true">{% for i in r.policy.tiers %}<span class="{% if forloop.counter <= r.tier %}on{% endif %}"></span>{% endfor %}</div></div>
+    <div><small>Using now</small>{% if r.online %}<b>{{ r.down_now }}</b> <span class="text-secondary small">down</span> · {{ r.up_now }} up
+      <div class="meter" title="{{ r.down_pct }}% of the cap"><i class="{% if r.down_pct >= 90 %}full{% elif r.down_pct >= 60 %}hot{% endif %}" style="width:{{ r.down_pct }}%"></i></div><em>{{ r.down_pct }}% of the cap in use</em>
+      {% else %}<b class="text-secondary">Offline</b><em>The cap applies when it connects</em>{% endif %}</div>
+    <div><small>Data used</small><b>{{ r.used_gb|floatformat:2 }} GB</b><em>{{ r.policy.get_period_display }}</em></div>
+    <div><small>Peak speed this period</small><b>{{ r.peak }}</b><em>fastest minute seen</em></div>
+    <div><small>Next</small>{% if r.next %}<b>{{ r.next.gb }} GB</b><em>→ {{ r.next.down }}</em>{% else %}<b>Last step</b><em>no further slowing</em>{% endif %}</div>
+    <div><small>Back to full speed</small><b>{% if r.resets_at %}{{ r.resets_at|date:'d M H:i' }}{% else %}When it ends{% endif %}</b><em>slowed since {{ r.since|date:'d M H:i'|default:'—' }}</em></div>
+  </div>
+  {% if r.sessions %}<div class="sess">{% for s in r.sessions %}<div><i class="bi bi-phone"></i> <span>{{ s.ip }}</span> · <span>{{ s.mac }}</span> · {{ s.router }} · ↓ {{ s.down }} ↑ {{ s.up }} · online {{ s.uptime }}</div>{% endfor %}</div>{% endif %}
+</div>
+{% endwith %}{% empty %}
+<div class="panel text-center py-5"><i class="bi bi-speedometer2 fs-1 text-success"></i><h3 class="h5 mt-2">Nobody is slowed down right now</h3>
+  <p class="text-secondary mb-0">Vouchers appear here as soon as they pass a step of a fair usage policy.</p></div>
+{% endfor %}
+{% endblock %}
+{% block scripts %}<script>
+(function(){var box=document.getElementById('auto'),t=null;function arm(){clearTimeout(t);if(box.checked)t=setTimeout(function(){location.reload();},30000);}
+try{box.checked=localStorage.getItem('ttSlowedAuto')!=='0';}catch(e){}box.addEventListener('change',function(){try{localStorage.setItem('ttSlowedAuto',box.checked?'1':'0');}catch(e){}arm();});arm();})();
+</script>{% endblock %}

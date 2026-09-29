@@ -129,7 +129,15 @@ def status(voucher, now=None):
     lifted = bool(st and st.lifted_until and st.lifted_until > now)
     tier = 0 if lifted else tier_for(used, pol.tiers)
     nxt = pol.tiers[tier] if tier < len(pol.tiers) else None
-    return {'policy': pol, 'used': used, 'used_gb': used / GB, 'tier': tier, 'lifted': lifted, 'lifted_until': st.lifted_until if lifted else None,
+    sessions = live_sessions(voucher)
+    down_bps, up_bps = sum(s.get('down_bps', 0) for s in sessions), sum(s.get('up_bps', 0) for s in sessions)
+    cap = pol.tiers[tier - 1] if tier else None
+    cap_down = kbps(cap['down']) * 1000 * max(1, len(sessions)) if cap else 0
+    live = {'online': bool(sessions), 'devices': len(sessions), 'down_now': bps_text(down_bps), 'up_now': bps_text(up_bps),
+            'down_pct': min(100, round(down_bps * 100 / cap_down)) if cap_down else 0,
+            'sessions': [{**s, 'down': bps_text(s.get('down_bps')), 'up': bps_text(s.get('up_bps'))} for s in sessions],
+            'peak': bps_text(_peak_bps(voucher, start))}
+    return {'live': live, 'policy': pol, 'used': used, 'used_gb': used / GB, 'tier': tier, 'lifted': lifted, 'lifted_until': st.lifted_until if lifted else None,
             'speed': {'down': speed_text(pol.tiers[tier - 1]['down']), 'up': speed_text(pol.tiers[tier - 1]['up'])} if tier else None,
             'next': {'gb': nxt['gb'], 'down': speed_text(nxt['down'])} if nxt else None, 'resets_at': resets, 'period_start': start,
             'steps': [{**t, 'down_text': speed_text(t['down']), 'up_text': speed_text(t['up']), 'reached': used >= t['gb'] * GB,
@@ -307,3 +315,75 @@ def validate_link_params(p):
         raise ValueError('Invalid fair usage queue name.')
     if len(p.get('set', [])) > 40 or len(p.get('remove', [])) > 40:
         raise ValueError('Too many changes in one command.')
+
+
+# ─────────────────────────── who is slowed, and how fast they go ───────────────────────────
+
+def bps_text(bps):
+    bps = float(bps or 0)
+    if bps >= 1_000_000:
+        return f'{bps / 1_000_000:.1f} Mb/s'
+    if bps >= 1000:
+        return f'{bps / 1000:.0f} kb/s'
+    return f'{int(bps)} b/s'
+
+
+def live_sessions(voucher, routers=None):
+    """Sessions of this voucher online now with their current speed, from the last live sync."""
+    from .models import VoucherCodeAlias
+    codes = {voucher.code.upper()} | {c.upper() for c in VoucherCodeAlias.objects.filter(voucher=voucher).values_list('code', flat=True)}
+    out = []
+    for r in routers if routers is not None else voucher.business.routers.all():
+        snap = cache.get(f'tt:tr:users:{r.pk}') or {}
+        for code in codes:
+            for s in (snap.get('users') or {}).get(code, []):
+                out.append({**s, 'router': r.name, 'at': snap.get('at')})
+    return out
+
+
+def _peak_bps(voucher, since):
+    from django.db.models import Max
+    from .models import UsageRecord
+    return UsageRecord.objects.filter(business_id=voucher.business_id, username__in=codes_of(voucher), hour__gte=since).aggregate(m=Max('peak_bps'))['m'] or 0
+
+
+def bandwidth(voucher, st, now=None):
+    """Cap, live speed against the cap, and peak for one slowed voucher."""
+    pol = st.policy
+    t = pol.tiers[st.tier - 1] if 0 < st.tier <= len(pol.tiers) else None
+    sessions = live_sessions(voucher)
+    down = sum(s.get('down_bps', 0) for s in sessions)
+    up = sum(s.get('up_bps', 0) for s in sessions)
+    cap_down = kbps(t['down']) * 1000 * max(1, len(sessions)) if t else 0   # the cap is per device
+    cap_up = kbps(t['up']) * 1000 * max(1, len(sessions)) if t else 0
+    start, _, resets = window(pol, voucher, now)
+    return {
+        'cap': {'down': speed_text(t['down']), 'up': speed_text(t['up'])} if t else None,
+        'online': bool(sessions), 'sessions': [{**s, 'down': bps_text(s.get('down_bps')), 'up': bps_text(s.get('up_bps'))} for s in sessions],
+        'down_now': bps_text(down), 'up_now': bps_text(up),
+        'down_pct': min(100, round(down * 100 / cap_down)) if cap_down else 0, 'up_pct': min(100, round(up * 100 / cap_up)) if cap_up else 0,
+        'peak': bps_text(_peak_bps(voucher, start)), 'resets_at': resets,
+    }
+
+
+def slowed(business, now=None):
+    """Every voucher slowed down right now, with its policy step, cap, live speed and data used."""
+    from datetime import timedelta
+    from .models_fup import FairUsageState
+    now = now or timezone.now()
+    rows = []
+    qs = (FairUsageState.objects.filter(voucher__business=business, voucher__deleted_at__isnull=True, tier__gt=0,
+                                        updated_at__gte=now - timedelta(minutes=30), policy__active=True)
+          .select_related('voucher', 'voucher__router', 'voucher__agent', 'policy').order_by('-tier', '-used_bytes'))
+    for st in qs:
+        if st.lifted_until and st.lifted_until > now:
+            continue
+        v, pol = st.voucher, st.policy
+        if st.tier > len(pol.tiers):
+            continue
+        nxt = pol.tiers[st.tier] if st.tier < len(pol.tiers) else None
+        rows.append({'state': st, 'voucher': v, 'policy': pol, 'tier': st.tier, 'steps': len(pol.tiers),
+                     'used': st.used_bytes, 'used_gb': st.used_bytes / GB, 'since': st.changed_at,
+                     'next': {'gb': nxt['gb'], 'down': speed_text(nxt['down'])} if nxt else None,
+                     **bandwidth(v, st, now)})
+    return rows

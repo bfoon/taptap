@@ -103,7 +103,8 @@ def fup_lift(request, pk):
             messages.success(request, f'{v.code} has full speed until {timezone.localtime(until):%d %b %H:%M} (applied at the next sync).')
         else:
             messages.info(request, 'No fair usage policy covers this voucher.')
-    return redirect('voucher_detail', pk=v.pk)
+    nxt = request.POST.get('next', '')
+    return redirect(nxt if nxt.startswith('/') and not nxt.startswith('//') else f'/vouchers/{v.pk}/')
 
 
 def security_context(business):
@@ -114,3 +115,17 @@ def security_context(business):
     for p in pols:
         p.steps = [f'{t["gb"]:g} GB → {fu.speed_text(t["down"])}' for t in p.tiers]
     return {'fup_policies': pols}
+
+
+@login_required
+def fup_slowed(request):
+    """Every voucher slowed down right now: step, speed cap, live speed against the cap, data used."""
+    business = _b(request)
+    rows = fu.slowed(business)
+    policy = request.GET.get('policy', '')
+    if policy.isdigit():
+        rows = [r for r in rows if r['policy'].pk == int(policy)]
+    return render(request, 'core/fair_usage_slowed.html', {
+        'rows': rows, 'online': sum(1 for r in rows if r['online']), 'policies': business.fair_usage_policies.filter(active=True),
+        'policy': policy, 'can_lift': 'vouchers.support' in request.tt_perms or 'network.manage' in request.tt_perms,
+    })

@@ -190,3 +190,61 @@ class FairUsageTests(TestCase):
         self.use(3)
         self.client.post(reverse('fup_lift', args=[self.v.pk]), {'action': 'lift'}, **HTML)
         self.assertIsNotNone(FairUsageState.objects.get(voucher=self.v).lifted_until)   # support may lift for a customer
+
+
+@override_settings(AUTH_EMAIL_OTP=False, CACHES=CACHE)
+class SlowedDetailsTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.now = timezone.make_aware(datetime.combine(timezone.localdate(), time(13, 30)))
+        self.owner = User.objects.create_user('sl@example.com', 'sl@example.com', 'pw')
+        self.biz = Business.objects.create(user=self.owner, business_name='B', owner_name='O', phone='1', trial_ends_at=self.now + timedelta(days=7))
+        self.router = Router.objects.create(business=self.biz, name='Main', ip_address='10.0.0.1', username='u', password='p')
+        VoucherPlan.objects.create(business=self.biz, name='Day', price=40, duration_minutes=1440)
+        self.pol = FairUsagePolicy.objects.create(business=self.biz, name='Daily', period='day',
+                                                  tiers=[{'gb': 2, 'down': 5, 'up': 2}, {'gb': 5, 'down': 1, 'up': 0.5}])
+        self.v = Voucher.objects.create(business=self.biz, router=self.router, code='SLOW1', plan_name='Day', duration_minutes=1440,
+                                        used_at=self.now - timedelta(hours=1))
+        hour = self.now.replace(minute=0, second=0, microsecond=0)
+        UsageRecord.objects.create(business=self.biz, router=self.router, username='SLOW1', hour=hour, download=6 * GB, peak_bps=8_000_000)
+        fu.enforce(self.router, [{'user': 'SLOW1', 'address': '10.5.50.9'}], timezone.now(), svc=FakeSvc())   # step 2
+        FairUsageState.objects.filter(voucher=self.v).update(used_bytes=6 * GB)
+        self.client.force_login(self.owner)
+
+    def online(self, down_bps=800_000, up_bps=100_000):
+        cache.set(f'tt:tr:users:{self.router.pk}', {'at': timezone.now().isoformat(), 'users': {'SLOW1': [
+            {'ip': '10.5.50.9', 'mac': 'AA:BB:CC:00:11:22', 'down_bps': down_bps, 'up_bps': up_bps, 'session_down': 0, 'session_up': 0, 'uptime': '1h2m'}]}}, 600)
+
+    def test_details_of_a_slowed_voucher(self):
+        self.online()
+        rows = fu.slowed(self.biz)
+        self.assertEqual(len(rows), 1)
+        r = rows[0]
+        self.assertEqual((r['tier'], r['steps'], r['cap'], r['online']), (2, 2, {'down': '1 Mb/s', 'up': '500 kb/s'}, True))
+        self.assertEqual((r['down_now'], r['up_now'], r['down_pct'], r['peak'], r['next']), ('800 kb/s', '100 kb/s', 80, '8.0 Mb/s', None))
+        self.assertEqual(r['sessions'][0]['ip'], '10.5.50.9')
+
+    def test_offline_and_lifted(self):
+        r = fu.slowed(self.biz)[0]
+        self.assertEqual((r['online'], r['down_pct']), (False, 0))
+        fu.lift(self.v, self.owner)
+        self.assertEqual(fu.slowed(self.biz), [])
+
+    def test_pages(self):
+        self.online(down_bps=990_000)
+        r = self.client.get(reverse('fup_slowed'), **HTML)
+        self.assertEqual(r.status_code, 200)
+        for text in ('SLOW1', 'Step 2 of 2', '1 Mb/s', '990 kb/s', '99% of the cap', '10.5.50.9', 'AA:BB:CC:00:11:22'):
+            self.assertContains(r, text)
+        self.assertContains(self.client.get(reverse('fup_slowed'), {'policy': self.pol.pk + 99}, **HTML), 'Nobody is slowed')
+        d = self.client.get(reverse('voucher_detail', args=[self.v.pk]), **HTML)
+        self.assertContains(d, 'Speed cap')
+        self.assertContains(d, '99% of the cap')
+        self.assertContains(self.client.get(reverse('security'), **HTML), reverse('fup_slowed'))
+
+    def test_who_can_see(self):
+        for role, code in [('voucher_support', 200), ('admin', 200), ('finance', 403), ('viewer', 403)]:
+            u = User.objects.create_user(f'{role}@sl.com', f'{role}@sl.com', 'pw')
+            TeamMember.objects.create(business=self.biz, user=u, role=role)
+            self.client.force_login(u)
+            self.assertEqual(self.client.get(reverse('fup_slowed'), **HTML).status_code, code, role)
