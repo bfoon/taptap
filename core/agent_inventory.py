@@ -353,7 +353,8 @@ def _users(router, rows, now):
                 existing_voucher.duration_minutes = duration_minutes
                 existing_voucher.max_devices = max_devices
                 was = existing_voucher.status
-                existing_voucher.status = 'disabled' if disabled else 'active'
+                # Time ran out stays ran out, whatever the router says. Only "Add time" in TapTap reopens it.
+                existing_voucher.status = 'expired' if was == 'expired' else ('disabled' if disabled else 'active')
                 if was != existing_voucher.status:
                     from .voucher_history import record
                     record(existing_voucher, 'router_disabled' if disabled else 'router_enabled', source='router',

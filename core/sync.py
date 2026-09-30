@@ -294,7 +294,8 @@ def sync_router(router, progress=None):
                     existing_voucher.mikrotik_id=str(row.get('id','')); existing_voucher.plan_name=profile_name
                     existing_voucher.duration_minutes=duration_minutes; existing_voucher.max_devices=max_devices
                     _was=existing_voucher.status
-                    existing_voucher.status='disabled' if disabled else 'active'
+                    # Time ran out stays ran out, whatever the router says (re-enabled in WinBox?). Only "Add time" in TapTap reopens it.
+                    existing_voucher.status='expired' if _was=='expired' else ('disabled' if disabled else 'active')
                     if _was!=existing_voucher.status:
                         from .voucher_history import record
                         record(existing_voucher,'router_disabled' if disabled else 'router_enabled',source='router',via='Full sync',

@@ -797,6 +797,9 @@ def handle_ack(cmd_id, given_nonce, status, result=''):
     if cmd.kind == 'hotspot_users_remove':
         from .voucher_bin import link_ack
         link_ack(cmd, ok)
+    if cmd.kind == 'hotspot_users_disable' and cmd.params.get('reason') == 'expired':
+        from .expiry import link_ack as expiry_ack
+        expiry_ack(cmd, ok)
     if cmd.kind == 'hotspot_users':
         ids = cmd.params.get('ids', [])
         Voucher.objects.filter(pk__in=ids).update(mikrotik_sync_status='Synced' if ok else 'Error', mikrotik_sync_error='' if ok else 'Router rejected the batch')
@@ -864,7 +867,9 @@ def ingest_sessions(router, rows, now):
             first_seen=now, last_seen=now, fix_due_at=now + grace,
         )
         SessionIncident.objects.filter(pk=inc.pk).update(last_seen=now, detail=detail)
-        if inc.status == 'open' and business.auto_enforce and inc.fix_due_at and inc.fix_due_at <= now and not cache.get(f'tt:linkfix:{inc.pk}'):
+        strict = reason == 'expired' and inc.status in ('open', 'ignored')     # time ran out: at once, always
+        if (strict or (inc.status == 'open' and business.auto_enforce and inc.fix_due_at and inc.fix_due_at <= now)) \
+                and not cache.get(f'tt:linkfix:{inc.pk}'):
             cache.set(f'tt:linkfix:{inc.pk}', 1, 300)
             fix_incident_via_link(inc, by='auto')
     ended = [i.pk for k, i in open_.items() if k not in bad and i.status == 'open']

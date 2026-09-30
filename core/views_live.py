@@ -54,6 +54,13 @@ def live_tick(request):
     ran = None
     if business.live_sync and not beat_alive() and cache.add(f'tt:watch:biz:{business.pk}', 1, interval()):
         ran = watch_business(business)
+    # No scheduler running: this page does the strict expiry sweep itself (live sync on or off).
+    if not beat_alive() and cache.add(f'tt:expiry:biz:{business.pk}', 1, interval()):
+        try:
+            from .expiry import sweep
+            sweep(business=business, watched=[r['router_id'] for r in (ran or []) if isinstance(r, dict) and r.get('router_id') and not r.get('error')])
+        except Exception:
+            pass
     data = _status(business)
     if ran is not None:
         data['ran'] = ran
@@ -71,6 +78,11 @@ def live_tick(request):
 def live_now(request):
     business = _b(request)
     results = watch_business(business, force=True)
+    try:
+        from .expiry import sweep
+        sweep(business=business, recheck=True, watched=[r['router_id'] for r in results if isinstance(r, dict) and r.get('router_id') and not r.get('error')])
+    except Exception:
+        pass
     data = _status(business)
     data['ran'] = results
     changed = sum((r.get('new_vouchers', 0) + r.get('activated', 0) + r.get('users_changed', 0) + r.get('bindings_changed', 0)) for r in results)

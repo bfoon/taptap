@@ -130,8 +130,8 @@ def watch_router(router, force=False):
     lock = f'tt:watch:router:{router.pk}'
     if not cache.add(lock, 1, timeout=max(30, interval() * 3)):
         return {'skipped': 'already running'}
-    summary = {'router': router.name, 'new_vouchers': 0, 'activated': 0, 'users_changed': 0, 'bindings_changed': 0,
-               'incidents': 0, 'fixed': 0, 'expiries': 0}
+    summary = {'router': router.name, 'router_id': router.pk, 'new_vouchers': 0, 'activated': 0, 'users_changed': 0, 'bindings_changed': 0,
+               'incidents': 0, 'fixed': 0, 'expiries': 0, 'time_up': 0}
     now = timezone.now()
     business = router.business
     try:
@@ -228,7 +228,7 @@ def watch_router(router, force=False):
                 summary['new_vouchers'] += 1
                 push_event(business.pk, f'New voucher {name} ({profile}) appeared on {router.name}', 'new')
             elif v.source == 'mikrotik' and not v.frozen_at:   # a frozen voucher stays frozen, whatever the router says
-                want = 'disabled' if disabled else ('expired' if v.status == 'expired' else 'active')
+                want = 'expired' if v.status == 'expired' else ('disabled' if disabled else 'active')   # time ran out stays ran out
                 if v.status != want:
                     before = v.status
                     Voucher.objects.filter(pk=v.pk).update(status=want); v.status = want
@@ -267,6 +267,15 @@ def watch_router(router, force=False):
                 for u in gone: push_event(business.pk, f'Voucher {u.username} was removed from {router.name}')
             else:
                 push_event(business.pk, f'{len(gone)} vouchers were removed from {router.name}')
+
+        # ---------------- time ran out: switch off at once (calendar end or router uptime used up) ----------------
+        try:
+            from .expiry import enforce_on_router
+            switched, summary['time_up'] = enforce_on_router(router, svc, users, active, now)
+            if switched:   # sessions just dropped: not online any more, no incident needed
+                active = [s for s in active if str(s.get('user', '')).strip().upper() not in switched]
+        except Exception:
+            logger.exception('expiry on %s', router.name)
 
         # ---------------- active sessions → activation + enforcement ----------------
         open_now = {}
@@ -316,7 +325,9 @@ def watch_router(router, force=False):
             else:
                 inc.last_seen, inc.detail, inc.session_id = now, detail, str(s.get('id', ''))
                 inc.save(update_fields=['last_seen', 'detail', 'session_id'])
-            if inc.status == 'open' and business.auto_enforce and inc.fix_due_at and inc.fix_due_at <= now:
+            # Time ran out: disconnect at once, always. Other problems follow the grace period / auto-enforce setting.
+            if (reason == 'expired' and inc.status in ('open', 'ignored')) or \
+                    (inc.status == 'open' and business.auto_enforce and inc.fix_due_at and inc.fix_due_at <= now):
                 ok, _ = fix_incident(inc, svc=svc, by='auto')
                 if ok:
                     summary['fixed'] += 1
@@ -487,6 +498,14 @@ def watch_all():
             if not business.has_access:
                 continue
             results += watch_business(business)
+        # Strict expiry for EVERY business (live sync on or off, with or without routers): mark vouchers whose
+        # time is up and make sure their router switched them off. Routers just watched were handled above.
+        try:
+            from .expiry import sweep
+            watched = [r['router_id'] for r in results if isinstance(r, dict) and r.get('router_id') and not r.get('error')]
+            sweep(watched=watched)
+        except Exception:
+            logger.exception('expiry sweep')
         return results
     finally:
         cache.delete('tt:watch:all')

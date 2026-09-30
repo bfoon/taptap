@@ -277,6 +277,9 @@ class Voucher(models.Model):
     def duration_text(self):
         from .durations import text
         return text(self.duration_minutes)
+    class Meta:
+        # the strict expiry sweep asks "active and its end has passed" every few seconds (core/expiry.py)
+        indexes=[models.Index(fields=['status','expires_at'],name='voucher_status_expires')]
 
 
 class SharedUseReview(models.Model):
@@ -320,7 +323,7 @@ class VoucherEvent(models.Model):
             ('router_enabled','Enabled on the router'),('sale_voided','Sale voided'),('deleted','Deleted'),('note','Note'),
             ('code_changed','Code changed'),('fup_slowed','Slowed down (fair usage)'),('fup_restored','Back to full speed'),('fup_lifted','Full speed given back'),('frozen','Frozen'),('unfrozen','Unfrozen'),('warned','Warning sent'),
             ('warning_accepted','Warning accepted by the customer'),('shared_resolved','Shared use resolved'),
-            ('password_changed','Password changed')]
+            ('password_changed','Password changed'),('time_up','Time ran out — switched off')]
     SOURCES=[('user','User'),('auto','Automatic'),('router','Router')]
     business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='voucher_events')
     voucher=models.ForeignKey(Voucher,on_delete=models.SET_NULL,null=True,blank=True,related_name='events')
