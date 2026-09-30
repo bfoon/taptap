@@ -23,7 +23,8 @@
     voucher: { n: 'Voucher box', i: 'bi-ticket-perforated', kinds: ['login'], def: { label: 'Voucher code', placeholder: 'Enter code', button: 'Connect', style: 'single', length: 8, show_hint: true, members: true },
       f: [['label', 'text', 'Label'], ['placeholder', 'text', 'Placeholder'], ['button', 'text', 'Button text'], ['style', 'seg', 'Input', { single: 'One field', boxes: 'Letter boxes' }],
           ['length', 'range', 'Number of boxes', [4, 12, 1, ''], function (b) { return b.style === 'boxes'; }], ['show_hint', 'check', 'Show the “not case-sensitive” hint'],
-          ['members', 'check', 'Member login tab (username + password)']] },
+          ['members', 'check', 'Member login tab (username + password)'],
+          ['scan', 'check', '“Scan the QR on your voucher” button'], ['scan_label', 'text', 'Scan button text']] },
     plans: { n: 'Plans & prices', i: 'bi-tags', def: { title: 'Prices', style: 'cards', show_devices: true, highlight: '', visible_plans: null },
       f: [['title', 'text', 'Title'], ['style', 'seg', 'Style', { cards: 'Cards', list: 'List', chips: 'Chips' }], ['show_devices', 'check', 'Show number of devices'],
           ['visible_plans', 'multi', 'Plans to show', function () { var o = {}; PLANS.forEach(function (p) { o[p.name] = p.name; }); return o; }],
@@ -96,7 +97,7 @@
     if (d.tp === 'select') { select(d.id); }
   });
   var paintT;
-  function paint() { clearTimeout(paintT); paintT = setTimeout(function () { if (!frameReady) return; frame.contentWindow.postMessage({ tp: 'render', cfg: cfg, ctx: { mode: 'preview', kind: PAGE.kind, business: BIZ, plans: PLANS, mt: {}, ads: ADS }, sel: sel }, '*'); }, 40); }
+  function paint() { clearTimeout(paintT); paintT = setTimeout(function () { if (!frameReady) return; frame.contentWindow.postMessage({ tp: 'render', cfg: cfg, ctx: { mode: 'preview', kind: PAGE.kind, business: BIZ, plans: PLANS, mt: {}, ads: ADS, qrLib: PAGE.qr_lib || '' }, sel: sel }, '*'); }, 40); }
 
   var SIZES = { phone: [390, 780], tablet: [768, 1024], desktop: [1280, 800] };
   function fit() {
@@ -225,7 +226,7 @@
     var d = BLOCKS[b.type], h = '<div class="side-h">' + d.n + '</div>';
     d.f.forEach(function (f) {
       var k = f[0], t = f[1], lab = f[2], v = b[k];
-      if (k === 'members' && v === undefined) v = true;   // older pages: the member tab is on unless switched off
+      if ((k === 'members' || k === 'scan') && v === undefined) v = true;   // older pages: on unless switched off
       if (f[4] && !f[4](b)) return;
       if (t === 'text' || t === 'url') h += field(lab, '<input type="' + (t === 'url' ? 'url' : 'text') + '" data-bk="' + k + '" value="' + esc(v) + '">');
       else if (t === 'textarea') h += field(lab, '<textarea data-bk="' + k + '">' + esc(v) + '</textarea>');

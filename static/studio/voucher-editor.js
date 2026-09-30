@@ -49,7 +49,9 @@
   function box(e) { return { l: e.x * MM * zoom, t: e.y * MM * zoom, w: Math.max(e.w * MM * zoom, 4), h: Math.max(e.h * MM * zoom, 4) }; }
   function drawSel() {
     $$('.vsel,.vguide', wrap).forEach(function (n) { n.remove(); });
+    $$('.tv-el.is-sel', canvas).forEach(function (n) { n.classList.remove('is-sel'); });
     var e = el(sel); if (!e) return;
+    var node = $('[data-eid="' + e.id + '"]', canvas); if (node) node.classList.add('is-sel');
     var b = box(e), s = document.createElement('div'); s.className = 'vsel';
     s.style.cssText = 'left:' + b.l + 'px;top:' + b.t + 'px;width:' + b.w + 'px;height:' + b.h + 'px';
     s.innerHTML = '<span class="dims">' + r1(e.w) + ' × ' + r1(e.h) + ' mm</span>' + (e.locked ? '' : '<i data-h="nw"></i><i data-h="e"></i><i data-h="s"></i><i data-h="se"></i>');
@@ -68,7 +70,12 @@
   var drag = null;
   wrap.addEventListener('pointerdown', function (ev) {
     var h = ev.target.closest('.vsel i'), t = ev.target.closest('[data-eid]');
-    if (!h && !t) { if (ev.target.closest('.tv-card')) { sel = null; rtab = 'card'; drawSel(); renderProps(); renderLayers(); } return; }
+    if (!h && !t) { if (ev.target.closest('.tv-card') && ev.pointerType !== 'touch') { sel = null; rtab = 'card'; drawSel(); renderProps(); renderLayers(); } return; }
+    // Touch: a finger on something not yet selected selects it and leaves the finger free to scroll.
+    // Dragging starts only on the selected element or its handles (they have touch-action:none).
+    if (ev.pointerType === 'touch' && !h && t && t.getAttribute('data-eid') !== sel) {
+      sel = t.getAttribute('data-eid'); rtab = 'el'; renderProps(); renderLayers(); drawSel(); return;
+    }
     ev.preventDefault();
     // Take focus off the side panel so arrow keys / Delete act on the card, not on a slider or button there.
     if (document.activeElement && document.activeElement !== document.body && document.activeElement.blur) document.activeElement.blur();
@@ -107,6 +114,11 @@
   wrap.addEventListener('pointercancel', cancelDrag);
   wrap.addEventListener('lostpointercapture', function () { if (drag) { var m = drag.moved; drag = null; if (m) commit(true); else draw(); } });
   window.addEventListener('blur', cancelDrag);
+  // Touch: a tap (not a scroll) on the empty card deselects; browsers send click only for real taps.
+  wrap.addEventListener('click', function (ev) {
+    if (ev.pointerType !== 'touch' || ev.target.closest('[data-eid]') || !ev.target.closest('.tv-card') || !sel) return;
+    sel = null; rtab = 'card'; drawSel(); renderProps(); renderLayers();
+  });
   wrap.addEventListener('dblclick', function (ev) { var t = ev.target.closest('[data-eid]'); if (!t) return; var f = $('#props textarea[data-p=text]'); if (f) { f.focus(); f.select(); } });
 
   /* ---------- history + save ---------- */
@@ -140,7 +152,7 @@
   }
   $('#saveBtn').onclick = function () { clearTimeout(saveT); save(); };
   $('#dName').addEventListener('input', function () { rev++; dirty = true; status('dirty'); clearTimeout(saveT); saveT = setTimeout(save, 1500); });
-  function defBtn() { var b = $('#defBtn'); b.innerHTML = isDefault ? '<i class="bi bi-star-fill"></i> Default' : '<i class="bi bi-star"></i> Make default'; b.disabled = isDefault; b.title = 'The default design is used when printing from Batches and Vouchers'; }
+  function defBtn() { var b = $('#defBtn'); b.innerHTML = isDefault ? '<i class="bi bi-star-fill"></i><span class="lbl"> Default</span>' : '<i class="bi bi-star"></i><span class="lbl"> Make default</span>'; b.disabled = isDefault; b.title = 'The default design is used when printing from Batches and Vouchers'; b.setAttribute('aria-label', isDefault ? 'Default design' : 'Make default design'); }
   $('#defBtn').onclick = function () { clearTimeout(saveT); save({ is_default: true }); };
   $('#testPrint').addEventListener('click', function () { if (dirty) { clearTimeout(saveT); save(); } });
   window.addEventListener('beforeunload', function (e) { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
@@ -235,13 +247,15 @@
   function rng(label, k, v, a, b, s, u) { return f(label, '<div class="rng"><input type="range" data-p="' + k + '" data-num="1" min="' + a + '" max="' + b + '" step="' + s + '" value="' + v + '" aria-label="' + label + '"><output>' + v + (u || '') + '</output></div>'); }
   var fontOpts = function (inherit) { var o = inherit ? { '': 'Same as card' } : {}; Object.keys(FONTS).forEach(function (k) { o[k] = FONTS[k]; }); return o; };
 
+  var propsKey = null;
   function renderProps() {
     $$('[data-rt]').forEach(function (x) { x.classList.toggle('on', x.dataset.rt === rtab); });
-    var p = $('#props'), target, h;
+    var p = $('#props'), target, h, key = rtab + ':' + (rtab === 'el' ? sel : ''), top = p.scrollTop;
     if (rtab === 'el') { target = el(sel); h = target ? elProps(target) : '<div class="empty-props"><i class="bi bi-cursor fs-3 d-block mb-2"></i>Click something on the card to edit it.</div>'; }
     else if (rtab === 'card') { target = cfg; h = cardProps(); }
     else { target = cfg; h = printProps(); }
     p.innerHTML = h; bind(p, target);
+    p.scrollTop = key === propsKey ? top : 0; propsKey = key;
   }
   var softT; function renderPropsSoft() { clearTimeout(softT); softT = setTimeout(function () { var a = document.activeElement; if (a && $('#props').contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) { syncGeom(); return; } renderProps(); }, 60); }
   function syncGeom() { var e = el(sel); if (!e || rtab !== 'el') return; ['x', 'y', 'w', 'h'].forEach(function (k) { var i = $('#props [data-p="' + k + '"]'); if (i && i !== document.activeElement) i.value = r1(e[k]); }); }

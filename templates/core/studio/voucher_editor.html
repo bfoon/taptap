@@ -12,9 +12,9 @@
     <select class="form-select form-select-sm" id="samplePlan" style="width:auto;max-width:150px" title="Preview with this plan" aria-label="Preview with this plan"></select>
     <div class="btn-group"><button class="btn btn-light btn-sm" id="zOut" aria-label="Zoom out"><i class="bi bi-zoom-out"></i></button><button class="btn btn-light btn-sm" id="zVal" style="min-width:58px">100%</button><button class="btn btn-light btn-sm" id="zIn" aria-label="Zoom in"><i class="bi bi-zoom-in"></i></button></div>
     <div class="btn-group"><button class="btn btn-light btn-sm" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo"><i class="bi bi-arrow-counterclockwise"></i></button><button class="btn btn-light btn-sm" id="redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo"><i class="bi bi-arrow-clockwise"></i></button></div>
-    <a class="btn btn-light btn-sm" id="testPrint" href="{% url 'voucher_print' %}?sample=1&design={{ design.id }}" target="_blank"><i class="bi bi-printer"></i> Test</a>
+    <a class="btn btn-light btn-sm" id="testPrint" href="{% url 'voucher_print' %}?sample=1&design={{ design.id }}" target="_blank" title="Print a test sheet" aria-label="Print a test sheet"><i class="bi bi-printer"></i><span class="lbl"> Test</span></a>
     <button class="btn btn-outline-primary btn-sm" id="defBtn"></button>
-    <button class="btn btn-primary btn-sm" id="saveBtn"><i class="bi bi-cloud-check"></i> Save</button>
+    <button class="btn btn-primary btn-sm" id="saveBtn" title="Save (Ctrl+S)" aria-label="Save"><i class="bi bi-cloud-check"></i><span class="lbl"> Save</span></button>
   </div>
   <div class="ed-body">
     <aside class="ed-side">

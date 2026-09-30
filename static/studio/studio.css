@@ -41,7 +41,8 @@ body:has(.ed) .main-content>.mb-3{position:fixed;top:12px;right:16px;z-index:200
 .ed-kind{font-size:.68rem;font-weight:800;border-radius:99px;padding:.22rem .55rem;background:#eef4ff;color:var(--primary)}
 .ed-status{font-size:.74rem;color:var(--muted);min-width:0;white-space:nowrap}.ed-status.dirty{color:#9a5b00}.ed-status.err{color:#b42318}
 .ed-bar .spacer{flex:1}
-.ed-bar .btn{font-size:.8rem;font-weight:700}
+.ed-bar .btn{font-size:.8rem;font-weight:700;white-space:nowrap}
+@media(max-width:1480px){.ed-bar .lbl{display:none}.ed-bar #samplePlan{max-width:120px!important}.ed-name{max-width:180px}}
 .dev-toggle{display:inline-flex;background:#f2f5f9;border-radius:10px;padding:3px}.dev-toggle button{border:0;background:transparent;padding:.3rem .55rem;border-radius:8px;color:#5b6d82}.dev-toggle button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px #0002}
 .ed-body{display:grid;grid-template-columns:280px 1fr 320px;min-height:0}
 .ed-side{background:#fff;border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0}
@@ -90,7 +91,8 @@ body:has(.ed) .main-content>.mb-3{position:fixed;top:12px;right:16px;z-index:200
 .tpl-list b{font-size:.72rem;display:block;padding:.3rem .15rem 0}
 
 /* ── voucher designer ── */
-.vcanvas-wrap{position:relative;margin:auto;touch-action:none;-webkit-user-select:none;user-select:none}
+.vcanvas-wrap{position:relative;margin:auto;flex:none;touch-action:pan-x pan-y pinch-zoom;-webkit-user-select:none;user-select:none}
+.vcanvas .tv-el.is-sel,.vsel i{touch-action:none}
 .vcanvas{position:relative;transform-origin:0 0;box-shadow:0 20px 50px -18px #0b223766}
 .vcanvas .tv-el{cursor:move}.vcanvas .tv-el.locked{cursor:default}
 .vsel{position:absolute;border:1.5px solid var(--primary);pointer-events:none;z-index:5}

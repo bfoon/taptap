@@ -82,6 +82,7 @@
     trophy: '<path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4a3 3 0 0 0 3 4M17 6h3a3 3 0 0 1-3 4M12 14v4M8 21h8"/>',
     'cup-hot': '<path d="M4 10h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M17 12h1.5a2.5 2.5 0 0 1 0 5H17M8 3c0 1.5 1 1.5 1 3M12 3c0 1.5 1 1.5 1 3"/>',
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
+    qr: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v1M14 20h1M17 17h4v4h-4"/>',
     warn: '<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/>',
     check: '<path d="M4 12.5l5 5L20 6.5"/>', lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
     arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>', devices: '<rect x="2" y="5" width="14" height="10" rx="1.5"/><path d="M6 19h6"/><rect x="17" y="9" width="5" height="11" rx="1"/>'
@@ -157,6 +158,9 @@
       '.tp-btn.outline{background:transparent;color:' + t.text + ';border:1.5px solid ' + t.border + '}',
       '.tp-btn[disabled]{opacity:.6;cursor:wait}',
       '.tp-hint{font-size:12.5px;color:' + t.muted + ';margin:10px 0 0}',
+      /* Scan the QR printed on the voucher (camera photo → decoded on the phone) */
+      '.tp-scan{display:flex;width:100%;align-items:center;justify-content:center;gap:8px;margin-top:10px;padding:11px 14px;font:inherit;font-weight:700;font-size:14.5px;cursor:pointer;border-radius:' + Math.max(4, r * .55) + 'px;border:1.5px dashed ' + hexA(t.accent, .6) + ';background:' + hexA(t.accent, .07) + ';color:' + t.accent + '}',
+      '.tp-scan:hover{background:' + hexA(t.accent, .13) + '}.tp-scan:focus-visible{outline:3px solid ' + hexA(t.accent, .45) + ';outline-offset:2px}.tp-scan[disabled]{opacity:.6;cursor:progress}',
       /* Voucher / Member login switch */
       '.tp-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin-bottom:14px;border-radius:' + Math.max(4, r * .55) + 'px;background:' + t.input_bg + ';border:1.5px solid ' + t.border + '}',
       '.tp-tabs button{border:0;background:transparent;font:inherit;font-weight:700;font-size:14px;padding:9px 8px;border-radius:' + Math.max(3, r * .45) + 'px;color:' + t.muted + ';cursor:pointer;transition:background .15s,color .15s}',
@@ -308,7 +312,9 @@
     }
     var err = ctx.mt && ctx.mt.error ? '<div class="tp-msg err" role="alert">' + icon('warn') + '<span>' + esc(ctx.mt.error) + '</span></div>' : '';
     var hint = b.show_hint ? '<p class="tp-hint">Codes are not case-sensitive — spaces are ignored.</p>' : '';
-    var voucherPane = (b.label ? '<label class="tp-label" for="' + id + '">' + esc(b.label) + '</label>' : '') + field + hint;
+    var scan = b.scan === false ? '' : '<button type="button" class="tp-scan">' + icon('qr', 20) + '<span>' + esc(b.scan_label || 'Scan the QR on your voucher') + '</span></button>' +
+      '<input type="file" accept="image/*" capture="environment" class="tp-scan-in" hidden aria-hidden="true" tabindex="-1">';
+    var voucherPane = (b.label ? '<label class="tp-label" for="' + id + '">' + esc(b.label) + '</label>' : '') + field + hint + scan;
     var btn = '<button class="tp-btn" type="submit">' + icon('wifi') + '<span>' + esc(b.button || 'Connect') + '</span></button>' +
       '<div class="tp-out" aria-live="polite">' + err + '</div>';
     // Members log in with a username and a password. On by default; Voucher is always the first tab.
@@ -392,6 +398,50 @@
   /* ---------- behaviour ---------- */
   function normalize(v) { return String(v || '').replace(/\s+/g, '').toUpperCase(); }
 
+  function loadQrLib(ctx, cb) {
+    if (window.jsQR || window.BarcodeDetector) return cb();
+    var inline = document.getElementById('tp-jsqr'), s = document.createElement('script');
+    if (inline) { s.text = inline.textContent; document.head.appendChild(s); return cb(); }   // router pages carry it, switched off until needed
+    if (!ctx.qrLib) return cb();
+    s.src = ctx.qrLib; s.onload = s.onerror = function () { cb(); }; document.head.appendChild(s);
+  }
+  function readQr(file, ctx, done) {
+    loadQrLib(ctx, function () {
+      var url = URL.createObjectURL(file), img = new Image(), sizes = [1000, 640, 1500], i = 0;
+      var finish = function (t) { URL.revokeObjectURL(url); done(t || ''); };
+      img.onerror = function () { finish(''); };
+      img.onload = function () {
+        (function next() {
+          if (i >= sizes.length) return finish('');
+          var k = Math.min(1, sizes[i++] / Math.max(img.width, img.height)), c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+          var g = c.getContext('2d'); g.drawImage(img, 0, 0, c.width, c.height);
+          var viaJs = function () {
+            if (window.jsQR) { var d = g.getImageData(0, 0, c.width, c.height), q = window.jsQR(d.data, c.width, c.height, { inversionAttempts: 'attemptBoth' }); if (q && q.data) return finish(q.data); }
+            next();
+          };
+          if (window.BarcodeDetector) {
+            try { new window.BarcodeDetector({ formats: ['qr_code'] }).detect(c).then(function (r) { if (r && r[0] && r[0].rawValue) finish(r[0].rawValue); else viaJs(); }, viaJs); return; } catch (e) { /* not supported here */ }
+          }
+          viaJs();
+        })();
+      };
+      img.src = url;
+    });
+  }
+  // What a voucher QR can hold: the TapTap login link (…/login?username=CODE&password=CODE), a
+  // member login link (different password), the bare code, or a "join Wi-Fi" QR (not a login).
+  function parseVoucherQr(text) {
+    var t = String(text || '').trim(); if (!t) return null;
+    if (/^WIFI:/i.test(t)) return { wifi: true };
+    var q = t.indexOf('?') >= 0 ? t.slice(t.indexOf('?') + 1).split('#')[0] : '', params = {};
+    q.split('&').forEach(function (kv) { var p = kv.split('='); if (p[0]) { try { params[decodeURIComponent(p[0])] = decodeURIComponent((p[1] || '').replace(/\+/g, ' ')); } catch (e) { /* bad escape */ } } });
+    var user = params.username || params.code || params.voucher || '';
+    if (user) { var pass = params.password || user; return { user: user, pass: pass, member: pass !== user }; }
+    if (/^[A-Za-z0-9][A-Za-z0-9 ._@-]{2,40}$/.test(t) && !/^https?:/i.test(t)) { var c = t.replace(/\s+/g, ''); return { user: c, pass: c, member: false }; }
+    return null;
+  }
+
   function wireBoxes(root) {
     [].forEach.call(root.querySelectorAll('.tp-boxes'), function (w) {
       var input = w.querySelector('input'), cells = w.querySelectorAll('span');
@@ -469,6 +519,25 @@
           var next = tabs[(i + 1) % tabs.length]; next.focus(); next.click(); e.preventDefault();
         });
       });
+      // ---- Scan the QR on the voucher: the phone camera takes a photo, the page reads the code and logs in.
+      // A photo (not live video) works on http:// router pages too, where browsers block live camera access.
+      var scanBtn = form.querySelector('.tp-scan'), scanIn = form.querySelector('.tp-scan-in');
+      if (scanBtn && scanIn) {
+        scanBtn.addEventListener('click', function () { out.innerHTML = ''; scanIn.value = ''; scanIn.click(); });
+        scanIn.addEventListener('change', function () {
+          var file = scanIn.files && scanIn.files[0]; if (!file) return;
+          scanBtn.disabled = true; say('ok', 'Reading the QR code…');
+          readQr(file, ctx, function (text) {
+            scanBtn.disabled = false;
+            var got = parseVoucherQr(text);
+            if (!got) { say('err', text ? 'That QR code is not a voucher. Scan the QR printed on your voucher, or type the code.' : 'No QR code found in the photo. Hold the voucher flat, fill the screen with the QR and try again.'); return; }
+            if (got.wifi) { say('err', 'That QR joins the Wi-Fi — you are already connected. Scan the other QR on the voucher, or type the code.'); return; }
+            if (got.member && mUser) { setMode('member', false); mUser.value = got.user; mPass.value = got.pass; }
+            else { if (mUser) setMode('voucher', false); input.value = got.user; input.dispatchEvent(new Event('input')); }
+            if (form.requestSubmit) form.requestSubmit(); else form.dispatchEvent(new Event('submit', { cancelable: true }));
+          });
+        });
+      }
       var show = form.querySelector('.tp-show');
       if (show) show.addEventListener('click', function () { var h = mPass.type === 'password'; mPass.type = h ? 'text' : 'password'; show.textContent = h ? 'Hide' : 'Show'; });
       // After a failed login the router shows this page again with its error: reopen the tab the customer used.
@@ -662,5 +731,5 @@
 
   function select(root, id) { [].forEach.call(root.querySelectorAll('[data-bid]'), function (e) { e.classList.toggle('sel', e.getAttribute('data-bid') === id); }); }
 
-  global.TapPortal = { render: render, select: select, md5: md5, dur: dur };
+  global.TapPortal = { render: render, select: select, md5: md5, dur: dur, parseQr: parseVoucherQr };
 })(window);

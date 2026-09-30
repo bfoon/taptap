@@ -34,6 +34,6 @@
   </div>
 </div>
 {{ config|json_script:"cfgData" }}{{ gallery|json_script:"galleryData" }}{{ business_ctx|json_script:"bizData" }}{{ plans_ctx|json_script:"plansData" }}{{ ads_ctx|json_script:"adsData" }}{{ fonts|json_script:"fontsData" }}
-<script id="pageData" type="application/json">{"id":{{ page.id }},"kind":"{{ page.kind }}","published":{{ page.is_published|yesno:"true,false" }},"is_default":{{ page.is_default|yesno:"true,false" }},"public_url":"{{ public_url|escapejs }}","renderer":"{% static 'studio/portal-render.js' %}"}</script>
+<script id="pageData" type="application/json">{"id":{{ page.id }},"kind":"{{ page.kind }}","published":{{ page.is_published|yesno:"true,false" }},"is_default":{{ page.is_default|yesno:"true,false" }},"public_url":"{{ public_url|escapejs }}","renderer":"{% static 'studio/portal-render.js' %}","qr_lib":"{% static 'vendor/jsqr.js' %}"}</script>
 {% endblock %}
 {% block scripts %}<script>document.body.classList.add('studio-mode');</script><script src="{% static 'studio/portal-editor.js' %}"></script>{% endblock %}

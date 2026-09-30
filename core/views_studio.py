@@ -5,6 +5,7 @@ import secrets
 import zipfile
 from pathlib import Path
 
+from django.templatetags.static import static
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -188,6 +189,7 @@ def _public_ctx(request, page, mode):
             'mt': mt, 'checkUrl': f'/p/{page.slug}/check/', 'deviceUrl': f'/p/device/{page.slug}/',
             'acceptUrl': f'/p/{page.slug}/accept/',
             'bonanza': bonanza_ctx(business),
+            'qrLib': static('vendor/jsqr.js'),          # QR decoder, loaded only when a customer taps "Scan"
             'ads': {page.kind: ads_for(business, page.kind, base)}}
 
 
@@ -267,6 +269,12 @@ MT_VARS = {
 MT_VARS['status'] = MT_VARS['redirect']
 
 
+def _wants_scan(config):
+    """Does the page show the "Scan the QR on your voucher" button? (On unless switched off.)"""
+    return any(b.get('type') == 'voucher' and not b.get('hidden') and b.get('scan') is not False
+               for b in (config or {}).get('blocks', []))
+
+
 def _export_html(page, base=''):
     renderer = (STATIC_DIR / 'studio' / 'portal-render.js').read_text(encoding='utf-8')
     business = page.business
@@ -277,6 +285,9 @@ def _export_html(page, base=''):
            'stateUrl': f'{base}/p/{page.slug}/state/' if base else '', 'acceptUrl': f'{base}/p/{page.slug}/accept/' if base else ''}
     # Values that may contain quotes go through the DOM, not a JS string literal.
     hidden = '<div id="tp-err" hidden>$(error)</div><div id="tp-orig" hidden>$(link-orig)</div>' if page.kind == 'login' else ''
+    if page.kind == 'login' and _wants_scan(page.config):
+        qr = (STATIC_DIR / 'vendor' / 'jsqr.js').read_text(encoding='utf-8').replace('</script', '<\\/script')
+        hidden += f'<script type="text/plain" id="tp-jsqr">{qr}</script>'
     refresh = '<meta http-equiv="refresh" content="60">' if page.kind == 'status' else ''
     return f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">

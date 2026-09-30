@@ -292,6 +292,85 @@ def _login_templates():
             _b('voucher', label='Voucher code', placeholder='Code', button='Connect', style='single', show_hint=False),
             _b('footer', text='Help: {phone}'),
         ]}
+    # ── new: QR-first, national colours, salons, health centres, co-working, youth centres ──
+    T['scango'] = {
+        'label': 'Scan & Go', 'kind': 'login', 'venue': 'Busy counters · kiosks · anywhere with printed QR vouchers',
+        'theme': _theme(font='sora', heading_font='sora', width=420,
+                        bg={'type': 'gradient', 'color1': '#0f766e', 'color2': '#042f2e', 'angle': 160, 'pattern': 'grid', 'pattern_opacity': .1},
+                        surface='#ffffff', accent='#0f766e', text='#0b2b29', muted='#5b7672', radius=24, input_bg='#eef7f6', border='#d3e7e4'),
+        'blocks': [
+            _b('logo', mode='image', size=56, shape='rounded'),
+            _b('heading', title='Scan. Connect. Go.', subtitle='Tap the button, point your camera at the QR on your voucher — no typing.', size='lg'),
+            _b('voucher', label='Or type the code', placeholder='8 characters', button='Connect', style='single', show_hint=False,
+               scan=True, scan_label='Scan my voucher QR'),
+            _b('steps', title='How it works', items=['Buy a voucher with a QR code', 'Tap “Scan my voucher QR” and take a photo', 'You are online — keep the voucher for later']),
+            _b('footer', text='Powered by TapTap'),
+        ]}
+    T['flag'] = {
+        'label': 'National Colours', 'kind': 'login', 'venue': 'Independence Day · national events · any time',
+        'theme': _theme(font='rubik', heading_font='archivo', layout='bands',
+                        bg={'type': 'gradient', 'color1': '#ce1126', 'color2': '#0c1c8c', 'angle': 180, 'pattern': 'none'},
+                        surface='#ffffff', accent='#3a7728', text='#0c1c8c', muted='#4b5675', radius=16, input_bg='#f2f5fb', border='#dfe5f0'),
+        'blocks': [
+            _b('logo', mode='image', size=58, shape='circle'),
+            _b('heading', title='Proudly online, proudly Gambian', subtitle='Fast Wi-Fi from {business}.', size='lg'),
+            _b('ticker', items=['Independence Day special: extra time on weekly passes', 'Share a voucher with family back home'], icon='gift'),
+            _b('voucher', label='Voucher code', placeholder='Voucher code', button='Connect', style='single', show_hint=True),
+            _b('plans', title='Passes', style='chips', show_devices=False, highlight=''),
+            _b('footer', text='Powered by TapTap'),
+        ]}
+    T['salon'] = {
+        'label': 'Beauty Salon', 'kind': 'login', 'venue': 'Salons · barbershops · spas',
+        'theme': _theme(font='nunito', heading_font='caveat', width=400,
+                        bg={'type': 'gradient', 'color1': '#fde2e4', 'color2': '#f7c6d0', 'angle': 135, 'pattern': 'dots', 'pattern_opacity': .18},
+                        surface='#fffafb', accent='#d6457a', text='#4a1d2f', muted='#8a6273', radius=30, input_bg='#fdf0f3', border='#f3d3dd'),
+        'blocks': [
+            _b('logo', mode='image', size=64, shape='circle'),
+            _b('heading', title='Relax, you’re connected', subtitle='Scroll, stream or catch up while we work our magic.', size='lg'),
+            _b('voucher', label='Your Wi-Fi code', placeholder='Ask at reception', button='Get online', style='single', show_hint=True),
+            _b('notice', text='Free 1 hour of Wi-Fi with every braiding or styling appointment.', tone='promo', icon='gift'),
+            _b('social', facebook='', instagram='', tiktok='', whatsapp=''),
+            _b('footer', text='Powered by TapTap'),
+        ]}
+    T['clinic'] = {
+        'label': 'Health Centre', 'kind': 'login', 'venue': 'Clinics · pharmacies · waiting rooms',
+        'theme': _theme(font='outfit', heading_font='outfit', width=440,
+                        bg={'type': 'solid', 'color1': '#e8f3fb', 'pattern': 'none'},
+                        surface='#ffffff', accent='#0b72b9', text='#10324a', muted='#5a7489', radius=16, shadow='soft', input_bg='#f1f7fc', border='#d6e6f2'),
+        'blocks': [
+            _b('logo', mode='image', size=54, shape='rounded'),
+            _b('heading', title='Waiting-room Wi-Fi', subtitle='Stay connected while you wait to be seen.', size='md'),
+            _b('voucher', label='Voucher code', placeholder='From the front desk', button='Connect', style='single', show_hint=True),
+            _b('notice', text='Please keep calls quiet and your phone on silent in the waiting area. Thank you.', tone='info', icon='info'),
+            _b('contact', phone='', whatsapp='', email='', hours='Open Mon–Sat 08:00 – 20:00'),
+            _b('footer', text='Powered by TapTap'),
+        ]}
+    T['cowork'] = {
+        'label': 'Business Centre', 'kind': 'login', 'venue': 'Co-working · business centres · offices · members',
+        'theme': _theme(font='grotesk', heading_font='grotesk', layout='split', align='left',
+                        bg={'type': 'gradient', 'color1': '#111827', 'color2': '#1f2937', 'angle': 160, 'pattern': 'grid', 'pattern_opacity': .08},
+                        surface='#ffffff', accent='#111827', accent_text='#ffffff', text='#111827', muted='#6b7280', radius=12, shadow='strong', input_bg='#f5f6f8', border='#e5e7eb'),
+        'blocks': [
+            _b('logo', mode='image', size=48, shape='rounded'),
+            _b('heading', title='Welcome back', subtitle='Members: use your username and password. Visitors: use a day-pass voucher.', size='lg'),
+            _b('voucher', label='Day-pass code', placeholder='Day-pass code', button='Sign in', style='single', show_hint=False,
+               members=True, voucher_tab='Day pass', member_tab='Member'),
+            _b('plans', title='Passes & memberships', style='cards', show_devices=True, highlight=''),
+            _b('contact', phone='', whatsapp='', email='', hours='Mon–Fri 08:00 – 18:00'),
+            _b('footer', text='Powered by TapTap'),
+        ]}
+    T['youth'] = {
+        'label': 'Youth Centre', 'kind': 'login', 'venue': 'Youth & community centres · clubs · events',
+        'theme': _theme(font='rubik', heading_font='bebas', layout='poster', align='left',
+                        bg={'type': 'solid', 'color1': '#7c3aed', 'pattern': 'stripes', 'pattern_opacity': .12},
+                        surface='#ffffff', accent='#f59e0b', accent_text='#1f1147', text='#1f1147', muted='#5b4b8a', radius=10, shadow='hard', input_bg='#f5f3ff', border='#1f1147'),
+        'blocks': [
+            _b('heading', title='LEARN. PLAY. CONNECT.', subtitle='Wi-Fi for homework, courses and staying in touch.', size='xl'),
+            _b('voucher', label='Voucher', placeholder='XXXXXXXX', button='Let’s go', style='boxes', show_hint=True),
+            _b('ticker', items=['Free coding club every Saturday', 'Ask about student passes'], icon='bell'),
+            _b('plans', title='Passes', style='list', show_devices=True, highlight=''),
+            _b('footer', text='Powered by TapTap'),
+        ]}
     return T
 
 
@@ -788,6 +867,82 @@ def _voucher_templates():
             _el('qr', 61, 16, 20, 20, color='#0f5132', bg='#f7f1dc'),
             _el('text', 4, 35, 53, 4, text='{plan} · {duration} · {devices}', size=6.5, weight=400, color='#f7f1dc'),
             _el('text', 4, 41, 77, 8, text='Join {ssid}, open any page and type your code. Help {phone}', size=5.8, weight=400, color='#d9cfa8'),
+        ])}
+    # ── new: QR-first, national colours, salon, health centre, business centre, youth centre ──
+    T['scanfirst'] = {'label': 'Scan First', 'note': 'Big QR — customers scan instead of typing',
+        'config': _card(font='sora', bg={'type': 'solid', 'color1': '#ffffff'}, border={'width': .3, 'color': '#0f766e', 'radius': 3}, elements=[
+            _el('rect', 0, 0, 36, 54, fill='#0f766e'),
+            _el('qr', 3, 9, 30, 30, color='#0b2b29', bg='#ffffff', margin=1.5),
+            _el('text', 3, 3, 30, 5, text='SCAN ME', size=8.5, weight=800, color='#ffffff', align='center', spacing=2),
+            _el('text', 3, 42, 30, 9, text='Tap “Scan” on the Wi-Fi page', size=5.6, weight=600, color='#d6f5f1', align='center'),
+            _el('text', 40, 4, 42, 5, text='{business}', size=9.5, weight=800, color='#0b2b29'),
+            _el('text', 40, 10, 42, 4, text='{plan} · {duration}', size=6.5, weight=600, color='#0f766e'),
+            _el('text', 40, 17, 42, 4, text='or type the code', size=5.8, weight=500, color='#5b7672'),
+            _el('code', 40, 22, 42, 10, size=13.5, color='#0b2b29', border='#0f766e', border_width=.4, radius=2, spacing=1.5),
+            _el('text', 40, 36, 42, 8, text='{currency}{price}', size=15, weight=800, color='#0f766e'),
+            _el('text', 40, 47, 42, 4, text='Wi-Fi: {ssid} · #{serial}', size=5.5, weight=600, color='#8aa3a0'),
+        ])}
+    T['flag'] = {'label': 'National Colours', 'note': 'Red, blue and green bands',
+        'config': _card(font='rubik', bg={'type': 'solid', 'color1': '#ffffff'}, border={'width': .3, 'color': '#0c1c8c', 'radius': 2.5}, elements=[
+            _el('rect', 0, 0, 85, 7, fill='#ce1126'), _el('rect', 0, 7, 85, .8, fill='#ffffff'), _el('rect', 0, 7.8, 85, 2.4, fill='#0c1c8c'),
+            _el('rect', 0, 10.2, 85, .8, fill='#ffffff'), _el('rect', 0, 47, 85, 7, fill='#3a7728'),
+            _el('text', 4, 13, 50, 5, text='{business}', size=10, weight=800, color='#0c1c8c'),
+            _el('text', 4, 18.5, 50, 4, text='{plan} · {duration} · {devices}', size=6.5, weight=600, color='#4b5675'),
+            _el('code', 4, 25, 54, 11, size=16, color='#0c1c8c', border='#3a7728', border_width=.45, radius=1.5),
+            _el('qr', 62, 14, 19, 19, color='#0c1c8c'),
+            _el('text', 58, 35, 25, 7, text='{currency}{price}', size=14, weight=800, color='#ce1126', align='center'),
+            _el('text', 4, 39, 54, 6, text='Join “{ssid}” and type the code.', size=5.8, weight=500, color='#4b5675'),
+            _el('text', 4, 48.5, 77, 4, text='#{serial} · Help: {phone}', size=5.5, weight=600, color='#ffffff'),
+        ])}
+    T['salon'] = {'label': 'Soft Pink', 'note': 'Salons, spas, beauty — gentle and rounded',
+        'config': _card(font='nunito', bg={'type': 'gradient', 'color1': '#fde2e4', 'color2': '#f7c6d0', 'angle': 135, 'pattern': 'dots', 'pattern_opacity': .2},
+                        border={'width': 0, 'radius': 6}, elements=[
+            _el('icon', 5, 4.5, 7, 7, icon='heart', color='#d6457a'),
+            _el('text', 14, 4, 50, 6, text='{business}', size=12, weight=700, color='#4a1d2f', font='caveat'),
+            _el('text', 14, 10, 50, 4, text='Relax — you’re connected', size=6.5, weight=600, color='#8a6273'),
+            _el('rect', 5, 17, 52, 14, fill='#ffffff', radius=5, opacity=.92),
+            _el('code', 6, 18.5, 50, 11, size=15, color='#d6457a', border_width=0),
+            _el('qr', 62, 16, 19, 19, color='#4a1d2f'),
+            _el('text', 5, 35, 52, 5, text='{plan} · {duration}', size=7, weight=700, color='#4a1d2f'),
+            _el('text', 60, 37, 23, 7, text='{currency}{price}', size=13, weight=800, color='#d6457a', align='center'),
+            _el('text', 5, 43, 52, 8, text='Join “{ssid}”, open any page, type the code.', size=5.8, weight=500, color='#8a6273'),
+        ])}
+    T['clinic'] = {'label': 'Clean Care', 'note': 'Clinics, pharmacies — calm and clear',
+        'config': _card(font='outfit', bg={'type': 'solid', 'color1': '#ffffff'}, border={'width': .3, 'color': '#b9d6ea', 'radius': 3}, elements=[
+            _el('rect', 0, 0, 3, 54, fill='#0b72b9'),
+            _el('logo', 7, 4, 9, 9, shape='rounded', bg='#0b72b9'),
+            _el('text', 18, 4.5, 46, 5, text='{business}', size=9.5, weight=800, color='#10324a'),
+            _el('text', 18, 9.5, 46, 4, text='Waiting-room Wi-Fi', size=6.5, weight=500, color='#5a7489'),
+            _el('code', 7, 18, 50, 11, size=16, color='#10324a', bg='#f1f7fc', border='#0b72b9', border_width=.3, radius=2),
+            _el('qr', 62, 16, 19, 19, color='#10324a'),
+            _el('text', 7, 32, 50, 4, text='{plan} · {duration} · {devices}', size=6.5, weight=600, color='#0b72b9'),
+            _el('text', 7, 38, 50, 9, text='Join “{ssid}”. Please keep your phone on silent in the waiting area.', size=5.6, weight=500, color='#5a7489'),
+            _el('text', 60, 38, 23, 6, text='{currency}{price}', size=12, weight=800, color='#10324a', align='center'),
+            _el('text', 7, 48.5, 74, 4, text='#{serial} · {phone}', size=5.3, weight=600, color='#9fb4c4'),
+        ])}
+    T['cowork'] = {'label': 'Business Centre', 'note': 'Dark, professional — offices and co-working',
+        'config': _card(font='grotesk', bg={'type': 'gradient', 'color1': '#111827', 'color2': '#1f2937', 'angle': 160, 'pattern': 'grid', 'pattern_opacity': .1},
+                        border={'width': 0, 'radius': 3}, elements=[
+            _el('text', 5, 5, 50, 5, text='{business}', size=9.5, weight=700, color='#ffffff'),
+            _el('text', 5, 10.5, 50, 4, text='DAY PASS · {plan}', size=6, weight=700, color='#9ca3af', spacing=1),
+            _el('code', 5, 19, 52, 11, size=15.5, color='#ffffff', border='#6b7280', border_width=.35, radius=1.5),
+            _el('qr', 62, 5, 19, 19, color='#111827', bg='#ffffff'),
+            _el('text', 58, 27, 25, 6, text='{currency}{price}', size=12.5, weight=700, color='#ffffff', align='center'),
+            _el('line', 5, 36, 76, .1, stroke='#374151', stroke_width=.3),
+            _el('text', 5, 39, 76, 4, text='{duration} · {devices} · {speed}', size=6, weight=600, color='#d1d5db'),
+            _el('text', 5, 45, 76, 6, text='Wi-Fi “{ssid}” · members sign in with their username', size=5.5, weight=500, color='#9ca3af'),
+        ])}
+    T['youth'] = {'label': 'Youth Centre', 'note': 'Bold purple and amber, loud and fun',
+        'config': _card(font='rubik', bg={'type': 'solid', 'color1': '#7c3aed', 'pattern': 'stripes', 'pattern_opacity': .12},
+                        border={'width': 0, 'radius': 3}, elements=[
+            _el('text', 5, 4, 55, 8, text='LEARN · PLAY · CONNECT', size=10, weight=800, color='#fde68a', font='bebas', spacing=1),
+            _el('text', 5, 12, 55, 4, text='{business}', size=6.5, weight=600, color='#ede9fe'),
+            _el('rect', 5, 18, 52, 14, fill='#f59e0b', radius=2),
+            _el('code', 6, 19.5, 50, 11, size=16, color='#1f1147', border_width=0),
+            _el('qr', 62, 5, 19, 19, color='#1f1147', bg='#ffffff'),
+            _el('text', 58, 26, 25, 7, text='{currency}{price}', size=14, weight=800, color='#fde68a', align='center'),
+            _el('text', 5, 36, 52, 4, text='{plan} · {duration}', size=7, weight=700, color='#ffffff'),
+            _el('text', 5, 42, 76, 8, text='Join “{ssid}”, open any page and type the code — or scan the QR.', size=5.8, weight=500, color='#ede9fe'),
         ])}
     return T
 
