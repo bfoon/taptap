@@ -220,8 +220,20 @@ def portal_check(request, slug):
     try: data = json.loads(request.body or '{}')
     except Exception: data = request.POST
     code = str(data.get('code') or '').replace(' ', '').strip()
-    if not code: return JsonResponse({'success': False, 'message': 'Type the code printed on your voucher.'}, status=400)
-    v = page.business.vouchers.filter(code__iexact=code).first()
+    member = bool(data.get('member'))
+    if not code:
+        return JsonResponse({'success': False, 'message': 'Type your username.' if member else 'Type the code printed on your voucher.'}, status=400)
+    if member:
+        # Members: username + password. Same answer for an unknown username and a wrong password.
+        import hmac
+        v = page.business.vouchers.filter(code__iexact=code, login_type='member').first()
+        given = str(data.get('password') or '')
+        if not v or not hmac.compare_digest(given.encode(), v.login_password.encode()):
+            return JsonResponse({'success': False, 'message': 'Username or password is wrong. Check them and try again.'}, status=404)
+    else:
+        v = page.business.vouchers.filter(code__iexact=code).first()
+        if v and v.is_member:
+            v = None   # a member username is not a voucher code
     if not v: return JsonResponse({'success': False, 'message': 'That code was not recognised. Check the letters and try again.'}, status=404)
     from .voucher_freeze import portal_block
     if v.frozen_at: return JsonResponse(portal_block(v), status=403)   # warning page (with "I agree") or paused page
@@ -243,7 +255,8 @@ def portal_check(request, slug):
                 return JsonResponse(portal_block(v), status=403)
         except Exception:
             pass  # identification must never block a customer from logging in
-    return JsonResponse({'success': True, 'code': v.code, 'plan': v.plan_name, 'duration': duration_text(v.duration_minutes), 'devices': v.max_devices})
+    return JsonResponse({'success': True, 'code': v.code, 'plan': v.plan_name, 'duration': duration_text(v.duration_minutes), 'devices': v.max_devices,
+                         'member': v.is_member})
 
 
 # ─────────────────────── MikroTik export ───────────────────────

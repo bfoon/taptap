@@ -53,13 +53,17 @@ def aliases(business):
 
 
 def _force(voucher):
-    """TapTap made this voucher, so its password IS its code: always set it with the name."""
-    return getattr(voucher, 'source', '') == 'taptap'
+    """TapTap made this voucher, so its password IS its code: always set it with the name.
+    A member with a password of their own keeps it when the username changes."""
+    return getattr(voucher, 'source', '') == 'taptap' and not getattr(voucher, 'password', '')
 
 
 def _password_follows_code(voucher, row, old):
-    """Should the router password change with the code? TapTap vouchers: always. Router-made
-    vouchers: only when the password was the old code (or empty), so a separate password is kept."""
+    """Should the router password change with the code? TapTap vouchers: always. Members with their
+    own password: never. Router-made vouchers: only when the password was the old code (or empty),
+    so a separate password is kept."""
+    if getattr(voucher, 'password', ''):
+        return False
     if _force(voucher):
         return True
     pw = row.get('password')
@@ -117,10 +121,15 @@ def change_code(voucher, new_code, user=None, reason=''):
         raise CodeChangeError('Vouchers in the bin cannot be changed.')
     if not reason:
         raise CodeChangeError('Give a reason for the change — it is kept in the voucher history.')
-    if not CODE_RE.match(new):
+    if voucher.login_type == 'member':
+        from .members import clean_username, USERNAME_RE
+        new = clean_username(new_code)
+        if not USERNAME_RE.match(new):
+            raise CodeChangeError('A username must be 3–32 characters: small letters, numbers, dot, dash, underscore or @.')
+    elif not CODE_RE.match(new):
         raise CodeChangeError('The new code must be 4–20 letters or numbers.')
     old = voucher.code
-    if new == old.upper():
+    if new.upper() == old.upper():
         raise CodeChangeError('That is already the code of this voucher.')
     if code_taken(new, exclude_voucher=voucher):
         raise CodeChangeError(f'{new} is already used by another voucher, or was used before. Choose another code.')
@@ -212,6 +221,7 @@ def stale_passwords(business, router, rows):
     changed while only the name was renamed, so the new code could not log in."""
     olds = {}
     for a in (VoucherCodeAlias.objects.filter(business=business, voucher__router=router, voucher__deleted_at__isnull=True)
+              .exclude(voucher__password__gt='')      # members with their own password: never reset it
               .select_related('voucher')):
         entry = olds.setdefault(a.voucher.code.upper(), [set(), a.voucher.source])
         entry[0].add(a.code.upper())

@@ -89,7 +89,11 @@ URL_PERMS = {
     'plans': 'plans.manage', 'plan_update': 'plans.manage', 'plan_delete': 'plans.manage',
     'reports': 'reports.view', 'reports_data': 'reports.view', 'reports_export': 'reports.view',
     'finance': ('finance.view', 'finance.agents'), 'finance_export': ('finance.view', 'finance.agents'),
-    'agent_detail': ('agents.view', 'finance.view'),
+    'agent_detail': ('agents.view', 'finance.view'), 'agent_statement': ('agents.view', 'finance.view', 'finance.agents'),
+    'batch_receipt': ('vouchers.view', 'vouchers.create'),
+    # Members: seeing them = vouchers.view, creating = vouchers.create (checked in the view for POST),
+    # password changes = voucher support, renewals take a payment = vouchers.create
+    'members': ('vouchers.view', 'vouchers.create'), 'member_password': 'vouchers.support', 'member_renew': 'vouchers.create',
     'finance_collection_add': 'finance.collect',
     'finance_sale_add': 'finance.manage', 'finance_sale_delete': 'finance.manage', 'finance_expense_add': 'finance.manage',
     'finance_expense_delete': 'finance.manage', 'finance_expense_repeat': 'finance.manage', 'finance_agent_save': 'finance.manage',

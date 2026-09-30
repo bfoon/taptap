@@ -368,7 +368,7 @@ def incident_ignore(request, pk):
 # ─────────────────────────── Missing sales ───────────────────────────
 def missing_sales(business, since=None):
     """Vouchers that were used but have no sale — what Finance is missing."""
-    qs = business.vouchers.filter(used_at__isnull=False, sale__isnull=True)
+    qs = business.vouchers.filter(used_at__isnull=False, sale__isnull=True).exclude(login_type='member', price=0)   # free members are given away
     if since:
         qs = qs.filter(used_at__gte=since)
     priced, unpriced = [], 0

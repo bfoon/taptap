@@ -20,9 +20,10 @@
       f: [['title', 'text', 'Title'], ['subtitle', 'textarea', 'Subtitle'], ['size', 'seg', 'Size', { sm: 'S', md: 'M', lg: 'L', xl: 'XL' }]], tokens: true },
     text: { n: 'Text', i: 'bi-text-paragraph', def: { text: 'Write a short message for your customers.', align: 'center' },
       f: [['text', 'textarea', 'Text'], ['align', 'seg', 'Align', { left: 'Left', center: 'Centre', right: 'Right' }]], tokens: true },
-    voucher: { n: 'Voucher box', i: 'bi-ticket-perforated', kinds: ['login'], def: { label: 'Voucher code', placeholder: 'Enter code', button: 'Connect', style: 'single', length: 8, show_hint: true },
+    voucher: { n: 'Voucher box', i: 'bi-ticket-perforated', kinds: ['login'], def: { label: 'Voucher code', placeholder: 'Enter code', button: 'Connect', style: 'single', length: 8, show_hint: true, members: true },
       f: [['label', 'text', 'Label'], ['placeholder', 'text', 'Placeholder'], ['button', 'text', 'Button text'], ['style', 'seg', 'Input', { single: 'One field', boxes: 'Letter boxes' }],
-          ['length', 'range', 'Number of boxes', [4, 12, 1, ''], function (b) { return b.style === 'boxes'; }], ['show_hint', 'check', 'Show the “not case-sensitive” hint']] },
+          ['length', 'range', 'Number of boxes', [4, 12, 1, ''], function (b) { return b.style === 'boxes'; }], ['show_hint', 'check', 'Show the “not case-sensitive” hint'],
+          ['members', 'check', 'Member login tab (username + password)']] },
     plans: { n: 'Plans & prices', i: 'bi-tags', def: { title: 'Prices', style: 'cards', show_devices: true, highlight: '', visible_plans: null },
       f: [['title', 'text', 'Title'], ['style', 'seg', 'Style', { cards: 'Cards', list: 'List', chips: 'Chips' }], ['show_devices', 'check', 'Show number of devices'],
           ['visible_plans', 'multi', 'Plans to show', function () { var o = {}; PLANS.forEach(function (p) { o[p.name] = p.name; }); return o; }],
@@ -224,6 +225,7 @@
     var d = BLOCKS[b.type], h = '<div class="side-h">' + d.n + '</div>';
     d.f.forEach(function (f) {
       var k = f[0], t = f[1], lab = f[2], v = b[k];
+      if (k === 'members' && v === undefined) v = true;   // older pages: the member tab is on unless switched off
       if (f[4] && !f[4](b)) return;
       if (t === 'text' || t === 'url') h += field(lab, '<input type="' + (t === 'url' ? 'url' : 'text') + '" data-bk="' + k + '" value="' + esc(v) + '">');
       else if (t === 'textarea') h += field(lab, '<textarea data-bk="' + k + '">' + esc(v) + '</textarea>');

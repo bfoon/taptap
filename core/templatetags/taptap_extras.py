@@ -127,3 +127,12 @@ def guide_md(text):
     t = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', t)
     t = re.sub(r'`(.+?)`', r'<code>\1</code>', t)
     return mark_safe(t)
+
+
+@register.filter
+def money2(value, currency='D'):
+    """Money with two decimals always, for statements and receipts: D1,136.36, D0.00, −D50.00."""
+    try: v = Decimal(str(value or 0))
+    except Exception: return value
+    sign = '−' if v < 0 else ''
+    return f'{sign}{currency or "D"}{abs(v):,.2f}'

@@ -116,6 +116,7 @@
               </button>
             {% endif %}
 
+            <a class="btn btn-sm btn-outline-secondary" href="{% url 'batch_receipt' x.id %}" title="Batch receipt" aria-label="Receipt for {{ x.name }}"><i class="bi bi-receipt"></i></a>
             <div class="btn-group">
               <a class="btn btn-sm btn-outline-primary" href="{% url 'voucher_print' %}?batch={{ x.id }}">
                 <i class="bi bi-printer"></i> Print

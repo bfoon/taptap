@@ -188,9 +188,17 @@ def generate_vouchers(request):
         if fmt['length']!=portal_len and 'login' in default_pages(business):
             messages.warning(request,f'These codes have {fmt["length"]} characters but your default customer portal shows {portal_len} letter boxes. '
                                      f'Customers can still log in, but set the boxes to {fmt["length"]} in Portal Studio if you want them to match.')
+        sheet=None
         if request.POST.get('print_after'):
             design=request.POST.get('design','')
-            return redirect(f"/studio/vouchers/print/?batch={batch.pk}"+(f"&design={design}" if design else ''))
+            sheet=f"/studio/vouchers/print/?batch={batch.pk}"+(f"&design={design}" if design else '')
+        if request.POST.get('print_receipt'):
+            # Receipt first (auto-prints); it links on to the voucher print sheet when that was asked for too.
+            from urllib.parse import quote
+            from django.urls import reverse
+            return redirect(reverse('batch_receipt',args=[batch.pk])+'?autoprint=1'+(f'&next={quote(sheet)}' if sheet else ''))
+        if sheet:
+            return redirect(sheet)
         return redirect('vouchers')
     return render(request,'core/generate_vouchers.html',ctx)
 

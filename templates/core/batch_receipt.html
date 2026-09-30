@@ -1,0 +1,129 @@
+{% load static taptap_extras %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ rc.number }} · {{ batch.name }} — Batch Receipt</title>
+<link rel="stylesheet" href="{% static 'css/statement.css' %}">
+<style>{% if fmt == 'thermal' %}@page{size:80mm auto;margin:0}{% else %}@page{size:A4;margin:10mm}{% endif %}</style>
+<script src="{% static 'vendor/qrcode.js' %}"></script></head>
+<body>{% with c=current_business.currency b=current_business %}
+<div class="st-bar no-print">
+  <div class="seg" role="group" aria-label="Paper">
+    <a href="?format=a4{% if codes %}&codes=1{% endif %}{% if next_url %}&next={{ next_url|urlencode }}{% endif %}" class="{% if fmt == 'a4' %}on{% endif %}" {% if fmt == 'a4' %}aria-current="page"{% endif %}>A4</a>
+    <a href="?format=thermal{% if codes %}&codes=1{% endif %}{% if next_url %}&next={{ next_url|urlencode }}{% endif %}" class="{% if fmt == 'thermal' %}on{% endif %}" {% if fmt == 'thermal' %}aria-current="page"{% endif %}>Thermal 80 mm</a>
+  </div>
+  {% if can_codes %}<label class="opt"><input type="checkbox" id="withCodes" {% if codes %}checked{% endif %}> List the voucher codes</label>{% endif %}
+  {% if next_url %}<a class="st-btn" href="{{ next_url }}">Print the vouchers</a>{% endif %}
+  <a class="st-btn" href="{% url 'batch_detail' batch.id %}">Back to batch</a>
+  <button class="st-btn go" type="button" onclick="window.print()">Print receipt</button>
+</div>
+
+{% if fmt == 'a4' %}
+<article class="sheet" style="padding:0">
+  <section style="padding:44px 44px 36px;position:relative">
+    <header class="st-head">
+      <div class="st-brand">{% if b.logo_data %}<img src="{{ b.logo_data }}" alt="">{% endif %}<div><h1>{{ b.business_name }}</h1><p>Batch Issue Receipt</p></div></div>
+      <div class="st-ref"><div class="state">{% if rc.prepaid %}PAID UPFRONT{% elif rc.agent %}ISSUED ON CREDIT{% else %}SHOP STOCK{% endif %}</div><div class="no">{{ rc.number }}</div><small>Office copy</small></div>
+    </header>
+    <div class="stamp{% if rc.prepaid %} paid{% endif %}" aria-hidden="true">{% if rc.prepaid %}PAID{% else %}ISSUED{% endif %}</div>
+
+    <h2>Batch Information</h2>
+    <div class="tiles">
+      <div class="tile"><div class="k">Batch / Name</div><div class="v">{{ batch.name }}</div></div>
+      <div class="tile"><div class="k">Plan</div><div class="v">{{ batch.plan|default:'—' }}</div>{% if batch.plan %}<div class="s">{{ batch.plan.duration_text }} · {{ batch.plan.max_devices }} device{{ batch.plan.max_devices|pluralize }}</div>{% endif %}</div>
+      <div class="tile"><div class="k">Vouchers</div><div class="v">{{ rc.count }}</div>{% if rc.count != batch.quantity %}<div class="s">{{ batch.quantity }} generated</div>{% endif %}</div>
+      <div class="tile"><div class="k">Serial Numbers</div><div class="v" style="font-size:15px">{% if rc.serial_first %}{{ rc.serial_first }}{% if rc.serial_last != rc.serial_first %} – {{ rc.serial_last }}{% endif %}{% else %}—{% endif %}</div></div>
+      <div class="tile"><div class="k">Price per Voucher</div><div class="v">{% if rc.unit is not None %}{{ rc.unit|money2:c }}{% else %}Mixed{% endif %}</div></div>
+      <div class="tile"><div class="k">Created</div><div class="v" style="font-size:15px">{{ batch.created_at|date:'d M Y, H:i' }}</div><div class="s">by {% firstof batch.created_by_label 'TapTap' %}</div></div>
+    </div>
+
+    <h2>Issued To</h2>
+    <div class="tiles">
+      {% if rc.agent %}
+      <div class="tile"><div class="k">Agent</div><div class="v">{{ rc.agent.name }}</div>{% if rc.agent.location %}<div class="s">{{ rc.agent.location }}</div>{% endif %}</div>
+      <div class="tile"><div class="k">Phone</div><div class="v">{{ rc.agent.phone|default:'—' }}</div></div>
+      <div class="tile"><div class="k">Terms</div><div class="v" style="font-size:16px">{% if rc.prepaid %}Paid upfront{% else %}On credit — pays as vouchers sell{% endif %}</div></div>
+      {% else %}
+      <div class="tile"><div class="k">Holder</div><div class="v">Shop stock</div><div class="s">Not issued to an agent</div></div>
+      {% endif %}
+    </div>
+
+    <h2>{% if rc.agent %}Amount Payable to Finance{% else %}Batch Value{% endif %}</h2>
+    <div class="amount-row">
+      <div class="tw"><table>
+        <tr><td>Face value</td><td style="color:var(--st-muted)">{{ rc.count }} voucher{{ rc.count|pluralize }}{% if rc.unit is not None %} × {{ rc.unit|money2:c }}{% endif %}</td><td class="n"><b>{{ rc.value|money2:c }}</b></td></tr>
+        {% if rc.agent %}<tr><td>Agent commission</td><td style="color:var(--st-muted)">{{ rc.pct|pct }}%</td><td class="n"><b>−{{ rc.commission|money2:c }}</b></td></tr>
+        {% if rc.prepaid %}<tr><td>Paid upfront</td><td style="color:var(--st-muted)">recorded at issue</td><td class="n pos"><b>−{{ rc.paid|money2:c }}</b></td></tr>{% endif %}{% endif %}
+        <tr class="total"><td colspan="2">{% if rc.prepaid %}Balance{% elif rc.agent %}Expected amount{% else %}Total value{% endif %}</td><td class="n">{% if rc.prepaid %}{{ rc.balance|money2:c }}{% elif rc.agent %}{{ rc.expected|money2:c }}{% else %}{{ rc.value|money2:c }}{% endif %}</td></tr>
+      </table>
+      <p class="words">{{ rc.words }}</p></div>
+      <div class="qr"><div class="qr-box" data-qr="{{ verify_url }}"></div>Scan to open this batch</div>
+    </div>
+
+    <h2>Issue Details</h2>
+    <table class="kv">
+      <tr><td>Receipt Reference</td><td>{{ rc.number }}</td></tr>
+      <tr><td>Issued</td><td>{{ rc.issued|date:'d M Y, H:i' }}</td></tr>
+      <tr><td>Printed</td><td>{% now 'd M Y, H:i' %} by {{ printed_by }}</td></tr>
+      {% if batch.note %}<tr><td>Note</td><td>{{ batch.note }}</td></tr>{% endif %}
+    </table>
+
+    <p class="note">{% if rc.agent %}{{ rc.agent.name }} received the {{ rc.count }} voucher{{ rc.count|pluralize }} above for resale{% if not rc.prepaid %} and hands in the expected amount as they sell{% endif %}. Vouchers are the agent's responsibility once issued; lost vouchers must be reported straight away so they can be disabled. {% endif %}This receipt records the hand-over of vouchers and is not proof of payment, unless marked Paid.</p>
+
+    <div class="sign">
+      <div><strong>{% if rc.agent %}{{ rc.agent.name }}{% else %}Received by{% endif %}</strong>Received — signature and date</div>
+      <div><strong>{{ printed_by }}</strong>Issued for {{ b.business_name }} — signature and date</div>
+    </div>
+    <footer class="st-foot"><span>TapTap Business Hotspot Management</span><span>{{ rc.number }}</span></footer>
+  </section>
+
+  <div class="cut" aria-hidden="true"><span>✂ AGENT COPY · CUT HERE</span></div>
+  <section class="stub">
+    <div><div class="tile" style="border:0;padding:0"><div class="k">Receipt</div><div class="v" style="font-size:15px">{{ rc.number }}</div><div class="s">{{ rc.issued|date:'d M Y' }}</div></div></div>
+    <div><div class="tile" style="border:0;padding:0"><div class="k">Batch</div><div class="v" style="font-size:15px">{{ batch.name }}</div><div class="s">{{ rc.count }} × {{ batch.plan|default:'vouchers' }}</div></div></div>
+    <div><div class="tile" style="border:0;padding:0"><div class="k">{% if rc.prepaid %}Paid{% elif rc.agent %}To hand in{% else %}Value{% endif %}</div><div class="v">{% if rc.prepaid %}{{ rc.paid|money2:c }}{% elif rc.agent %}{{ rc.expected|money2:c }}{% else %}{{ rc.value|money2:c }}{% endif %}</div>{% if rc.serial_first %}<div class="s">Serials {{ rc.serial_first }}{% if rc.serial_last != rc.serial_first %}–{{ rc.serial_last }}{% endif %}</div>{% endif %}</div></div>
+    <div class="qr"><div class="qr-box" data-qr="{{ verify_url }}"></div></div>
+  </section>
+
+  {% if codes %}<section class="codes-page"><h2>Voucher Codes ({{ codes|length }})</h2>
+    <div class="codes">{% for sn, code in codes %}<span>{{ code }}{% if sn %}<small>{{ sn }}</small>{% endif %}</span>{% endfor %}</div></section>{% endif %}
+</article>
+{% else %}
+<article class="thermal">
+  <div class="c logo">{{ b.business_name }}</div>
+  <div class="c">Batch Issue Receipt</div>
+  <hr>
+  <div class="r"><span>Receipt</span><span class="b">{{ rc.number }}</span></div>
+  <div class="r"><span>Issued</span><span>{{ rc.issued|date:'d/m/Y H:i' }}</span></div>
+  <div class="r"><span>By</span><span>{{ printed_by }}</span></div>
+  <hr>
+  <div class="b">{{ batch.name }}</div>
+  <div class="r"><span>Plan</span><span>{{ batch.plan|default:'—' }}</span></div>
+  <div class="r"><span>Vouchers</span><span>{{ rc.count }}</span></div>
+  {% if rc.serial_first %}<div class="r"><span>Serials</span><span>{{ rc.serial_first }}{% if rc.serial_last != rc.serial_first %}–{{ rc.serial_last }}{% endif %}</span></div>{% endif %}
+  <hr>
+  <div class="r"><span>Holder</span><span>{% if rc.agent %}{{ rc.agent.name }}{% else %}Shop stock{% endif %}</span></div>
+  {% if rc.agent %}<div class="r"><span>Terms</span><span>{% if rc.prepaid %}Paid upfront{% else %}On credit{% endif %}</span></div>{% endif %}
+  <hr>
+  <div class="r"><span>Face value</span><span>{{ rc.value|money2:c }}</span></div>
+  {% if rc.agent %}<div class="r"><span>Commission {{ rc.pct|pct }}%</span><span>−{{ rc.commission|money2:c }}</span></div>
+  {% if rc.prepaid %}<div class="r"><span>Paid</span><span>−{{ rc.paid|money2:c }}</span></div>{% endif %}{% endif %}
+  <div class="r tot"><span>{% if rc.prepaid %}BALANCE{% elif rc.agent %}PAYABLE{% else %}VALUE{% endif %}</span><span>{% if rc.prepaid %}{{ rc.balance|money2:c }}{% elif rc.agent %}{{ rc.expected|money2:c }}{% else %}{{ rc.value|money2:c }}{% endif %}</span></div>
+  <hr>
+  <div class="c qr"><div class="qr-box" data-qr="{{ verify_url }}"></div>Scan to open this batch</div>
+  {% if codes %}<hr><div class="b c">VOUCHER CODES</div><div class="codes2">{% for sn, code in codes %}<span>{{ code }}</span>{% endfor %}</div>{% endif %}
+  <hr>
+  <div class="sig">Received: ____________________</div>
+  <div class="c" style="margin-top:12px">{% if not rc.prepaid %}Not proof of payment.<br>{% endif %}{% if b.support_phone %}Help: {{ b.support_phone }}<br>{% endif %}TapTap Business Hotspot</div>
+</article>
+{% endif %}
+<script>
+(function(){
+  if (window.qrcode) document.querySelectorAll('.qr-box').forEach(function(el){
+    try { var q = qrcode(0, 'M'); q.addData(el.getAttribute('data-qr')); q.make(); el.innerHTML = q.createSvgTag({cellSize: 4, margin: 0, scalable: true}); }
+    catch (e) { el.parentNode.style.display = 'none'; }
+  });
+  var cb = document.getElementById('withCodes');
+  if (cb) cb.addEventListener('change', function(){ var u = new URL(location.href); if (cb.checked) u.searchParams.set('codes','1'); else u.searchParams.delete('codes'); u.searchParams.delete('autoprint'); location.href = u.toString(); });
+  {% if autoprint %}window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 300); });{% endif %}
+})();
+</script>
+{% endwith %}</body></html>

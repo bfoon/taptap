@@ -295,9 +295,12 @@ def command_body(cmd):
                 lines.append(f'/ip hotspot user profile set [find name={rs(prof["name"])}] ' + ' '.join(f'{k}={rs(str(v))}' for k, v in p['sticky'].items()))
         for u in p.get('users', []):
             extra = (f' limit-uptime={rs(u["lim"])}' if u.get('lim') else '') + f' disabled={"yes" if u.get("dis") else "no"}'
-            lines.append(f':if ([:len [/ip hotspot user find name={rs(u["n"])}]] = 0) do={{ /ip hotspot user add name={rs(u["n"])} password={rs(u["n"])} '
+            # Members carry their own password ("pw"); it is set on add AND on update, so a changed
+            # password reaches the router. Vouchers keep password = code and never touch it on update.
+            pw_set = f' password={rs(u["pw"])}' if u.get('pw') else ''
+            lines.append(f':if ([:len [/ip hotspot user find name={rs(u["n"])}]] = 0) do={{ /ip hotspot user add name={rs(u["n"])} password={rs(u.get("pw") or u["n"])} '
                          f'profile={rs(u["prof"])} comment={rs(u.get("c", "TapTap voucher"))}{extra} }} else={{ /ip hotspot user set [find name={rs(u["n"])}] '
-                         f'profile={rs(u["prof"])}{extra} }}')
+                         f'profile={rs(u["prof"])}{pw_set}{extra} }}')
         return '; '.join(lines) or ':nothing'
     if k == 'hotspot_user_set':
         return f'/ip hotspot user set [find name={name()}] disabled={"yes" if p.get("disabled") else "no"}'
@@ -499,7 +502,11 @@ def push_pending_vouchers(router, limit=25):
         plan = router.business.plans.filter(name__iexact=v.plan_name).first()
         prof, shared, rate = voucher_profile(v, plan)
         profiles[prof] = {'name': prof, 'shared': shared, 'rate': rate}
-        users.append({'n': v.code, 'prof': prof, 'lim': router_limit(v), 'dis': v.status != 'active', 'c': f'TapTap voucher {v.code}'})
+        row = {'n': v.code, 'prof': prof, 'lim': router_limit(v), 'dis': v.status != 'active',
+               'c': f'TapTap member {v.code}' if v.is_member else f'TapTap voucher {v.code}'}
+        if v.is_member:
+            row['pw'] = v.login_password   # set on add and on update (password changes)
+        users.append(row)
     from .sticky import profile_values
     queue(router, 'hotspot_users', {'users': users, 'profiles': list(profiles.values()), 'ids': [v.pk for v in todo], 'sticky': profile_values(router.business)},
           label=f'Send {len(users)} voucher(s) to the router', minutes=60 * 24)

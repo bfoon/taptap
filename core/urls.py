@@ -7,6 +7,7 @@ from . import views_team as vteam, views_platform as vp, views_detail as vdetail
 from . import views_fup as vfup
 from . import views_bonanza as vbz
 from . import views_chat as vchat
+from . import views_members as vmem
 
 urlpatterns = [
     path('chat/',vchat.chat_page,name='chat_page'), path('chat/state/',vchat.chat_state,name='chat_state'),
@@ -99,4 +100,9 @@ urlpatterns = [
     path('security/fair-usage/<int:pk>/action/',vfup.fup_action,name='fup_action'), path('vouchers/<int:pk>/fair-usage/',vfup.fup_lift,name='fup_lift'),
     # Support › Help Center guides
     path('support/guides/<slug:slug>/',vhelp.support_guide,name='support_guide'),
+    # Members (username + password logins), agent cash-flow statements, batch receipts
+    path('members/',vmem.members,name='members'), path('members/<int:pk>/password/',vmem.member_password,name='member_password'),
+    path('members/<int:pk>/renew/',vmem.member_renew,name='member_renew'),
+    path('finance/agents/<int:pk>/statement/',va.agent_statement,name='agent_statement'),
+    path('batches/<int:pk>/receipt/',va.batch_receipt,name='batch_receipt'),
 ]

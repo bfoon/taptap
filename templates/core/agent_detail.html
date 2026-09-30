@@ -11,7 +11,7 @@
       <span class="small flex-grow-1">{{ x.name }}<small class="d-block text-secondary">{{ x.left }} unsold · {{ x.plan|default:'' }}</small></span><button class="btn btn-sm btn-outline-primary">Give on credit</button></form>{% endfor %}</div></div>{% endif %}{% endif %}
 {% if 'finance.collect' in tt_perms %}<button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#collectModal"><i class="bi bi-cash-coin"></i> Collect cash</button>{% endif %}
   {% if 'vouchers.create' in tt_perms %}<a class="btn btn-outline-secondary btn-sm" href="{% url 'voucher_print' %}?agent={{ agent.id }}"><i class="bi bi-printer"></i> Print their stock</a>{% endif %}
-  <button class="btn btn-outline-secondary btn-sm" onclick="window.print()"><i class="bi bi-file-earmark-text"></i> Statement</button>
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'agent_statement' agent.id %}"><i class="bi bi-file-earmark-text"></i> Cash flow statement</a>
   {% if agent.phone %}<a class="btn btn-outline-success btn-sm" target="_blank" rel="noopener" id="waStatement" href="#"><i class="bi bi-whatsapp"></i> Send balance</a>{% endif %}
 </div>
 
@@ -30,7 +30,7 @@
       <td><span class="badge {% if x.settlement == 'prepaid' %}text-bg-success{% else %}text-bg-light{% endif %}">{% if x.settlement == 'prepaid' %}Paid upfront{% else %}On credit{% endif %}</span></td>
       <td style="min-width:180px"><div class="stock-bar" style="height:8px"><i style="width:{{ x.sold|pct_of:x.total }}%;background:var(--green)"></i></div><small class="text-secondary">{{ x.sold }} of {{ x.total }} sold · {{ x.used }} used</small></td>
       <td class="text-end"><b>{{ x.left }}</b></td>
-      <td class="text-end text-nowrap no-print"><a class="btn btn-sm btn-outline-secondary" href="{% url 'voucher_print' %}?batch={{ x.id }}" aria-label="Print batch"><i class="bi bi-printer"></i></a>
+      <td class="text-end text-nowrap no-print"><a class="btn btn-sm btn-outline-secondary" href="{% url 'batch_receipt' x.id %}" aria-label="Batch receipt" title="Batch receipt"><i class="bi bi-receipt"></i></a> <a class="btn btn-sm btn-outline-secondary" href="{% url 'voucher_print' %}?batch={{ x.id }}" aria-label="Print batch"><i class="bi bi-printer"></i></a>
         {% if x.left and 'vouchers.create' in tt_perms %}<form method="post" action="{% url 'batch_assign' x.id %}" class="d-inline" onsubmit="return confirm('Take the {{ x.left }} unsold voucher(s) back to the shop?')">{% csrf_token %}<input type="hidden" name="agent" value=""><input type="hidden" name="next" value="{{ request.path }}"><button class="btn btn-sm btn-outline-danger">Take back</button></form>{% endif %}</td></tr>
     {% empty %}<tr><td colspan="5" class="empty-table">No batches yet. <a href="{% url 'generate_vouchers' %}?agent={{ agent.id }}">Create one for {{ agent.name }}</a>.</td></tr>{% endfor %}</tbody></table></div></div></div>
   <div class="col-xl-4"><div class="panel h-100"><div class="panel-head"><div><h3>Stock in hand</h3><p>Unsold vouchers by plan</p></div></div>

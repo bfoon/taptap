@@ -452,3 +452,157 @@ def assign_batch(batch, agent, settlement='credit', method='cash', user=None, re
             CashCollection.objects.create(business=business, agent=agent, amount=net, payment_method=method, reference=reference,
                                           note=f'Paid upfront for batch {batch.name} ({len(sales)} vouchers)', recorded_by=user)
     return moved, sales
+
+
+# ───────────────────────────── agent cash-flow statement ─────────────────────────────
+def collection_ref(c):
+    """The reference printed for a hand-in: the one typed in, else COL-<date>-<id>."""
+    return c.reference or f'COL-{timezone.localtime(c.collected_at):%Y%m%d}-{c.pk:06d}'
+
+
+def agent_statement(business, agent, period):
+    """Cash-flow statement of one agent for a period.
+
+    What the agent owes grows when their vouchers are sold (sale amount minus their commission)
+    and shrinks when they hand money in. So:
+
+        opening balance  (owed at the start of the period)
+      + sales credited to the agent            (gross)
+      − commission they earned on those sales
+      − cash handed in                         (any method)
+      = closing balance  (still to hand in; negative = paid ahead)
+
+    Sales are grouped per day, batch and plan so a busy agent's statement stays readable;
+    every hand-in is its own line."""
+    start, end = period.start, period.end
+    sales = business.sales.filter(agent=agent)
+    cols = business.collections.filter(agent=agent)
+    before = sales.filter(sold_at__lt=start).aggregate(g=Sum('amount'), c=Sum('commission'))
+    opening = d(before['g']) - d(before['c']) - d(cols.filter(collected_at__lt=start).aggregate(v=Sum('amount'))['v'])
+
+    groups = OrderedDict()
+    for s in (sales.filter(sold_at__gte=start, sold_at__lt=end)
+              .values('sold_at', 'plan_name', 'amount', 'commission', 'voucher__batch_id', 'voucher__batch__name', 'notes')
+              .order_by('sold_at')):
+        day = timezone.localtime(s['sold_at']).date()
+        label = s['voucher__batch__name'] or ('Member renewal' if 'renewal' in (s['notes'] or '') else 'Single sales')
+        key = (day, s['voucher__batch_id'] or 0, label, s['plan_name'])
+        g = groups.setdefault(key, {'when': s['sold_at'], 'n': 0, 'gross': ZERO, 'comm': ZERO})
+        g['when'] = s['sold_at']; g['n'] += 1; g['gross'] += d(s['amount']); g['comm'] += d(s['commission'])
+    lines = []
+    for (day, _bid, label, plan), g in groups.items():
+        lines.append({'when': g['when'], 'kind': 'sale', 'ref': label,
+                      'text': f"{g['n']} × {plan} sold", 'gross': g['gross'], 'comm': g['comm'],
+                      'debit': g['gross'] - g['comm'], 'credit': ZERO})
+    period_cols = list(cols.filter(collected_at__gte=start, collected_at__lt=end).select_related('recorded_by').order_by('collected_at'))
+    for c in period_cols:
+        by = c.recorded_by.get_full_name() or c.recorded_by.username if c.recorded_by else ''
+        lines.append({'when': c.collected_at, 'kind': 'in', 'ref': collection_ref(c),
+                      'text': f'Handed in ({METHOD_LABELS.get(c.payment_method, c.payment_method)})' + (f' — {c.note}' if c.note else ''),
+                      'by': by, 'gross': ZERO, 'comm': ZERO, 'debit': ZERO, 'credit': d(c.amount), 'method': c.payment_method})
+    lines.sort(key=lambda r: (r['when'], 0 if r['kind'] == 'sale' else 1))
+    bal = opening
+    for r in lines:
+        bal += r['debit'] - r['credit']
+        r['balance'] = bal
+
+    gross = sum((r['gross'] for r in lines), ZERO); comm = sum((r['comm'] for r in lines), ZERO)
+    net = gross - comm; collected = sum((r['credit'] for r in lines), ZERO)
+    closing = opening + net - collected
+    due = opening + net
+    methods = OrderedDict()
+    for c in period_cols:
+        m = methods.setdefault(c.payment_method, {'label': METHOD_LABELS.get(c.payment_method, c.payment_method), 'n': 0, 'amount': ZERO})
+        m['n'] += 1; m['amount'] += d(c.amount)
+    for m in methods.values():
+        m['share'] = round(float(m['amount'] / collected * 100), 1) if collected else 0
+
+    batches = []
+    for b in (agent.batches.select_related('plan').annotate(
+            total=Count('vouchers', filter=Q(vouchers__deleted_at__isnull=True)),
+            sold=Count('vouchers', filter=Q(vouchers__sold_at__isnull=False, vouchers__deleted_at__isnull=True)),
+            left=Count('vouchers', filter=Q(vouchers__sold_at__isnull=True, vouchers__used_at__isnull=True, vouchers__status='active', vouchers__deleted_at__isnull=True)),
+            value=Sum('vouchers__price', filter=Q(vouchers__deleted_at__isnull=True)))
+            .order_by('-issued_at', '-created_at')):
+        bs = business.sales.filter(agent=agent, voucher__batch=b).aggregate(g=Sum('amount'), c=Sum('commission'))
+        batches.append({'b': b, 'total': b.total, 'sold': b.sold, 'left': b.left, 'value': d(b.value),
+                        'gross': d(bs['g']), 'net': d(bs['g']) - d(bs['c'])})
+    held = business.vouchers.filter(agent=agent, status='active', sold_at__isnull=True, used_at__isnull=True).aggregate(n=Count('id'), v=Sum('price'))
+    end_day = timezone.localtime(end - timedelta(seconds=1)).date()
+    if closing > 0:
+        status = ('due', 'BALANCE DUE')
+    elif closing < 0:
+        status = ('credit', 'IN CREDIT')
+    else:
+        status = ('settled', 'SETTLED')
+    return {
+        'number': f'STM-{agent.pk:04d}-{end_day:%Y%m%d}',
+        'from': timezone.localtime(start).date(), 'to': end_day,
+        'opening': opening, 'gross': gross, 'commission': comm, 'net': net, 'collected': collected,
+        'closing': closing, 'due': due, 'status': status,
+        'rate': min(100.0, round(float(collected / due * 100), 1)) if due > 0 else 100.0,
+        'lines': lines, 'methods': list(methods.values()), 'batches': batches,
+        'held_n': held['n'] or 0, 'held_value': d(held['v']),
+        'sold_n': sum(g['n'] for g in groups.values()), 'collections_n': len(period_cols),
+    }
+
+
+# ───────────────────────────── batch receipt ─────────────────────────────
+_ONES = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve',
+         'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen']
+_TENS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety']
+
+
+def _words(n):
+    n = int(n)
+    if n < 20:
+        return _ONES[n]
+    if n < 100:
+        return _TENS[n // 10] + ('-' + _ONES[n % 10] if n % 10 else '')
+    if n < 1000:
+        return _ONES[n // 100] + ' hundred' + (' and ' + _words(n % 100) if n % 100 else '')
+    for size, word in ((10 ** 9, 'billion'), (10 ** 6, 'million'), (1000, 'thousand')):
+        if n >= size:
+            rest = n % size
+            return _words(n // size) + ' ' + word + ((' and ' if rest < 100 else ' ') + _words(rest) if rest else '')
+    return str(n)
+
+
+def amount_in_words(amount, currency='D'):
+    """1136.36 → 'One thousand one hundred and thirty-six dalasi and thirty-six butut only'."""
+    amount = d(amount).quantize(Decimal('0.01'))
+    whole, cents = int(amount), int((amount - int(amount)) * 100)
+    major, minor = ('dalasi', 'butut') if currency in ('D', 'GMD') else ('', 'cents')
+    text = _words(whole) + (f' {major}' if major else '') + (f' and {_words(cents)} {minor}' if cents else '') + ' only'
+    return text[0].upper() + text[1:]
+
+
+def batch_receipt(batch):
+    """Everything printed on the receipt handed over with a batch."""
+    vouchers = batch.vouchers.all()
+    agg = vouchers.aggregate(n=Count('id'), v=Sum('price'))
+    n, value = agg['n'] or 0, d(agg['v'])
+    prices = sorted({d(p) for p in vouchers.values_list('price', flat=True)})
+    serials = [s for s in vouchers.exclude(serial='').order_by('id').values_list('serial', flat=True)]
+    agent = batch.agent
+    pct = d(agent.commission_percent) if agent else ZERO
+    # Commission is booked per voucher when each one sells (see record_sale), so it is added up the
+    # same way here: the receipt then matches exactly what the agent's statement will show.
+    commission = sum((commission_for(agent, p) for p in vouchers.values_list('price', flat=True)), ZERO) if agent else ZERO
+    paid = ZERO
+    if agent and batch.settlement == 'prepaid':
+        s = batch.business.sales.filter(voucher__batch=batch, agent=agent).aggregate(g=Sum('amount'), c=Sum('commission'))
+        paid = d(s['g']) - d(s['c'])
+        commission = d(s['c'])
+    expected = value - commission
+    created = timezone.localtime(batch.created_at)
+    return {
+        'number': f'BRC-{created:%Y%m%d}-{batch.pk:06d}', 'count': n, 'value': value,
+        'unit': prices[0] if len(prices) == 1 else None, 'prices': prices,
+        'serial_first': serials[0] if serials else '', 'serial_last': serials[-1] if serials else '',
+        'agent': agent, 'pct': pct, 'commission': commission, 'expected': expected,
+        'prepaid': bool(agent and batch.settlement == 'prepaid'), 'paid': paid,
+        'balance': max(ZERO, expected - paid) if agent else ZERO,
+        'words': amount_in_words(expected if agent else value, batch.business.currency),
+        'issued': timezone.localtime(batch.issued_at) if batch.issued_at else created,
+    }

@@ -62,7 +62,8 @@
       </form>
       {% endif %}
       {% endif %}
-      {% if 'vouchers.manage' in tt_perms %}<button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#codeModal"><i class="bi bi-input-cursor-text"></i> Change code</button>{% endif %}
+      {% if 'vouchers.manage' in tt_perms %}<button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#codeModal"><i class="bi bi-input-cursor-text"></i> {% if v.is_member %}Change username{% else %}Change code{% endif %}</button>{% endif %}
+      {% if v.is_member and 'vouchers.support' in tt_perms %}<button class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#memberPwModal"><i class="bi bi-key"></i> Change password</button>{% endif %}
       {% if 'vouchers.manage' in tt_perms and not v.used_at %}<button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteModal"><i class="bi bi-trash3"></i> Delete</button>{% endif %}
       {% endif %}
     </div>
@@ -139,6 +140,10 @@
     <section class="panel h-100">
       <div class="panel-head"><div><h3>Details</h3></div></div>
       <div class="vd-grid">
+        {% if v.is_member %}<div><span>Login</span><b><i class="bi bi-person-badge"></i> Member · <span class="font-monospace">{{ v.code }}</span></b></div>
+        <div><span>Password</span><b><span class="font-monospace" id="mPwVal" hidden>{{ v.login_password }}</span><span id="mPwMask">••••••••</span>
+          <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline" onclick="var h=document.getElementById('mPwVal').hidden;document.getElementById('mPwVal').hidden=!h;document.getElementById('mPwMask').hidden=h;this.textContent=h?'Hide':'Show'">Show</button>
+          {% if not v.password %}<small class="text-secondary">(same as username)</small>{% endif %}</b></div>{% endif %}
         <div><span>Plan</span><b>{{ v.plan_name }}</b></div>
         <div><span>Price</span><b>{{ v.price|money:c }}</b></div>
         <div><span>Valid for</span><b>{{ v.duration_minutes|minutes_text }}</b></div>
@@ -307,6 +312,17 @@
 </form></div></div>
 {% endif %}
 
+{% if v.is_member and 'vouchers.support' in tt_perms and not v.deleted_at %}
+<div class="modal fade" id="memberPwModal" tabindex="-1" aria-labelledby="mpwTitle"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'member_password' v.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}">
+  <div class="modal-header"><h5 class="modal-title" id="mpwTitle">Change password of {{ v.code }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body"><p class="small">The member is signed out{% if v.router %} on {{ v.router.name }}{% endif %} and needs the new password next time. Their time and devices do not change.</p>
+    <label class="form-label" for="mpwNew">New password</label><input class="form-control font-monospace" id="mpwNew" name="password" maxlength="64" autocomplete="new-password" placeholder="4–64 characters, no spaces">
+    <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="same" id="mpwSame" value="1" onchange="document.getElementById('mpwNew').disabled=this.checked"><label class="form-check-label small" for="mpwSame">Same as the username</label></div>
+    <label class="form-label mt-3" for="mpwReason">Reason <span class="text-secondary">(kept in the history)</span></label><input class="form-control" id="mpwReason" name="reason" maxlength="255"></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Change password</button></div>
+</form></div></div>
+{% endif %}
+
 {% if 'vouchers.manage' in tt_perms and not v.deleted_at %}
 <div class="modal fade" id="codeModal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'change_voucher_code' v.id %}">{% csrf_token %}
   <div class="modal-header"><h5 class="modal-title">Change code of {{ v.code }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
@@ -316,7 +332,7 @@
       The old code stops working, is never issued again, and still finds this voucher in search.</p>
     {% if v.used_at and v.status == 'active' and not time_is_up %}<div class="alert alert-warning small py-2">This voucher is in use. A customer online now stays connected; next time they log in they need the new code.</div>{% endif %}
     <label class="form-label">New code</label>
-    <div class="input-group mb-1"><input name="new_code" id="newCode" class="form-control font-monospace text-uppercase" maxlength="20" required pattern="[A-Za-z0-9 \-]{4,24}" autocomplete="off" placeholder="4–20 letters or numbers">
+    <div class="input-group mb-1">{% if v.is_member %}<input name="new_code" id="newCode" class="form-control font-monospace" maxlength="32" required pattern="[A-Za-z0-9][A-Za-z0-9._@\-]{2,31}" autocomplete="off" autocapitalize="none" placeholder="New username">{% else %}<input name="new_code" id="newCode" class="form-control font-monospace text-uppercase" maxlength="20" required pattern="[A-Za-z0-9 \-]{4,24}" autocomplete="off" placeholder="4–20 letters or numbers">{% endif %}
       <button type="button" class="btn btn-outline-secondary" id="codeRandom" title="Suggest a random code of the same size"><i class="bi bi-shuffle"></i></button></div>
     <small class="text-secondary d-block mb-3">Spaces and dashes are removed. Must not be used by any other voucher.</small>
     <label class="form-label">Reason <span class="text-secondary">(required, kept in the history)</span></label>

@@ -180,8 +180,10 @@ def push_one(voucher, plan=None):
         try:
             profile, shared, rate = voucher_profile(voucher, plan)
             svc.ensure_hotspot_profile(profile, shared, rate)
-            _, item_id = svc.upsert_voucher(voucher.code, profile, limit_uptime=router_limit(voucher),
-                                            comment=f'TapTap voucher {voucher.code}' + (f' · {voucher.customer_name}' if voucher.customer_name else ''))
+            kind = 'member' if voucher.is_member else 'voucher'
+            _, item_id = svc.upsert_voucher(voucher.code, profile, limit_uptime=router_limit(voucher), password=voucher.login_password,
+                                            disabled=(voucher.status != 'active'),
+                                            comment=f'TapTap {kind} {voucher.code}' + (f' · {voucher.customer_name}' if voucher.customer_name else ''))
         finally:
             svc.close()
         Voucher.objects.filter(pk=voucher.pk).update(mikrotik_id=str(item_id or ''), mikrotik_sync_status='Synced', mikrotik_sync_error='')
@@ -218,4 +220,41 @@ def voucher_card(request, pk):
         'config_json': _safe_json(design.config if design else voucher_template('classic')),
         'row_json': _safe_json(voucher_print_rows(business, business.vouchers.filter(pk=v.pk))[0]), 'business_json': _safe_json(biz),
         'methods': MANUAL_METHODS, 'agents': business.agents.filter(active=True),
+    })
+
+
+# ───────────────────────────── agent cash-flow statement ─────────────────────────────
+@login_required
+def agent_statement(request, pk):
+    """Printable cash-flow statement of one agent for a period (default: this month)."""
+    from .finance import PRESETS, agent_statement as build, resolve_period
+    business = _b(request); agent = get_object_or_404(business.agents, pk=pk)
+    period = resolve_period(request.GET, default='month')
+    st = build(business, agent, period)
+    by = request.user.get_full_name() or request.user.email or request.user.username
+    return render(request, 'core/agent_statement.html', {
+        'agent': agent, 'st': st, 'period': period, 'presets': PRESETS, 'generated_at': timezone.now(), 'generated_by': by,
+    })
+
+
+# ───────────────────────────── batch receipt ─────────────────────────────
+@login_required
+def batch_receipt(request, pk):
+    """Printable receipt for a generated batch: A4 (office copy + agent stub) or 80 mm thermal."""
+    from django.urls import reverse
+    from .finance import batch_receipt as build
+    business = _b(request)
+    batch = get_object_or_404(business.batches.select_related('plan', 'agent'), pk=pk)
+    rc = build(batch)
+    perms = getattr(request, 'tt_perms', None)
+    can_codes = perms is None or 'vouchers.create' in perms
+    codes = list(batch.vouchers.order_by('id').values_list('serial', 'code')) if can_codes and request.GET.get('codes') == '1' else []
+    nxt = request.GET.get('next', '')
+    return render(request, 'core/batch_receipt.html', {
+        'batch': batch, 'rc': rc, 'codes': codes, 'can_codes': can_codes,
+        'fmt': 'thermal' if request.GET.get('format') == 'thermal' else 'a4',
+        'autoprint': request.GET.get('autoprint') == '1',
+        'verify_url': request.build_absolute_uri(reverse('batch_detail', args=[batch.pk])),
+        'next_url': nxt if nxt.startswith('/') and not nxt.startswith('//') else '',
+        'printed_by': request.user.get_full_name() or request.user.email or request.user.username,
     })

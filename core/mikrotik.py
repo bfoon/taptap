@@ -288,16 +288,17 @@ class MikroTikService:
             return existing[0]['id']
         return profiles.add(name=profile_name, **values)
 
-    def add_voucher(self, code, profile, limit_uptime=None, comment='TapTap voucher', disabled=False):
-        data = {'name': code, 'password': code, 'profile': profile, 'comment': comment, 'disabled': 'yes' if disabled else 'no'}
+    def add_voucher(self, code, profile, limit_uptime=None, comment='TapTap voucher', disabled=False, password=None):
+        # Vouchers log in with their code as username AND password; members send their own password.
+        data = {'name': code, 'password': password or code, 'profile': profile, 'comment': comment, 'disabled': 'yes' if disabled else 'no'}
         if limit_uptime:
             data['limit_uptime'] = limit_uptime
         return self.resource('/ip/hotspot/user').add(**data)
 
-    def upsert_voucher(self, code, profile, limit_uptime=None, comment='TapTap voucher', disabled=False):
+    def upsert_voucher(self, code, profile, limit_uptime=None, comment='TapTap voucher', disabled=False, password=None):
         users = self.resource('/ip/hotspot/user')
         existing = users.get(name=code)
-        data = {'password': code, 'profile': profile, 'comment': comment, 'disabled': 'yes' if disabled else 'no'}
+        data = {'password': password or code, 'profile': profile, 'comment': comment, 'disabled': 'yes' if disabled else 'no'}
         if limit_uptime:
             data['limit_uptime'] = limit_uptime
         if existing:
@@ -337,6 +338,20 @@ class MikroTikService:
             data['limit_uptime'] = limit
         self.resource('/ip/hotspot/user').set(id=row['id'], **data)
         return limit
+
+    def set_user_password(self, name, password):
+        """Change a hotspot user's password and drop its live sessions so the new one is needed.
+        Returns False when the user is not on this router."""
+        users = self.resource('/ip/hotspot/user')
+        rows = users.get(name=name)
+        if not rows:
+            return False
+        users.set(id=rows[0]['id'], password=password)
+        try:
+            self.reset_active_by_name(name)
+        except Exception:
+            pass
+        return True
 
     def reset_active_by_name(self, code):
         for row in self.resource('/ip/hotspot/active').get(user=code):

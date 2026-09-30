@@ -232,7 +232,8 @@ def portal_state(request, slug):
         lock = device_lock.claim(v, mac=data.get('mac', ''), fp=data.get('fp', ''), source='portal')
         if not lock.allowed:
             block = device_lock.portal_block(v, lock.message)
-    return _cors(JsonResponse(block or {'ok': True}))
+    # The real username (right upper/lower case) so router-served pages log members in exactly.
+    return _cors(JsonResponse(block or {'ok': True, 'code': v.code}))
 
 
 @csrf_exempt

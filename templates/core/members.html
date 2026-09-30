@@ -1,0 +1,155 @@
+{% extends 'core/base.html' %}{% load taptap_extras %}
+{% block title %}Members — TapTap{% endblock %}{% block heading %}Members{% endblock %}
+{% block extra_head %}<style>
+.mb-sec{border-top:1px solid var(--border);padding-top:1rem;margin-top:1rem}.mb-sec:first-of-type{border:0;margin:0;padding:0}
+.mb-sec h4{font-size:.9rem;font-weight:800;margin:0 0 .6rem}
+.plan-pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:.5rem}
+.plan-pick label{position:relative;border:1.5px solid var(--border);border-radius:12px;padding:.6rem .7rem;cursor:pointer;display:block;margin:0}
+.plan-pick label:has(input:checked){border-color:var(--primary);background:#f3f8ff;box-shadow:0 0 0 3px #1769e01a}
+.plan-pick input{position:absolute;opacity:0}.plan-pick b{display:block;font-size:.86rem}.plan-pick strong{display:block;font-size:1.1rem;color:var(--primary)}.plan-pick small{color:var(--muted);font-size:.72rem}
+.plan-pick .free strong{color:#127a4d}
+.pw-wrap{position:relative}.pw-wrap .form-control{padding-right:8.5rem}.pw-wrap .pw-btns{position:absolute;right:.35rem;top:50%;transform:translateY(-50%);display:flex;gap:.2rem}
+.pw-btns button{border:0;background:none;font-size:.78rem;font-weight:700;color:var(--muted);padding:.25rem .45rem;border-radius:6px}.pw-btns button:hover{background:#eef2f6;color:var(--ink)}
+.user-in{text-transform:lowercase}
+.vd-state{display:inline-flex;align-items:center;border-radius:999px;padding:.22rem .65rem;font-weight:700;font-size:.74rem;white-space:nowrap}
+.vd-state.stock{background:#e6f6ee;color:#127a4d}.vd-state.sold{background:#fff4dc;color:#8a5a00}.vd-state.used{background:#e5f3fb;color:#0b6690}
+.vd-state.disabled{background:#fdeaea;color:#a12b2b}.vd-state.expired{background:#eef1f5;color:#56687a}.vd-state.frozen,.vd-state.warned{background:#e0efff;color:#1a5fb4}
+.kind{display:inline-block;font-size:.68rem;font-weight:800;letter-spacing:.03em;border-radius:5px;padding:.12rem .4rem;margin-left:.35rem;vertical-align:middle}
+.kind.free{background:#e6f6ee;color:#127a4d}.kind.paid{background:#eef2ff;color:#3b4cc0}
+.login-card{border-radius:18px;background:linear-gradient(150deg,#0b2237,#15406f);color:#fff;padding:1.2rem 1.3rem}
+.login-card small{color:#9fbadb;font-size:.72rem;font-weight:700;display:block}
+.login-card .cred{font:800 1.25rem/1.2 ui-monospace,Menlo,monospace;background:#ffffff14;border-radius:10px;padding:.5rem .7rem;margin:.2rem 0 .7rem;word-break:break-all}
+.filters a{font-size:.8rem;font-weight:700;padding:.3rem .7rem;border-radius:999px;color:#5b6d82;text-decoration:none}.filters a.on{background:var(--ink);color:#fff}
+</style>{% endblock %}
+{% block content %}{% with c=current_business.currency %}
+<div class="kpi-row mb-3" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+  <div class="kpi hero"><small>Members</small><strong>{{ stats.total }}</strong><em>log in with a username and password</em></div>
+  <div class="kpi"><small>Paying</small><strong>{{ stats.paid }}</strong><em>on a priced plan</em></div>
+  <div class="kpi"><small>Free &amp; unlimited</small><strong>{{ stats.free }}</strong><em>no charge, no time limit</em></div>
+  <div class="kpi"><small>Disabled</small><strong>{{ stats.disabled }}</strong><em>cannot log in</em></div>
+</div>
+
+{% if created %}
+<div class="row g-3 mb-3"><div class="col-lg-6"><div class="login-card">
+  <div class="d-flex justify-content-between align-items-start"><div><small>New member</small><div class="fw-bold fs-5 mb-2">{{ created.customer_name|default:created.code }}</div></div>
+    <a class="btn btn-sm btn-light" href="{% url 'voucher_detail' created.id %}">Open</a></div>
+  <small>Username</small><div class="cred" id="credUser">{{ created.code }}</div>
+  <small>Password</small><div class="cred" id="credPass">{{ created.login_password }}</div>
+  <div class="small" style="color:#cfe0f3">{{ created.plan_name }} · {% if created.duration_minutes %}{{ created.duration_minutes|minutes_text }}{% else %}no time limit{% endif %} · {{ created.max_devices }} device{{ created.max_devices|pluralize }}{% if created.router %} · {{ created.router.name }}{% endif %}</div>
+  <div class="d-flex gap-2 mt-3 flex-wrap">
+    <button class="btn btn-sm btn-primary" type="button" id="copyLogin"><i class="bi bi-clipboard"></i> Copy login details</button>
+    {% if created.customer_phone %}<a class="btn btn-sm btn-success" id="waLogin" target="_blank" rel="noopener" href="#"><i class="bi bi-whatsapp"></i> Send by WhatsApp</a>{% endif %}
+  </div>
+</div></div>
+<div class="col-lg-6"><div class="panel h-100"><h3 class="h6 fw-bold">How they connect</h3>
+  <ol class="small mb-0"><li>Join <b>{{ current_business.wifi_ssid|default:'your Wi-Fi' }}</b>.</li><li>On the login page, tap <b>Member</b>.</li><li>Type the username and password above and press Connect.</li></ol>
+  <p class="small text-secondary mt-2 mb-0">The Member tab is on every portal page made in Portal Studio. Re-export or re-deploy router files once so the router gets the new login page.</p></div></div></div>
+{% endif %}
+
+<div class="row g-3">
+{% if 'vouchers.create' in tt_perms %}
+<div class="col-xl-4"><form method="post" class="panel" id="memberForm" novalidate>{% csrf_token %}
+  <div class="panel-head"><div><h3>New member</h3><p>Username and password can be different or the same.</p></div></div>
+  <div class="mb-sec"><h4>Login</h4>
+    <label class="form-label small fw-bold" for="mUser">Username</label>
+    <input class="form-control user-in font-monospace" id="mUser" name="username" required maxlength="32" autocomplete="off" autocapitalize="none" spellcheck="false"
+           value="{{ form.username|default:'' }}" placeholder="e.g. fatou.jallow" pattern="[a-zA-Z0-9][a-zA-Z0-9._@\-]{2,31}" aria-describedby="mUserHelp">
+    <small class="text-secondary d-block mb-2" id="mUserHelp">3–32 characters: letters, numbers, dot, dash, underscore or @. Saved in small letters.</small>
+    <label class="form-label small fw-bold" for="mPass">Password</label>
+    <div class="pw-wrap"><input class="form-control font-monospace" id="mPass" name="password" type="password" maxlength="64" autocomplete="new-password" value="{{ form.password|default:'' }}" placeholder="4–64 characters">
+      <div class="pw-btns"><button type="button" data-show="mPass">Show</button><button type="button" data-gen="mPass">Generate</button></div></div>
+    <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="same" id="mSame" value="1" {% if form.same %}checked{% endif %}>
+      <label class="form-check-label small" for="mSame">Password is the same as the username</label></div>
+  </div>
+
+  <div class="mb-sec"><h4>Plan</h4>
+    <div class="plan-pick">
+      <label class="free"><input type="radio" name="plan" value="free" data-price="0" {% if form.plan == 'free' or not form.plan %}checked{% endif %}><b>Free</b><strong>Unlimited</strong><small>No charge, no time limit</small></label>
+      {% for p in plans %}<label{% if p.is_free %} class="free"{% endif %}><input type="radio" name="plan" value="{{ p.id }}" data-price="{{ p.price|floatformat:2 }}" {% if form.plan == p.id|stringformat:'s' %}checked{% endif %}><b>{{ p.name }}</b><strong>{% if p.is_free %}Free{% else %}{{ p.price|money:c }}{% endif %}</strong><small>{{ p.duration_minutes|minutes_text }} · {{ p.max_devices }} device{{ p.max_devices|pluralize }}</small></label>{% endfor %}
+    </div>
+    <div class="row g-2 mt-1" id="freeOpts">
+      <div class="col-6"><label class="form-label small fw-bold" for="mDev">Devices</label><input class="form-control" type="number" min="1" max="20" id="mDev" name="devices" value="{{ form.devices|default:'1' }}"></div>
+      <div class="col-6"><label class="form-label small fw-bold" for="mRate">Speed <span class="fw-normal text-secondary">(optional)</span></label><input class="form-control" id="mRate" name="rate_limit" value="{{ form.rate_limit|default:'' }}" placeholder="e.g. 10M/10M"></div>
+    </div>
+  </div>
+
+  <div class="mb-sec" id="payOpts" hidden><h4>First payment</h4>
+    <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" name="paid" id="mPaid" value="1" checked><label class="form-check-label small fw-bold" for="mPaid">Paid now — record the sale</label></div>
+    <div class="row g-2"><div class="col-sm-4"><label class="form-label small fw-bold" for="mMethod">Paid with</label><select class="form-select" id="mMethod" name="method">{% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-sm-4"><label class="form-label small fw-bold" for="mRef">Reference</label><input class="form-control" id="mRef" name="reference" placeholder="Wave / QMoney ID"></div>
+      <div class="col-sm-4"><label class="form-label small fw-bold" for="mAgent">Sold by</label><select class="form-select" id="mAgent" name="agent"><option value="">Shop</option>{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></div></div>
+  </div>
+
+  <div class="mb-sec"><h4>Customer and router</h4><div class="row g-2">
+    <div class="col-sm-6"><label class="form-label small fw-bold" for="mName">Name</label><input class="form-control" id="mName" name="customer_name" value="{{ form.customer_name|default:'' }}" autocomplete="off"></div>
+    <div class="col-sm-6"><label class="form-label small fw-bold" for="mPhone">Phone</label><input class="form-control" id="mPhone" name="customer_phone" inputmode="tel" value="{{ form.customer_phone|default:'' }}"></div>
+    <div class="col-sm-6"><label class="form-label small fw-bold" for="mRouter">Router</label><select class="form-select" id="mRouter" name="router"><option value="">No router yet</option>{% for r in routers %}<option value="{{ r.id }}" {% if form.router == r.id|stringformat:'s' or not form.router and r == default_router %}selected{% endif %}>{{ r.name }}</option>{% endfor %}</select></div>
+    <div class="col-sm-6"><label class="form-label small fw-bold" for="mNote">Note</label><input class="form-control" id="mNote" name="note" maxlength="255" value="{{ form.note|default:'' }}" placeholder="e.g. Staff, room 4"></div>
+  </div></div>
+  <button class="btn btn-primary btn-lg w-100 mt-4"><i class="bi bi-person-plus"></i> Create member</button>
+</form></div>
+{% endif %}
+
+<div class="{% if 'vouchers.create' in tt_perms %}col-xl-8{% else %}col-12{% endif %}"><div class="panel">
+  <div class="panel-head flex-wrap gap-2"><div><h3>All members</h3><p>{{ page.paginator.count }} shown</p></div>
+    <form class="d-flex gap-2" method="get"><input type="hidden" name="kind" value="{{ kind }}"><input class="form-control form-control-sm" type="search" name="q" value="{{ q }}" placeholder="Username, name or phone" aria-label="Search members"><button class="btn btn-sm btn-outline-secondary">Search</button></form></div>
+  <div class="filters d-flex gap-1 mb-2"><a href="?q={{ q|urlencode }}" class="{% if not kind %}on{% endif %}">All</a><a href="?kind=paid&q={{ q|urlencode }}" class="{% if kind == 'paid' %}on{% endif %}">Paying</a><a href="?kind=free&q={{ q|urlencode }}" class="{% if kind == 'free' %}on{% endif %}">Free &amp; unlimited</a></div>
+  <div class="table-responsive"><table class="table align-middle">
+    <thead><tr><th>Member</th><th>Plan</th><th>State</th><th>Ends</th><th class="text-end">Actions</th></tr></thead>
+    <tbody>{% for r in rows %}{% with v=r.v %}<tr>
+      <td><a class="fw-semibold font-monospace" href="{% url 'voucher_detail' v.id %}">{{ v.code }}</a>
+        <small class="d-block text-secondary">{% if v.customer_name %}{{ v.customer_name }}{% endif %}{% if v.customer_phone %} · {{ v.customer_phone }}{% endif %}{% if not v.password %}{% if v.customer_name or v.customer_phone %} · {% endif %}password = username{% endif %}</small></td>
+      <td>{{ v.plan_name }}<span class="kind {{ r.kind }}">{% if r.kind == 'free' %}FREE{% else %}PAID{% endif %}</span>
+        <small class="d-block text-secondary">{% if v.price %}{{ v.price|money:c }} · {% endif %}{{ v.max_devices }} device{{ v.max_devices|pluralize }}{% if v.router %} · {{ v.router.name }}{% endif %}{% if v.mikrotik_sync_status != 'Synced' %} · <span class="text-warning">{{ v.mikrotik_sync_status }}</span>{% endif %}</small></td>
+      <td><span class="vd-state {{ r.key }}">{{ r.label }}</span></td>
+      <td>{% if r.ends_at %}{{ r.ends_at|date:'d M Y' }}{% if r.left %}<small class="d-block text-secondary">{{ r.left|duration_short }} left</small>{% endif %}{% elif not v.duration_minutes %}Never{% else %}<small class="text-secondary">From first login</small>{% endif %}</td>
+      <td class="text-end text-nowrap">
+        {% if 'vouchers.support' in tt_perms %}<button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#pwModal" data-url="{% url 'member_password' v.id %}" data-user="{{ v.code }}" title="Change password" aria-label="Change password of {{ v.code }}"><i class="bi bi-key"></i></button>{% endif %}
+        {% if r.kind == 'paid' and 'vouchers.create' in tt_perms %}<button class="btn btn-sm btn-outline-success" type="button" data-bs-toggle="modal" data-bs-target="#renewModal" data-url="{% url 'member_renew' v.id %}" data-user="{{ v.code }}" data-price="{{ v.price|floatformat:2 }}" data-dur="{{ v.duration_minutes|minutes_text }}">Renew</button>{% endif %}
+      </td></tr>{% endwith %}
+    {% empty %}<tr><td colspan="5" class="empty-table">{% if q or kind %}No members match.{% else %}No members yet. Create the first one{% if 'vouchers.create' in tt_perms %} with the form{% endif %}.{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+  {% if page.has_other_pages %}<div class="d-flex gap-2 justify-content-end">{% if page.has_previous %}<a class="btn btn-sm btn-light" href="?p={{ page.previous_page_number }}&kind={{ kind }}&q={{ q|urlencode }}">Previous</a>{% endif %}<span class="small align-self-center">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>{% if page.has_next %}<a class="btn btn-sm btn-light" href="?p={{ page.next_page_number }}&kind={{ kind }}&q={{ q|urlencode }}">Next</a>{% endif %}</div>{% endif %}
+</div></div>
+</div>
+
+<div class="modal fade" id="pwModal" tabindex="-1" aria-labelledby="pwTitle"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <div class="modal-header border-0"><h5 class="modal-title fw-bold" id="pwTitle">Change password</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body pt-0"><p class="small text-secondary">The member is signed out on the router and needs the new password next time.</p>
+    <label class="form-label small fw-bold" for="pwNew">New password</label>
+    <div class="pw-wrap"><input class="form-control font-monospace" id="pwNew" name="password" type="password" maxlength="64" autocomplete="new-password"><div class="pw-btns"><button type="button" data-show="pwNew">Show</button><button type="button" data-gen="pwNew">Generate</button></div></div>
+    <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="same" id="pwSame" value="1"><label class="form-check-label small" for="pwSame">Same as the username</label></div>
+    <label class="form-label small fw-bold mt-3" for="pwReason">Reason <span class="fw-normal text-secondary">(kept in the history)</span></label><input class="form-control" id="pwReason" name="reason" maxlength="255" placeholder="e.g. Customer forgot it"></div>
+  <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Change password</button></div></form></div></div>
+
+<div class="modal fade" id="renewModal" tabindex="-1" aria-labelledby="rnTitle"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <div class="modal-header border-0"><h5 class="modal-title fw-bold" id="rnTitle">Renew</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body pt-0"><p class="small text-secondary" id="rnText"></p><div class="row g-2">
+    <div class="col-6"><label class="form-label small fw-bold" for="rnAmount">Amount ({{ c }})</label><input class="form-control" type="number" step="0.01" min="0" id="rnAmount" name="amount"></div>
+    <div class="col-6"><label class="form-label small fw-bold" for="rnMethod">Paid with</label><select class="form-select" id="rnMethod" name="method">{% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-6"><label class="form-label small fw-bold" for="rnRef">Reference</label><input class="form-control" id="rnRef" name="reference"></div>
+    <div class="col-6"><label class="form-label small fw-bold" for="rnAgent">Received by</label><select class="form-select" id="rnAgent" name="agent"><option value="">Shop</option>{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></div></div></div>
+  <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success">Renew and record payment</button></div></form></div></div>
+{% endwith %}{% endblock %}
+{% block scripts %}<script>
+(function(){
+  function gen(){var a='abcdefghjkmnpqrstuvwxyz23456789',o='',r=new Uint32Array(8);crypto.getRandomValues(r);for(var i=0;i<8;i++)o+=a[r[i]%a.length];return o;}
+  document.querySelectorAll('[data-show]').forEach(function(b){b.addEventListener('click',function(){var i=document.getElementById(b.dataset.show),h=i.type==='password';i.type=h?'text':'password';b.textContent=h?'Hide':'Show';});});
+  document.querySelectorAll('[data-gen]').forEach(function(b){b.addEventListener('click',function(){var i=document.getElementById(b.dataset.gen);i.type='text';i.value=gen();i.disabled=false;var s=i.closest('form').querySelector('input[name=same]');if(s)s.checked=false;var sb=i.parentNode.querySelector('[data-show]');if(sb)sb.textContent='Hide';});});
+  function linkSame(same,pw){if(!same)return;var f=function(){pw.disabled=same.checked;if(same.checked)pw.value='';};same.addEventListener('change',f);f();}
+  linkSame(document.getElementById('mSame'),document.getElementById('mPass'));linkSame(document.getElementById('pwSame'),document.getElementById('pwNew'));
+  var u=document.getElementById('mUser');if(u)u.addEventListener('input',function(){var p=u.selectionStart;u.value=u.value.toLowerCase().replace(/\s+/g,'');try{u.setSelectionRange(p,p);}catch(e){}});
+  var f=document.getElementById('memberForm');
+  if(f){var upd=function(){var r=f.querySelector('input[name=plan]:checked'),free=!r||r.value==='free',price=r?parseFloat(r.dataset.price||'0'):0;
+      document.getElementById('freeOpts').hidden=!free;document.getElementById('payOpts').hidden=!(price>0);};
+    f.querySelectorAll('input[name=plan]').forEach(function(x){x.addEventListener('change',upd);});upd();}
+  document.querySelectorAll('[data-bs-target="#pwModal"],[data-bs-target="#renewModal"]').forEach(function(b){b.addEventListener('click',function(){
+    var m=document.querySelector(b.dataset.bsTarget),form=m.querySelector('form');form.action=b.dataset.url;
+    if(b.dataset.bsTarget==='#pwModal'){m.querySelector('#pwTitle').textContent='Change password of '+b.dataset.user;m.querySelector('#pwNew').value='';}
+    else{m.querySelector('#rnTitle').textContent='Renew '+b.dataset.user;m.querySelector('#rnAmount').value=b.dataset.price;m.querySelector('#rnText').textContent='Adds '+b.dataset.dur+' and switches the member back on if their time ran out.';}
+  });});
+  var cp=document.getElementById('copyLogin');
+  if(cp){var text='Your {{ current_business.business_name|escapejs }} Wi-Fi login\nWi-Fi: {{ current_business.wifi_ssid|default:"our Wi-Fi"|escapejs }}\nTap "Member" on the login page.\nUsername: '+document.getElementById('credUser').textContent+'\nPassword: '+document.getElementById('credPass').textContent{% if current_business.support_phone %}+'\nHelp: {{ current_business.support_phone|escapejs }}'{% endif %};
+    cp.addEventListener('click',function(){navigator.clipboard.writeText(text).then(function(){cp.innerHTML='<i class="bi bi-check2"></i> Copied';});});
+    var wa=document.getElementById('waLogin');if(wa){var d='{{ created.customer_phone|escapejs }}'.replace(/\D/g,'');if(d.length===7)d='220'+d;wa.href='https://wa.me/'+d+'?text='+encodeURIComponent(text);}}
+})();
+</script>{% endblock %}

@@ -248,11 +248,23 @@ class Voucher(models.Model):
     freeze_reason=models.CharField(max_length=255,blank=True)
     frozen_left=models.PositiveIntegerField(null=True,blank=True,help_text='Seconds left when frozen (empty: clock had not started)')
     warning_message=models.TextField(blank=True,help_text='What the customer reads on the warning page (manual warning). Empty = the shared-use text')
+    # Members — see core/members.py. A member logs in with a username (stored in `code`, so every
+    # voucher feature works for members too) and a password. An empty password means the password
+    # is the same as the username, exactly like a voucher code.
+    LOGIN_TYPES=[('voucher','Voucher'),('member','Member')]
+    login_type=models.CharField(max_length=10,choices=LOGIN_TYPES,default='voucher',db_index=True)
+    password=models.CharField(max_length=64,blank=True,help_text='Member password. Empty = same as the username')
     objects=AliveManager()
     all_objects=BinQuerySet.as_manager()
     def save(self,*a,**k):
         if not self.pk: stamp_creator(self)
         return super().save(*a,**k)
+    @property
+    def is_member(self): return self.login_type=='member'
+    @property
+    def login_password(self):
+        """The password the router expects: the member's own password, else the code itself."""
+        return self.password or self.code
     @property
     def is_deleted(self): return self.deleted_at is not None
     @property
@@ -307,7 +319,8 @@ class VoucherEvent(models.Model):
             ('enforced','Disconnected by enforcement'),('router_disabled','Disabled on the router'),
             ('router_enabled','Enabled on the router'),('sale_voided','Sale voided'),('deleted','Deleted'),('note','Note'),
             ('code_changed','Code changed'),('fup_slowed','Slowed down (fair usage)'),('fup_restored','Back to full speed'),('fup_lifted','Full speed given back'),('frozen','Frozen'),('unfrozen','Unfrozen'),('warned','Warning sent'),
-            ('warning_accepted','Warning accepted by the customer'),('shared_resolved','Shared use resolved')]
+            ('warning_accepted','Warning accepted by the customer'),('shared_resolved','Shared use resolved'),
+            ('password_changed','Password changed')]
     SOURCES=[('user','User'),('auto','Automatic'),('router','Router')]
     business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='voucher_events')
     voucher=models.ForeignKey(Voucher,on_delete=models.SET_NULL,null=True,blank=True,related_name='events')

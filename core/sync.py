@@ -262,6 +262,10 @@ def sync_router(router, progress=None):
             duration_minutes = _routeros_minutes(row.get('limit-uptime', row.get('limit_uptime', '')), plan.duration_minutes if plan else 1440)
             disabled = ros_bool(row.get('disabled', False))
             existing_voucher = Voucher.all_objects.filter(code__iexact=username).first()
+            # A router user whose password is not its own name logs in like a member (username + password).
+            router_pw = row.get('password')
+            router_pw = None if router_pw is None or str(router_pw).startswith('•') else str(router_pw)
+            is_member_row = router_pw is not None and router_pw != '' and router_pw != username
             source = 'taptap' if existing_voucher and existing_voucher.business_id == router.business_id and existing_voucher.source == 'taptap' else 'mikrotik'
             RouterHotspotUser.objects.update_or_create(
                 router=router, username=username,
@@ -296,6 +300,10 @@ def sync_router(router, progress=None):
                         record(existing_voucher,'router_disabled' if disabled else 'router_enabled',source='router',via='Full sync',
                                status_before=_was,status_after=existing_voucher.status,text=f'Changed on {router.name}')
                     fields += ['mikrotik_id','plan_name','duration_minutes','max_devices','status']
+                    if router_pw is not None:   # router-made users: the router's password is the truth
+                        existing_voucher.login_type='member' if is_member_row else existing_voucher.login_type
+                        existing_voucher.password=router_pw[:64] if is_member_row else ''
+                        fields += ['login_type','password']
                 # Repair vouchers imported with no price (older TapTap versions always stored 0).
                 new_price = user_price or plan_price
                 if new_price and not existing_voucher.price and not existing_voucher.sold_at:
@@ -314,6 +322,7 @@ def sync_router(router, progress=None):
                         price=user_price or plan_price or 0, duration_minutes=duration_minutes, max_devices=max_devices,
                         status='disabled' if disabled else 'active', source='mikrotik', mikrotik_id=str(row.get('id','')),
                         mikrotik_sync_status='Synced', mikrotik_sync_error='',
+                        login_type='member' if is_member_row else 'voucher', password=router_pw[:64] if is_member_row else '',
                     )
                     summary['pulled_vouchers'] += 1
                     if _has_uptime(row.get('uptime')):
@@ -362,7 +371,8 @@ def sync_router(router, progress=None):
                 svc.ensure_hotspot_profile(profile_name, shared, rate)
                 action, item_id = svc.upsert_voucher(
                     voucher.code, profile_name, limit_uptime=router_limit(voucher),
-                    comment=f'TapTap voucher {voucher.code}', disabled=(voucher.status != 'active'),
+                    comment=(f'TapTap member {voucher.code}' if voucher.is_member else f'TapTap voucher {voucher.code}'),
+                    disabled=(voucher.status != 'active'), password=voucher.login_password,
                 )
                 voucher.mikrotik_id=str(item_id or voucher.mikrotik_id); voucher.mikrotik_sync_status='Synced'; voucher.mikrotik_sync_error=''
                 voucher.save(update_fields=['mikrotik_id','mikrotik_sync_status','mikrotik_sync_error'])

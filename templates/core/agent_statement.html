@@ -1,0 +1,114 @@
+{% load static taptap_extras %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ st.number }} · {{ agent.name }} — Agent Cash Flow Statement</title>
+<link rel="stylesheet" href="{% static 'css/statement.css' %}">
+<style>@page{size:A4;margin:12mm}</style></head>
+<body>{% with c=current_business.currency b=current_business %}
+<div class="st-bar no-print">
+  <form method="get" aria-label="Statement period">
+    <select name="range" id="range" aria-label="Period">{% for k,l in presets.items %}<option value="{{ k }}" {% if period.preset == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <span id="custom" {% if period.preset != 'custom' %}hidden{% endif %}><input type="date" name="start" value="{{ st.from|date:'Y-m-d' }}" aria-label="From"> <input type="date" name="end" value="{{ st.to|date:'Y-m-d' }}" aria-label="To"></span>
+    <button class="st-btn" type="submit">Show</button>
+  </form>
+  <a class="st-btn" href="{% url 'agent_detail' agent.id %}">Back to {{ agent.name }}</a>
+  <button class="st-btn go" type="button" onclick="window.print()">Print / Save PDF</button>
+</div>
+
+<article class="sheet">
+  <header class="st-head">
+    <div class="st-brand">{% if b.logo_data %}<img src="{{ b.logo_data }}" alt="">{% endif %}
+      <div><h1>{{ b.business_name }}</h1><p>Agent Cash Flow Statement</p></div></div>
+    <div class="st-ref">
+      <div class="state {{ st.status.0 }}">{{ st.status.1 }}</div>
+      <div class="no">{{ st.number }}</div>
+      <small>Period {{ st.from|date:'d M Y' }} to {{ st.to|date:'d M Y' }}</small>
+    </div>
+  </header>
+
+  <h2>Agent Information</h2>
+  <div class="tiles">
+    <div class="tile"><div class="k">Agent / Name</div><div class="v">{{ agent.name }}</div></div>
+    <div class="tile"><div class="k">Location</div><div class="v">{{ agent.location|default:'—' }}</div></div>
+    <div class="tile"><div class="k">Phone</div><div class="v">{{ agent.phone|default:'—' }}</div></div>
+    <div class="tile"><div class="k">Commission Rate</div><div class="v">{{ agent.commission_percent|pct }}%</div></div>
+    <div class="tile"><div class="k">Vouchers Sold in Period</div><div class="v">{{ st.sold_n }}</div></div>
+    <div class="tile"><div class="k">Stock in Hand</div><div class="v">{{ st.held_n }}</div><div class="s">unsold, worth {{ st.held_value|money2:c }}</div></div>
+  </div>
+
+  <h2>Cash Flow Summary</h2>
+  <div class="bridge">
+    <div class="row"><span class="op"></span><span class="lbl">Opening balance<small>Still to hand in on {{ st.from|date:'d M Y' }}</small></span><span class="amt">{{ st.opening|money2:c }}</span></div>
+    <div class="row"><span class="op">+</span><span class="lbl">Sales credited to the agent<small>{{ st.sold_n }} voucher{{ st.sold_n|pluralize }} sold in the period, gross</small></span><span class="amt">{{ st.gross|money2:c }}</span></div>
+    <div class="row"><span class="op">−</span><span class="lbl">Commission earned<small>At {{ agent.commission_percent|pct }}%, kept by the agent</small></span><span class="amt">{{ st.commission|money2:c }}</span></div>
+    <div class="row sub"><span class="op">=</span><span class="lbl"><b>Amount due for the period</b><small>Opening balance plus net sales</small></span><span class="amt">{{ st.due|money2:c }}</span></div>
+    <div class="row"><span class="op">−</span><span class="lbl">Cash handed in<small>{{ st.collections_n }} hand-in{{ st.collections_n|pluralize }}, all payment methods</small></span><span class="amt pos">{{ st.collected|money2:c }}</span></div>
+    <div class="row total"><span class="op">=</span><span class="lbl"><b>Closing balance</b><small>{% if st.status.0 == 'credit' %}Paid ahead — in credit{% else %}Still to hand in{% endif %} on {{ st.to|date:'d M Y' }}</small></span>
+      <span class="amt {% if st.status.0 == 'due' %}warn{% elif st.status.0 == 'credit' %}info{% else %}pos{% endif %}">{{ st.closing|money2:c }}</span></div>
+  </div>
+  <div class="meter" role="img" aria-label="Collection rate {{ st.rate }} percent"><i style="width:{{ st.rate }}%"></i></div>
+  <div class="meter-cap"><span>Collection rate {{ st.rate }}%</span><span>{{ st.collected|money2:c }} of {{ st.due|money2:c }} handed in</span></div>
+
+  <div class="tiles" style="margin-top:18px">
+    <div class="tile"><div class="k">Total Inflow</div><div class="v big pos">{{ st.collected|money2:c }}</div></div>
+    <div class="tile"><div class="k">Net Sales</div><div class="v big">{{ st.net|money2:c }}</div></div>
+    <div class="tile"><div class="k">Outstanding</div><div class="v big {% if st.closing > 0 %}neg{% else %}pos{% endif %}">{% if st.closing > 0 %}{{ st.closing|money2:c }}{% else %}{{ 0|money2:c }}{% endif %}</div></div>
+  </div>
+
+  <h2>Transaction Ledger</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Date</th><th>Reference</th><th>Description</th><th>Flow</th><th class="n">Gross</th><th class="n">Commission</th><th class="n">Due (Dr)</th><th class="n">Handed in (Cr)</th><th class="n">Balance</th></tr></thead>
+    <tbody>
+      <tr class="muted"><td>{{ st.from|date:'d M Y' }}</td><td>—</td><td>Opening balance</td><td></td><td></td><td></td><td></td><td></td><td class="n">{{ st.opening|money2:c }}</td></tr>
+      {% for r in st.lines %}<tr>
+        <td>{{ r.when|date:'d M Y' }}<small>{{ r.when|date:'H:i' }}</small></td>
+        <td>{{ r.ref }}</td>
+        <td>{{ r.text }}{% if r.by %}<small>Recorded by {{ r.by }}</small>{% endif %}</td>
+        <td>{% if r.kind == 'in' %}<span class="tag t-in">INFLOW</span>{% else %}<span class="tag t-sale">SALES</span>{% endif %}</td>
+        <td class="n">{% if r.gross %}{{ r.gross|money2:c }}{% endif %}</td>
+        <td class="n">{% if r.comm %}−{{ r.comm|money2:c }}{% endif %}</td>
+        <td class="n">{% if r.debit %}{{ r.debit|money2:c }}{% endif %}</td>
+        <td class="n pos">{% if r.credit %}+{{ r.credit|money2:c }}{% endif %}</td>
+        <td class="n"><b>{{ r.balance|money2:c }}</b></td></tr>
+      {% empty %}<tr><td colspan="9" class="empty">No sales and no hand-ins in this period.</td></tr>{% endfor %}
+    </tbody>
+    <tfoot><tr><td colspan="4">Totals for the period</td><td class="n">{{ st.gross|money2:c }}</td><td class="n">−{{ st.commission|money2:c }}</td><td class="n">{{ st.net|money2:c }}</td><td class="n">{{ st.collected|money2:c }}</td><td class="n">{{ st.closing|money2:c }}</td></tr></tfoot>
+  </table></div>
+
+  <h2>Inflow by Payment Method</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Payment Method</th><th class="n">Transactions</th><th class="n">Share</th><th class="n">Net Amount</th></tr></thead>
+    <tbody>{% for m in st.methods %}<tr><td>{{ m.label }}</td><td class="n">{{ m.n }}</td><td class="n">{{ m.share }}%</td><td class="n">{{ m.amount|money2:c }}</td></tr>
+      {% empty %}<tr><td colspan="4" class="empty">Nothing handed in during this period.</td></tr>{% endfor %}</tbody>
+    {% if st.methods %}<tfoot><tr><td>Total</td><td class="n">{{ st.collections_n }}</td><td class="n">100%</td><td class="n">{{ st.collected|money2:c }}</td></tr></tfoot>{% endif %}
+  </table></div>
+
+  <h2>Batch Position</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Batch</th><th>Issued</th><th>Terms</th><th class="n">Sold</th><th class="n">In Hand</th><th class="n">Batch Value</th><th class="n">Sold (Gross)</th><th class="n">Net Due</th></tr></thead>
+    <tbody>{% for x in st.batches %}<tr>
+      <td><b>{{ x.b.name }}</b><small>{{ x.b.plan|default:'' }}</small></td>
+      <td>{% if x.b.issued_at %}{{ x.b.issued_at|date:'d M Y' }}{% else %}{{ x.b.created_at|date:'d M Y' }}{% endif %}</td>
+      <td>{% if x.b.settlement == 'prepaid' %}<span class="tag t-ok">PAID UPFRONT</span>{% elif x.left == 0 %}<span class="tag t-part">SOLD OUT</span>{% else %}<span class="tag t-open">ON CREDIT</span>{% endif %}</td>
+      <td class="n">{{ x.sold }}/{{ x.total }}</td><td class="n">{{ x.left }}</td><td class="n">{{ x.value|money2:c }}</td><td class="n">{{ x.gross|money2:c }}</td><td class="n">{{ x.net|money2:c }}</td></tr>
+      {% empty %}<tr><td colspan="8" class="empty">No batches issued to {{ agent.name }}.</td></tr>{% endfor %}</tbody>
+  </table></div>
+
+  <h2>Statement Details</h2>
+  <table class="kv">
+    <tr><td>Statement Reference</td><td>{{ st.number }}</td></tr>
+    <tr><td>Period</td><td>{{ st.from|date:'d M Y' }} to {{ st.to|date:'d M Y' }}</td></tr>
+    <tr><td>Generated</td><td>{{ generated_at|date:'d M Y, H:i' }} by {{ generated_by }}</td></tr>
+    <tr><td>Agent Since</td><td>{{ agent.created_at|date:'d M Y' }}</td></tr>
+  </table>
+
+  <p class="note">This statement shows every voucher sale credited to {{ agent.name }} during the period, less the agent's commission, and every amount handed in to {{ b.business_name }}. The closing balance is the amount still to hand in. Please report any difference within 7 days, quoting the statement reference.{% if b.support_phone %} Questions: {{ b.support_phone }}.{% endif %}</p>
+
+  <div class="sign">
+    <div><strong>{{ agent.name }}</strong>Agent — signature and date</div>
+    <div><strong>{{ generated_by }}</strong>For {{ b.business_name }} — signature and date</div>
+  </div>
+
+  <footer class="st-foot"><span>TapTap Business Hotspot Management</span><span>{{ st.number }}</span></footer>
+</article>
+<script>(function(){var r=document.getElementById('range'),c=document.getElementById('custom');r.addEventListener('change',function(){c.hidden=r.value!=='custom';if(r.value!=='custom')r.form.submit();});})();</script>
+{% endwith %}</body></html>

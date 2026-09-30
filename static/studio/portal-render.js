@@ -157,6 +157,16 @@
       '.tp-btn.outline{background:transparent;color:' + t.text + ';border:1.5px solid ' + t.border + '}',
       '.tp-btn[disabled]{opacity:.6;cursor:wait}',
       '.tp-hint{font-size:12.5px;color:' + t.muted + ';margin:10px 0 0}',
+      /* Voucher / Member login switch */
+      '.tp-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;margin-bottom:14px;border-radius:' + Math.max(4, r * .55) + 'px;background:' + t.input_bg + ';border:1.5px solid ' + t.border + '}',
+      '.tp-tabs button{border:0;background:transparent;font:inherit;font-weight:700;font-size:14px;padding:9px 8px;border-radius:' + Math.max(3, r * .45) + 'px;color:' + t.muted + ';cursor:pointer;transition:background .15s,color .15s}',
+      '.tp-tabs button[aria-selected="true"]{background:' + (t.accent || '#1769e0') + ';color:' + (t.accent_text || '#fff') + '}',
+      /* member fields: typed as is (the voucher code box is upper-case and centred) */
+      '.tp-pane[data-pane="member"] .tp-input{font-size:17px;font-weight:600;letter-spacing:normal;text-transform:none;text-align:left}',
+      '.tp-tabs button:focus-visible{outline:3px solid ' + hexA(t.accent, .45) + ';outline-offset:2px}',
+      '.tp-pw{position:relative}.tp-pw .tp-input{padding-right:64px}',
+      '.tp-pw button{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:none;color:' + t.muted + ';font:inherit;font-size:13px;font-weight:700;padding:6px 8px;cursor:pointer}',
+      '.tp-gap{margin-top:12px}',
       '.tp-msg{font-size:14px;padding:11px 14px;border-radius:' + Math.max(4, r * .45) + 'px;margin-top:12px;display:flex;gap:9px;align-items:flex-start;text-align:left;line-height:1.4}',
       '.tp-msg.err{background:#fde8e8;color:#9b1c1c}.tp-msg.ok{background:#e3f7ec;color:#11683f}',
       '.tp-bz{display:flex;align-items:center;gap:12px;text-decoration:none;color:' + t.accent_text + ';background:linear-gradient(135deg,' + t.accent + ',#f97316);border-radius:' + Math.max(8, r * .7) + 'px;padding:12px 14px;text-align:left;box-shadow:0 8px 20px rgba(0,0,0,.18)}',
@@ -297,10 +307,24 @@
       field = '<input class="tp-input" id="' + id + '" name="code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="' + esc(b.placeholder || '') + '" maxlength="32">';
     }
     var err = ctx.mt && ctx.mt.error ? '<div class="tp-msg err" role="alert">' + icon('warn') + '<span>' + esc(ctx.mt.error) + '</span></div>' : '';
-    return '<form class="tp-vform" novalidate>' + (b.label ? '<label class="tp-label" for="' + id + '">' + esc(b.label) + '</label>' : '') + field +
-      '<button class="tp-btn" type="submit">' + icon('wifi') + '<span>' + esc(b.button || 'Connect') + '</span></button>' +
-      '<div class="tp-out" aria-live="polite">' + err + '</div>' +
-      (b.show_hint ? '<p class="tp-hint">Codes are not case-sensitive — spaces are ignored.</p>' : '') + '</form>';
+    var hint = b.show_hint ? '<p class="tp-hint">Codes are not case-sensitive — spaces are ignored.</p>' : '';
+    var voucherPane = (b.label ? '<label class="tp-label" for="' + id + '">' + esc(b.label) + '</label>' : '') + field + hint;
+    var btn = '<button class="tp-btn" type="submit">' + icon('wifi') + '<span>' + esc(b.button || 'Connect') + '</span></button>' +
+      '<div class="tp-out" aria-live="polite">' + err + '</div>';
+    // Members log in with a username and a password. On by default; Voucher is always the first tab.
+    if (b.members === false) return '<form class="tp-vform" data-mode="voucher" novalidate>' + voucherPane + btn + '</form>';
+    return '<form class="tp-vform" data-mode="voucher" novalidate>' +
+      '<div class="tp-tabs" role="tablist" aria-label="How do you log in?">' +
+        '<button type="button" role="tab" id="' + id + 't1" aria-controls="' + id + 'p1" aria-selected="true" data-tab="voucher">' + esc(b.voucher_tab || 'Voucher') + '</button>' +
+        '<button type="button" role="tab" id="' + id + 't2" aria-controls="' + id + 'p2" aria-selected="false" data-tab="member" tabindex="-1">' + esc(b.member_tab || 'Member') + '</button></div>' +
+      '<div class="tp-pane" data-pane="voucher" role="tabpanel" id="' + id + 'p1" aria-labelledby="' + id + 't1">' + voucherPane + '</div>' +
+      '<div class="tp-pane" data-pane="member" role="tabpanel" id="' + id + 'p2" aria-labelledby="' + id + 't2" hidden>' +
+        '<label class="tp-label" for="' + id + 'u">Username</label>' +
+        '<input class="tp-input" id="' + id + 'u" name="m_user" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="64">' +
+        '<label class="tp-label tp-gap" for="' + id + 'pw">Password</label>' +
+        '<div class="tp-pw"><input class="tp-input" id="' + id + 'pw" name="m_pass" type="password" autocomplete="current-password" maxlength="64">' +
+        '<button type="button" class="tp-show" aria-controls="' + id + 'pw">Show</button></div></div>' +
+      btn + '</form>';
   };
   B.plans = function (b, ctx) {
     var ps = ctx.plans || [];
@@ -428,53 +452,87 @@
 
   function wireVoucher(root, cfg, ctx) {
     [].forEach.call(root.querySelectorAll('.tp-vform'), function (form) {
-      var out = form.querySelector('.tp-out'), btn = form.querySelector('button'), input = form.querySelector('input[name=code]');
+      var out = form.querySelector('.tp-out'), btn = form.querySelector('button[type=submit]'), input = form.querySelector('input[name=code]');
+      var mUser = form.querySelector('input[name=m_user]'), mPass = form.querySelector('input[name=m_pass]');
+      var tabs = form.querySelectorAll('.tp-tabs button');
       function say(kind, msg) { out.innerHTML = '<div class="tp-msg ' + kind + '" role="' + (kind === 'err' ? 'alert' : 'status') + '">' + icon(kind === 'err' ? 'warn' : 'check') + '<span>' + msg + '</span></div>'; }
+      function setMode(m, focus) {
+        form.setAttribute('data-mode', m);
+        [].forEach.call(tabs, function (t) { var on = t.getAttribute('data-tab') === m; t.setAttribute('aria-selected', on ? 'true' : 'false'); t.tabIndex = on ? 0 : -1; });
+        [].forEach.call(form.querySelectorAll('.tp-pane'), function (p) { p.hidden = p.getAttribute('data-pane') !== m; });
+        if (focus) (m === 'member' ? mUser : input).focus();
+      }
+      [].forEach.call(tabs, function (t, i) {
+        t.addEventListener('click', function () { out.innerHTML = ''; setMode(t.getAttribute('data-tab'), true); });
+        t.addEventListener('keydown', function (e) {   // arrow keys move between the two tabs
+          if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+          var next = tabs[(i + 1) % tabs.length]; next.focus(); next.click(); e.preventDefault();
+        });
+      });
+      var show = form.querySelector('.tp-show');
+      if (show) show.addEventListener('click', function () { var h = mPass.type === 'password'; mPass.type = h ? 'text' : 'password'; show.textContent = h ? 'Hide' : 'Show'; });
+      // After a failed login the router shows this page again with its error: reopen the tab the customer used.
+      var remembered = ''; try { remembered = sessionStorage.getItem('tp-mode') || ''; } catch (e) {}
+      if (mUser && ctx.mt && ctx.mt.error && remembered === 'member') setMode('member', false);
       form.addEventListener('submit', function (ev) {
         ev.preventDefault();
-        var raw = String(input.value || '').replace(/\s+/g, ''), code = (cfg.settings && cfg.settings.case_sensitive) ? raw : raw.toUpperCase();
-        if (!code) { say('err', 'Type the code printed on your voucher.'); input.focus(); return; }
+        var member = form.getAttribute('data-mode') === 'member', code, mpw = '';
+        if (member) {
+          code = String(mUser.value || '').replace(/\s+/g, '').toLowerCase(); mpw = String(mPass.value || '');
+          if (!code) { say('err', 'Type your username.'); mUser.focus(); return; }
+          if (!mpw) { say('err', 'Type your password.'); mPass.focus(); return; }
+        } else {
+          var raw = String(input.value || '').replace(/\s+/g, '');
+          code = (cfg.settings && cfg.settings.case_sensitive) ? raw : raw.toUpperCase();
+          if (!code) { say('err', 'Type the code printed on your voucher.'); input.focus(); return; }
+        }
         var req = root.querySelector('.tp-terms-cb[data-req]');
         if (req && !req.checked) { say('err', 'Tick the box to accept the terms first.'); return; }
         var dst = (cfg.settings && cfg.settings.redirect_url) || (ctx.mt && ctx.mt.linkOrig) || '';
-        if (ctx.mode === 'preview' || ctx.mode === 'thumb') { say('ok', 'Preview: a customer typing <b>' + esc(code) + '</b> would be logged in now.'); return; }
+        if (ctx.mode === 'preview' || ctx.mode === 'thumb') { say('ok', member ? 'Preview: member <b>' + esc(code) + '</b> would be logged in now.' : 'Preview: a customer typing <b>' + esc(code) + '</b> would be logged in now.'); return; }
+        try { sessionStorage.setItem('tp-mode', member ? 'member' : 'voucher'); } catch (e) {}
+        // Vouchers: the code is username AND password. Members: username + their own password.
+        var passFor = function (c) { return member ? mpw : c; };
         if (ctx.mode === 'mikrotik') {
           var login = function (c) {
-            var pw = c;
-            if (ctx.mt.chapId) pw = md5(ctx.mt.chapId + c + ctx.mt.chapChallenge);
+            var pw = passFor(c);
+            if (ctx.mt.chapId) pw = md5(ctx.mt.chapId + pw + ctx.mt.chapChallenge);
             btn.disabled = true; postForm(ctx.mt.linkLoginOnly, { username: c, password: pw, dst: dst, popup: 'true' });
           };
           if (!ctx.stateUrl) { sendDevice(ctx, code); login(code); return; }
           // Ask TapTap first: a frozen or warned voucher shows its page instead of logging in.
-          btn.disabled = true; say('ok', 'Checking your voucher…');
+          btn.disabled = true; say('ok', member ? 'Checking your account…' : 'Checking your voucher…');
           var dv0 = (ctx.settings && ctx.settings.collect_device === false) ? {} : deviceSignature();
           postJSON(ctx.stateUrl, { code: code, fp: dv0.fp || '', c: dv0.c || {}, mac: ctx.mt.mac || '', ip: ctx.mt.ip || '' }, function (st) {
             if (st.blocked) { btn.disabled = false; out.innerHTML = ''; showBlock(ctx, st, login); return; }
-            login(code);
+            login(st.code || code);
           }, function () { sendDevice(ctx, code); login(code); }, 4000);
           return;
         }
         // hosted
-        btn.disabled = true; say('ok', 'Checking your voucher…');
+        btn.disabled = true; say('ok', member ? 'Checking your account…' : 'Checking your voucher…');
         var xhr = new XMLHttpRequest(); xhr.open('POST', ctx.checkUrl, true); xhr.setRequestHeader('Content-Type', 'application/json');
         xhr.onload = function () {
           var d = {}; try { d = JSON.parse(xhr.responseText); } catch (e) {}
           if (d.blocked) {
             btn.disabled = false; out.innerHTML = '';
             showBlock(ctx, d, function (c) {
-              if (ctx.mt && ctx.mt.linkLoginOnly) postForm(ctx.mt.linkLoginOnly, { username: c, password: c, dst: dst, popup: 'true' });
+              if (ctx.mt && ctx.mt.linkLoginOnly) postForm(ctx.mt.linkLoginOnly, { username: c, password: passFor(c), dst: dst, popup: 'true' });
               else { var b = document.querySelector('.tp-block'); if (b) b.parentNode.removeChild(b); say('ok', 'Thank you — your voucher works again. Enter it on the Wi-Fi login page to go online.'); }
             });
             return;
           }
-          if (!d.success) { btn.disabled = false; say('err', esc(d.message || 'That code was not recognised. Check it and try again.')); return; }
+          if (!d.success) { btn.disabled = false; say('err', esc(d.message || (member ? 'Username or password is wrong.' : 'That code was not recognised. Check it and try again.'))); return; }
           var real = d.code || code;
-          if (ctx.mt && ctx.mt.linkLoginOnly) { say('ok', 'Valid ' + esc(d.plan) + ' voucher — connecting…'); postForm(ctx.mt.linkLoginOnly, { username: real, password: real, dst: dst, popup: 'true' }); }
+          if (ctx.mt && ctx.mt.linkLoginOnly) { say('ok', (member ? 'Welcome back, ' + esc(real) : 'Valid ' + esc(d.plan) + ' voucher') + ' — connecting…'); postForm(ctx.mt.linkLoginOnly, { username: real, password: passFor(real), dst: dst, popup: 'true' }); }
+          else if (member) { btn.disabled = false; say('ok', 'Your account is ready. Join <b>' + esc(ctx.business.ssid || 'our Wi-Fi') + '</b> and log in on the Wi-Fi page with your username and password.'); }
           else { btn.disabled = false; say('ok', '<b>' + esc(d.plan) + '</b> voucher is valid' + (d.duration ? ' (' + esc(d.duration) + ')' : '') + '. Join <b>' + esc(ctx.business.ssid || 'our Wi-Fi') + '</b> and enter it on the login page to go online.'); }
         };
         xhr.onerror = function () { btn.disabled = false; say('err', 'Could not reach the server. Check you are connected to ' + esc(ctx.business.ssid || 'the Wi-Fi') + '.'); };
         var dv = (ctx.settings && ctx.settings.collect_device === false) ? {} : deviceSignature();
-        xhr.send(JSON.stringify({ code: code, fp: dv.fp || '', c: dv.c || {}, mac: (ctx.mt && ctx.mt.mac) || '', ip: (ctx.mt && ctx.mt.ip) || '' }));
+        var body = { code: code, fp: dv.fp || '', c: dv.c || {}, mac: (ctx.mt && ctx.mt.mac) || '', ip: (ctx.mt && ctx.mt.ip) || '' };
+        if (member) { body.member = true; body.password = mpw; }
+        xhr.send(JSON.stringify(body));
       });
     });
   }
