@@ -128,15 +128,34 @@ def log(business, typ, details, status='Success'):
     Activity.objects.create(business=business, type=typ, details=details[:255], status=status, actor=current_actor()[:150])
 
 
+def unlimited_profile_name(devices, rate=''):
+    safe = ''.join(ch if ch.isalnum() else '-' for ch in (rate or '').strip()).strip('-')
+    n = max(1, int(devices or 1))
+    return f'taptap-unlimited-{n}-device' + ('s' if n > 1 else '') + (f'-{safe}' if safe else '')
+
+
 def voucher_profile(voucher, plan=None):
-    """(profile name, shared users, rate limit) to use on the router for a voucher.
-    Plan vouchers use the plan's profile; custom one-off vouchers share a small set of TapTap profiles
-    keyed by devices + speed so the router isn't flooded with one profile per customer."""
+    """(profile name, shared users, rate limit) to use on the router for a voucher or member.
+
+    * Unlimited in TapTap (no duration, no end date — e.g. free unlimited members): a TapTap
+      "unlimited" profile with no session timeout and no login script, so nothing on the router
+      (a Mikhmon profile's 1-day validity, a session-timeout) can put a time limit back.
+    * Plan vouchers use the plan's profile.
+    * Custom one-off vouchers share a small set of TapTap profiles keyed by devices + speed so the
+      router isn't flooded with one profile per customer.
+    """
+    unlimited = not voucher.duration_minutes and not voucher.expires_at
+    if unlimited:
+        devices = (plan.max_devices if plan is not None else voucher.max_devices) or 1
+        rate = ((plan.speed_limit if plan is not None else '') or voucher.rate_limit or '').strip()
+        return unlimited_profile_name(devices, rate), devices, rate
     if plan is not None:
         return (plan.mikrotik_profile_name or plan.name), plan.max_devices, plan.speed_limit or ''
     rate = (voucher.rate_limit or '').strip()
     safe = ''.join(ch if ch.isalnum() else '-' for ch in rate).strip('-')
-    return f'taptap-{voucher.max_devices}dev' + (f'-{safe}' if safe else ''), voucher.max_devices, rate
+    n = max(1, int(voucher.max_devices or 1))
+    # "taptap-1-device", not "taptap-1dev": the old name read like "1 day" on the router
+    return f'taptap-{n}-device' + ('s' if n > 1 else '') + (f'-{safe}' if safe else ''), n, rate
 
 
 def code_format_ctx(business, data=None):

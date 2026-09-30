@@ -293,6 +293,8 @@ def command_body(cmd):
                          f'shared-users={int(prof.get("shared") or 1)}' + (f' rate-limit={rs(prof["rate"])}' if prof.get('rate') else '') + ' }')
             if p.get('sticky'):   # sticky sessions (see core/sticky.py)
                 lines.append(f'/ip hotspot user profile set [find name={rs(prof["name"])}] ' + ' '.join(f'{k}={rs(str(v))}' for k, v in p['sticky'].items()))
+            if str(prof['name']).startswith('taptap-unlimited-'):   # no time limit may come from the profile
+                lines.append(f'/ip hotspot user profile set [find name={rs(prof["name"])}] session-timeout=0s on-login="" on-logout=""')
         for u in p.get('users', []):
             extra = (f' limit-uptime={rs(u["lim"])}' if u.get('lim') else '') + f' disabled={"yes" if u.get("dis") else "no"}'
             # Members carry their own password ("pw"); it is set on add AND on update, so a changed

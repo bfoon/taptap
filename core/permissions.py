@@ -94,7 +94,7 @@ URL_PERMS = {
     'batch_receipt': ('vouchers.view', 'vouchers.create'),
     # Members: seeing them = vouchers.view, creating = vouchers.create (checked in the view for POST),
     # password changes = voucher support, renewals take a payment = vouchers.create
-    'members': ('vouchers.view', 'vouchers.create'), 'member_password': 'vouchers.support', 'member_renew': 'vouchers.create',
+    'members': ('vouchers.view', 'vouchers.create'), 'member_password': 'vouchers.support', 'member_renew': 'vouchers.create', 'member_push': ('vouchers.create', 'vouchers.support'),
     'finance_collection_add': 'finance.collect',
     'finance_sale_add': 'finance.manage', 'finance_sale_delete': 'finance.manage', 'finance_expense_add': 'finance.manage',
     'finance_expense_delete': 'finance.manage', 'finance_expense_repeat': 'finance.manage', 'finance_agent_save': 'finance.manage',

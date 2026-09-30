@@ -72,13 +72,14 @@ def _ctx(request, business, plans, form=None):
         qs = qs.exclude(free_q)
     page = Paginator(qs, 50).get_page(request.GET.get('p'))
     now = timezone.now()
+    on_router = router_view(business, list(page))
     rows = []
     for v in page:
         key, label = vh.display_state(v, now)
         label = {'stock': 'Not logged in yet', 'sold': 'Paid, not used yet'}.get(key, label)   # member wording
         end = vh.ends_at(v)
         rows.append({'v': v, 'key': key, 'label': label, 'ends_at': end, 'kind': mem.kind_of(v),
-                     'left': (end - now) if end and end > now else None})
+                     'left': (end - now) if end and end > now else None, 'router_view': on_router.get(v.pk)})
     created = business.vouchers.filter(login_type='member', pk=request.GET.get('created') or 0).first() \
         if str(request.GET.get('created') or '').isdigit() else None
     return {'plans': plans, 'routers': business.routers.all(), 'agents': business.agents.filter(active=True),
@@ -86,6 +87,65 @@ def _ctx(request, business, plans, form=None):
             'stats': mem.member_stats(business), 'form': form or {'plan': 'free', 'same': '', 'devices': '1'},
             'created': created, 'free_plan_name': mem.FREE_PLAN_NAME,
             'default_router': business.routers.first()}
+
+
+def router_view(business, vouchers):
+    """What each member's router says about its time, from TapTap's copy of the router
+    (read on every sync): {voucher id: {'text', 'mismatch'}}. TapTap is what counts; a mismatch
+    means the router still limits a member TapTap treats as unlimited (or the other way round)."""
+    from .durations import parse_routeros
+    from .models import RouterHotspotProfile, RouterHotspotUser
+    from .sync import parse_mikhmon
+    from .durations import text as mtext
+    vs = [v for v in vouchers if v.router_id]
+    if not vs:
+        return {}
+    users = {(u.router_id, u.username.lower()): u for u in RouterHotspotUser.objects.filter(
+        router_id__in={v.router_id for v in vs}, username__in=[v.code for v in vs], is_present=True)}
+    profs = {(p.router_id, p.name): p for p in RouterHotspotProfile.objects.filter(router_id__in={v.router_id for v in vs}, is_present=True)}
+    out = {}
+    for v in vs:
+        u = users.get((v.router_id, v.code.lower()))
+        if not u:
+            out[v.pk] = {'text': 'Not seen on the router yet', 'mismatch': False, 'missing': True}
+            continue
+        limits = []
+        lim = parse_routeros(u.limit_uptime, 0) or 0
+        if lim:
+            limits.append(f'{mtext(lim)} (user limit)')
+        pr = profs.get((v.router_id, u.profile))
+        if pr:
+            st = parse_routeros(pr.session_timeout, 0) or 0
+            if st:
+                limits.append(f'{mtext(st)} per session (profile {pr.name})')
+            _, validity = parse_mikhmon((pr.raw_data or {}).get('on-login', ''))
+            if validity:
+                limits.append(f'{mtext(validity)} validity (Mikhmon script on {pr.name})')
+        unlimited = not v.duration_minutes and not v.expires_at
+        out[v.pk] = {'text': ', '.join(limits) if limits else 'No time limit', 'profile': u.profile,
+                     'mismatch': bool(limits) if unlimited else False, 'missing': False}
+    return out
+
+
+@login_required
+@require_POST
+def member_push(request, pk):
+    """Send a member to its router again (profile, time limit, password) — fixes a router that disagrees."""
+    from .views_agents import push_one
+    business = _b(request)
+    v = get_object_or_404(business.vouchers.filter(login_type='member'), pk=pk)
+    if not v.router:
+        messages.error(request, f'{v.code} has no router. Choose one first.')
+        return _back(request)
+    plan = business.plans.filter(name=v.plan_name).first()
+    res = push_one(v, plan)
+    if res is True:
+        messages.success(request, f'{v.code} sent to {v.router.name} again'
+                         + (' — no time limit on the router now.' if not v.duration_minutes and not v.expires_at else '.'))
+    else:
+        messages.warning(request, f'{v.router.name} could not be updated right now ({res}). TapTap retries at the next sync.')
+    log(business, 'Member Updated', f'{v.code} sent to {v.router.name} again')
+    return _back(request)
 
 
 @login_required

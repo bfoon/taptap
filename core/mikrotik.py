@@ -283,6 +283,9 @@ class MikroTikService:
             values.update(api_values(self.router.business))
         except Exception:
             pass
+        if str(profile_name).startswith('taptap-unlimited-'):
+            # TapTap's own unlimited profile: no session timeout, no login script (nothing may limit the time)
+            values.update({'session_timeout': '0s', 'on_login': '', 'on_logout': ''})
         if existing:
             profiles.set(id=existing[0]['id'], **values)
             return existing[0]['id']

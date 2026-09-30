@@ -102,7 +102,11 @@
       <td>{{ v.plan_name }}<span class="kind {{ r.kind }}">{% if r.kind == 'free' %}FREE{% else %}PAID{% endif %}</span>
         <small class="d-block text-secondary">{% if v.price %}{{ v.price|money:c }} · {% endif %}{{ v.max_devices }} device{{ v.max_devices|pluralize }}{% if v.router %} · {{ v.router.name }}{% endif %}{% if v.mikrotik_sync_status != 'Synced' %} · <span class="text-warning">{{ v.mikrotik_sync_status }}</span>{% endif %}</small></td>
       <td><span class="vd-state {{ r.key }}">{{ r.label }}</span></td>
-      <td>{% if r.ends_at %}{{ r.ends_at|date:'d M Y' }}{% if r.left %}<small class="d-block text-secondary">{{ r.left|duration_short }} left</small>{% endif %}{% elif not v.duration_minutes %}Never{% else %}<small class="text-secondary">From first login</small>{% endif %}</td>
+      <td>{% if r.ends_at %}{{ r.ends_at|date:'d M Y' }}{% if r.left %}<small class="d-block text-secondary">{{ r.left|duration_short }} left</small>{% endif %}{% elif not v.duration_minutes %}Never{% else %}<small class="text-secondary">From first login</small>{% endif %}
+        {% with rv=r.router_view %}{% if rv %}<small class="d-block {% if rv.mismatch %}text-danger fw-semibold{% else %}text-secondary{% endif %}" title="What {{ v.router.name }} says{% if rv.profile %} (profile {{ rv.profile }}){% endif %}, from the last sync">
+          <i class="bi bi-router"></i> {{ rv.text }}</small>
+          {% if rv.mismatch %}<form method="post" action="{% url 'member_push' v.id %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button class="btn btn-sm btn-outline-danger py-0 mt-1" title="Send this member to the router again with no time limit">Fix on router</button></form>{% endif %}{% endif %}{% endwith %}</td>
       <td class="text-end text-nowrap">
         {% if 'vouchers.support' in tt_perms %}<button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#pwModal" data-url="{% url 'member_password' v.id %}" data-user="{{ v.code }}" title="Change password" aria-label="Change password of {{ v.code }}"><i class="bi bi-key"></i></button>{% endif %}
         {% if r.kind == 'paid' and 'vouchers.create' in tt_perms %}<button class="btn btn-sm btn-outline-success" type="button" data-bs-toggle="modal" data-bs-target="#renewModal" data-url="{% url 'member_renew' v.id %}" data-user="{{ v.code }}" data-price="{{ v.price|floatformat:2 }}" data-dur="{{ v.duration_minutes|minutes_text }}">Renew</button>{% endif %}
