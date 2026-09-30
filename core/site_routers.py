@@ -159,7 +159,8 @@ def collect(business, include_offline=True):
             'online': bool(dev and dev.is_online), 'seen': bool(dev),
             'last_seen': dev.last_seen_at.isoformat() if dev and dev.last_seen_at else None,
             'score': pts, 'reasons': [{'sign': a, 'text': b} for a, b in why], 'notes': s.notes if s else '',
-            'candidates': [],
+            'candidates': [], 'siblings': [], 'ip_conflict': 0,
+            'probe': (s.probe or {}) if s else {}, 'probed_at': s.probed_at.isoformat() if s and s.probed_at else None,
         }
 
     for s in saved:
@@ -193,8 +194,25 @@ def collect(business, include_offline=True):
         if pts >= POSSIBLE:
             entries.append(entry_from(dev, None, pts, why, brand, mode))
 
+    # One box, several MACs (LAN, Wi-Fi, WAN of the same TP-Link on the same port): keep one router.
+    from .router_probe import same_unit
+    kept = []
+    for e in sorted(entries, key=lambda x: (x['status'] != 'confirmed', -(x['score'] or 0))):
+        home = next((k for k in kept if e['mac'] and k['mac'] and k['router_id'] == e['router_id'] and k['port'] == e['port']
+                     and same_unit(k['mac'], e['mac'])), None)
+        if home and e['status'] != 'confirmed':
+            home['siblings'].append(e['mac'])
+            continue
+        kept.append(e)
+    entries = kept
+    # Several devices on one address (TP-Links left on 192.168.0.1): an IP conflict to fix on site.
+    for e in entries:
+        if e['ip']:
+            e['ip_conflict'] = len({m for m, d in devices.items() if d.ip_address == e['ip'] and d.is_online
+                                    and m != e['mac'] and m not in e['siblings']})
+
     # Customers per router: devices on its port that are not routers themselves.
-    router_macs = {e['mac'] for e in entries if e['mac'] and (e['status'] == 'confirmed' or e['confidence'] == 'likely')}
+    router_macs = {m for e in entries if e['status'] == 'confirmed' or e['confidence'] == 'likely' for m in [e['mac'], *e['siblings']] if m}
     for e in entries:
         key = (e['router_id'], e['port'])
         e['clients'] = len([m for m in on_port.get(key, set()) if m not in router_macs]) if e['port'] else 0

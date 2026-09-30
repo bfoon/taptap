@@ -105,7 +105,7 @@
     const mode = MODE[e.mode || e.mode_guess] || '';
     return `${e.brand ? `<em class="td-brand">${esc(e.brand)}</em>` : ''}<span class="td-ic"><i class="bi ${ROLE_ICON[e.role] || 'bi-router'}"></i></span>
       <div><b>${esc(e.name)}</b><small>${esc([e.model, e.ip].filter(Boolean).join(' · ') || e.mac || 'not seen yet')}</small>${mode ? `<small class="td-mode">${esc(mode)}</small>` : ''}</div>
-      <span class="td-dot ${e.online ? 'on' : ''}" title="${e.online ? 'Online' : e.seen ? 'Offline' : 'Not seen yet'}"></span>${e.status !== 'confirmed' ? '<span class="td-q" title="Found by TapTap — not confirmed">?</span>' : ''}`;
+      <span class="td-dot ${e.online ? 'on' : ''}" title="${e.online ? 'Online' : e.seen ? 'Offline' : 'Not seen yet'}"></span>${e.status !== 'confirmed' ? '<span class="td-q" title="Found by TapTap — not confirmed">?</span>' : ''}${e.ip_conflict ? `<span class="td-warn" title="IP conflict: ${e.ip_conflict + 1} devices use ${esc(e.ip)}">!</span>` : ''}`;
   }
 
   let links = [];
@@ -321,12 +321,46 @@
     return `<details class="td-why"><summary>Why${e.score != null ? ` · ${e.score} pts` : ''}</summary>${e.reasons.map(r =>
       `<div class="${r.sign === '+' ? 'pro' : 'con'}"><i class="bi ${r.sign === '+' ? 'bi-plus-circle' : 'bi-dash-circle'}"></i> ${esc(r.text)}</div>`).join('')}</details>`;
   }
+  // ------------------------------------------------------------------ probe (ping + web page through the MikroTik)
+  const probeResults = {};          // results for routers not confirmed yet (not saved on the server)
+  const openProbes = new Set();     // result panels the person opened stay open when the list refreshes
+  const ago = iso => { const s = (Date.now() - new Date(iso)) / 1000; return s < 90 ? 'just now' : s < 3600 ? Math.round(s / 60) + ' min ago' : s < 86400 ? Math.round(s / 3600) + ' h ago' : Math.round(s / 86400) + ' d ago'; };
+  function probeHtml(e, open) {
+    const pr = probeResults[e.key] || e.probe || {};
+    if (!pr.at) return '';
+    const bits = [];
+    if (pr.reachable === true) bits.push(`<span class="td-pill on">Ping ${pr.rtt_ms != null ? pr.rtt_ms + ' ms' : 'OK'}</span>`);
+    else if (pr.reachable === false) bits.push('<span class="td-pill bad">No ping</span>');
+    if (pr.web === 'ok') bits.push(`<span class="td-pill info">Web ${esc([pr.maker, pr.model].filter(Boolean).join(' ') || 'page')}</span>`);
+    if ((pr.ip_conflict || []).length) bits.push(`<span class="td-pill bad">IP conflict</span>`);
+    if ((pr.same_unit || []).length) bits.push(`<span class="td-pill">${pr.same_unit.length + 1} MACs, one box</span>`);
+    return `<details class="td-probe" data-k="${esc(e.key)}"${open || openProbes.has(e.key) ? ' open' : ''}><summary>Probed ${esc(ago(pr.at))} ${bits.join(' ')}</summary>
+      <ul>${(pr.notes || []).map(n => `<li>${esc(n)}</li>`).join('')}</ul>${(pr.ip_conflict || []).length ? `<div class="small">Also on ${esc(pr.ip)}: ${pr.ip_conflict.map(c =>
+        `<span class="font-monospace">${esc(c.mac)}</span>${c.hostname ? ' (' + esc(c.hostname) + ')' : ''} on ${esc(c.port || '?')}`).join(', ')}</div>` : ''}</details>`;
+  }
+  async function runProbe(key, btn, out) {
+    const label = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Probing…'; }
+    try {
+      const res = await fetch(URLS.probe, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() }, body: JSON.stringify({ key }) });
+      const d = await res.json().catch(() => ({ success: false, message: 'Could not reach TapTap.' }));
+      if (!d.success) throw new Error(d.message || 'Probe failed.');
+      probeResults[key] = d.result; openProbes.add(key); P = { ...P, ...d }; renderAll(); if (window.taptapNetMap) window.taptapNetMap.reloadGraph();
+      const e = byKey(key);
+      if (out && e) out.innerHTML = probeHtml(e, true);
+      const det = document.querySelector(`#tdList tr[data-probe-for="${CSS.escape(key)}"] .td-probe`); if (det) det.open = true;
+      return d.result;
+    } catch (err) { toast(err.message, true); }
+    finally { if (btn && btn.isConnected) { btn.disabled = false; btn.innerHTML = label; } }
+  }
+
   function row(e) {
     const status = e.online ? '<span class="td-pill on">Online</span>' : e.seen ? '<span class="td-pill">Offline</span>' : '<span class="td-pill warn">Not seen yet</span>';
     const tag = e.status === 'confirmed' ? '' : `<span class="td-pill ${e.confidence === 'likely' ? 'sug' : 'maybe'}">${e.confidence === 'likely' ? 'Likely router' : 'Maybe'}</span>`;
     let actions;
-    if (e.status === 'confirmed') actions = `<button type="button" class="btn btn-sm btn-outline-secondary" data-edit="${esc(e.key)}">Edit</button>`;
-    else actions = `<button type="button" class="btn btn-sm btn-success" data-confirm="${esc(e.mac)}">Confirm</button>
+    const probeBtn = e.ip ? `<button type="button" class="btn btn-sm btn-outline-primary" data-probe="${esc(e.key)}" title="Ping it and read its web page through the MikroTik"><i class="bi bi-activity"></i> Probe</button>` : '';
+    if (e.status === 'confirmed') actions = `${probeBtn}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit="${esc(e.key)}">Edit</button>`;
+    else actions = `${probeBtn}<button type="button" class="btn btn-sm btn-success" data-confirm="${esc(e.mac)}">Confirm</button>
       <button type="button" class="btn btn-sm btn-outline-secondary" data-edit="${esc(e.key)}">Edit…</button>
       <button type="button" class="btn btn-sm btn-link text-secondary" data-ignore="${esc(e.mac)}">Not a router</button>`;
     let pick = '';
@@ -336,11 +370,12 @@
       <button type="button" class="btn btn-sm btn-primary" data-bind="${e.id}">Use</button></div></div>`;
     return `<tr data-key="${esc(e.key)}" class="${e.status !== 'confirmed' ? 'td-sugrow' : ''}">
       <td><div class="td-rname"><i class="bi ${ROLE_ICON[e.role] || 'bi-router'}"></i><div><b>${esc(e.name)}</b> ${tag}<small>${esc([e.brand, e.model].filter(Boolean).join(' ') || 'Maker unknown')}${(e.mode || e.mode_guess) ? ' · ' + esc(MODE[e.mode || e.mode_guess]) + (e.mode ? '' : '?') : ''}</small>${reasons(e)}</div></div>${pick}</td>
-      <td><span class="font-monospace small">${esc(e.ip || '—')}</span><small class="d-block text-secondary font-monospace">${esc(e.mac || '')}</small></td>
+      <td><span class="font-monospace small">${esc(e.ip || '—')}</span>${e.ip_conflict ? ` <span class="td-pill bad" title="${e.ip_conflict + 1} devices answer on ${esc(e.ip)}">IP conflict</span>` : ''}<small class="d-block text-secondary font-monospace">${esc(e.mac || '')}</small>${(e.siblings || []).length ? `<small class="d-block text-secondary" title="${esc(e.siblings.join(', '))}">+${e.siblings.length} MAC${e.siblings.length === 1 ? '' : 's'} of the same box</small>` : ''}</td>
       <td><small>${esc(pathOf(e))}</small></td>
       <td class="text-end">${e.clients || 0}</td>
       <td>${status}</td>
-      <td class="text-end"><div class="td-acts">${actions}</div></td></tr>`;
+      <td class="text-end"><div class="td-acts">${actions}</div></td></tr>` +
+      (probeHtml(e) ? `<tr class="td-probe-row${e.status !== 'confirmed' ? ' td-sugrow' : ''}" data-probe-for="${esc(e.key)}"><td colspan="6">${probeHtml(e)}</td></tr>` : '');
   }
   function drawList() {
     const box = $('#tdList');
@@ -369,10 +404,15 @@
     const t = document.createElement('div'); t.className = 'td-toast' + (bad ? ' bad' : ''); t.setAttribute('role', 'status'); t.textContent = msg;
     (isBig() ? panel : document.body).appendChild(t); setTimeout(() => t.remove(), 3200);
   }
+  $('#tdList').addEventListener('toggle', e => {
+    const d = e.target; if (!d.classList || !d.classList.contains('td-probe')) return;
+    if (d.open) openProbes.add(d.dataset.k); else openProbes.delete(d.dataset.k);
+  }, true);
   $('#tdList').addEventListener('click', async e => {
     const b = e.target.closest('button'); if (!b) return;
     try {
-      if (b.dataset.edit) openEdit(b.dataset.edit);
+      if (b.dataset.probe) await runProbe(b.dataset.probe, b);
+      else if (b.dataset.edit) openEdit(b.dataset.edit);
       else if (b.dataset.confirm) { const en = entries().find(x => x.mac === b.dataset.confirm); await act({ action: 'confirm', mac: b.dataset.confirm, ip: en && en.ip, name: en && en.name }); toast('Router confirmed.'); }
       else if (b.dataset.ignore) { await act({ action: 'ignore', mac: b.dataset.ignore }); toast('Marked as not a router — TapTap will not suggest it again.'); }
       else if (b.dataset.bind) { const sel = document.querySelector(`[data-bind-sel="${b.dataset.bind}"]`); await act({ action: 'bind', id: +b.dataset.bind, mac: sel.value }); toast('Linked to that device.'); }
@@ -408,6 +448,7 @@
     const viaParent = !!e.parent_key;
     modalEl.querySelector(`[name=linkto][value=${viaParent ? 'parent' : 'port'}]`).checked = true; toggleLink();
     $('#teRemove').hidden = e.status !== 'confirmed'; $('#teErr').hidden = true;
+    $('#teProbe').hidden = !e.ip; $('#teProbeOut').innerHTML = probeHtml(e, true);
     const m = modal(); if (m) m.show();
   }
   function toggleLink() {
@@ -425,6 +466,12 @@
     Object.assign(body, editing.status === 'confirmed' ? { action: 'update', id: editing.id } : { action: 'confirm', mac: editing.mac });
     try { await act(body); const m = modal(); if (m) m.hide(); toast('Saved.'); }
     catch (err) { $('#teErr').textContent = err.message; $('#teErr').hidden = false; }
+  });
+  $('#teProbe').addEventListener('click', async ev => {
+    if (!editing) return;
+    const key = editing.key, r = await runProbe(key, ev.currentTarget, $('#teProbeOut'));
+    const e = byKey(key);
+    if (r && e) { editing = e; if (!$('#teModel').value && r.model) $('#teModel').value = r.model; if (!$('#teBrand').value && r.maker) $('#teBrand').value = r.maker; }
   });
   $('#teRemove').addEventListener('click', async () => {
     if (!editing || !confirm(`Remove ${editing.name} from your list? If TapTap still sees it, it may suggest it again.`)) return;

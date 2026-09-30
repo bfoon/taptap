@@ -83,9 +83,9 @@
   </div>
 
   <div class="row g-3">
-    <div class="col-xl-8"><div class="panel h-100"><div class="panel-head"><div><h3>Routers</h3><p>Grouped by the MikroTik and port they are plugged into.</p></div></div>
+    <div class="col-xxl-8"><div class="panel h-100"><div class="panel-head"><div><h3>Routers</h3><p>Grouped by the MikroTik and port they are plugged into.</p></div></div>
       <div id="tdList"></div></div></div>
-    <div class="col-xl-4"><div class="panel h-100"><div class="panel-head"><div><h3>Add routers by IP</h3><p>Type an address, a list or a range. Each device found is its own router — several TP-Links can all answer on 192.168.0.1.</p></div></div>
+    <div class="col-xxl-4"><div class="panel h-100"><div class="panel-head"><div><h3>Add routers by IP</h3><p>Type an address, a list or a range. Each device found is its own router — several TP-Links can all answer on 192.168.0.1.</p></div></div>
       <form id="tdFind" class="d-flex gap-2"><input class="form-control" name="ip" id="tdIp" placeholder="192.168.0.1 or 192.168.0.1-20" aria-label="IP address, list or range" autocomplete="off"><button class="btn btn-primary">Find</button></form>
       <div class="td-quick" id="tdQuick" aria-label="Common router addresses"></div>
       <div id="tdFound" class="mt-2" aria-live="polite"></div>
@@ -109,8 +109,8 @@
         <small class="text-secondary">“Found automatically” follows the port TapTap sees it on.</small></div>
       <div data-link="parent" hidden><select class="form-select" id="teParent" name="parent_id" aria-label="Router it is connected to"></select></div></fieldset>
     <div class="col-12"><label class="form-label small fw-bold" for="teNotes">Notes</label><input class="form-control" id="teNotes" name="notes" maxlength="255" placeholder="e.g. Behind the counter, admin password with Musa"></div>
-  </div><div class="alert alert-danger small py-2 mt-3 mb-0" id="teErr" hidden></div></div>
-  <div class="modal-footer"><button type="button" class="btn btn-outline-danger me-auto" id="teRemove">Remove from list</button><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save</button></div>
+  </div><div id="teProbeOut" class="mt-2" aria-live="polite"></div><div class="alert alert-danger small py-2 mt-3 mb-0" id="teErr" hidden></div></div>
+  <div class="modal-footer"><button type="button" class="btn btn-outline-danger me-auto" id="teRemove">Remove from list</button><button type="button" class="btn btn-outline-primary" id="teProbe"><i class="bi bi-activity"></i> Probe</button><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save</button></div>
 </form></div></div>
 {{ detail|json_script:"topology-detail" }}
 {% endblock %}

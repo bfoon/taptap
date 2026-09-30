@@ -101,6 +101,26 @@ def _clean_fields(business, data, obj=None):
 
 @login_required
 @require_POST
+def topology_router_probe(request):
+    """Probe one router through its MikroTik (ping + web page) and TapTap's tables. No password."""
+    from .router_probe import probe
+    business = _b(request)
+    try:
+        key = str(json.loads(request.body or '{}').get('key') or '')
+    except ValueError:
+        return _err('Could not read the request.')
+    if not re.match(r'^(sr:\d+|auto:([0-9A-F]{2}:){5}[0-9A-F]{2})$', key):
+        return _err('Unknown router.')
+    try:
+        result = probe(business, key, user=request.user)
+    except ValueError as exc:
+        return _err(str(exc), 404)
+    log(business, 'Topology', f'Probed router {result.get("ip") or result.get("mac")}')
+    return JsonResponse({'success': True, 'key': key, 'result': result, **detail_payload(business)})
+
+
+@login_required
+@require_POST
 def topology_router_action(request):
     business = _b(request)
     try:

@@ -171,7 +171,7 @@ def build_graph(business, include_clients=True, client_sample=40):
     from .site_routers import collect, on_map, physical_port
     site = on_map(collect(business)) if routers else []
     site_by_key = {e['key']: e for e in site}
-    site_macs = {e['mac'] for e in site if e['mac']}
+    site_macs = {m for e in site for m in [e['mac'], *e.get('siblings', [])] if m}   # a box's LAN/Wi-Fi MACs are not customers
     port_feed = {}          # (router id, port) -> node that customers on that port hang from
     roots = defaultdict(list)
     for e in site:

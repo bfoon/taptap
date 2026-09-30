@@ -25,7 +25,7 @@ def mac(prefix, n):
 
 
 @override_settings(AUTH_EMAIL_OTP=False)
-class SiteRouterTests(TestCase):
+class SiteBase(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user('t@example.com', 't@example.com', 'pw')
         self.biz = Business.objects.create(user=self.owner, business_name='B', owner_name='O', phone='1',
@@ -48,6 +48,9 @@ class SiteRouterTests(TestCase):
         for _ in range(n):
             self.dev(mac('00:1A:2B', 1000 + self.n), port=port)
 
+
+@override_settings(AUTH_EMAIL_OTP=False)
+class SiteRouterTests(SiteBase):
     # ── signatures ──
     def test_vendor_registry(self):
         self.assertEqual(brand_of(f'{TPLINK}:11:22:33'), 'TP-Link')
@@ -180,3 +183,98 @@ class SiteRouterTests(TestCase):
         self.client.force_login(u)
         self.assertNotEqual(self.post(action='ignore', mac=mac(TPLINK, 5)).status_code, 200)
         self.assertFalse(SiteRouter.objects.exists())
+
+
+class FakeProbeSvc:
+    """Answers the two calls the probe makes: /ping and /tool/fetch."""
+    def __init__(self, page='', ping=3, fail_fetch=None):
+        self.page, self.ping, self.fail_fetch, self.calls = page, ping, fail_fetch, []
+
+    def connect(self): return self
+    def close(self): pass
+
+    def resource(self, path):
+        svc = self
+
+        class R:
+            def call(self, cmd, args):
+                svc.calls.append((path, cmd, dict(args)))
+                if cmd == 'ping':
+                    return [{'seq': '0'}, {'sent': '3', 'received': str(svc.ping), 'avg-rtt': '2ms450us'}]
+                if svc.fail_fetch:
+                    raise Exception(svc.fail_fetch)
+                return [{'status': 'connecting'}, {'status': 'finished', 'data': svc.page}]
+        return R()
+
+
+@override_settings(AUTH_EMAIL_OTP=False)
+class ProbeTests(SiteBase):
+    PAGE = '<html><head><title>TL-WR840N</title></head><body>TP-Link Corporation Limited. tplinkwifi.net</body></html>'
+
+    def setUp(self):
+        super().setUp()
+        from .models import RouterConfigSnapshot
+        RouterConfigSnapshot.objects.create(router=self.r, sections={'IP addresses': {'rows': [{'address': '192.168.0.254/24'}]}})
+
+    def run_probe(self, key, svc):
+        from unittest import mock
+        from . import router_probe
+        with mock.patch('core.mikrotik.MikroTikService', return_value=svc), \
+                mock.patch('core.voucher_history.channel', return_value='Direct API'):
+            return router_probe.probe(self.biz, key)
+
+    def test_read_page(self):
+        from .router_probe import read_page
+        self.assertEqual(read_page(self.PAGE), ('TL-WR840N', 'TP-Link', 'TL-WR840N'))
+        self.assertEqual(read_page('<title>Opening...</title> Archer_C6 v3 tplinkwifi')[1:], ('TP-Link', 'Archer C6'))
+        self.assertEqual(read_page('<title>Login</title>'), ('Login', '', ''))
+
+    def test_probe_saves_and_fills_model(self):
+        tp = self.dev(mac(TPLINK, 70), ip='192.168.0.1')
+        s = SiteRouter.objects.create(business=self.biz, mac_address=tp.mac_address)
+        svc = FakeProbeSvc(self.PAGE)
+        res = self.run_probe(f'sr:{s.pk}', svc)
+        self.assertEqual((res['reachable'], res['rtt_ms'], res['maker'], res['model'], res['web']), (True, 2.5, 'TP-Link', 'TL-WR840N', 'ok'))
+        self.assertIn(('/tool', 'fetch', {'url': 'http://192.168.0.1/', 'output': 'user', 'duration': '6s', 'idle-timeout': '4s'}), svc.calls)
+        s.refresh_from_db()
+        self.assertEqual((s.model, s.brand), ('TL-WR840N', 'TP-Link'))
+        self.assertTrue(s.probed_at and s.probe['model'] == 'TL-WR840N')
+
+    def test_probe_explains_problems(self):
+        tp = self.dev(mac(TPLINK, 80), ip='10.9.9.1')                      # not in the MikroTik's networks
+        res = self.run_probe(f'auto:{tp.mac_address}', FakeProbeSvc(ping=0, fail_fetch='connection timeout'))
+        self.assertFalse(res['reachable'])
+        text = ' '.join(res['notes'])
+        self.assertIn('has no address in 10.9.9.1', text); self.assertIn('did not answer', text)
+
+    def test_ip_conflict_and_same_box(self):
+        a = self.dev(mac(TPLINK, 0x10), ip='192.168.0.1', host='TL-WR840N')
+        self.dev(mac(TPLINK, 0x11))                                          # its Wi-Fi MAC on the same port
+        self.dev(mac(TPLINK, 0x90), ip='192.168.0.1', port='ether4')        # another TP-Link, same IP
+        e = [x for x in sr.collect(self.biz) if x['mac'] == a.mac_address][0]
+        self.assertEqual((e['siblings'], e['ip_conflict']), ([mac(TPLINK, 0x11)], 1))
+        self.assertFalse([x for x in sr.collect(self.biz) if x['mac'] == mac(TPLINK, 0x11)])   # not a second router
+        res = self.run_probe(e['key'], FakeProbeSvc(self.PAGE))
+        self.assertEqual(res['same_unit'], [mac(TPLINK, 0x11)])
+        self.assertEqual([c['mac'] for c in res['ip_conflict']], [mac(TPLINK, 0x90)])
+        self.assertIn('IP conflict', ' '.join(res['notes']))
+
+    def test_link_router_gets_table_checks_only(self):
+        from unittest import mock
+        from . import router_probe
+        tp = self.dev(mac(TPLINK, 95), ip='192.168.0.1')
+        with mock.patch('core.voucher_history.channel', return_value='TapTap Link'), \
+                mock.patch('core.mikrotik.MikroTikService') as svc:
+            res = router_probe.probe(self.biz, f'auto:{tp.mac_address}')
+        svc.assert_not_called()
+        self.assertFalse(res['live']); self.assertIn('TapTap Link', ' '.join(res['notes']))
+
+    def test_probe_endpoint(self):
+        from unittest import mock
+        tp = self.dev(mac(TPLINK, 99), ip='192.168.0.1')
+        with mock.patch('core.mikrotik.MikroTikService', return_value=FakeProbeSvc(self.PAGE)), \
+                mock.patch('core.voucher_history.channel', return_value='Direct API'):
+            r = self.client.post(reverse('topology_router_probe'), json.dumps({'key': f'auto:{tp.mac_address}'}), content_type='application/json')
+        self.assertEqual(r.json()['result']['model'], 'TL-WR840N')
+        bad = self.client.post(reverse('topology_router_probe'), json.dumps({'key': 'x; drop'}), content_type='application/json')
+        self.assertEqual(bad.status_code, 400)

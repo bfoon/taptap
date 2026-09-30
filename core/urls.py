@@ -109,4 +109,5 @@ urlpatterns = [
     # Topology → Detail: TP-Link & other routers TapTap does not manage
     path('topology/routers/',vtopo.topology_routers,name='topology_routers'), path('topology/routers/find/',vtopo.topology_router_find,name='topology_router_find'),
     path('topology/routers/action/',vtopo.topology_router_action,name='topology_router_action'),
+    path('topology/routers/probe/',vtopo.topology_router_probe,name='topology_router_probe'),
 ]
