@@ -105,7 +105,7 @@
     const mode = MODE[e.mode || e.mode_guess] || '';
     return `${e.brand ? `<em class="td-brand">${esc(e.brand)}</em>` : ''}<span class="td-ic"><i class="bi ${ROLE_ICON[e.role] || 'bi-router'}"></i></span>
       <div><b>${esc(e.name)}</b><small>${esc([e.model, e.ip].filter(Boolean).join(' · ') || e.mac || 'not seen yet')}</small>${mode ? `<small class="td-mode">${esc(mode)}</small>` : ''}</div>
-      <span class="td-dot ${e.online ? 'on' : ''}" title="${e.online ? 'Online' : e.seen ? 'Offline' : 'Not seen yet'}"></span>${e.status !== 'confirmed' ? '<span class="td-q" title="Found by TapTap — not confirmed">?</span>' : ''}${e.ip_conflict ? `<span class="td-warn" title="IP conflict: ${e.ip_conflict + 1} devices use ${esc(e.ip)}">!</span>` : ''}`;
+      <span class="td-dot ${e.online ? 'on' : ''}" title="${e.online ? 'Online' : e.seen ? 'Offline' : 'Not seen yet'}"></span>${e.status !== 'confirmed' ? '<span class="td-q" title="Found by TapTap — not confirmed">?</span>' : ''}${e.ip_conflict || e.foreign_dhcp ? `<span class="td-warn" title="${e.foreign_dhcp ? 'A router on ' + esc(e.port) + ' still hands out addresses (DHCP on). ' : ''}${e.ip_conflict ? 'IP conflict: ' + (e.ip_conflict + 1) + ' devices use ' + esc(e.ip) + '.' : ''}">!</span>` : ''}`;
   }
 
   let links = [];
@@ -333,6 +333,7 @@
     else if (pr.reachable === false) bits.push('<span class="td-pill bad">No ping</span>');
     if (pr.web === 'ok') bits.push(`<span class="td-pill info">Web ${esc([pr.maker, pr.model].filter(Boolean).join(' ') || 'page')}</span>`);
     if ((pr.ip_conflict || []).length) bits.push(`<span class="td-pill bad">IP conflict</span>`);
+    if (pr.foreign_dhcp) bits.push(`<span class="td-pill bad">DHCP on?</span>`);
     if ((pr.same_unit || []).length) bits.push(`<span class="td-pill">${pr.same_unit.length + 1} MACs, one box</span>`);
     return `<details class="td-probe" data-k="${esc(e.key)}"${open || openProbes.has(e.key) ? ' open' : ''}><summary>Probed ${esc(ago(pr.at))} ${bits.join(' ')}</summary>
       <ul>${(pr.notes || []).map(n => `<li>${esc(n)}</li>`).join('')}</ul>${(pr.ip_conflict || []).length ? `<div class="small">Also on ${esc(pr.ip)}: ${pr.ip_conflict.map(c =>
@@ -370,7 +371,7 @@
       <button type="button" class="btn btn-sm btn-primary" data-bind="${e.id}">Use</button></div></div>`;
     return `<tr data-key="${esc(e.key)}" class="${e.status !== 'confirmed' ? 'td-sugrow' : ''}">
       <td><div class="td-rname"><i class="bi ${ROLE_ICON[e.role] || 'bi-router'}"></i><div><b>${esc(e.name)}</b> ${tag}<small>${esc([e.brand, e.model].filter(Boolean).join(' ') || 'Maker unknown')}${(e.mode || e.mode_guess) ? ' · ' + esc(MODE[e.mode || e.mode_guess]) + (e.mode ? '' : '?') : ''}</small>${reasons(e)}</div></div>${pick}</td>
-      <td><span class="font-monospace small">${esc(e.ip || '—')}</span>${e.ip_conflict ? ` <span class="td-pill bad" title="${e.ip_conflict + 1} devices answer on ${esc(e.ip)}">IP conflict</span>` : ''}<small class="d-block text-secondary font-monospace">${esc(e.mac || '')}</small>${(e.siblings || []).length ? `<small class="d-block text-secondary" title="${esc(e.siblings.join(', '))}">+${e.siblings.length} MAC${e.siblings.length === 1 ? '' : 's'} of the same box</small>` : ''}</td>
+      <td><span class="font-monospace small">${esc(e.ip || '—')}</span>${e.foreign_dhcp ? ` <span class="td-pill bad" title="${e.foreign_dhcp} customers on ${esc(e.port)} have addresses the MikroTik never gave (${esc(e.foreign_sample.join(', '))}). A router on this port still runs DHCP — turn it off.">DHCP on?</span>` : ''}${e.ip_conflict ? ` <span class="td-pill bad" title="${e.ip_conflict + 1} devices answer on ${esc(e.ip)}">IP conflict</span>` : ''}<small class="d-block text-secondary font-monospace">${esc(e.mac || '')}</small>${(e.siblings || []).length ? `<small class="d-block text-secondary" title="${esc(e.siblings.join(', '))}">+${e.siblings.length} MAC${e.siblings.length === 1 ? '' : 's'} of the same box</small>` : ''}</td>
       <td><small>${esc(pathOf(e))}</small></td>
       <td class="text-end">${e.clients || 0}</td>
       <td>${status}</td>

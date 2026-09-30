@@ -99,8 +99,35 @@ def score(dev, peers_on_port=0):
         pts += 20; why.append(('+', f'{peers_on_port} other device{"s" if peers_on_port != 1 else ""} connect through the same port'))
     if wifi:
         pts -= 15; why.append(('-', 'Joined the MikroTik by Wi-Fi (repeaters do this, most routers are cabled)'))
-    mode = 'ap' if peers_on_port and not wifi else ('nat' if brand in ROUTER_BRANDS and not peers_on_port and not wifi else '')
+    # Customers learned through it = it passes them on (access point / LAN-to-LAN). No customers says
+    # nothing (an idle TP-Link), so TapTap never guesses "NAT router"; the owner can still set it.
+    mode = 'ap' if peers_on_port and not wifi else ''
     return pts, why, brand, mode
+
+
+def router_networks(router):
+    """The MikroTik's own IP networks (from its saved configuration), or None when not known yet."""
+    try:
+        snap = router.config_snapshot
+    except Exception:
+        return None
+    from .routeros_analysis import g
+    nets = []
+    for row in ((snap.sections or {}).get('IP addresses') or {}).get('rows', []):
+        try:
+            nets.append(ipaddress.ip_interface(str(g(row, 'address'))).network)
+        except ValueError:
+            continue
+    return nets or None
+
+
+def _foreign(ip, nets):
+    """A private IPv4 address the MikroTik did not hand out (outside all its networks)."""
+    try:
+        a = ipaddress.ip_address(str(ip).strip())
+    except ValueError:
+        return False
+    return a.version == 4 and a.is_private and not a.is_link_local and not any(a in n for n in nets)
 
 
 def _confidence(pts):
@@ -159,7 +186,7 @@ def collect(business, include_offline=True):
             'online': bool(dev and dev.is_online), 'seen': bool(dev),
             'last_seen': dev.last_seen_at.isoformat() if dev and dev.last_seen_at else None,
             'score': pts, 'reasons': [{'sign': a, 'text': b} for a, b in why], 'notes': s.notes if s else '',
-            'candidates': [], 'siblings': [], 'ip_conflict': 0,
+            'candidates': [], 'siblings': [], 'ip_conflict': 0, 'foreign_dhcp': 0, 'foreign_sample': [],
             'probe': (s.probe or {}) if s else {}, 'probed_at': s.probed_at.isoformat() if s and s.probed_at else None,
         }
 
@@ -210,6 +237,24 @@ def collect(business, include_offline=True):
         if e['ip']:
             e['ip_conflict'] = len({m for m, d in devices.items() if d.ip_address == e['ip'] and d.is_online
                                     and m != e['mac'] and m not in e['siblings']})
+
+    # LAN-to-LAN TP-Links must have their DHCP server off. If customers on a port carry private addresses
+    # outside every MikroTik network (typically 192.168.0.x), a router on that port is still handing them out.
+    router_ips = {e['ip'] for e in entries if e['ip']}
+    all_router_macs = {m for e in entries for m in [e['mac'], *e['siblings']] if m}
+    nets_by_router = {rid: router_networks(r) for rid, r in routers.items()}
+    foreign = defaultdict(list)
+    for m, d in devices.items():
+        rid, port = port_of[m]
+        nets = nets_by_router.get(rid)
+        if not d.is_online or not port or nets is None or m in all_router_macs or d.ip_address in router_ips:
+            continue
+        if d.ip_address and _foreign(d.ip_address, nets):
+            foreign[(rid, port)].append(d.ip_address)
+    for e in entries:
+        ips = foreign.get((e['router_id'], e['port']), []) if e['port'] else []
+        e['foreign_dhcp'] = len(ips) if len(ips) >= 2 else 0          # one odd device is not enough
+        e['foreign_sample'] = sorted(set(ips))[:3] if e['foreign_dhcp'] else []
 
     # Customers per router: devices on its port that are not routers themselves.
     router_macs = {m for e in entries if e['status'] == 'confirmed' or e['confidence'] == 'likely' for m in [e['mac'], *e['siblings']] if m}

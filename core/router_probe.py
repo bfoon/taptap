@@ -9,8 +9,10 @@ asks the MikroTik (direct API) to:
 
 and adds what TapTap already knows from the MikroTik tables:
 
-* **same box** — a TP-Link's LAN and WAN MACs are neighbours. Seen on the same port they are one
-  unit, not two routers (only suggestions are merged; confirmed routers never are);
+* **same box** — one TP-Link can show up with two neighbouring MACs (e.g. its LAN and a Wi-Fi side).
+  Seen on the same port they are one unit, not two routers (only suggestions are merged);
+* **its own DHCP still on** — connected LAN-to-LAN, a TP-Link must not hand out addresses. Customers
+  on its port with addresses the MikroTik never gave (192.168.0.x…) mean one still does;
 * **IP conflict** — several devices answering on one address (typically TP-Links all left on
   192.168.0.1). In access point mode that breaks their web pages and must be fixed on site;
 * **no route** — the MikroTik has no address in the router's network, so nothing can reach it.
@@ -26,7 +28,7 @@ import re
 from django.utils import timezone
 
 from .net_vendors import brand_of
-from .site_routers import collect, mac_norm, physical_port
+from .site_routers import collect, mac_norm, physical_port, router_networks
 
 MAKERS = [('TP-Link', re.compile(r'tp-?link|tplinkwifi|tplinklogin|tplinkrepeater|tplinkmodem', re.I)),
           ('Mercusys', re.compile(r'mercusys|mwlogin', re.I)), ('Tenda', re.compile(r'tenda', re.I)),
@@ -40,7 +42,7 @@ TITLE_RE = re.compile(r'<title[^>]*>(.*?)</title>', re.I | re.S)
 
 
 def same_unit(a, b):
-    """Two MACs of one box: same first five bytes, last byte 1 apart (a TP-Link's LAN and WAN).
+    """Two MACs of one box: same first five bytes, last byte 1 apart.
     Kept tight on purpose: two units from one batch can be only a few addresses apart."""
     a, b = mac_norm(a).split(':'), mac_norm(b).split(':')
     if len(a) != 6 or len(b) != 6 or a[:5] != b[:5]:
@@ -62,21 +64,6 @@ def read_page(html):
     if model and not maker and model.upper().startswith(('TL-', 'ARCHER', 'DECO', 'EAP', 'RE', 'MR')):
         maker = 'TP-Link'
     return title, maker, model
-
-
-def _router_networks(router):
-    try:
-        snap = router.config_snapshot
-    except Exception:
-        return None
-    from .routeros_analysis import g
-    nets = []
-    for row in ((snap.sections or {}).get('IP addresses') or {}).get('rows', []):
-        try:
-            nets.append(ipaddress.ip_interface(str(g(row, 'address'))).network)
-        except ValueError:
-            continue
-    return nets or None
 
 
 def _table_checks(business, e):
@@ -109,10 +96,15 @@ def probe(business, key, user=None):
     res.update(_table_checks(business, e))
     notes = res['notes']
     if res['same_unit']:
-        notes.append(f'{len(res["same_unit"]) + 1} MAC addresses belong to this one box (its LAN and WAN ports) — shown as one router.')
+        notes.append(f'{len(res["same_unit"]) + 1} MAC addresses belong to this one box — shown as one router.')
     if res['ip_conflict']:
         notes.append(f'IP conflict: {len(res["ip_conflict"]) + 1} devices answer on {e["ip"]}. In access point mode give each TP-Link '
                      'its own address (DHCP from the MikroTik with a static lease) or its web page and this probe will hit the wrong box.')
+    if e.get('foreign_dhcp'):
+        notes.append(f'{e["foreign_dhcp"]} customers on {e["port"]} have addresses the MikroTik never gave '
+                     f'({", ".join(e["foreign_sample"])}…). A router on this port still runs its own DHCP server: '
+                     'in its settings turn DHCP off (LAN-to-LAN routers must never hand out addresses), then reconnect those phones.')
+        res['foreign_dhcp'] = e['foreign_dhcp']
     router = business.routers.filter(pk=e['router_id']).first() if e['router_id'] else None
     if not e['ip']:
         notes.append('No IP address known yet, so it cannot be checked live. Run “Discover all now” or add its IP.')
@@ -121,7 +113,7 @@ def probe(business, key, user=None):
     elif channel(router) == 'TapTap Link':
         notes.append(f'{router.name} is connected through TapTap Link, which cannot bring a web page back — only the table checks ran.')
     else:
-        nets = _router_networks(router)
+        nets = router_networks(router)
         try:
             addr = ipaddress.ip_address(e['ip'])
         except ValueError:

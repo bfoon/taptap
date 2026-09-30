@@ -184,6 +184,33 @@ class SiteRouterTests(SiteBase):
         self.assertNotEqual(self.post(action='ignore', mac=mac(TPLINK, 5)).status_code, 200)
         self.assertFalse(SiteRouter.objects.exists())
 
+    # ── LAN-to-LAN TP-Links ──
+    def test_idle_tplink_is_not_guessed_as_nat(self):
+        d = self.dev(mac(TPLINK, 200), host='TL-WR840N')
+        self.assertEqual(sr.score(d, peers_on_port=0)[3], '')      # idle, not "NAT router"
+
+    def test_tplink_still_running_dhcp_is_flagged(self):
+        from .models import RouterConfigSnapshot
+        RouterConfigSnapshot.objects.create(router=self.r, sections={'IP addresses': {'rows': [{'address': '10.5.50.1/24'}]}})
+        self.dev(mac(TPLINK, 210), ip='192.168.0.1', host='TL-WR840N', port='ether3')
+        for i in range(3):                                           # phones that got 192.168.0.x from the TP-Link
+            self.dev(mac('00:1A:2B', 500 + i), ip=f'192.168.0.{100 + i}', port='ether3')
+        self.dev(mac(TPLINK, 220), ip='10.5.50.200', host='Archer', port='ether2')
+        for i in range(3):                                           # phones that got hotspot addresses: fine
+            self.dev(mac('00:1A:2B', 600 + i), ip=f'10.5.50.{20 + i}', port='ether2')
+        self.dev(mac('00:1A:2B', 700), ip='169.254.3.4', port='ether2')   # link-local: ignored
+        by_port = {e['port']: e for e in sr.collect(self.biz)}
+        self.assertEqual(by_port['ether3']['foreign_dhcp'], 3)
+        self.assertEqual(by_port['ether3']['foreign_sample'], ['192.168.0.100', '192.168.0.101', '192.168.0.102'])
+        self.assertEqual(by_port['ether2']['foreign_dhcp'], 0)
+
+    def test_one_odd_device_is_not_enough(self):
+        from .models import RouterConfigSnapshot
+        RouterConfigSnapshot.objects.create(router=self.r, sections={'IP addresses': {'rows': [{'address': '10.5.50.1/24'}]}})
+        self.dev(mac(TPLINK, 230), ip='10.5.50.9', host='TL-WR840N')
+        self.dev(mac('00:1A:2B', 800), ip='192.168.8.20')
+        self.assertEqual(sr.collect(self.biz)[0]['foreign_dhcp'], 0)
+
 
 class FakeProbeSvc:
     """Answers the two calls the probe makes: /ping and /tool/fetch."""
@@ -258,6 +285,16 @@ class ProbeTests(SiteBase):
         self.assertEqual(res['same_unit'], [mac(TPLINK, 0x11)])
         self.assertEqual([c['mac'] for c in res['ip_conflict']], [mac(TPLINK, 0x90)])
         self.assertIn('IP conflict', ' '.join(res['notes']))
+
+    def test_probe_explains_dhcp_left_on(self):
+        from .models import RouterConfigSnapshot
+        RouterConfigSnapshot.objects.filter(router=self.r).update(sections={'IP addresses': {'rows': [{'address': '10.5.50.1/24'}]}})
+        tp = self.dev(mac(TPLINK, 240), ip='10.5.50.50')
+        for i in range(2):
+            self.dev(mac('00:1A:2B', 900 + i), ip=f'192.168.0.{110 + i}')
+        res = self.run_probe(f'auto:{tp.mac_address}', FakeProbeSvc(self.PAGE))
+        self.assertEqual(res['foreign_dhcp'], 2)
+        self.assertIn('still runs its own DHCP server', ' '.join(res['notes']))
 
     def test_link_router_gets_table_checks_only(self):
         from unittest import mock
