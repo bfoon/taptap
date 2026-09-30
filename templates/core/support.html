@@ -21,8 +21,96 @@
 .hc-pop a:hover{transform:translateY(-2px);border-color:#1769e0}.hc-pop i{font-size:1.4rem;color:#1769e0}.hc-pop b{display:block;margin:.35rem 0 .2rem;line-height:1.25}.hc-pop small{color:#6b7c8f}
 .hc-contact{display:flex;flex-wrap:wrap;gap:1rem;align-items:center;justify-content:space-between;background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:1rem 1.2rem;margin-top:1.4rem}
 .sec-title{font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#8a9aab;margin:0 0 .6rem}
+
+/* Owner-authorized support access */
+.sa-wrap{margin-bottom:1.3rem}
+.sa-head{display:flex;gap:.75rem;align-items:flex-start;background:#fff8e6;border:1px solid #f2ca70;border-radius:16px;padding:1rem 1.1rem;margin-bottom:.65rem}
+.sa-head i{font-size:1.4rem;color:#a96800}.sa-head b{display:block;color:#5c3b00}.sa-head p{margin:.15rem 0 0;font-size:.86rem;color:#765a25}
+.sa-card{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:1rem;margin-bottom:.65rem}
+.sa-top{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.65rem}.sa-top>div:first-child{flex:1;min-width:220px}
+.sa-name{font-weight:800}.sa-meta{font-size:.78rem;color:#6b7c8f}.sa-reason{background:var(--surface-2,#f4f7fa);border-radius:10px;padding:.55rem .7rem;margin:.65rem 0;font-size:.86rem}
+.sa-status{display:inline-flex;align-items:center;border-radius:999px;padding:.2rem .55rem;font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.03em}
+.sa-status.pending{background:#fff1c9;color:#805300}.sa-status.approved{background:#def6e8;color:#117347}.sa-status.denied,.sa-status.revoked,.sa-status.expired{background:#f5e5e5;color:#9e2f2f}
+.sa-actions{display:flex;gap:.45rem;flex-wrap:wrap}.sa-actions form{margin:0}
 </style>{% endblock %}
 {% block content %}
+
+{% if is_actual_owner and support_access_requests %}
+<div class="sa-wrap">
+  <p class="sec-title">Support access &amp; permission</p>
+  <div class="sa-head">
+    <i class="bi bi-shield-lock"></i>
+    <div>
+      <b>TapTap Support cannot enter your portal without your permission.</b>
+      <p>Approve only when you asked for help. Approval lasts for 1 hour, every support change is logged, and you can revoke access here at any time. Never share your password or verification code.</p>
+    </div>
+  </div>
+
+  {% for a in support_access_requests %}
+  <div class="sa-card">
+    <div class="sa-top">
+      <div>
+        <div class="sa-name">{{ a.requester_name }}</div>
+        <div class="sa-meta">
+          {{ a.requester_email }}
+          · requested {{ a.requested_at|date:'d M Y H:i' }}
+          {% if a.request_expires %}· request expires {{ a.request_expires|date:'d M H:i' }}{% endif %}
+        </div>
+      </div>
+      <span class="sa-status {{ a.status }}">{{ a.status }}</span>
+    </div>
+
+    {% if a.reason %}
+      <div class="sa-reason"><b>Reason:</b> {{ a.reason }}</div>
+    {% else %}
+      <div class="sa-reason"><b>Reason:</b> Support assistance</div>
+    {% endif %}
+
+    {% if a.status == 'pending' %}
+      <div class="sa-actions">
+        <form method="post" action="{% url 'support' %}">
+          {% csrf_token %}
+          <input type="hidden" name="token" value="{{ a.token }}">
+          <button class="btn btn-sm btn-success" name="support_access_action" value="approve"
+                  onclick="return confirm('Allow {{ a.requester_name|escapejs }} to enter your TapTap portal for up to 1 hour?')">
+            <i class="bi bi-check-circle"></i> Approve for 1 hour
+          </button>
+        </form>
+        <form method="post" action="{% url 'support' %}">
+          {% csrf_token %}
+          <input type="hidden" name="token" value="{{ a.token }}">
+          <button class="btn btn-sm btn-outline-danger" name="support_access_action" value="deny">
+            <i class="bi bi-x-circle"></i> Deny
+          </button>
+        </form>
+      </div>
+    {% elif a.status == 'approved' %}
+      <div class="small text-success mb-2">
+        <i class="bi bi-check-circle-fill"></i>
+        Approved{% if a.grant_expires %} until {{ a.grant_expires|date:'d M Y H:i' }}{% endif %}.
+      </div>
+      <div class="sa-actions">
+        <form method="post" action="{% url 'support' %}">
+          {% csrf_token %}
+          <input type="hidden" name="token" value="{{ a.token }}">
+          <button class="btn btn-sm btn-outline-danger" name="support_access_action" value="revoke"
+                  onclick="return confirm('Revoke this support access now?')">
+            <i class="bi bi-shield-x"></i> Revoke access
+          </button>
+        </form>
+      </div>
+    {% elif a.status == 'denied' %}
+      <div class="small text-secondary">You denied this request. Support cannot use it.</div>
+    {% elif a.status == 'revoked' %}
+      <div class="small text-secondary">You revoked this approval. Any support session using it is blocked.</div>
+    {% elif a.status == 'expired' %}
+      <div class="small text-secondary">This request/approval expired. Support must request permission again if help is still needed.</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 <div class="hc-hero">
   <h2>How can we help?</h2>
   <p>{{ total }} step-by-step guides for routers, vouchers, fair usage, your login page and your team.</p>
