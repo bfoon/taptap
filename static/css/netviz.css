@@ -237,3 +237,12 @@
 .nm-nd-types{display:flex;gap:.2rem;flex-wrap:wrap;margin-top:.15rem}.nm-nd-types i{font-style:normal;font-size:.6rem;font-weight:700;border-radius:999px;padding:.05rem .4rem;background:#ffffff12;color:#b8c9da}
 .nm-nd-bell{flex:none;width:30px;height:30px;border-radius:9px;border:1px solid #ffffff1f;background:transparent;color:#8ea6bc}
 .nm-nd-bell.on{color:#ffd166;border-color:#ffd16655;background:#ffd16614}.nm-nd-bell.mute{color:#ef8f8f}
+
+/* Routers TapTap does not manage (TP-Link & co) — core/site_routers.py */
+.nm-node.t-siterouter{background:linear-gradient(135deg,#0f3a3f,#0e2a31);border-color:#2f9aa6}
+.nm-node.t-siterouter .nm-ic{background:#14a3b3;color:#fff}
+.nm-node.t-siterouter.s-offline{border-color:#6b2d2d;opacity:.8}.nm-node.t-siterouter.s-offline .nm-dot{background:var(--bad)}
+.nm-node.suggested{border-style:dashed;box-shadow:none}
+.nm-node .nm-brand{position:absolute;top:-9px;right:10px;font-style:normal;font-size:.62rem;font-weight:800;letter-spacing:.03em;background:#14a3b3;color:#fff;border-radius:99px;padding:.1rem .45rem}
+.nm-why{margin:.8rem 0;font-size:.82rem}.nm-why b{display:block;margin-bottom:.3rem}.nm-why div{display:flex;gap:.4rem;align-items:flex-start;padding:.15rem 0}
+.nm-why .pro i{color:#34c38f}.nm-why .con i{color:#f06548}

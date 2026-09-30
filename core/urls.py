@@ -8,6 +8,7 @@ from . import views_fup as vfup
 from . import views_bonanza as vbz
 from . import views_chat as vchat
 from . import views_members as vmem
+from . import views_topology as vtopo
 
 urlpatterns = [
     path('chat/',vchat.chat_page,name='chat_page'), path('chat/state/',vchat.chat_state,name='chat_state'),
@@ -105,4 +106,7 @@ urlpatterns = [
     path('members/<int:pk>/renew/',vmem.member_renew,name='member_renew'),
     path('finance/agents/<int:pk>/statement/',va.agent_statement,name='agent_statement'),
     path('batches/<int:pk>/receipt/',va.batch_receipt,name='batch_receipt'),
+    # Topology → Detail: TP-Link & other routers TapTap does not manage
+    path('topology/routers/',vtopo.topology_routers,name='topology_routers'), path('topology/routers/find/',vtopo.topology_router_find,name='topology_router_find'),
+    path('topology/routers/action/',vtopo.topology_router_action,name='topology_router_action'),
 ]

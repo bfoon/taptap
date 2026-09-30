@@ -854,7 +854,9 @@ def topology(request):
     netmap_config={'graph':graph,'graphUrl':reverse('topology_graph'),'liveUrl':reverse('topology_live'),
         'refreshUrl':reverse('topology_refresh',args=[0]),'controlUrl':reverse('router_control',args=[0]),
         'routers':[{'id':r.id,'name':r.name} for r in routers],'autoRefreshIds':auto}
-    return render(request,'core/topology.html',{'snapshots':snapshots,'routers':routers,'graph':graph,'netmap_config':netmap_config})
+    from .views_topology import detail_payload
+    detail={**detail_payload(business),'urls':{'list':reverse('topology_routers'),'find':reverse('topology_router_find'),'action':reverse('topology_router_action')}}
+    return render(request,'core/topology.html',{'snapshots':snapshots,'routers':routers,'graph':graph,'netmap_config':netmap_config,'detail':detail})
 
 
 @login_required

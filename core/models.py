@@ -500,6 +500,37 @@ class RouterDevice(models.Model):
     def __str__(self): return self.hostname or self.mac_address or self.ip_address or self.device_key
 
 
+class SiteRouter(models.Model):
+    """A router or access point that TapTap does not manage (TP-Link, Tenda, Ubiquiti…) placed in the
+    topology. Found automatically from the device inventory (see core/site_routers.py), added by IP,
+    or entered by hand. The owner confirms, renames, links or ignores them; TapTap never logs in to them."""
+    ROLES=[('router','Router'),('ap','Access point'),('repeater','Repeater / mesh'),('switch','Switch'),('modem','Modem / ONT')]
+    MODES=[('','Not sure'),('ap','Access point — customers pass through to the hotspot'),('nat','Router (NAT) — customers are hidden behind it')]
+    STATUS=[('confirmed','Confirmed'),('ignored','Not a router')]
+    SOURCES=[('auto','Found automatically'),('ip','Added by IP'),('manual','Added by hand')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='site_routers')
+    router=models.ForeignKey(Router,on_delete=models.SET_NULL,null=True,blank=True,related_name='site_routers',help_text='The MikroTik it hangs from')
+    port=models.CharField(max_length=120,blank=True,help_text='MikroTik port it is plugged into (empty = found automatically)')
+    parent=models.ForeignKey('self',on_delete=models.SET_NULL,null=True,blank=True,related_name='children',help_text='Another site router it is connected to')
+    mac_address=models.CharField(max_length=32,blank=True,db_index=True)
+    ip_address=models.CharField(max_length=64,blank=True)
+    name=models.CharField(max_length=120,blank=True)
+    brand=models.CharField(max_length=40,blank=True)
+    model=models.CharField(max_length=80,blank=True)
+    role=models.CharField(max_length=12,choices=ROLES,default='router')
+    mode=models.CharField(max_length=4,choices=MODES,default='',blank=True)
+    status=models.CharField(max_length=12,choices=STATUS,default='confirmed')
+    source=models.CharField(max_length=8,choices=SOURCES,default='auto')
+    notes=models.CharField(max_length=255,blank=True)
+    created_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
+    created_at=models.DateTimeField(auto_now_add=True)
+    updated_at=models.DateTimeField(auto_now=True)
+    class Meta:
+        ordering=['name','ip_address']
+        constraints=[models.UniqueConstraint(fields=['business','mac_address'],condition=~models.Q(mac_address=''),name='uniq_site_router_mac')]
+    def __str__(self): return self.name or self.ip_address or self.mac_address
+
+
 class RouterInterfaceRole(models.Model):
     ROLES=[('wan','WAN / Internet'),('lan','LAN'),('hotspot','HotSpot'),('trunk','Trunk'),('management','Management'),('unused','Unused'),('disabled','Disabled')]
     router=models.ForeignKey(Router,on_delete=models.CASCADE,related_name='interface_roles')

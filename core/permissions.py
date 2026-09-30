@@ -62,7 +62,7 @@ topology_live topology_refresh security security_ack security_rescan security_fi
 wan_apply wan_confirm wan_undo wan_status wan_script router_port port_action router_reboot router_backups
 router_backup_download live_now incident_fix incident_ignore incident_fix_all traffic traffic_now traffic_data
 node_devices device_detail device_alert_toggle alerts alert_rule_save alert_rule_action alerts_read router_link router_link_action
-router_link_status devices device_action'''.split()
+router_link_status devices device_action topology_routers topology_router_find topology_router_action'''.split()
 _STUDIO = '''portal_studio portal_editor portal_action portal_export portal_deploy portal_deploy_status voucher_designs
 voucher_design_editor voucher_design_action ads ad_save ad_action'''.split()
 

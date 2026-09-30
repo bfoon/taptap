@@ -12,11 +12,11 @@
 
   const NODE_W = 184, NODE_H = 64, CLUSTER_W = 150, LAYER_GAP = 150, COL_GAP = 44;
   const ICONS = {
-    internet: 'bi-globe2', isp: 'bi-broadcast-pin', wan: 'bi-hdd-network-fill', router: 'bi-router-fill',
+    internet: 'bi-globe2', isp: 'bi-broadcast-pin', wan: 'bi-hdd-network-fill', router: 'bi-router-fill', siterouter: 'bi-router',
     switch: 'bi-hdd-rack', wifi: 'bi-wifi', network: 'bi-diagram-3', clients: 'bi-phone'
   };
   const TYPE_LABEL = {
-    internet: 'Internet', isp: 'ISP modem', wan: 'WAN link', router: 'MikroTik (managed)', switch: 'Switch',
+    internet: 'Internet', isp: 'ISP modem', wan: 'WAN link', router: 'MikroTik (managed)', siterouter: 'Router (not managed)', switch: 'Switch',
     wifi: 'Access point', network: 'Network device', clients: 'Connected devices'
   };
   const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -224,13 +224,15 @@
           this.nodeLayer.appendChild(div);
         }
         div.dataset.id = n.id;
-        div.className = `nm-node t-${n.type} s-${n.status || 'online'}${n.state ? ' st-' + n.state : ''}`;
+        div.className = `nm-node t-${n.type} s-${n.status || 'online'}${n.state ? ' st-' + n.state : ''}${n.suggested ? ' suggested' : ''}`;
         div.style.width = p.w + 'px'; div.style.height = p.h + 'px';
         div.style.transform = `translate(${p.x}px,${p.y}px)`;
         div.setAttribute('aria-label', `${TYPE_LABEL[n.type] || n.type}: ${n.label}`);
         const badge = n.type === 'wan' && n.share != null && n.state === 'active' ? `<em class="nm-share">${n.share}%</em>` :
           n.type === 'wan' ? `<em class="nm-state">${esc(n.state || '')}</em>` :
-          n.type === 'router' && n.lb_method && n.lb_method !== 'Single WAN' ? `<em class="nm-state">${esc(n.lb_method)}</em>` : '';
+          n.type === 'router' && n.lb_method && n.lb_method !== 'Single WAN' ? `<em class="nm-state">${esc(n.lb_method)}</em>` :
+          n.type === 'siterouter' && n.suggested ? `<em class="nm-state" title="Found by TapTap — confirm it in the Detail tab">found?</em>` :
+          n.type === 'siterouter' && n.brand ? `<em class="nm-brand">${esc(n.brand)}</em>` : '';
         div.innerHTML = `<span class="nm-ic"><i class="bi ${ICONS[n.type] || 'bi-circle'}"></i></span>
           <span class="nm-tx"><b>${esc(n.label)}</b><small>${esc(n.sub || TYPE_LABEL[n.type] || '')}</small></span>${badge}
           <span class="nm-dot" aria-hidden="true"></span>`;
@@ -306,6 +308,14 @@
         add('Interface', n.iface); add('Gateway', n.sub); add('State', n.state); add('Role', n.role);
         if (n.share != null) add('Planned share', n.share + '%'); add('Routing tables', (n.tables || []).join(', ')); add('Distance', n.distance); add('Type', n.source);
         extra += `<div class="nm-live-box" data-live-for="${esc(n.router_id)}:${esc(n.iface)}"></div>`;
+      } else if (n.type === 'siterouter') {
+        add('Maker', n.brand); add('Model', n.model); add('IP address', n.ip); add('MAC address', n.mac);
+        add('Plugged into', n.port ? `${(this.cfg.routers.find(r => r.id === n.router_id) || {}).name || 'MikroTik'} › ${n.port}` : '');
+        add('Works as', n.mode === 'ap' ? 'Access point — customers pass through' : n.mode === 'nat' ? 'Router (NAT) — customers hidden behind it' : '');
+        add('Customers on its port', n.clients); add('Status', n.status === 'online' ? 'Online' : 'Not seen in the last discovery');
+        if (n.suggested) extra += `<div class="nm-alert"><i class="bi bi-question-circle"></i> TapTap found this and thinks it is a router. Confirm it or mark it “not a router” in the Detail tab.</div>`;
+        if ((n.reasons || []).length) extra += `<div class="nm-why"><b>Why TapTap thinks so</b>${n.reasons.map(r => `<div class="${r.sign === '+' ? 'pro' : 'con'}"><i class="bi ${r.sign === '+' ? 'bi-plus-circle' : 'bi-dash-circle'}"></i> ${esc(r.text)}</div>`).join('')}</div>`;
+        extra += `<div class="nm-drawer-actions"><button type="button" class="btn btn-sm btn-primary" data-detail-key="${esc(n.key)}"><i class="bi bi-list-columns"></i> Open in Detail</button></div>`;
       } else if (n.type === 'clients') {
         add('Port', n.port); add('Devices', n.count); add('Wireless', n.wifi); add('Logged in to hotspot', n.hotspot);
         extra += `<input class="form-control form-control-sm nm-dev-filter" placeholder="Filter devices"><div class="nm-devlist">${(n.devices || []).map(d => `
@@ -325,8 +335,10 @@
       const f = this.drawer.querySelector('.nm-dev-filter');
       if (f) f.addEventListener('input', () => { const q = f.value.toLowerCase(); this.drawer.querySelectorAll('.nm-dev').forEach(d => d.hidden = !d.textContent.toLowerCase().includes(q)); });
       const btn = this.drawer.querySelector('[data-discover]'); if (btn) btn.onclick = () => this.discover([Number(btn.dataset.discover)]);
+      const det = this.drawer.querySelector('[data-detail-key]');
+      if (det) det.onclick = () => { this.closeDrawer(); window.dispatchEvent(new CustomEvent('taptap:detail', { detail: det.dataset.detailKey })); };
       this.drawer.classList.add('open'); this.drawer.setAttribute('aria-hidden', 'false'); this.paintDrawerLive();
-      if (n.type !== 'internet' && n.type !== 'wan') this.loadNodeDevices(n);
+      if (n.type !== 'internet' && n.type !== 'wan' && n.type !== 'siterouter') this.loadNodeDevices(n);
     }
 
     // Everything behind this node — online and offline — with a per-device alert bell.

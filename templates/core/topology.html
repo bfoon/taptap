@@ -2,7 +2,7 @@
 {% load static %}
 {% block title %}Live Topology — TapTap{% endblock %}
 {% block heading %}Live Network Topology{% endblock %}
-{% block extra_head %}<link href="{% static 'css/netviz.css' %}?v=5" rel="stylesheet"><link href="{% static 'css/ports.css' %}?v=2" rel="stylesheet">{% endblock %}
+{% block extra_head %}<link href="{% static 'css/netviz.css' %}?v=6" rel="stylesheet"><link href="{% static 'css/topology-detail.css' %}?v=1" rel="stylesheet"><link href="{% static 'css/ports.css' %}?v=2" rel="stylesheet">{% endblock %}
 {% block content %}
 <form class="d-none">{% csrf_token %}</form>
 <div class="page-actions topology-actions">
@@ -13,15 +13,22 @@
   </div>
 </div>
 
+<div class="td-switch" role="tablist" aria-label="Topology view">
+  <button type="button" role="tab" id="tabMap" aria-controls="paneMap" aria-selected="true" data-view="map"><i class="bi bi-diagram-3"></i> Map</button>
+  <button type="button" role="tab" id="tabDetail" aria-controls="paneDetail" aria-selected="false" data-view="detail" tabindex="-1"><i class="bi bi-list-columns"></i> Detail <span class="td-count" id="tdCount">{{ graph.stats.site_routers }}</span></button>
+</div>
+
+<div id="paneMap" role="tabpanel" aria-labelledby="tabMap">
 <div class="nv-strip">
   <div><span>Routers online</span><b><span data-stat="routers_online">{{ graph.stats.routers_online }}</span><small> / <span data-stat="routers">{{ graph.stats.routers }}</span></small></b></div>
+  <div><span>Other routers (TP-Link…)</span><b data-stat="site_routers">{{ graph.stats.site_routers }}</b></div>
   <div><span>Switches &amp; access points</span><b data-stat="network_devices">{{ graph.stats.network_devices }}</b></div>
   <div><span>Connected devices</span><b data-stat="clients">{{ graph.stats.clients }}</b></div>
   <div><span>WAN links{% if graph.stats.wan_down %} · <em class="text-danger fst-normal">{{ graph.stats.wan_down }} down</em>{% endif %}</span><b data-stat="wan_links">{{ graph.stats.wan_links }}</b></div>
   <div class="nv-live"><span>Internet traffic now</span><b data-stat-live>—</b></div>
 </div>
 
-<div id="netmap" class="mb-4"></div>
+<div id="netmap" class="mb-4" data-on-graph="1"></div>
 {{ netmap_config|json_script:"netmap-config" }}
 
 {% for snap in snapshots %}
@@ -51,10 +58,58 @@
 <div class="panel"><div class="good-state"><i class="bi bi-router"></i><b>No routers yet</b><span>Add a MikroTik and TapTap will map everything behind it.</span><a class="btn btn-primary mt-3" href="{% url 'routers' %}">Add a router</a></div></div>
 {% endfor %}
 <div class="alert alert-info mt-3 small"><i class="bi bi-info-circle"></i> The map is built from Neighbor Discovery (MNDP/LLDP/CDP), bridge MAC learning, DHCP, ARP, HotSpot and Wi‑Fi tables. Devices that do not advertise themselves still appear under the port they were learned on. TapTap must reach each router’s API port from wherever it is hosted — a LAN address needs TapTap on the same network or a VPN.</div>
+</div>
+
+<div id="paneDetail" role="tabpanel" aria-labelledby="tabDetail" hidden>
+  <div class="td-head">
+    <div><h2 class="section-title">How your routers are linked</h2>
+      <p>Your MikroTiks, and the TP-Link and other routers plugged into them. TapTap finds them from their MAC maker, name and address, and shows the port each one hangs from. Confirm what it found, add routers by IP, and say which router feeds which.</p></div>
+    <div class="td-legend" aria-label="Legend"><span><i class="lg-mt"></i> MikroTik (managed)</span><span><i class="lg-sr"></i> Other router</span><span><i class="lg-sg"></i> Found — not confirmed</span><span><i class="lg-cl"></i> Customers</span></div>
+  </div>
+  <div class="panel td-diagram-panel mb-4">
+    <div class="td-diagram-bar"><b>Designed topology</b>
+      <label class="td-chk"><input type="checkbox" id="tdSuggest" checked> Show routers TapTap found</label>
+      <label class="td-chk"><input type="checkbox" id="tdAnim" checked> Animation</label>
+      <span class="td-live" id="tdLive" aria-live="polite"></span></div>
+    <div class="td-diagram" id="tdDiagram"></div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-xl-8"><div class="panel h-100"><div class="panel-head"><div><h3>Routers</h3><p>Grouped by the MikroTik and port they are plugged into.</p></div></div>
+      <div id="tdList"></div></div></div>
+    <div class="col-xl-4"><div class="panel h-100"><div class="panel-head"><div><h3>Add routers by IP</h3><p>Type an address, a list or a range. Each device found is its own router — several TP-Links can all answer on 192.168.0.1.</p></div></div>
+      <form id="tdFind" class="d-flex gap-2"><input class="form-control" name="ip" id="tdIp" placeholder="192.168.0.1 or 192.168.0.1-20" aria-label="IP address, list or range" autocomplete="off"><button class="btn btn-primary">Find</button></form>
+      <div class="td-quick" id="tdQuick" aria-label="Common router addresses"></div>
+      <div id="tdFound" class="mt-2" aria-live="polite"></div>
+      <div id="tdIgnored" class="mt-3"></div>
+    </div></div>
+  </div>
+</div>
+
+<div class="modal fade" id="tdEdit" tabindex="-1" aria-labelledby="tdEditTitle"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" id="tdEditForm">
+  <div class="modal-header"><h5 class="modal-title" id="tdEditTitle">Router</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body"><div class="row g-2">
+    <div class="col-12"><label class="form-label small fw-bold" for="teName">Name</label><input class="form-control" id="teName" name="name" maxlength="120" placeholder="e.g. Garage Archer C6"></div>
+    <div class="col-6"><label class="form-label small fw-bold" for="teBrand">Maker</label><select class="form-select" id="teBrand" name="brand"></select></div>
+    <div class="col-6"><label class="form-label small fw-bold" for="teModel">Model</label><input class="form-control" id="teModel" name="model" maxlength="80" placeholder="e.g. TL-WR840N"></div>
+    <div class="col-6"><label class="form-label small fw-bold" for="teRole">Type</label><select class="form-select" id="teRole" name="role"></select></div>
+    <div class="col-6"><label class="form-label small fw-bold" for="teIp">IP address</label><input class="form-control" id="teIp" name="ip" maxlength="64"></div>
+    <div class="col-12"><label class="form-label small fw-bold" for="teMode">How customers use it</label><select class="form-select" id="teMode" name="mode"></select></div>
+    <fieldset class="col-12 mt-2"><legend class="form-label small fw-bold mb-1">Connected to</legend>
+      <div class="d-flex gap-3 mb-2"><label class="small"><input type="radio" name="linkto" value="port" checked> A MikroTik port</label><label class="small"><input type="radio" name="linkto" value="parent"> Another router</label></div>
+      <div class="row g-2" data-link="port"><div class="col-7"><select class="form-select" id="teRouter" name="router_id" aria-label="MikroTik"></select></div><div class="col-5"><select class="form-select" id="tePort" name="port" aria-label="Port"></select></div>
+        <small class="text-secondary">“Found automatically” follows the port TapTap sees it on.</small></div>
+      <div data-link="parent" hidden><select class="form-select" id="teParent" name="parent_id" aria-label="Router it is connected to"></select></div></fieldset>
+    <div class="col-12"><label class="form-label small fw-bold" for="teNotes">Notes</label><input class="form-control" id="teNotes" name="notes" maxlength="255" placeholder="e.g. Behind the counter, admin password with Musa"></div>
+  </div><div class="alert alert-danger small py-2 mt-3 mb-0" id="teErr" hidden></div></div>
+  <div class="modal-footer"><button type="button" class="btn btn-outline-danger me-auto" id="teRemove">Remove from list</button><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save</button></div>
+</form></div></div>
+{{ detail|json_script:"topology-detail" }}
 {% endblock %}
 {% block scripts %}
 <script src="{% static 'js/netviz-lb.js' %}?v=5"></script>
-<script src="{% static 'js/netviz-topology.js' %}?v=5"></script>
+<script src="{% static 'js/netviz-topology.js' %}?v=6"></script>
+<script src="{% static 'js/topology-detail.js' %}?v=1"></script>
 <script src="{% static 'js/port-inspector.js' %}?v=3" data-port-url="{% url 'router_port' 0 %}" data-control-url="{% url 'router_control' 0 %}" data-action-url="{% url 'port_action' 0 %}" data-reboot-url="{% url 'router_reboot' 0 %}" data-backups-url="{% url 'router_backups' 0 %}"></script>
 <script>
 document.getElementById('discoverAll')?.addEventListener('click',()=>{const m=window.taptapNetMap;if(m)m.discover(m.cfg.routers.map(r=>r.id));});

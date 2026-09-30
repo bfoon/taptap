@@ -4,7 +4,7 @@ The graph is database-only (no RouterOS calls) so the topology page opens
 instantly anywhere TapTap is hosted; live discovery refreshes the tables in
 short per-router requests and the browser re-reads this graph.
 
-Node types: internet, isp, wan, router, switch, wifi, network, clients
+Node types: internet, isp, wan, router, siterouter (TP-Link & co, core/site_routers.py), switch, wifi, network, clients
 Edge kinds: internet, wan, uplink, peer, lan, wireless, clients
 """
 from collections import defaultdict
@@ -167,6 +167,49 @@ def build_graph(business, include_clients=True, client_sample=40):
             else:
                 add_edge('internet', wid, 'internet', r.id, iface, '', online, 'up')
 
+    # -------- routers TapTap does not manage (TP-Link…), below the MikroTik port they hang from --------
+    from .site_routers import collect, on_map, physical_port
+    site = on_map(collect(business)) if routers else []
+    site_by_key = {e['key']: e for e in site}
+    site_macs = {e['mac'] for e in site if e['mac']}
+    port_feed = {}          # (router id, port) -> node that customers on that port hang from
+    roots = defaultdict(list)
+    for e in site:
+        nid = f'site:{e["key"]}'
+        nodes[nid] = {
+            'id': nid, 'type': 'siterouter', 'label': e['name'],
+            'sub': ' · '.join(x for x in (e['brand'] or '', e['ip']) if x) or e['mac'] or 'Not seen yet',
+            'brand': e['brand'], 'model': e['model'], 'mac': e['mac'], 'ip': e['ip'], 'port': e['port'],
+            'router_id': e['router_id'], 'status': 'online' if e['online'] else 'offline', 'suggested': e['status'] != 'confirmed',
+            'confidence': e['confidence'], 'mode': e['mode'] or e['mode_guess'], 'role': e['role'], 'clients': e['clients'],
+            'reasons': e['reasons'], 'key': e['key'], 'last_seen': e['last_seen'],
+        }
+        if e['parent_key'] in site_by_key:
+            continue
+        if e['router_id'] and f'router:{e["router_id"]}' in nodes:
+            roots[(e['router_id'], e['port'])].append(e)
+    for (router_id, port), group in roots.items():
+        rid = f'router:{router_id}'
+        kind = 'wireless' if _is_wifi_iface(port) else 'lan'
+        feed = rid
+        if len(group) > 1 and port:
+            # Several routers on one port and the order is unknown: they share a cable / switch.
+            feed = f'shared:{router_id}:{port}'
+            nodes[feed] = {'id': feed, 'type': 'switch', 'label': 'Switch / shared cable', 'sub': f'on {port}',
+                           'router_id': router_id, 'port': port, 'status': 'online', 'shared': True}
+            add_edge(rid, feed, kind, router_id, port, port, True)
+        for e in group:
+            add_edge(feed, f'site:{e["key"]}', kind, router_id, port, port if feed == rid else '', e['online'])
+        if port:
+            port_feed[(router_id, port)] = feed if len(group) > 1 else f'site:{group[0]["key"]}'
+    for e in site:
+        parent = site_by_key.get(e['parent_key'])
+        if parent:
+            root = parent
+            while root['parent_key'] in site_by_key and root['parent_key'] != e['key']:
+                root = site_by_key[root['parent_key']]
+            add_edge(f'site:{parent["key"]}', f'site:{e["key"]}', 'lan', root['router_id'], root['port'], '', e['online'])
+
     # -------- client clusters --------
     if include_clients:
         neighbor_macs = {n.get('mac', '').upper() for n in nodes.values() if n.get('mac')}
@@ -181,16 +224,17 @@ def build_graph(business, include_clients=True, client_sample=40):
             groups = defaultdict(list)
             for d in r.devices.filter(is_online=True).order_by('interface_name', 'hostname'):
                 mac = _mac(d.mac_address)
-                if mac and (mac in neighbor_macs or mac in router_macs):
+                if mac and (mac in neighbor_macs or mac in router_macs or mac in site_macs):
                     continue
-                if d.interface_name in m['wan_ifaces']:
+                port = physical_port(d)
+                if d.interface_name in m['wan_ifaces'] or port in m['wan_ifaces']:
                     continue  # upstream ISP equipment, not customers
-                groups[d.interface_name or '?'].append(d)
+                groups[port or '?'].append(d)
             for port, devs in groups.items():
                 cid = f'clients:{r.id}:{port}'
                 wifi = sum(1 for d in devs if d.connection_type == 'wifi' or _is_wifi_iface(d.interface_name))
                 hotspot = sum(1 for d in devs if 'hotspot-active' in (d.sources or ''))
-                parent = port_neighbor.get(port, rid)
+                parent = port_feed.get((r.id, port)) or port_neighbor.get(port, rid)
                 nodes[cid] = {
                     'id': cid, 'type': 'clients', 'label': f'{len(devs)} device{"s" if len(devs) != 1 else ""}',
                     'sub': f'on {port}' if port != '?' else 'port unknown', 'router_id': r.id, 'port': port,
@@ -212,6 +256,7 @@ def build_graph(business, include_clients=True, client_sample=40):
         'network_devices': sum(1 for n in nodes.values() if n['type'] in {'switch', 'wifi', 'network', 'router', 'isp'} and n['id'].startswith('nb:')),
         'clients': sum(n.get('count', 0) for n in nodes.values() if n['type'] == 'clients'),
         'wan_links': sum(1 for n in nodes.values() if n['type'] == 'wan'),
+        'site_routers': sum(1 for n in nodes.values() if n['type'] == 'siterouter'),
         'wan_down': sum(1 for n in nodes.values() if n['type'] == 'wan' and n['status'] == 'offline'),
     }
     return {
