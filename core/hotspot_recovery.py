@@ -15,12 +15,12 @@ There are two edge cases that need explicit cleanup:
 
 2. Removing only ``/ip hotspot active`` does NOT remove the remembered HotSpot
    cookie/MAC-cookie. Some phones then reconnect with that stale remembered login.
-   After a voucher expires, is disabled, is manually disconnected, or its devices
-   are reset, that can prevent the captive portal from opening cleanly for the next
-   voucher.
+   After a voucher expires, is disabled, or its devices are reset, that can
+   prevent the captive portal from opening cleanly for the next voucher. An ordinary
+   disconnect of a VALID voucher instead keeps the cookie to allow seamless return.
 
 This module fixes both without changing the normal sticky experience for a valid
-voucher. Cookies are removed only on an explicit disconnect/disable/expiry/reset.
+voucher. Cookies are removed for disable/expiry/reset, not ordinary checkout of valid vouchers.
 
 No database migration is required.
 """
@@ -55,15 +55,13 @@ def _link_command_body(original):
         kind = cmd.kind
 
         if kind == 'disconnect':
-            # A deliberate checkout must forget both the live session and the
-            # remembered login. Otherwise MAC-cookie can immediately put the
-            # same stale voucher back on the phone and hide the portal.
+            # Ordinary checkout of a valid voucher is NOT a logout from sticky
+            # authorization. Retain MAC-cookie so this phone can rejoin without
+            # typing its still-valid voucher. Expiry/disable is handled by the
+            # separate hotspot_user_set disabled command below.
             from .agent import rs
             user = rs(p['user'])
-            return (
-                f':do {{ /ip hotspot active remove [find user={user}] }} on-error={{}}; '
-                f':do {{ /ip hotspot cookie remove [find user={user}] }} on-error={{}}'
-            )
+            return f':do {{ /ip hotspot active remove [find user={user}] }} on-error={{}}'
 
         if kind == 'hotspot_user_set' and p.get('disabled'):
             # Disable/expiry is terminal for the current login. Clear remembered
@@ -92,61 +90,70 @@ def _link_command_body(original):
     return wrapped
 
 
+def _forget_cookies(service, username='', mac=''):
+    try:
+        cookies = service.resource('/ip/hotspot/cookie')
+        rows = cookies.get(user=username) if username else cookies.get(mac_address=mac)
+        for row in rows:
+            if row.get('id'):
+                cookies.remove(id=row['id'])
+    except Exception:
+        logger.debug('Could not remove HotSpot cookies', exc_info=True)
+
+
+def _is_valid(service, username):
+    """Keep cookies on an ordinary checkout only for still-valid vouchers."""
+    try:
+        from .models import Voucher
+        from .voucher_history import time_is_up
+        voucher = Voucher.objects.filter(router=service.router, code__iexact=username).first()
+        return bool(voucher and voucher.status == 'active' and not voucher.frozen_at and not time_is_up(voucher))
+    except Exception:
+        logger.exception('Unable to determine voucher validity during checkout')
+        return False
+
+
 def _reset_active_by_name(original):
-    """Direct API/Tunnel: disconnect a username and forget its HotSpot cookies."""
+    """Direct API/Tunnel: session reset retains cookies only for valid vouchers.
+
+    Expiry and disable explicitly forget cookies; an ordinary session reset should
+    not force the same valid phone to re-enter a voucher.
+    """
     @wraps(original)
     def wrapped(self, code):
-        # Run the repository's current active-session cleanup first.
+        valid = _is_valid(self, code)
         result = original(self, code)
-        try:
-            cookies = self.resource('/ip/hotspot/cookie')
-            for row in cookies.get(user=code):
-                try:
-                    cookies.remove(id=row['id'])
-                except Exception:
-                    logger.debug('Could not remove HotSpot cookie %s for %s', row.get('id'), code, exc_info=True)
-        except Exception:
-            # Older/unusual RouterOS builds should never break a disconnect just
-            # because the cookie table is unavailable.
-            logger.debug('Could not clear HotSpot cookies for %s', code, exc_info=True)
+        if not valid:
+            _forget_cookies(self, username=code)
+        return result
+    return wrapped
+
+
+def _disable_voucher(original):
+    @wraps(original)
+    def wrapped(self, code):
+        result = original(self, code)
+        _forget_cookies(self, username=code)
         return result
     return wrapped
 
 
 def _disconnect_by_id(original):
-    """Direct API/Tunnel manual checkout: clear the matching remembered login too."""
+    """An intentional checkout retains valid MAC-cookie for sticky reconnection."""
     @wraps(original)
     def wrapped(self, item_id):
-        user = ''
-        mac = ''
+        username, mac = '', ''
         try:
-            active = self.resource('/ip/hotspot/active')
-            rows = active.get(id=item_id)
-            if rows:
-                user = str(rows[0].get('user', '') or '')
-                mac = str(rows[0].get('mac-address', rows[0].get('mac_address', '')) or '').upper()
+            row = self.resource('/ip/hotspot/active').get(id=item_id)
+            if row:
+                username = str(row[0].get('user') or '')
+                mac = str(row[0].get('mac-address') or '')
         except Exception:
-            rows = []
-
+            logger.debug('Could not inspect session before checkout', exc_info=True)
+        valid = _is_valid(self, username) if username else False
         result = original(self, item_id)
-
-        # Remove the remembered login for this exact session. Prefer username;
-        # if it is unavailable fall back to MAC address.
-        try:
-            cookies = self.resource('/ip/hotspot/cookie')
-            if user:
-                remembered = cookies.get(user=user)
-            elif mac:
-                remembered = cookies.get(mac_address=mac)
-            else:
-                remembered = []
-            for row in remembered:
-                try:
-                    cookies.remove(id=row['id'])
-                except Exception:
-                    logger.debug('Could not remove checkout cookie', exc_info=True)
-        except Exception:
-            logger.debug('Could not clear checkout HotSpot cookie', exc_info=True)
+        if not valid and (username or mac):
+            _forget_cookies(self, username=username, mac=mac)
         return result
     return wrapped
 
@@ -179,5 +186,10 @@ def install():
         fn = _disconnect_by_id(MikroTikService.disconnect)
         fn._taptap_hotspot_recovery = True
         MikroTikService.disconnect = fn
+
+    if not getattr(MikroTikService.disable_voucher, '_taptap_hotspot_recovery', False):
+        fn = _disable_voucher(MikroTikService.disable_voucher)
+        fn._taptap_hotspot_recovery = True
+        MikroTikService.disable_voucher = fn
 
     _INSTALLED = True

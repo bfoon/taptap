@@ -28,3 +28,7 @@ class CoreConfig(AppConfig):
         #   login page instead of a stale automatic-login state.
         from .hotspot_recovery import install as install_hotspot_recovery
         install_hotspot_recovery()
+
+        # Allow a recognized phone to move its binding when iOS rotates its MAC.
+        from .mac_roaming import install as install_mac_roaming
+        install_mac_roaming()
