@@ -4,7 +4,7 @@
 {% block heading %}Edit Member{% endblock %}
 {% block content %}
 <div class="d-flex gap-2 mb-3 flex-wrap">
-  <a class="btn btn-outline-secondary" href="{% url 'catalog_manage' %}"><i class="bi bi-arrow-left"></i> Members &amp; Plans</a>
+  <a class="btn btn-outline-secondary" href="{% url 'catalog_manage' %}"><i class="bi bi-arrow-left"></i> Back to Account Management</a>
   <a class="btn btn-outline-secondary" href="{% url 'voucher_detail' v.pk %}">Member activity &amp; history</a>
 </div>
 <div class="alert alert-info"><b>{{ v.code }}</b> · {{ v.plan_name }} · {{ v.router.name|default:'No router assigned' }}. Existing payments and usage history are kept intact.</div>

@@ -3,7 +3,7 @@
 {% block title %}Edit {{ p.name }} — TapTap{% endblock %}
 {% block heading %}Edit Plan{% endblock %}
 {% block content %}
-<div class="d-flex gap-2 mb-3 flex-wrap"><a class="btn btn-outline-secondary" href="{% url 'catalog_manage' %}"><i class="bi bi-arrow-left"></i> Members &amp; Plans</a><a class="btn btn-outline-secondary" href="{% url 'plan_detail' p.pk %}">Plan history</a></div>
+<div class="d-flex gap-2 mb-3 flex-wrap"><a class="btn btn-outline-secondary" href="{% url 'catalog_manage' %}"><i class="bi bi-arrow-left"></i> Back to Account Management</a><a class="btn btn-outline-secondary" href="{% url 'plan_detail' p.pk %}">Plan history</a></div>
 {% if p.source == 'mikrotik' %}<div class="alert alert-warning"><b>MikroTik-imported plan.</b> The router remains the source for profile name, duration, device sharing and speed. Router sync can restore those fields. Price entered in TapTap remains manual.</div>{% endif %}
 <div class="row g-3"><div class="col-xl-8"><div class="panel">
   <h3 class="h5 fw-bold mb-3">{{ p.name }}</h3>

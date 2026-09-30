@@ -4,18 +4,17 @@ from django.apps import AppConfig
 class CoreConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "core"
-    # TapTap Tunnel is wired in explicitly (mikrotik.connect, agent.enrollment_script,
-    # live.watch_business, linkops.uses_link); no runtime monkey-patching is needed
-    # except the customer voucher-state guard and support-access authorization guard.
+    # Keep voucher expiry protection and owner-authorized support access.
 
     def ready(self):
         from . import team  # noqa: F401  (registers the sign-in counter)
 
-        # Customer-facing expired-voucher protection.
         from .expired_portal import install as install_expired_portal
         install_expired_portal()
 
-        # Platform support may only "view as owner" after the actual business
-        # owner explicitly approves a time-limited support-access request.
         from .support_access import install as install_support_access
         install_support_access()
+
+        # Base-menu integration without replacing your customized base.html.
+        from .account_navigation import install as install_account_navigation
+        install_account_navigation()
