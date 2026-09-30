@@ -130,7 +130,7 @@ def price_from_text(text, currency='D'):
 
 
 def profile_price(row, currency='D'):
-    """(price, validity_hours, source) for a RouterOS HotSpot user profile."""
+    """(price, validity_minutes, source) for a RouterOS HotSpot user profile (validity from the Mikhmon script)."""
     price, validity = parse_mikhmon(row.get('on-login', row.get('on_login', '')))
     if price:
         return price, validity, 'Mikhmon on-login script'

@@ -6,11 +6,13 @@ from . import views_ads, views_ports, views_live, views_traffic, views_missing, 
 from . import views_team as vteam, views_platform as vp, views_detail as vdetail, views_bin as vbin, views_freeze as vfz
 from . import views_fup as vfup
 from . import views_bonanza as vbz
+from . import views_profiles as vprof
 from . import views_chat as vchat
 from . import views_members as vmem
 from . import views_topology as vtopo
 
 urlpatterns = [
+    path('routers/profiles/',vprof.router_profiles,name='router_profiles'), path('routers/<int:pk>/profiles/import/',vprof.router_profile_import,name='router_profile_import'),
     path('chat/',vchat.chat_page,name='chat_page'), path('chat/state/',vchat.chat_state,name='chat_state'),
     path('chat/t/<int:pk>/',vchat.chat_history,name='chat_history'), path('chat/send/',vchat.chat_send,name='chat_send'),
     path('chat/read/',vchat.chat_read,name='chat_read'), path('chat/direct/',vchat.chat_direct,name='chat_direct'),

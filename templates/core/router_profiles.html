@@ -1,0 +1,56 @@
+{% extends 'core/base.html' %}{% load taptap_extras %}
+{% block title %}Hotspot profiles — TapTap{% endblock %}{% block heading %}Hotspot Profiles{% endblock %}
+{% block extra_head %}<style>
+.pf-table td,.pf-table th{white-space:nowrap;vertical-align:middle}.pf-name{font-weight:800}
+.pf-tag{font-size:.66rem;font-weight:800;border-radius:999px;padding:.12rem .5rem;margin-left:.3rem}
+.pf-tt{background:#e8f0ff;color:#1554b8}.pf-def{background:#eef1f5;color:#56687a}.pf-mk{background:#fff4dc;color:#8a5a00}
+.pf-yes{color:#138453;font-weight:700}.pf-no{color:#8a9aab}.pf-sub{display:block;font-size:.72rem;color:var(--muted,#6c7c90);white-space:normal;max-width:260px}
+</style>{% endblock %}
+{% block content %}{% with c=current_business.currency %}
+<div class="page-actions">
+  <div><h2 class="section-title">Hotspot user profiles on your MikroTiks</h2>
+    <p>A profile is the router's side of a plan: devices, speed, session length, idle and keep-alive timers. TapTap reads them on every sync.</p></div>
+  <form class="d-flex gap-2 flex-wrap" method="get">
+    <select class="form-select form-select-sm" name="router" onchange="this.form.submit()" aria-label="Router"><option value="">All routers</option>{% for r in routers %}<option value="{{ r.id }}" {% if router and router.id == r.id %}selected{% endif %}>{{ r.name }}</option>{% endfor %}</select>
+    <input class="form-control form-control-sm" name="q" value="{{ q }}" placeholder="Search profile, plan or speed" aria-label="Search">
+    <button class="btn btn-sm btn-outline-secondary">Search</button>
+  </form>
+</div>
+
+{% if missing %}<div class="alert alert-info small"><i class="bi bi-info-circle"></i> <b>{{ missing|length }} TapTap plan{{ missing|length|pluralize }} not on {% if router %}{{ router.name }}{% else %}these routers{% endif %} yet:</b>
+  {% for p in missing|slice:":8" %}<a href="{% url 'plan_detail' p.id %}">{{ p.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% if missing|length > 8 %}…{% endif %}.
+  TapTap creates the profile on a router with the first voucher it sends there.</div>{% endif %}
+
+{% for g in groups %}
+<section class="panel mb-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+    <div><h3 class="h6 fw-bold m-0"><i class="bi bi-router"></i> {{ g.router.name }} <span class="text-secondary fw-normal">· {{ g.profiles|length }} profile{{ g.profiles|length|pluralize }}{% if g.linked %} · {{ g.linked }} linked to plans{% endif %}</span></h3>
+      <small class="text-secondary">{% if g.captured_at %}Read {{ g.captured_at|timesince }} ago{% if g.source == 'snapshot' %} (from the last configuration snapshot){% endif %}{% else %}Not read yet — refresh this router.{% endif %}</small></div>
+    {% if can_sync %}<form method="post" action="{% url 'router_sync' g.router.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button class="btn btn-sm btn-outline-primary"><i class="bi bi-arrow-repeat"></i> Refresh from router</button></form>{% endif %}
+  </div>
+  {% if g.profiles %}
+  <div class="table-responsive"><table class="table table-sm pf-table">
+    <thead><tr><th>Profile</th><th>TapTap plan</th><th>Devices</th><th>Speed (up/down)</th><th>Session</th><th>Idle · keep-alive</th><th>MAC cookie</th><th>Price (router)</th><th>Users</th></tr></thead>
+    <tbody>{% for p in g.profiles %}
+      <tr><td><span class="pf-name">{{ p.name }}</span>{% if p.taptap %}<span class="pf-tag pf-tt" title="Made by TapTap">TapTap</span>{% elif p.default %}<span class="pf-tag pf-def">router default</span>{% else %}<span class="pf-tag pf-mk" title="Made on the router (WinBox, Mikhmon…)">router</span>{% endif %}
+          {% if p.comment %}<span class="pf-sub">{{ p.comment|truncatechars:70 }}</span>{% endif %}{% if p.pool %}<span class="pf-sub">Pool: {{ p.pool }}</span>{% endif %}</td>
+        <td>{% if p.plan %}<a href="{% url 'plan_detail' p.plan.id %}">{{ p.plan.name }}</a><span class="pf-sub">{{ p.plan.price|money:c }} · {{ p.plan.duration_text }}</span>
+          {% elif p.default %}<span class="pf-no">—</span>
+          {% elif can_manage %}<form method="post" action="{% url 'router_profile_import' g.router.id %}">{% csrf_token %}<input type="hidden" name="name" value="{{ p.name }}"><input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <button class="btn btn-sm btn-outline-success" title="Create a TapTap plan from this profile"><i class="bi bi-plus-lg"></i> Make a plan</button></form>
+          {% else %}<span class="pf-no">Not a plan</span>{% endif %}</td>
+        <td>{{ p.shared }}</td>
+        <td>{{ p.rate|default:"No limit" }}</td>
+        <td>{{ p.session_text }}{% if p.validity and p.validity != p.session_text %}<span class="pf-sub">Mikhmon validity {{ p.validity }}</span>{% endif %}</td>
+        <td>{{ p.idle }} · {{ p.keepalive }}</td>
+        <td>{% if p.mac_cookie %}<span class="pf-yes">On</span> <small class="text-secondary">{{ p.mac_cookie_timeout }}</small>{% else %}<span class="pf-no">Off</span>{% endif %}</td>
+        <td>{% if p.price %}{{ c }}{{ p.price|floatformat:"-2" }}<span class="pf-sub">from {{ p.price_from }}</span>{% else %}<span class="pf-no">—</span>{% endif %}{% if p.on_login %}<span class="pf-sub" title="The profile runs a script when a user logs in">on-login script</span>{% endif %}</td>
+        <td>{{ p.users }}</td></tr>
+    {% endfor %}</tbody></table></div>
+  {% else %}<p class="text-secondary small mb-0">{% if q %}No profile matches “{{ q }}”.{% else %}No profiles read from this router yet.{% endif %}</p>{% endif %}
+</section>
+{% empty %}<div class="panel text-secondary">Add a router first — its profiles appear here after the first sync.</div>
+{% endfor %}
+<p class="small text-secondary">Prices come from Mikhmon on-login scripts or comments such as <code>price: 10</code>. A price you type on the Plans page always wins. <a href="{% url 'plans' %}">Open Plans</a>.</p>
+{% endwith %}{% endblock %}

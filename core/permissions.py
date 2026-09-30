@@ -87,6 +87,7 @@ URL_PERMS = {
     'fup_new': 'network.manage', 'fup_edit': 'network.manage', 'fup_action': 'network.manage',
     'fup_lift': ('vouchers.support', 'network.manage'), 'fup_slowed': ('vouchers.support', 'network.manage'),
     'plans': 'plans.manage', 'plan_update': 'plans.manage', 'plan_delete': 'plans.manage',
+    'router_profiles': ('plans.manage', 'network.manage'), 'router_profile_import': 'plans.manage',
     'reports': 'reports.view', 'reports_data': 'reports.view', 'reports_export': 'reports.view',
     'finance': ('finance.view', 'finance.agents'), 'finance_export': ('finance.view', 'finance.agents'),
     'agent_detail': ('agents.view', 'finance.view'), 'agent_statement': ('agents.view', 'finance.view', 'finance.agents'),

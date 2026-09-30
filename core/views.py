@@ -459,6 +459,8 @@ def router_sync(request,pk):
             messages.info(request,f'{r.name} already has a synchronization job in progress ({job.progress}%).')
     except Exception as e:
         messages.error(request,f'Could not queue {r.name} synchronization: {e}')
+    nxt=request.POST.get('next','')
+    if nxt.startswith('/') and not nxt.startswith('//'): return redirect(nxt)   # e.g. back to the Hotspot profiles page
     return redirect('routers')
 
 
