@@ -144,6 +144,8 @@ class SiteRouterTests(TestCase):
     def test_page_has_map_and_detail(self):
         r = self.client.get(reverse('topology'), **HTML)
         self.assertContains(r, 'id="tabDetail"'); self.assertContains(r, 'topology-detail')
+        self.assertContains(r, 'id="tdBig"')        # Open big (full screen) with zoom controls
+        self.assertContains(r, 'data-zoom="fit"')
 
     def test_actions(self):
         tp = self.dev(mac(TPLINK, 60), host='TL-WR840N', ip='192.168.0.1')

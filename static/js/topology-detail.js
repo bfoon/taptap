@@ -45,7 +45,7 @@
   function updateCount() { const n = entries().filter(confirmedOrLikely).length; const c = $('#tdCount'); if (c) c.textContent = n; }
 
   // ------------------------------------------------------------------ designed diagram (tidy tree)
-  const SIZE = { internet: [150, 52], mt: [236, 78], port: [96, 30], shared: [168, 44], site: [214, 74], clients: [136, 34], group: [170, 40] };
+  const SIZE = { internet: [150, 52], mt: [236, 78], port: [96, 30], shared: [196, 44], site: [214, 74], clients: [136, 34], group: [170, 40] };
   const GAP = 20, ROW = 118;
 
   function buildTree() {
@@ -109,6 +109,122 @@
   }
 
   let links = [];
+
+  // ------------------------------------------------------------------ view: fit, zoom, drag, Open big
+  const V = { k: 1, x: 0, y: 0, moved: false };
+  let D = null;
+  const panel = $('#tdPanel'), box0 = $('#tdDiagram'), bigBtn = $('#tdBig');
+  const isBig = () => panel.classList.contains('td-big');
+  function fitK() {
+    const bw = box0.clientWidth - 24, bh = box0.clientHeight - 24;
+    if (isBig()) return Math.max(0.2, Math.min(2, bw / D.W, bh / D.H));   // big: the whole network on screen
+    return Math.max(0.55, Math.min(1, bw / D.W));                           // in the page: fit the width
+  }
+  function sizeBox() {
+    if (!D) return;
+    if (isBig()) { box0.style.height = ''; return; }
+    box0.style.height = Math.round(Math.min(Math.max(260, D.H * fitK() + 24), window.innerHeight * 0.8)) + 'px';
+  }
+  function apply(glide) {
+    if (!D) return;
+    D.stage.classList.toggle('glide', !!glide);
+    D.stage.style.transform = `translate(${V.x}px,${V.y}px) scale(${V.k})`;
+    $('#tdPct').textContent = Math.round(V.k * 100) + '%';
+    if (glide) setTimeout(() => D && D.stage.classList.remove('glide'), 260);
+  }
+  function fit(glide, whole) {
+    if (!D) return;
+    let k = fitK();
+    // A wide network on a phone: open at a readable size and drag around (the Fit button still shows it all).
+    if (isBig() && !whole && k < 0.45) {
+      k = Math.min(0.7, (box0.clientHeight - 24) / D.H);
+      V.k = k; V.x = 12; V.y = Math.max(12, (box0.clientHeight - D.H * k) / 2); V.moved = false; apply(glide); return;
+    }
+    V.k = k; V.x = Math.max(12, (box0.clientWidth - D.W * k) / 2); V.y = Math.max(12, (box0.clientHeight - D.H * k) / 2); V.moved = false;
+    if (!isBig() && D.W * k > box0.clientWidth - 24) V.x = 12;               // too wide even at 55 %: start left, drag to see more
+    apply(glide);
+  }
+  function zoomAt(f, cx, cy, glide) {
+    if (!D) return;
+    cx = cx == null ? box0.clientWidth / 2 : cx; cy = cy == null ? box0.clientHeight / 2 : cy;
+    const k = Math.max(0.2, Math.min(3, V.k * f)), r = k / V.k;
+    V.x = cx - (cx - V.x) * r; V.y = cy - (cy - V.y) * r; V.k = k; V.moved = true; apply(glide);
+  }
+  function oneToOne() { if (!D) return; const k = 1 / V.k; zoomAt(k, null, null, true); }
+  document.querySelectorAll('[data-zoom]').forEach(b => b.addEventListener('click', () => {
+    const z = b.dataset.zoom;
+    if (z === 'in') zoomAt(1.25, null, null, true); else if (z === 'out') zoomAt(0.8, null, null, true);
+    else if (z === 'one') oneToOne(); else fit(true, true);
+  }));
+
+  // drag to move (a click on a router still opens it), two fingers to pinch, wheel to zoom when big
+  const pts = new Map(); let drag = null, pinch = null, dragged = false;
+  box0.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 1) { drag = { x: e.clientX, y: e.clientY, vx: V.x, vy: V.y, on: false }; dragged = false; }
+    else if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, k: V.k }; drag = null; }
+  });
+  box0.addEventListener('pointermove', e => {
+    if (!pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && pts.size === 2) {
+      const [a, b] = [...pts.values()], r = box0.getBoundingClientRect();
+      zoomAt((pinch.k * Math.hypot(a.x - b.x, a.y - b.y) / pinch.d) / V.k, (a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top); dragged = true; return;
+    }
+    if (!drag) return;
+    const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (!drag.on && Math.hypot(dx, dy) > 5) { drag.on = true; dragged = true; box0.setPointerCapture(e.pointerId); box0.classList.add('grabbing'); }
+    if (drag.on) { V.x = drag.vx + dx; V.y = drag.vy + dy; V.moved = true; apply(); }
+  });
+  const endPtr = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (!pts.size) { drag = null; box0.classList.remove('grabbing'); } };
+  box0.addEventListener('pointerup', endPtr); box0.addEventListener('pointercancel', endPtr);
+  box0.addEventListener('click', e => { if (dragged) { e.stopPropagation(); e.preventDefault(); dragged = false; } }, true);
+  box0.addEventListener('wheel', e => {
+    if (!isBig() && !e.ctrlKey && !e.metaKey) return;          // in the page, the wheel scrolls the page
+    e.preventDefault(); const r = box0.getBoundingClientRect();
+    zoomAt(e.deltaY < 0 ? 1.12 : 0.89, e.clientX - r.left, e.clientY - r.top);
+  }, { passive: false });
+  box0.addEventListener('keydown', e => {
+    const step = 60, keys = { ArrowLeft: [step, 0], ArrowRight: [-step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
+    if (e.key === '+' || e.key === '=') zoomAt(1.2, null, null, true);
+    else if (e.key === '-' || e.key === '_') zoomAt(0.83, null, null, true);
+    else if (e.key === '0') fit(true, true);
+    else if (keys[e.key]) { V.x += keys[e.key][0]; V.y += keys[e.key][1]; V.moved = true; apply(true); }
+    else return;
+    e.preventDefault();
+  });
+
+  const canFullscreen = !!(panel.requestFullscreen && document.fullscreenEnabled);
+  function setBigButton(on) {
+    bigBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    bigBtn.innerHTML = on ? '<i class="bi bi-fullscreen-exit"></i> <span>Close big view</span>' : '<i class="bi bi-arrows-fullscreen"></i> <span>Open big</span>';
+  }
+  async function openBig() {
+    panel.classList.add('td-big'); document.body.classList.add('td-noscroll'); setBigButton(true);
+    if (canFullscreen) { try { await panel.requestFullscreen({ navigationUI: 'hide' }); } catch (err) { /* the overlay still fills the window */ } }
+    requestAnimationFrame(() => { sizeBox(); fit(); box0.focus({ preventScroll: true }); });
+  }
+  function closeBig() {
+    if (!isBig()) return;
+    panel.classList.remove('td-big'); document.body.classList.remove('td-noscroll'); setBigButton(false);
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    requestAnimationFrame(() => { sizeBox(); fit(); bigBtn.focus({ preventScroll: true }); });
+  }
+  bigBtn.addEventListener('click', () => (isBig() ? closeBig() : openBig()));
+  document.addEventListener('fullscreenchange', () => {
+    // The browser's own Esc leaves full screen: close the big view too, unless the edit dialog is open.
+    if (!document.fullscreenElement && isBig() && !document.querySelector('.modal.show')) closeBig();
+    else if (document.fullscreenElement === panel) requestAnimationFrame(() => fit());
+  });
+  // Capture phase: runs before Bootstrap closes the dialog, so Esc closes the dialog first, the big view next time.
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && isBig() && !document.querySelector('.modal.show')) closeBig();
+  }, true);
+  // In big view the dialog and messages must live inside the full-screen panel to be seen.
+  const modalHome = document.getElementById('tdEdit').parentNode;
+  document.getElementById('tdEdit').addEventListener('hidden.bs.modal', ev => { if (ev.target.parentNode !== modalHome) modalHome.appendChild(ev.target); });
+
   function drawDiagram() {
     const box = $('#tdDiagram'); if (!box || $('#paneDetail').hidden) return;
     const root = buildTree(); measure(root);
@@ -118,11 +234,12 @@
     const stage = document.createElement('div'); stage.className = 'td-stage'; stage.style.width = W + 'px'; stage.style.height = (depthMax + 30) + 'px';
     const svg = document.createElementNS(svgNS, 'svg'); svg.setAttribute('width', W); svg.setAttribute('height', depthMax + 30); svg.setAttribute('aria-hidden', 'true');
     stage.appendChild(svg);
-    const H = depthMax + 30, k = Math.max(0.55, Math.min(1, (box.clientWidth - 8) / W));
-    const sizer = document.createElement('div'); sizer.className = 'td-sizer'; sizer.style.width = (W * k) + 'px'; sizer.style.height = (H * k) + 'px';
-    stage.style.transform = `scale(${k})`; sizer.appendChild(stage); box.appendChild(sizer);
+    box.appendChild(stage);
+    D = { W, H: depthMax + 30, stage };
+    sizeBox();
+    if (V.moved) apply(); else fit();
     links = [];
-    const off = 20;
+    const off = 0;
     all.forEach(n => {
       const d = document.createElement(n.type === 'site' ? 'button' : 'div');
       d.className = `td-n td-${n.type}` + (n.e && n.e.status !== 'confirmed' ? ' sug' : '') + ((n.e && !n.e.online) || (n.r && !n.r.online) ? ' off' : '');
@@ -250,7 +367,7 @@
   }
   function toast(msg, bad) {
     const t = document.createElement('div'); t.className = 'td-toast' + (bad ? ' bad' : ''); t.setAttribute('role', 'status'); t.textContent = msg;
-    document.body.appendChild(t); setTimeout(() => t.remove(), 3200);
+    (isBig() ? panel : document.body).appendChild(t); setTimeout(() => t.remove(), 3200);
   }
   $('#tdList').addEventListener('click', async e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -278,6 +395,7 @@
   }
   function openEdit(key) {
     const e = byKey(key); if (!e) return; editing = e;
+    if (isBig() && modalEl.parentNode !== panel) panel.appendChild(modalEl);
     $('#tdEditTitle').textContent = e.status === 'confirmed' ? `Edit ${e.name}` : `Confirm ${e.name}`;
     $('#teName').value = e.name; $('#teModel').value = e.model || ''; $('#teIp').value = e.ip || ''; $('#teNotes').value = e.notes || '';
     const brands = P.brands.includes(e.brand) || !e.brand ? P.brands : [e.brand, ...P.brands];

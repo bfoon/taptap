@@ -66,12 +66,20 @@
       <p>Your MikroTiks, and the TP-Link and other routers plugged into them. TapTap finds them from their MAC maker, name and address, and shows the port each one hangs from. Confirm what it found, add routers by IP, and say which router feeds which.</p></div>
     <div class="td-legend" aria-label="Legend"><span><i class="lg-mt"></i> MikroTik (managed)</span><span><i class="lg-sr"></i> Other router</span><span><i class="lg-sg"></i> Found — not confirmed</span><span><i class="lg-cl"></i> Customers</span></div>
   </div>
-  <div class="panel td-diagram-panel mb-4">
+  <div class="panel td-diagram-panel mb-4" id="tdPanel" aria-label="Designed topology">
     <div class="td-diagram-bar"><b>Designed topology</b>
       <label class="td-chk"><input type="checkbox" id="tdSuggest" checked> Show routers TapTap found</label>
       <label class="td-chk"><input type="checkbox" id="tdAnim" checked> Animation</label>
-      <span class="td-live" id="tdLive" aria-live="polite"></span></div>
-    <div class="td-diagram" id="tdDiagram"></div>
+      <span class="td-live" id="tdLive" aria-live="polite"></span>
+      <div class="td-zoom" role="group" aria-label="Zoom">
+        <button type="button" class="td-zb" data-zoom="out" title="Zoom out (−)" aria-label="Zoom out"><i class="bi bi-dash-lg"></i></button>
+        <button type="button" class="td-zb td-zpct" data-zoom="fit" title="Fit to screen (0)" aria-label="Fit to screen"><span id="tdPct">100%</span></button>
+        <button type="button" class="td-zb" data-zoom="in" title="Zoom in (+)" aria-label="Zoom in"><i class="bi bi-plus-lg"></i></button>
+        <button type="button" class="td-zb" data-zoom="one" title="Actual size" aria-label="Actual size">1:1</button>
+      </div>
+      <button type="button" class="btn btn-sm btn-primary td-bigbtn" id="tdBig" aria-pressed="false"><i class="bi bi-arrows-fullscreen"></i> <span>Open big</span></button></div>
+    <div class="td-diagram" id="tdDiagram" tabindex="0" aria-label="Topology diagram. Drag to move, use plus and minus to zoom."></div>
+    <p class="td-hint">Drag to move · scroll or pinch to zoom · <kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd> fit · <kbd>Esc</kbd> closes big view</p>
   </div>
 
   <div class="row g-3">
