@@ -1,0 +1,48 @@
+{% extends 'core/base.html' %}
+{% load taptap_extras %}
+{% block title %}Edit Members and Plans — TapTap{% endblock %}
+{% block heading %}Manage Members &amp; Plans{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-4">
+  <a class="btn btn-outline-secondary" href="{% url 'members' %}"><i class="bi bi-people"></i> Members</a>
+  <a class="btn btn-outline-secondary" href="{% url 'plans' %}"><i class="bi bi-tags"></i> Plans</a>
+  <span class="ms-auto text-secondary small">Edit existing accounts without changing their sales history.</span>
+</div>
+<div class="panel mb-4">
+  <div class="panel-head"><div><h3>Find an existing member or plan</h3><p>{{ member_count }} members · {{ plan_count }} plans</p></div></div>
+  <form method="get" class="d-flex gap-2">
+    <input class="form-control" type="search" name="q" value="{{ q }}" placeholder="Search username, customer, phone or plan name">
+    <button class="btn btn-primary">Search</button>
+  </form>
+</div>
+{% if 'vouchers.create' in tt_perms or 'vouchers.support' in tt_perms %}
+<div class="panel mb-4">
+  <div class="panel-head"><div><h3>Members</h3><p>Edit customer details, router assignment, plan and device limits; change usernames and passwords safely.</p></div>
+    <a href="{% url 'members' %}" class="btn btn-sm btn-outline-primary">Create member</a></div>
+  <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Username</th><th>Customer</th><th>Plan</th><th>Router</th><th>Status</th><th></th></tr></thead><tbody>
+    {% for v in members %}<tr>
+      <td><a class="fw-bold text-decoration-none" href="{% url 'voucher_detail' v.pk %}">{{ v.code }}</a></td>
+      <td>{{ v.customer_name|default:'—' }}<small class="d-block text-secondary">{{ v.customer_phone }}</small></td>
+      <td>{{ v.plan_name }}</td><td>{{ v.router.name|default:'Not assigned' }}</td>
+      <td><span class="badge {% if v.status == 'active' %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ v.status|title }}</span></td>
+      <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="{% url 'catalog_member_edit' v.pk %}"><i class="bi bi-pencil-square"></i> Edit</a></td>
+    </tr>{% empty %}<tr><td colspan="6" class="text-secondary">No matching members.</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endif %}
+{% if 'plans.manage' in tt_perms %}
+<div class="panel mb-4">
+  <div class="panel-head"><div><h3>Plans</h3><p>Edit price, duration, devices, speed and data limits.</p></div>
+    <a href="{% url 'plans' %}" class="btn btn-sm btn-outline-primary">Create plan</a></div>
+  <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Plan</th><th>Price</th><th>Duration</th><th>Devices</th><th>Source</th><th></th></tr></thead><tbody>
+    {% for p in plans %}<tr>
+      <td><a class="fw-bold text-decoration-none" href="{% url 'plan_detail' p.pk %}">{{ p.name }}</a></td>
+      <td>{% if p.is_free %}Free{% else %}{{ p.price|money:current_business.currency }}{% endif %}</td>
+      <td>{{ p.duration_text }}</td><td>{{ p.max_devices }}</td>
+      <td>{{ p.get_source_display }}</td>
+      <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="{% url 'catalog_plan_edit' p.pk %}"><i class="bi bi-pencil-square"></i> Edit</a></td>
+    </tr>{% empty %}<tr><td colspan="6" class="text-secondary">No matching plans.</td></tr>{% endfor %}
+  </tbody></table></div>
+</div>
+{% endif %}
+{% endblock %}

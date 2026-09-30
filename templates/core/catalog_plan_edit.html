@@ -1,0 +1,25 @@
+{% extends 'core/base.html' %}
+{% load taptap_extras %}
+{% block title %}Edit {{ p.name }} — TapTap{% endblock %}
+{% block heading %}Edit Plan{% endblock %}
+{% block content %}
+<div class="d-flex gap-2 mb-3 flex-wrap"><a class="btn btn-outline-secondary" href="{% url 'catalog_manage' %}"><i class="bi bi-arrow-left"></i> Members &amp; Plans</a><a class="btn btn-outline-secondary" href="{% url 'plan_detail' p.pk %}">Plan history</a></div>
+{% if p.source == 'mikrotik' %}<div class="alert alert-warning"><b>MikroTik-imported plan.</b> The router remains the source for profile name, duration, device sharing and speed. Router sync can restore those fields. Price entered in TapTap remains manual.</div>{% endif %}
+<div class="row g-3"><div class="col-xl-8"><div class="panel">
+  <h3 class="h5 fw-bold mb-3">{{ p.name }}</h3>
+  <form method="post">{% csrf_token %}<div class="row g-3">
+    <div class="col-md-8"><label class="form-label fw-semibold">Plan name</label><input class="form-control" name="name" maxlength="80" required value="{{ p.name }}" {% if voucher_count or p.source == 'mikrotik' %}readonly{% endif %}>
+      {% if voucher_count %}<small class="text-secondary">{{ voucher_count }} existing vouchers use this name. Create another plan rather than renaming this one.</small>{% endif %}</div>
+    <div class="col-md-4"><label class="form-label fw-semibold">Price ({{ current_business.currency }})</label><input class="form-control" type="number" min="0" step="0.01" name="price" value="{{ p.price }}"></div>
+    <div class="col-md-6"><label class="form-label fw-semibold">Duration</label><div class="input-group"><input class="form-control" type="number" min="1" name="duration_value" value="{{ p.duration_value }}" id="planDuration"><select class="form-select" name="duration_unit" id="planDurationUnit"><option value="minutes" {% if p.duration_unit == 'minutes' %}selected{% endif %}>Minutes</option><option value="hours" {% if p.duration_unit == 'hours' %}selected{% endif %}>Hours</option><option value="days" {% if p.duration_unit == 'days' %}selected{% endif %}>Days</option><option value="months" {% if p.duration_unit == 'months' %}selected{% endif %}>Months (30 days)</option><option value="unlimited" {% if p.duration_unit == 'unlimited' %}selected{% endif %}>Unlimited</option></select></div></div>
+    <div class="col-md-6"><label class="form-label fw-semibold">Maximum devices</label><input class="form-control" type="number" min="1" max="50" required name="max_devices" value="{{ p.max_devices }}"></div>
+    <div class="col-md-6"><label class="form-label fw-semibold">Speed (optional)</label><input class="form-control" name="speed_limit" maxlength="50" value="{{ p.speed_limit }}" placeholder="5M/5M"></div>
+    <div class="col-md-6"><label class="form-label fw-semibold">Data limit in MB (optional)</label><input class="form-control" type="number" min="1" name="data_limit_mb" value="{{ p.data_limit_mb|default_if_none:'' }}" placeholder="Unlimited"></div>
+    <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" name="is_free" id="isFree" {% if p.is_free %}checked{% endif %}><label class="form-check-label" for="isFree">Free plan (price becomes zero)</label></div>
+      <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="active" id="isActive" {% if p.active %}checked{% endif %}><label class="form-check-label" for="isActive">Active (available for new vouchers and members)</label></div></div>
+    <div class="col-12 rounded-3 p-3 border"><div class="form-check"><input class="form-check-input" type="checkbox" name="apply_to_unused" id="applyUnused"><label class="form-check-label fw-semibold" for="applyUnused">Update {{ eligible_count }} unused AND unsold vouchers of this plan</label></div><small class="text-secondary">Updates price, duration, and device limit on unused stock, and queues it for router synchronization. Used and sold vouchers retain their original terms and sale records.</small></div>
+  </div><button class="btn btn-primary mt-3"><i class="bi bi-check-lg"></i> Save plan</button></form>
+</div></div>
+<div class="col-xl-4"><div class="panel"><h3 class="h6 fw-bold">Preserve existing sales</h3><p class="text-secondary small">Changes to a plan affect future vouchers. Previously sold or activated vouchers retain their existing duration and price. Use the checkbox to update unused stock.</p><p class="text-secondary small mb-0">After editing router-related values, synchronize the affected router. For imported MikroTik plans, update the router profile itself if you want those values to remain after sync.</p></div></div></div>
+{% endblock %}
+{% block scripts %}<script>(function(){const u=document.getElementById('planDurationUnit'),v=document.getElementById('planDuration');function sync(){v.disabled=u.value==='unlimited';v.required=u.value!=='unlimited';if(!v.disabled&&!v.value)v.value=1;}u.addEventListener('change',sync);sync();})();</script>{% endblock %}

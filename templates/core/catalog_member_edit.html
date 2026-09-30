@@ -1,0 +1,64 @@
+{% extends 'core/base.html' %}
+{% load taptap_extras %}
+{% block title %}Edit {{ v.code }} — TapTap{% endblock %}
+{% block heading %}Edit Member{% endblock %}
+{% block content %}
+<div class="d-flex gap-2 mb-3 flex-wrap">
+  <a class="btn btn-outline-secondary" href="{% url 'catalog_manage' %}"><i class="bi bi-arrow-left"></i> Members &amp; Plans</a>
+  <a class="btn btn-outline-secondary" href="{% url 'voucher_detail' v.pk %}">Member activity &amp; history</a>
+</div>
+<div class="alert alert-info"><b>{{ v.code }}</b> · {{ v.plan_name }} · {{ v.router.name|default:'No router assigned' }}. Existing payments and usage history are kept intact.</div>
+<div class="row g-3">
+  <div class="col-xl-7"><div class="panel">
+    <h3 class="h5 fw-bold mb-3">Member details</h3>
+    <form method="post">{% csrf_token %}<input type="hidden" name="action" value="save">
+      <div class="row g-3">
+        <div class="col-md-6"><label class="form-label fw-semibold">Customer name</label><input class="form-control" name="customer_name" maxlength="120" value="{{ v.customer_name }}"></div>
+        <div class="col-md-6"><label class="form-label fw-semibold">Phone</label><input class="form-control" name="customer_phone" maxlength="60" value="{{ v.customer_phone }}"></div>
+        <div class="col-md-6"><label class="form-label fw-semibold">Plan</label>
+          <select class="form-select" name="plan" {% if not fresh %}disabled{% endif %}>
+            <option value="free" {% if not current_plan %}selected{% endif %}>Free unlimited</option>
+            {% for p in plans %}<option value="{{ p.pk }}" {% if current_plan.pk == p.pk %}selected{% endif %}>{{ p.name }} — {% if p.is_free %}Free{% else %}{{ p.price|money:current_business.currency }}{% endif %}</option>{% endfor %}
+          </select>
+          {% if not fresh %}<input type="hidden" name="plan" value="{% if current_plan %}{{ current_plan.pk }}{% else %}free{% endif %}"><small class="text-secondary">Existing paid/activated plan cannot be reset. Use Renew to add time.</small>{% endif %}
+        </div>
+        <div class="col-md-6"><label class="form-label fw-semibold">Devices</label><input class="form-control" type="number" name="devices" min="1" max="20" required value="{{ v.max_devices }}"></div>
+        <div class="col-md-6"><label class="form-label fw-semibold">Individual speed (free members)</label><input class="form-control" name="rate_limit" maxlength="50" placeholder="5M/5M" value="{{ v.rate_limit }}"><small class="text-secondary">Paid plan speed is configured on its plan.</small></div>
+        <div class="col-md-6"><label class="form-label fw-semibold">Router</label>
+          <select class="form-select" name="router" {% if v.router_id %}disabled{% endif %}>
+            <option value="">No router assigned</option>
+            {% for r in routers %}<option value="{{ r.pk }}" {% if v.router_id == r.pk %}selected{% endif %}>{{ r.name }}</option>{% endfor %}
+          </select>
+          {% if v.router_id %}<input type="hidden" name="router" value="{{ v.router_id }}"><small class="text-secondary">A live account requires a controlled transfer to move routers.</small>{% endif %}
+        </div>
+        <div class="col-md-6"><label class="form-label fw-semibold">Sales agent</label><select class="form-select" name="agent" {% if v.sold_at %}disabled{% endif %}><option value="">Shop</option>{% for a in agents %}<option value="{{ a.pk }}" {% if v.agent_id == a.pk %}selected{% endif %}>{{ a.name }}</option>{% endfor %}</select>{% if v.sold_at %}<small class="text-secondary">Sales agent locked after sale.</small>{% endif %}</div>
+        <div class="col-12"><label class="form-label fw-semibold">Notes</label><textarea class="form-control" name="note" rows="2" maxlength="255">{{ v.note }}</textarea></div>
+      </div>
+      <button class="btn btn-primary mt-3"><i class="bi bi-check-lg"></i> Save member</button>
+    </form>
+  </div></div>
+  <div class="col-xl-5">
+    {% if 'vouchers.support' in tt_perms %}
+    <div class="panel mb-3">
+      <h3 class="h5 fw-bold">Change password</h3><p class="small text-secondary">TapTap queues the new password for MikroTik and signs the member out when possible.</p>
+      <form method="post">{% csrf_token %}<input type="hidden" name="action" value="change_password">
+        <label class="form-label">New password</label><input class="form-control" type="password" name="password" minlength="4" maxlength="64" autocomplete="new-password">
+        <label class="form-check mt-2"><input class="form-check-input" type="checkbox" name="same" value="1"> <span class="form-check-label">Use username as password</span></label>
+        <label class="form-label mt-2">Reason</label><input class="form-control" name="reason" maxlength="255" placeholder="Customer requested reset">
+        <button class="btn btn-outline-primary mt-3">Change password</button>
+      </form>
+    </div>
+    {% endif %}
+    {% if 'vouchers.manage' in tt_perms %}
+    <div class="panel">
+      <h3 class="h5 fw-bold">Change username</h3><p class="small text-secondary">TapTap keeps the member's sales, time and history under the same record. It queues a router rename.</p>
+      <form method="post">{% csrf_token %}<input type="hidden" name="action" value="rename">
+        <label class="form-label">New username</label><input class="form-control" name="new_username" minlength="3" maxlength="32" required value="{{ v.code }}">
+        <label class="form-label mt-2">Reason (required)</label><input class="form-control" name="reason" maxlength="255" required placeholder="Correct spelling">
+        <button class="btn btn-outline-primary mt-3">Rename member</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
