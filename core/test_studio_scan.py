@@ -119,3 +119,13 @@ class VoucherStudioLayoutTests(TestCase):
         self.assertIn("node.classList.add('is-sel')", js)
         self.assertIn("ev.pointerType === 'touch' && !h && t", js)
         self.assertIn('p.scrollTop = key === propsKey ? top : 0', js)
+
+
+class GalleryDialogTests(TestCase):
+    def test_hidden_radios_stay_inside_their_cards(self):
+        """Clicking a design in "Pick a starting design" scrolled the dialog to empty space: the hidden radios
+        were positioned against the dialog, not their card, and stretched it far below the gallery."""
+        css = (STATIC / 'studio' / 'studio.css').read_text()
+        self.assertIn('.gallery label{cursor:pointer;border:2px solid transparent;border-radius:16px;padding:.35rem;display:block;position:relative}', css)
+        self.assertIn('.gallery input{position:absolute;top:.6rem;left:.6rem;width:1px;height:1px;opacity:0;pointer-events:none}', css)
+        self.assertIn('.modal-dialog-scrollable .modal-body .gallery{max-height:none;overflow:visible}', css)

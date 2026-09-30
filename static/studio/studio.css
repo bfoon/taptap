@@ -22,8 +22,14 @@
 .new-card:hover{border-color:var(--primary);color:var(--primary);background:#f6faff}
 
 .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:.8rem;max-height:62vh;overflow:auto;padding:.2rem}
-.gallery label{cursor:pointer;border:2px solid transparent;border-radius:16px;padding:.35rem;display:block}
-.gallery label:has(input:checked){border-color:var(--primary);background:#f3f8ff}.gallery input{position:absolute;opacity:0}
+.gallery label{cursor:pointer;border:2px solid transparent;border-radius:16px;padding:.35rem;display:block;position:relative}
+.gallery label:has(input:checked){border-color:var(--primary);background:#f3f8ff}
+/* The radio is hidden inside its own card. Without position:relative on the label, the hidden radios of cards
+   further down sat outside the gallery, stretched the dialog, and a click scrolled the dialog to empty space. */
+.gallery input{position:absolute;top:.6rem;left:.6rem;width:1px;height:1px;opacity:0;pointer-events:none}
+.gallery label:has(input:focus-visible){outline:3px solid #1769e066;outline-offset:2px}
+/* In a scrolling dialog only the dialog scrolls (no second scrollbar inside it). */
+.modal-dialog-scrollable .modal-body .gallery{max-height:none;overflow:visible}
 .gallery .g-thumb{height:250px;border-radius:12px;overflow:hidden;position:relative;background:#e9eef5}
 .gallery .g-thumb iframe{position:absolute;left:50%;top:0;width:390px;height:700px;border:0;transform:translateX(-50%) scale(.36);transform-origin:50% 0;pointer-events:none}
 .gallery b{display:block;font-size:.84rem;margin:.45rem .2rem 0}.gallery small{display:block;color:var(--muted);font-size:.72rem;margin:0 .2rem}
