@@ -133,13 +133,14 @@ def vouchers(request):
     params=request.GET.copy();params.pop('page',None)
     state_tabs=[('','All',counts['all']),('unsold','In stock',counts['unsold']),('sold','Sold, not used',counts['sold']),('used','Used',counts['used']),('frozen','Frozen / warned',counts['frozen']),('disabled','Disabled / expired',counts['disabled'])]
     return render(request,'core/vouchers.html',{'page_obj':Paginator(qs,100).get_page(request.GET.get('page')),'counts':counts,'state_tabs':state_tabs,'state':state,'plan':plan,'q':q,
-        'plans':business.vouchers.values_list('plan_name',flat=True).distinct().order_by('plan_name'),'agents':business.agents.filter(active=True),'all_agents':business.agents.all(),'holder':holder,
+        'plans':business.vouchers.exclude(plan_name__startswith='*').exclude(plan_name='').values_list('plan_name',flat=True).distinct().order_by('plan_name'),
+        'agents':business.agents.filter(active=True),'all_agents':business.agents.all(),'holder':holder,
         'designs':business.voucher_designs.all(),'params':params.urlencode()})
 
 
 @login_required
 def generate_vouchers(request):
-    business=b(request); plans=business.plans.filter(active=True); routers=business.routers.all()
+    business=b(request); plans=business.plans.filter(active=True).exclude(name__startswith='*'); routers=business.routers.all()
     portal_len=portal_code_length(business)
     ctx={'plans':plans,'routers':routers,'designs':business.voucher_designs.all(),
          'agents':business.agents.filter(active=True),'owner':request.GET.get('agent',''),'methods':[m for m in PAYMENT_METHODS if m[0]!='auto'],
@@ -193,7 +194,6 @@ def generate_vouchers(request):
             design=request.POST.get('design','')
             sheet=f"/studio/vouchers/print/?batch={batch.pk}"+(f"&design={design}" if design else '')
         if request.POST.get('print_receipt'):
-            # Receipt first (auto-prints); it links on to the voucher print sheet when that was asked for too.
             from urllib.parse import quote
             from django.urls import reverse
             return redirect(reverse('batch_receipt',args=[batch.pk])+'?autoprint=1'+(f'&next={quote(sheet)}' if sheet else ''))
@@ -233,7 +233,6 @@ def enable_voucher(request,pk):
     if request.method!='POST': return redirect('voucher_detail',pk=pk)
     P=request.POST
     try:
-        # Free days / hours / minutes (any mix). "add_hours" is still accepted from older forms.
         minutes=vh.parse_added_time(P.get('add_days'),P.get('add_hrs'),P.get('add_mins'))
         ok,result=vh.enable(v,request.user,P.get('reason','').strip(),P.get('add_hours') if not minutes else None,add_minutes=minutes or None)
     except vh.VoucherActionError as e: messages.error(request,str(e)); return _voucher_back(request,v)
@@ -283,7 +282,6 @@ def voucher_detail(request,pk):
     from .voucher_freeze import MANUAL_WARNING
     from .models import SessionIncident, VoucherSale
     business=b(request)
-    # Vouchers in the bin still open here, read-only, so their history stays reachable.
     v=get_object_or_404(Voucher.all_objects.filter(business=business).select_related('router','batch','agent','deleted_by','frozen_by'),pk=pk)
     now=timezone.now();end=vh.ends_at(v);state_key,state_label=vh.display_state(v,now)
     left=(end-now) if end and end>now else None
@@ -296,7 +294,6 @@ def voucher_detail(request,pk):
         'sale':VoucherSale.objects.filter(voucher=v).select_related('agent','recorded_by').first(),
         'incidents':SessionIncident.objects.filter(voucher=v).select_related('router').order_by('-first_seen')[:20],
         'mirror':mirror,'channel':vh.channel(v.router),'max_extend':vh.MAX_EXTEND_HOURS,
-        # quick picks for the "add time" form: (label, days, hours, minutes)
         'extend_choices':[('30 min',0,0,30),('1 hour',0,1,0),('3 hours',0,3,0),('12 hours',0,12,0),('1 day',1,0,0),('3 days',3,0,0),('1 week',7,0,0),('30 days',30,0,0)],
         'old_codes':v.code_aliases.select_related('changed_by') if v.pk else [],
         'shared_case':case_for(v) if not v.deleted_at else None,
@@ -308,7 +305,7 @@ def voucher_detail(request,pk):
 @login_required
 def delete_expired(request):
     from .models import VoucherEvent
-    business=b(request);qs=business.vouchers.filter(Q(status='expired')|Q(expires_at__lt=timezone.now())).filter(frozen_at__isnull=True)   # frozen vouchers keep their time
+    business=b(request);qs=business.vouchers.filter(Q(status='expired')|Q(expires_at__lt=timezone.now())).filter(frozen_at__isnull=True)
     user=request.user if request.user.is_authenticated else None
     VoucherEvent.objects.bulk_create([VoucherEvent(business=business,voucher_id=v.pk,voucher_code=v.code,event='deleted',user=user,
         status_before=v.status,status_after='deleted',reason='Delete expired vouchers',detail={'plan':v.plan_name,'price':str(v.price)})
@@ -324,7 +321,6 @@ def batches(request):
         sold_unused=Count('vouchers',filter=Q(vouchers__sold_at__isnull=False,vouchers__used_at__isnull=True,vouchers__deleted_at__isnull=True)),
         frozen=Count('vouchers',filter=Q(vouchers__frozen_at__isnull=False,vouchers__deleted_at__isnull=True)),
         freezable=Count('vouchers',filter=Q(vouchers__frozen_at__isnull=True,vouchers__status='active',vouchers__deleted_at__isnull=True))).order_by('-created_at'))
-    # Open missing-voucher reports per batch (the template shows "N reported missing").
     open_reports={}
     for r in b(request).missing_voucher_reports.filter(batch__isnull=False).exclude(status='resolved').order_by('-reported_at'):
         open_reports.setdefault(r.batch_id,r)
@@ -367,14 +363,14 @@ def plan_update(request,pk):
     try: price=Decimal('0') if free else max(Decimal('0'),Decimal(request.POST.get('price','0').replace(',','') or '0'))
     except (InvalidOperation,ValueError): messages.error(request,'Enter a valid price.');return redirect('plans')
     plan.price=price;plan.is_free=free
-    if price!=old_price or free!=old_free: plan.price_source='manual'  # a router sync never overrides this
+    if price!=old_price or free!=old_free: plan.price_source='manual'
     unit=request.POST.get('duration_unit') or plan.duration_unit
     if unit=='unlimited' or request.POST.get('duration_value','').strip():
         from .durations import to_minutes
         try:
             plan.duration_minutes=to_minutes(request.POST.get('duration_value'),unit);plan.duration_unit=unit
         except ValueError as e: messages.error(request,str(e));return redirect('plans')
-    elif request.POST.get('duration_hours','').isdigit():  # older clients
+    elif request.POST.get('duration_hours','').isdigit():
         plan.duration_minutes=max(1,int(request.POST['duration_hours']))*60;plan.duration_unit='hours'
     if request.POST.get('max_devices','').isdigit(): plan.max_devices=max(1,int(request.POST['max_devices']))
     plan.active=request.POST.get('active')=='1'
@@ -384,7 +380,6 @@ def plan_update(request,pk):
     moved=unsold.exclude(price=price).update(price=price) if request.POST.get('apply_unsold') and (price or free) else 0
     retimed=0
     if request.POST.get('apply_duration') and plan.duration_minutes!=old_minutes:
-        # Unused vouchers take the new length; they are re-sent to the router so its limit-uptime matches.
         retimed=business.vouchers.filter(plan_name=plan.name,used_at__isnull=True,expires_at__isnull=True,frozen_at__isnull=True)\
             .update(duration_minutes=plan.duration_minutes,mikrotik_sync_status='Pending')
     msg=f'{plan.name} saved — {"free" if free else f"{business.currency}{price}"}, {plan.duration_text.lower() if plan.duration_minutes else "no time limit"}.'
@@ -400,12 +395,6 @@ def routers(request):
     business=b(request);form=RouterForm(request.POST or None)
     if request.method=='POST' and form.is_valid():
         obj=form.save(commit=False);obj.business=business;obj.save();messages.success(request,'Router added.');return redirect('routers')
-    # IMPORTANT: do not annotate all inventory relations in one SQL query.
-    # Joining hotspot users + IP bindings + neighbors + devices creates a
-    # multiplicative Cartesian result set on real routers and can make the
-    # /routers/ request run for minutes.  Use four small GROUP BY queries
-    # instead; each relation is counted independently and remains fast even
-    # when the synchronized MAC/device inventory is large.
     router_rows=list(business.routers.all().order_by('name'))
     router_ids=[router.id for router in router_rows]
 
@@ -423,10 +412,6 @@ def routers(request):
         router.online_neighbor_count=neighbor_counts.get(router.id,0)
         router.device_count=device_counts.get(router.id,0)
 
-    # Keep the router page usable even if a newly deployed background-sync
-    # migration has not yet been applied.  Also never scan the full sync-job
-    # history just to draw this page; fetch only the latest job per router and
-    # the 12 rows shown by the monitor.
     latest_jobs={}
     recent_jobs=[]
     sync_schema_ready=True
@@ -460,7 +445,7 @@ def router_sync(request,pk):
     except Exception as e:
         messages.error(request,f'Could not queue {r.name} synchronization: {e}')
     nxt=request.POST.get('next','')
-    if nxt.startswith('/') and not nxt.startswith('//'): return redirect(nxt)   # e.g. back to the Hotspot profiles page
+    if nxt.startswith('/') and not nxt.startswith('//'): return redirect(nxt)
     return redirect('routers')
 
 
@@ -531,7 +516,7 @@ def router_test(request,pk):
             messages.error(request,why)
         return redirect('routers')
     try: svc=MikroTikService(r).connect();svc.test();svc.close();r.status='Online';r.last_error='';messages.success(request,f'{r.name} connected successfully. RouterOS resource data received.')
-    except Exception as e: r.status='Offline';r.last_error=str(e);messages.error(request,f'Connection failed: {e}')  # direct-API routers only (Link handled above)
+    except Exception as e: r.status='Offline';r.last_error=str(e);messages.error(request,f'Connection failed: {e}')
     r.last_tested_at=timezone.now();r.save(update_fields=['status','last_error','last_tested_at']);return redirect('routers')
 
 
@@ -766,7 +751,7 @@ def _router_rows(business,method):
 def active_users(request):
     from .voucher_freeze import MANUAL_WARNING
     rows,errors=_router_rows(b(request),'active_users')
-    try:   # fair usage: who is slowed down right now
+    try:
         from .models_fup import FairUsageState
         codes=[str(x.get('user','')) for x in rows if x.get('user')]
         recent=timezone.now()-timedelta(minutes=30)
@@ -815,7 +800,6 @@ def ip_bindings(request):
 def ip_binding_action(request):
     r=get_object_or_404(b(request).routers,pk=request.POST.get('router_id'));action=request.POST.get('action');item=request.POST.get('item_id')
     if action!='delete':
-        # Old toggle endpoint: turning a binding on must go through the IP Binding page, which asks for the payment first.
         messages.info(request,'Use the switch on the IP Binding page — a bypass needs its payment recorded before it goes on.')
         return redirect('ip_bindings')
     if _on_link(r):
@@ -979,7 +963,7 @@ def security_rescan(request,pk):
         return JsonResponse({'success':True,'router_id':router.id,'sections':len(sections)})
     except Exception as e:
         Router.objects.filter(pk=router.pk).exclude(connection_mode='agent').update(status='Offline',last_error=str(e)[:2000],last_tested_at=timezone.now())
-        return JsonResponse({'success':False,'router_id':router.id,'message':str(e)})
+        return JsonResponse({'success':False,'router_id':router.id,'name':router.name,'message':str(e)})
 
 
 @login_required
@@ -1046,8 +1030,8 @@ def settings_view(request):
         pending_email=None
         if 'business_email' in f:
             em=f.get('business_email','').strip().lower()
-            if not em: business.email=''                      # back to the login email
-            elif em!=(business.email or '').lower(): pending_email=em   # needs a code first
+            if not em: business.email=''
+            elif em!=(business.email or '').lower(): pending_email=em
         business.currency=(f.get('currency','D').strip() or 'D')[:8]
         color=f.get('brand_color','#1769e0').strip()
         if re.fullmatch(r'#[0-9a-fA-F]{6}',color): business.brand_color=color
