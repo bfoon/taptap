@@ -222,9 +222,22 @@ def speed_rule_save(request):
     results = apply_business(business, force=True)
     failed = [router.name for router, ok, _result in results if not ok]
 
+    succeeded = [
+        router.name
+        for router, ok, _result in results
+        if ok
+    ]
+
     messages.success(
         request,
-        f'{rule.name}: {down:g} Mb/s download / {up:g} Mb/s upload saved.',
+        (
+            f'{rule.name}: {down:g} Mb/s download / {up:g} Mb/s upload saved. '
+            + (
+                'Applied to MikroTik: ' + ', '.join(succeeded[:5]) + '.'
+                if succeeded
+                else 'TapTap will apply it on the next router connection.'
+            )
+        ),
     )
 
     if failed:

@@ -398,8 +398,28 @@ def apply_business(business, force=True):
                 result = enforce(router, active, force=force)
             else:
                 svc = MikroTikService(router).connect()
-                active = svc.active_users()
-                result = enforce(router, active, svc=svc, force=force)
+                active = list(svc.active_users())
+
+                # Bypass/IP-binding devices are not HotSpot active sessions.
+                # Include the router's bypassed hosts so an "All bypass" or
+                # device-specific speed rule is written to MikroTik
+                # immediately when Save & apply is pressed.
+                try:
+                    from .fair_usage import bypass_rows
+                    active += bypass_rows(svc.hotspot_hosts())
+                except Exception as exc:
+                    logger.info(
+                        'traffic speed bypass discovery %s: %s',
+                        router,
+                        exc,
+                    )
+
+                result = enforce(
+                    router,
+                    active,
+                    svc=svc,
+                    force=force,
+                )
 
             results.append((router, True, result))
 

@@ -46,7 +46,7 @@
   <div class="speed-hero">
     <div>
       <h2>Traffic speed control</h2>
-      <p>Set the normal maximum download and upload speed for plans, agents, or individual devices.</p>
+      <p>Set the normal maximum download and upload speed for plans, agents, bypass users, or individual devices. Saving applies the limit to MikroTik immediately.</p>
       <div class="priority">
         <span class="text-secondary small">Priority:</span>
         <span class="badge text-bg-dark">Device</span>
@@ -193,14 +193,14 @@
         </div>
 
         <button class="btn btn-primary w-100 mt-3">
-          <i class="bi bi-check2-circle"></i> Save and apply speed
+          <i class="bi bi-router"></i> Save &amp; apply to MikroTik
         </button>
       </form>
     </section>
 
     <section class="speed-panel">
       <h3>Current speed rules</h3>
-      <div class="sub">Rules are stored in TapTap and live sync keeps the MikroTik configuration aligned.</div>
+      <div class="sub">Rules are stored in TapTap and written to MikroTik. Live sync continuously checks and restores the RouterOS speed limits if they are removed or the router reboots.</div>
 
       <div class="table-responsive">
         <table class="table rule-table align-middle">
