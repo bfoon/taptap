@@ -190,6 +190,9 @@ def watch_router(router, force=False):
             seen.add(name)
             disabled = ros_bool(row.get('disabled', False))
             profile = str(row.get('profile', 'default') or 'default')
+            if profile.startswith('*'):      # an internal ID: use the profile's name when the router still has it
+                from .orphan_profiles import resolve as _resolve_profile
+                profile = _resolve_profile(router, profile)
             uptime = str(row.get('uptime', ''))
             m = mirror.get(name)
             if m is None:

@@ -6,6 +6,12 @@
 <div class="page-actions"><div><h2 class="section-title">Plans from TapTap + MikroTik</h2><p>A Full Sync imports RouterOS HotSpot user profiles here without duplicating existing plan names.</p></div><form method="post" action="{% url 'routers_sync_all' %}">{% csrf_token %}<button class="btn btn-outline-primary"><i class="bi bi-arrow-repeat"></i> Sync MikroTik plans</button></form></div>
 {% if missing %}<div class="alert alert-warning d-flex gap-3 align-items-start"><i class="bi bi-tag fs-4"></i><div><b>{{ missing|length }} plan{{ missing|pluralize }} {{ missing|length|pluralize:"has,have" }} no price:</b> {% for p in missing %}{{ p.name }}{% if not forloop.last %}, {% endif %}{% endfor %}.<br>
 <span class="small">TapTap reads prices from Mikhmon <code>on-login</code> scripts and from comments such as <code>price: 10</code> or <code>D10</code>. If your router keeps prices somewhere else, click <b>Edit</b> and type the price — vouchers of that plan are updated and future syncs won’t overwrite it.</span></div></div>{% endif %}
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item" role="presentation"><button class="nav-link active" id="tabPlans" data-bs-toggle="tab" data-bs-target="#panePlans" type="button" role="tab" aria-controls="panePlans" aria-selected="true">Your plans</button></li>
+  <li class="nav-item" role="presentation"><button class="nav-link" id="tabFix" data-bs-toggle="tab" data-bs-target="#paneFix" type="button" role="tab" aria-controls="paneFix" aria-selected="false">Fix unknown profiles {% if orphans %}<span class="badge text-bg-danger ms-1">{{ orphans|length }}</span>{% endif %}</button></li>
+</ul>
+<div class="tab-content">
+<div class="tab-pane fade show active" id="panePlans" role="tabpanel" aria-labelledby="tabPlans">
 <div class="row g-4"><div class="col-xl-8"><div class="panel"><div class="panel-head"><div><h3>Your plans</h3><p>Customer access products and limits.</p></div></div><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Name</th><th>Origin</th><th>Price</th><th>Duration</th><th>Devices</th><th>Speed</th><th>Router</th><th></th></tr></thead><tbody>
 {% for p in plans %}<tr class="{% if not p.active %}opacity-50{% endif %}"><td><a class="fw-bold text-decoration-none" href="{% url 'plan_detail' p.id %}">{{ p.name }}</a>{% if p.mikrotik_profile_name %}<small class="d-block text-secondary">Profile: {{ p.mikrotik_profile_name }}</small>{% endif %}</td><td><span class="badge {% if p.source == 'mikrotik' %}text-bg-dark{% else %}text-bg-primary{% endif %}">{{ p.get_source_display }}</span></td>
 <td>{% if p.is_free %}<span class="badge text-bg-success">Free</span><small class="d-block text-secondary">no charge</small>{% elif p.price %}<b>{{ p.price|money:c }}</b><small class="d-block text-secondary">{% if p.price_source == 'router' %}from router{% elif p.price_source == 'manual' %}set in TapTap{% endif %}</small>{% else %}<span class="badge text-bg-warning">No price</span>{% endif %}{% if p.zero_vouchers and p.price %}<small class="d-block text-danger">{{ p.zero_vouchers }} voucher{{ p.zero_vouchers|pluralize }} at {{ c }}0 — save to fix</small>{% endif %}</td>
@@ -17,6 +23,37 @@
 <div class="col-xl-4"><div class="panel form-panel"><h3>Create a TapTap plan</h3><p>Plans you create here are pushed to your routers as HotSpot profiles on the next sync.</p><form method="post">{% csrf_token %}{{ form.non_field_errors }}
 {% for f in form %}{% if f.name == 'duration_value' %}<label>Duration</label><div class="input-group">{{ f }}{{ form.duration_unit }}</div>{% for e in f.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}<small class="text-secondary d-block">Minutes, hours, days or months (1 month = 30 days) — or Unlimited for vouchers that never run out.</small>{% elif f.name == 'is_free' %}<div class="form-check mt-3"><input class="form-check-input" type="checkbox" name="is_free" id="newFree" value="on" {% if f.value %}checked{% endif %}><label class="form-check-label" for="newFree">Free plan — no price</label></div>{% elif f.name != 'duration_unit' %}<label>{{ f.label }}</label>{{ f }}{% for e in f.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}{% endif %}{% endfor %}<button class="btn btn-primary mt-3">Save Plan</button></form></div></div></div>
 
+</div>
+<div class="tab-pane fade" id="paneFix" role="tabpanel" aria-labelledby="tabFix">
+  <div class="panel mb-4"><div class="panel-head"><div><h3>Vouchers with an unknown profile</h3>
+    <p>Their profile shows as a code like <code>*1</code> or <code>*C</code>: RouterOS shows a profile’s internal ID when that profile was deleted while vouchers still use it.
+      Choose the plan they belong to. TapTap moves them to it — and creates the plan’s profile on the router if it is not there yet.</p></div></div>
+  {% if orphans %}<div class="table-responsive"><table class="table align-middle">
+    <thead><tr><th>Unknown profile</th><th>Router</th><th class="text-end">Vouchers</th><th>Examples</th><th style="min-width:330px">Give them this plan</th></tr></thead><tbody>
+    {% for g in orphans %}<tr>
+      <td><code class="fs-6">{{ g.profile }}</code>{% if g.suggestion %}<small class="d-block text-success">Router still knows it as “{{ g.suggestion }}”</small>{% endif %}</td>
+      <td>{% if g.router %}{{ g.router.name }}{% else %}<span class="text-secondary">No router</span>{% endif %}</td>
+      <td class="text-end"><b>{{ g.total }}</b><small class="d-block text-secondary">{{ g.used }} used · {{ g.unused }} unused</small></td>
+      <td><small class="font-monospace">{{ g.codes|join:", " }}{% if g.total > g.codes|length %}…{% endif %}</small></td>
+      <td><form method="post" action="{% url 'plan_fix_profile' %}" class="fix-form">{% csrf_token %}
+        <input type="hidden" name="profile" value="{{ g.profile }}"><input type="hidden" name="router_id" value="{{ g.router_id }}">
+        <div class="d-flex gap-2"><select class="form-select form-select-sm" name="plan" aria-label="Plan for {{ g.profile }}" data-fix-plan>
+          <option value="">Choose a plan…</option>{% for p in plans %}<option value="{{ p.id }}" {% if g.plan and g.plan.id == p.id %}selected{% endif %}>{{ p.name }}{% if p.price %} · {{ p.price|money:c }}{% endif %}</option>{% endfor %}
+          <option value="new">+ New plan…</option></select>
+          <button class="btn btn-sm btn-primary text-nowrap">Fix {{ g.total }}</button></div>
+        <div class="row g-2 mt-1" data-new-plan hidden>
+          <div class="col-12"><input class="form-control form-control-sm" name="new_name" placeholder="Plan name, e.g. 24 Hours" aria-label="New plan name" value="{{ g.suggestion }}"></div>
+          <div class="col-4"><input class="form-control form-control-sm" name="new_price" type="number" min="0" step="0.01" placeholder="Price" aria-label="Price"></div>
+          <div class="col-5"><select class="form-select form-select-sm" name="new_minutes" aria-label="Time"><option value="60">1 hour</option><option value="180">3 hours</option><option value="720">12 hours</option><option value="1440" selected>1 day</option><option value="4320">3 days</option><option value="10080">7 days</option><option value="43200">30 days</option><option value="0">Unlimited</option></select></div>
+          <div class="col-3"><input class="form-control form-control-sm" name="new_devices" type="number" min="1" max="20" value="1" aria-label="Devices"></div></div>
+      </form></td></tr>{% endfor %}
+    </tbody></table></div>
+    <p class="small text-secondary mb-0">Vouchers not used yet also take the plan’s time, devices and (if they had none) price. Used vouchers keep their time.</p>
+  {% else %}<div class="text-center py-4"><i class="bi bi-check2-circle fs-1 text-success"></i><h4 class="h6 mt-2">Every voucher has a known profile</h4>
+    <p class="text-secondary small mb-0">Vouchers whose profile shows as <code>*1</code>, <code>*C</code>… would be listed here.</p></div>{% endif %}
+  </div>
+</div>
+</div>
 <div class="modal fade" id="planDelete" tabindex="-1" aria-labelledby="pdTitle"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post">{% csrf_token %}
   <div class="modal-header border-0"><h5 class="modal-title fw-bold" id="pdTitle">Delete <span data-name></span>?</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
   <div class="modal-body pt-0">
@@ -44,6 +81,11 @@
 {% endwith %}
 {% endblock %}
 {% block scripts %}<script>
+(function(){document.querySelectorAll('[data-fix-plan]').forEach(function(s){var box=s.closest('form').querySelector('[data-new-plan]');
+  s.addEventListener('change',function(){box.hidden=s.value!=='new';box.querySelectorAll('input[name=new_name]').forEach(function(i){i.required=s.value==='new';});});});
+  if(location.hash==='#fix'&&window.bootstrap){bootstrap.Tab.getOrCreateInstance(document.getElementById('tabFix')).show();}
+  document.getElementById('tabFix').addEventListener('shown.bs.tab',function(){history.replaceState(null,'','#fix');});
+  document.getElementById('tabPlans').addEventListener('shown.bs.tab',function(){history.replaceState(null,'',location.pathname);});})();
 document.getElementById('planDelete').addEventListener('show.bs.modal',e=>{const d=e.relatedTarget.dataset,m=e.target,f=m.querySelector('form');
  f.action='/plans/'+d.id+'/delete/';m.querySelector('[data-name]').textContent=d.name;f.elements.reason.value='';
  const li=t=>'<li>'+t+'</li>',n=(x,w)=>x+' '+w+(+x===1?'':'s'),out=[];

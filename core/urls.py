@@ -120,4 +120,5 @@ urlpatterns = [
     path('security/plan-limits/<int:pk>/',vsecfix.security_plan_limits,name='security_plan_limits'),
     path('security/sharing/',vsecfix.security_sharing,name='security_sharing'),
     path('security/admin-account/<int:pk>/',vsecfix.security_admin_account,name='security_admin_account'),
+    path('plans/fix-profile/',views.plan_fix_profile,name='plan_fix_profile'),
 ]

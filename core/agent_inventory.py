@@ -308,6 +308,8 @@ def _users(router, rows, now):
             renamed_seen.append((username, renamed[username.upper()].code))   # old code: rename, never import twice
             continue
         profile_name = str(row.get('profile', 'default') or 'default')
+        from .orphan_profiles import resolve as _resolve_profile     # "*1" → its name, when the router still has it
+        profile_name = _resolve_profile(router, profile_name)
         plan = router.business.plans.filter(name__iexact=profile_name).first()
         max_devices = plan.max_devices if plan else 1
         duration_minutes = _routeros_minutes(row.get('limit-uptime', row.get('limit_uptime', '')), plan.duration_minutes if plan else 1440)

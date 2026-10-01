@@ -352,7 +352,9 @@ def plans(request):
         p.zero_vouchers=zero_map.get(p.name,0); u=usage.get(p.name,{})
         p.v_total,p.v_used,p.v_unused,p.v_sold_unused=u.get('total',0),u.get('used',0),u.get('unused',0),u.get('sold_unused',0)
         p.can_delete=not p.v_used or 'plans.delete_used' in perms
-    return render(request,'core/plans.html',{'plans':plan_list,'form':form,'missing':[p for p in plan_list if not p.price and not p.is_free]})
+    from .orphan_profiles import groups as orphan_groups
+    return render(request,'core/plans.html',{'plans':plan_list,'form':form,'missing':[p for p in plan_list if not p.price and not p.is_free],
+        'orphans':orphan_groups(business)})
 
 
 @login_required
@@ -1091,3 +1093,41 @@ def api_voucher_login(request):
     if not v: return JsonResponse({'success':False,'message':'Invalid or inactive voucher'},status=404)
     if v.expires_at and v.expires_at<=timezone.now(): return JsonResponse({'success':False,'message':'Voucher expired'},status=403)
     return JsonResponse({'success':True,'voucher':v.code,'plan':v.plan_name,'max_devices':v.max_devices,'duration_hours':v.duration_hours,'duration_minutes':v.duration_minutes,'duration':v.duration_text})
+
+
+@login_required
+@require_POST
+def plan_fix_profile(request):
+    """Plans → "Fix unknown profiles": give vouchers whose plan is a RouterOS ID (*1, *C…) a real plan."""
+    from .orphan_profiles import fix, is_orphan
+    business = b(request)
+    bad = request.POST.get('profile', '')
+    router_id = request.POST.get('router_id', '')
+    if not is_orphan(bad):
+        messages.error(request, 'That is not an unknown profile.'); return redirect('/plans/#fix')
+    plan = None
+    if request.POST.get('plan') == 'new':
+        name = request.POST.get('new_name', '').strip()[:120]
+        try:
+            price = Decimal(request.POST.get('new_price') or '0')
+            minutes = int(request.POST.get('new_minutes') or 0)
+            devices = max(1, min(20, int(request.POST.get('new_devices') or 1)))
+        except Exception:
+            messages.error(request, 'Check the new plan’s price, time and devices.'); return redirect('/plans/#fix')
+        if not name or price < 0 or minutes < 0:
+            messages.error(request, 'Give the new plan a name, a price and a time.'); return redirect('/plans/#fix')
+        if business.plans.filter(name__iexact=name).exists():
+            plan = business.plans.get(name__iexact=name)
+        else:
+            plan = VoucherPlan.objects.create(business=business, name=name, price=price, duration_minutes=minutes, max_devices=devices,
+                                              source='taptap', price_source='manual')
+            from .portal_deploy import schedule_redeploy; schedule_redeploy(business)
+    else:
+        plan = business.plans.filter(pk=request.POST.get('plan') or 0).first()
+    if not plan:
+        messages.error(request, 'Choose a plan, or create a new one.'); return redirect('/plans/#fix')
+    try:
+        messages.success(request, fix(business, int(router_id) if str(router_id).isdigit() else None, bad, plan, request.user))
+    except ValueError as exc:
+        messages.error(request, str(exc))
+    return redirect('/plans/#fix')

@@ -855,6 +855,8 @@ def sync_router(
                 )
                 or 'default'
             )
+            from .orphan_profiles import resolve as _resolve_profile     # "*1" → its name, when the router still has it
+            profile_name = _resolve_profile(router, profile_name)
 
             plan = (
                 profile_map.get(

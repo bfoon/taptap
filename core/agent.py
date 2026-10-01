@@ -40,7 +40,7 @@ POLICY = 'ftp,read,write,test,reboot,sensitive'
 SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
     'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
-    'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update',
+    'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
     'hotspot_users_limit', 'admin_password',
 }
@@ -305,6 +305,13 @@ def command_body(cmd):
         ev = f'/interface enable [find name="{p["name"]}"]; /system scheduler remove [find name="{sched}"]'
         return (f'/system scheduler remove [find name={rs(sched)}]; /system scheduler add name={rs(sched)} interval={mins}m '
                 f'policy={POLICY} on-event={rs(ev)} comment="TapTap automatic restore"; /interface disable [find name={name()}]')
+    if k == 'hotspot_users_profile':
+        # Fix "unknown profile" users (core/orphan_profiles.py): create the plan's profile if missing, move the users onto it.
+        prof = p['profile']
+        line = (f':if ([:len [/ip hotspot user profile find name={rs(prof["name"])}]] = 0) do={{ /ip hotspot user profile add '
+                f'name={rs(prof["name"])} shared-users={int(prof.get("shared") or 1)}' + (f' rate-limit={rs(prof["rate"])}' if prof.get('rate') else '') + ' }; ')
+        names = ';'.join(rs(n) for n in p.get('names', []))
+        return line + f':foreach n in={{{names}}} do={{ :do {{ /ip hotspot user set [find name=$n] profile={rs(prof["name"])} }} on-error={{}} }}'
     if k == 'hotspot_users':
         lines = []
         for prof in p.get('profiles', []):
@@ -487,6 +494,13 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
         pw = str((params or {}).get('password') or '')
         if not 12 <= len(pw) <= 64 or any(ord(c) < 32 for c in pw):
             raise ValueError('Invalid password.')
+    if kind == 'hotspot_users_profile':
+        pr = (params or {}).get('profile') or {}
+        names = (params or {}).get('names') or []
+        if not re.match(r'^[\w .@:+/-]{1,120}$', str(pr.get('name', ''))) or not 1 <= int(pr.get('shared') or 1) <= 100 \
+                or (pr.get('rate') and not re.match(r'^[0-9kKmMgG/ ]{1,60}$', str(pr['rate']))) \
+                or not isinstance(names, list) or not 1 <= len(names) <= 100 or not all(NAME_RE.match(str(n)) for n in names):
+            raise ValueError('Invalid profile fix.')
     if kind in ('hotspot_users_remove', 'hotspot_users_disable', 'hotspot_users_repass'):
         names = (params or {}).get('names') or []
         if not isinstance(names, list) or not 1 <= len(names) <= 100 or not all(NAME_RE.match(str(n)) for n in names):
