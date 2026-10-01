@@ -4,6 +4,7 @@ from django.urls import include, path
 from core.admin_otp import admin_otp
 from core import views_manage, views_team
 from core.views_archive import voucher_archive_settings
+from core.views_speed import speed_rule_save, speed_rule_action
 
 
 urlpatterns = [
@@ -23,6 +24,18 @@ urlpatterns = [
         "settings/voucher-archive/",
         voucher_archive_settings,
         name="voucher_archive_settings",
+    ),
+
+    # Traffic speed control.
+    path(
+        "traffic/speed/save/",
+        speed_rule_save,
+        name="traffic_speed_save",
+    ),
+    path(
+        "traffic/speed/<int:pk>/action/",
+        speed_rule_action,
+        name="traffic_speed_action",
     ),
 
     # Dedicated full editing screens; existing member and plan pages are unchanged.

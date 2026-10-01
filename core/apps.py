@@ -24,6 +24,11 @@ class CoreConfig(AppConfig):
         from .mac_roaming import install as install_mac_roaming
         install_mac_roaming()
 
+        # Traffic base-speed rules run immediately before Fair Usage.
+        # Device > agent > plan > all plans; Fair Usage may still reduce more.
+        from .traffic_speed import install as install_traffic_speed
+        install_traffic_speed()
+
         # IMPORTANT: Account Management disappeared because the newer apps.py
         # omitted this existing navigation registration. Install it LAST so
         # the menu and its back buttons coexist with all guards above.
