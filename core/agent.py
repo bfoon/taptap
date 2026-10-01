@@ -44,6 +44,19 @@ SAFE_KINDS = {
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
     'hotspot_users_limit', 'admin_password',
 }
+# Delivery order for queued commands: anything about vouchers first (a customer is waiting), then the rest,
+# and the pieces of a full inventory sync last — 61 of them must never hold up a voucher.
+VOUCHER_KINDS = ('hotspot_users', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename',
+                 'hotspot_users_repass', 'hotspot_users_disable', 'hotspot_user_extend', 'hotspot_user_mac', 'hotspot_mac_unlock_all',
+                 'hotspot_kick', 'disconnect', 'hotspot_users_limit', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove')
+
+
+def delivery_order():
+    from django.db.models import Case, IntegerField, Value, When
+    return Case(When(kind__in=VOUCHER_KINDS, then=Value(0)), When(kind='inventory_piece', then=Value(2)),
+                default=Value(1), output_field=IntegerField())
+
+
 BATCH_GAP = 45   # seconds: one unanswered command must never freeze the whole queue
 ACK_WAIT = {'portal_install': 300, 'inventory_piece': 600, 'backup': 300, 'hotspot_users': 300, 'self_update': 300}   # seconds before a resend
 NAME_RE = re.compile(r'^[\w.@:+/<>-]{1,64}$')
@@ -848,7 +861,7 @@ def build_response(router, url):
         return ''  # give the router a moment to finish the last batch (never longer than BATCH_GAP)
     from .agent_inventory import send_function
     parts, size, helper = [], 0, False
-    for cmd in AgentCommand.objects.filter(router=router, status='queued').order_by('created_at')[:40]:
+    for cmd in AgentCommand.objects.filter(router=router, status='queued').annotate(prio=delivery_order()).order_by('prio', 'created_at')[:40]:
         if cmd.kind in ('reboot', 'self_update') and parts:
             break  # these always travel alone
         try:

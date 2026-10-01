@@ -228,7 +228,11 @@ def start_agent_inventory_sync(job):
         status='cancelled', done_at=timezone.now(), result='Superseded by a newer full synchronization'
     )
 
-    for kind, src in SOURCES.items():
+    # Voucher tables first: if the router is slow or the sync stops halfway, vouchers are already up to date.
+    first = ('hotspot_user_profiles', 'hotspot_users', 'active_users', 'hotspot_ip_bindings')
+    ordered = [k for k in first if k in SOURCES] + [k for k in SOURCES if k not in first]
+    for kind in ordered:
+        src = SOURCES[kind]
         from .agent import queue
         queue(
             router,

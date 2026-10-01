@@ -151,7 +151,7 @@ def chat_email_missed():
     return email_missed()
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, queue="live")      # vouchers first: never wait behind a full sync on the busy default worker
 def push_vouchers_task(router_id, voucher_ids):
     """Send only these vouchers to one router (no full sync)."""
     from .models import Router

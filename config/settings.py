@@ -145,6 +145,7 @@ LINK_SYNC_MINUTES = int(os.getenv('LINK_SYNC_MINUTES', '30'))
 
 CELERY_BEAT_SCHEDULE['taptap-notifications'] = {'task': 'core.tasks.deliver_notifications', 'schedule': 60.0, 'options': {'expires': 120}}
 CELERY_TASK_ROUTES['core.tasks.deliver_notifications'] = {'queue': 'live'}
+CELERY_TASK_ROUTES['core.tasks.push_vouchers_task'] = {'queue': 'live'}   # a new or changed voucher must not wait behind a full sync
 
 
 # ─── Sign-in security ───────────────────────────────────────────────────

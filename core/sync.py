@@ -746,15 +746,24 @@ def sync_router(
     )
 
     try:
-        RouterHotspotProfile.objects.filter(
-            router=router
-        ).update(
-            is_present=False
-        )
+        # Read first, then mark what is gone: a failed read must neither stop the sync
+        # (vouchers still go out) nor make every profile look deleted.
+        try:
+            profile_rows = list(svc.hotspot_profiles())
+            profiles_read = True
+        except Exception as exc:
+            profile_rows, profiles_read = [], False
+            summary['errors'].append(f'HotSpot profiles could not be read ({exc}) — the last known plans were kept')
+        if profiles_read:
+            RouterHotspotProfile.objects.filter(
+                router=router
+            ).update(
+                is_present=False
+            )
 
         profile_map = {}
 
-        for raw in svc.hotspot_profiles():
+        for raw in profile_rows:
             row = _clean(raw)
 
             plan = _profile_to_plan(
@@ -773,6 +782,14 @@ def sync_router(
             22,
             'Plans imported — reading vouchers and HotSpot users',
         )
+
+        # Read the users BEFORE marking anything gone, with one retry (a big table can time out once).
+        try:
+            users_read_first = list(svc.hotspot_users())
+        except Exception:
+            import time as _time
+            _time.sleep(2)
+            users_read_first = list(svc.hotspot_users())
 
         RouterHotspotUser.objects.filter(
             router=router
@@ -802,9 +819,7 @@ def sync_router(
 
         renamed_seen = []
 
-        router_rows = list(
-            svc.hotspot_users()
-        )
+        router_rows = users_read_first
 
         present = {
             str(
@@ -1521,13 +1536,20 @@ def sync_router(
             'TapTap vouchers pushed — importing RouterOS IP bindings',
         )
 
-        SyncedIPBinding.objects.filter(
-            router=router
-        ).update(
-            is_present=False
-        )
+        try:
+            binding_rows = list(svc.bindings())
+            bindings_read = True
+        except Exception as exc:
+            binding_rows, bindings_read = [], False
+            summary['errors'].append(f'IP bindings could not be read ({exc}) — kept as they were')
+        if bindings_read:
+            SyncedIPBinding.objects.filter(
+                router=router
+            ).update(
+                is_present=False
+            )
 
-        for raw in svc.bindings():
+        for raw in binding_rows:
             row = _clean(raw)
 
             item_id = str(
@@ -1716,15 +1738,18 @@ def sync_router(
             'Bindings synchronized — scanning MACs, ports and neighbors',
         )
 
-        topo_data = (
-            svc.topology_data()
-        )
+        try:
+            topo_data = (
+                svc.topology_data()
+            )
 
-        topology = _persist_topology(
-            router,
-            topo_data,
-            now,
-        )
+            topology = _persist_topology(
+                router,
+                topo_data,
+                now,
+            )
+        except Exception as exc:
+            summary['errors'].append(f'Network topology could not be read ({exc}) — the last map was kept')
 
         summary[
             'devices_discovered'
