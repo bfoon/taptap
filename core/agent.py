@@ -39,7 +39,7 @@ DEFAULT_EXPIRY = {'reboot': 5, 'port_restart': 5, 'interface_set': 15, 'port_off
 POLICY = 'ftp,read,write,test,reboot,sensitive'
 SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
-    'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
+    'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
     'hotspot_users_limit', 'admin_password',
@@ -344,6 +344,9 @@ def command_body(cmd):
         from .sticky import script
         from types import SimpleNamespace
         return script(SimpleNamespace(sticky_sessions=bool(p.get('on')), sticky_keepalive=p.get('keepalive') or '2h'))
+    if k == 'app_control':   # App & site control (core/app_control.py builds and escapes every value)
+        from .app_control import link_script
+        return link_script(p.get('spec') or {'lists': [], 'filter': [], 'mangle': [], 'qtypes': [], 'qtrees': [], 'guard': []})
     if k == 'hotspot_user_rename':
         # Changing a voucher code: rename keeps the used uptime on the router. The voucher logs in
         # with its code as username AND password, so the password follows the code: always for

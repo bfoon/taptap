@@ -35,6 +35,10 @@ class Business(models.Model):
     live_sync=models.BooleanField(default=True,help_text='Check routers every few seconds for voucher, session and binding changes')
     auto_enforce=models.BooleanField(default=True,help_text='Automatically disconnect sessions whose voucher has expired or been disabled')
     enforce_grace_minutes=models.PositiveSmallIntegerField(default=5,help_text='Wait this long before fixing automatically')
+    # Peak hours (App & site control: "peak" / "off-peak" rules)
+    peak_from=models.TimeField(null=True,blank=True,help_text='Peak hours start (e.g. 18:00)')
+    peak_to=models.TimeField(null=True,blank=True,help_text='Peak hours end (e.g. 23:00)')
+    peak_days=models.JSONField(default=list,blank=True,help_text='Days with peak hours; empty = every day')
     # Sticky vouchers — see core/device_lock.py and core/sticky.py
     device_lock=models.BooleanField(default=True,help_text='A voucher stays locked to the devices that first used it, until staff reset it')
     auto_plan_limits=models.BooleanField(default=False,help_text='Give router-made hotspot users without a time limit their plan time automatically (core/plan_limits.py)')
@@ -1222,3 +1226,5 @@ class BonanzaSpin(models.Model):
 from .models_fup import FairUsagePolicy, FairUsageState  # noqa: E402,F401
 from .models_chat import SupportAgent, ChatThread, ChatMessage, ChatRead, ChatPrefs  # noqa: E402,F401
 from .models_events import EventRule, EventAlert  # noqa: E402,F401
+
+from .models_apps import AppRule, AppControlState  # noqa: E402,F401

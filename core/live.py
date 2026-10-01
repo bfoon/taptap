@@ -516,6 +516,14 @@ def watch_all():
             sweep(watched=watched)
         except Exception:
             logger.exception('expiry sweep')
+        # App & site control: resend a router's rules when they changed (temporary rules starting / ending).
+        try:
+            from .app_control import push_all
+            for business in Business.objects.filter(app_rules__isnull=False).distinct():
+                if business.has_access:
+                    push_all(business)
+        except Exception:
+            logger.exception('app control')
         # Business alerts (stock low, restocked, no sales, routers offline…) for every business that has rules.
         try:
             from .business_alerts import evaluate

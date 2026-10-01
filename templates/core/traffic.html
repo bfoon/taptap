@@ -11,6 +11,7 @@
       <button type="button" class="tr-pause" id="trPause" aria-pressed="false" title="Pause automatic updates"><i class="bi bi-pause-fill"></i></button></div>
     <form method="get" class="d-flex gap-2"><input type="hidden" name="range" value="{{ period.preset }}">
       <select class="form-select form-select-sm" name="router" onchange="this.form.submit()" aria-label="Router"><option value="">All routers</option>{% for r in routers %}<option value="{{ r.id }}" {% if sel_router == r.id|stringformat:'s' %}selected{% endif %}>{{ r.name }}</option>{% endfor %}</select></form>
+    <a class="btn btn-sm btn-primary" href="{% url 'app_control' %}"><i class="bi bi-sliders2"></i> App &amp; site control</a>
     <div class="dropdown"><button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-download"></i> Export</button>
       <ul class="dropdown-menu dropdown-menu-end"><li><a class="dropdown-item" href="?{{ query }}&export=hourly">Traffic over time (CSV)</a></li><li><a class="dropdown-item" href="?{{ query }}&export=users">Consumption per user (CSV)</a></li><li><a class="dropdown-item" href="?{{ query }}&export=apps">Apps &amp; sites (CSV)</a></li><li><button class="dropdown-item" onclick="window.print()">Print / PDF</button></li></ul></div>
   </div>

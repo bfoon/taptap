@@ -1,0 +1,138 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}App & site control — TapTap{% endblock %}{% block heading %}App &amp; site control{% endblock %}
+{% block extra_head %}<style>
+.ac-hero{display:flex;flex-wrap:wrap;gap:1rem;justify-content:space-between;align-items:center;margin-bottom:1rem}
+.ac-grid{display:grid;grid-template-columns:1.5fr 1fr;gap:1rem}@media(max-width:1000px){.ac-grid{grid-template-columns:1fr}}
+.ac-rule{display:flex;gap:.8rem;align-items:flex-start;border:1px solid var(--border);border-radius:16px;padding:.8rem .9rem;margin-bottom:.6rem;background:var(--panel,#fff)}
+.ac-rule.off{opacity:.55}.ac-act{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;font-size:1.15rem}
+.ac-act.block{background:#fde8e8;color:#b42318}.ac-act.slow{background:#fff4dc;color:#9a6200}.ac-act.allow{background:#e3f7ec;color:#11683f}
+.ac-rule b{font-size:.95rem}.ac-meta{font-size:.76rem;color:var(--muted)}
+.ac-svc{display:inline-flex;align-items:center;gap:.3rem;font-size:.74rem;font-weight:700;border-radius:999px;padding:.12rem .5rem .12rem .15rem;background:#eef2f7;margin:.15rem .2rem 0 0}
+.ac-dot{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:.55rem;font-weight:800}
+.ac-tag{font-size:.66rem;font-weight:800;border-radius:999px;padding:.1rem .45rem;margin-left:.3rem}
+.ac-tag.on{background:#e3f7ec;color:#11683f}.ac-tag.paused{background:#eef1f5;color:#56687a}.ac-tag.scheduled{background:#e8f0ff;color:#1554b8}.ac-tag.ended{background:#fde8e8;color:#b42318}.ac-tag.temp{background:#fff4dc;color:#8a5a00}
+.ac-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.45rem}
+.ac-tile{display:flex;align-items:center;gap:.5rem;border:2px solid var(--border);border-radius:14px;padding:.45rem .55rem;cursor:pointer;font-size:.82rem;font-weight:700;background:var(--panel,#fff);user-select:none;transition:border-color .12s,transform .12s}
+.ac-tile:hover{transform:translateY(-1px)}.ac-tile input{display:none}.ac-tile .ac-dot{width:28px;height:28px;font-size:.7rem;flex:none}
+.ac-tile:has(input:checked){border-color:#0d6efd;background:#eef5ff}
+.ac-cat{font-size:.7rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:.6rem 0 .3rem}
+.ac-seg{display:flex;flex-wrap:wrap;gap:.35rem}.ac-seg label{border:1px solid var(--border);border-radius:999px;padding:.32rem .8rem;font-size:.82rem;font-weight:700;cursor:pointer}
+.ac-seg input{display:none}.ac-seg label:has(input:checked){background:#102033;color:#fff;border-color:#102033}
+.ac-seg.act label:has(input[value=block]:checked){background:#b42318;border-color:#b42318}.ac-seg.act label:has(input[value=slow]:checked){background:#c27803;border-color:#c27803}.ac-seg.act label:has(input[value=allow]:checked){background:#11683f;border-color:#11683f}
+.ac-sum{background:#f3f7fb;border-radius:12px;padding:.6rem .8rem;font-size:.88rem}
+.ac-rt{display:flex;justify-content:space-between;gap:.5rem;padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.84rem}
+html[data-theme="dark"] .ac-tile:has(input:checked){background:#14243a}html[data-theme="dark"] .ac-sum{background:#1d2229}
+</style>{% endblock %}
+{% block content %}
+<div class="ac-hero">
+  <div><a class="small text-decoration-none" href="{% url 'traffic' %}"><i class="bi bi-arrow-left"></i> Traffic</a>
+    <h2 class="section-title mb-1">Choose what your Wi-Fi is used for</h2>
+    <p class="m-0 text-secondary">Block, slow down or always allow apps and sites — all day, at set times, in peak or off-peak hours, for a while or for good.</p></div>
+  <div class="d-flex gap-2"><form method="post" action="{% url 'app_rule_global' %}">{% csrf_token %}<button class="btn btn-outline-secondary" name="action" value="apply"><i class="bi bi-arrow-repeat"></i> Send to routers now</button></form>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#acModal"><i class="bi bi-plus-lg"></i> New rule</button></div>
+</div>
+
+<div class="ac-grid">
+<section class="panel">
+  <div class="panel-head"><div><h3>Rules</h3><p>“Always allow” wins over block and slow rules. Times use each router's clock.</p></div></div>
+  {% for r in rules %}
+  <div class="ac-rule {% if r.state != 'on' %}off{% endif %}">
+    <span class="ac-act {{ r.action }}"><i class="bi {% if r.action == 'block' %}bi-slash-circle{% elif r.action == 'slow' %}bi-speedometer2{% else %}bi-check2-circle{% endif %}"></i></span>
+    <div class="flex-grow-1"><b>{{ r.name }}</b><span class="ac-tag {{ r.state }}">{% if r.state == 'on' %}On{% elif r.state == 'paused' %}Paused{% elif r.state == 'scheduled' %}Starts {{ r.starts_at|date:'d M H:i' }}{% else %}Ended{% endif %}</span>{% if r.ends_at and r.state != 'ended' %}<span class="ac-tag temp">until {{ r.ends_at|date:'d M H:i' }}</span>{% endif %}
+      <div>{% for n,col in r.chips %}<span class="ac-svc"><span class="ac-dot" style="background:{{ col }}">{{ n|slice:":1"|upper }}</span>{{ n }}</span>{% endfor %}</div>
+      <div class="ac-meta mt-1">{% if r.action == 'slow' %}<b>{{ r.down_mbps|floatformat:"-2" }} Mb/s</b> down · {{ r.up_mbps|floatformat:"-2" }} up per device · {% endif %}{{ r.when_text }} · {{ r.get_scope_display }} · {% if r.router_names %}{{ r.router_names|join:", " }}{% else %}all routers{% endif %}{% if r.block_quic and r.action != 'allow' %} · QUIC stopped{% endif %}</div></div>
+    <div class="d-flex flex-wrap gap-1 justify-content-end">
+      <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#acModal" data-rule='{"id":{{ r.id }},"name":"{{ r.name|escapejs }}","services":{{ r.services_json|safe }},"custom":"{{ r.custom_text|escapejs }}","action":"{{ r.action }}","down":"{{ r.down_mbps }}","up":"{{ r.up_mbps }}","when":"{{ r.when }}","from":"{{ r.from_time|time:'H:i' }}","to":"{{ r.to_time|time:'H:i' }}","days":{{ r.days_json|safe }},"scope":"{{ r.scope }}","quic":{{ r.block_quic|yesno:'true,false' }},"enabled":{{ r.enabled|yesno:'true,false' }},"routers":{{ r.routers_json|safe }},"starts":"{{ r.starts_at|date:'Y-m-d\TH:i' }}","ends":"{{ r.ends_at|date:'Y-m-d\TH:i' }}"}'>Edit</button>
+      <form method="post" action="{% url 'app_rule_action' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" name="action" value="toggle">{% if r.enabled %}Pause{% else %}Resume{% endif %}</button></form>
+      <form method="post" action="{% url 'app_rule_action' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" name="action" value="delete" onclick="return confirm('Delete this rule? The router stops applying it.')" aria-label="Delete"><i class="bi bi-trash"></i></button></form>
+    </div>
+  </div>
+  {% empty %}<div class="text-center text-secondary py-4"><i class="bi bi-sliders2" style="font-size:2rem"></i><p class="mt-2 mb-1">No rules yet.</p><p class="small">Example: slow YouTube and TikTok to 1 Mb/s per device in peak hours, or block games during school hours.</p></div>{% endfor %}
+</section>
+
+<div>
+  <section class="panel mb-3"><h3 class="h6 fw-bold">Peak hours</h3><p class="small text-secondary">Used by “Peak hours” and “Off-peak hours” rules.</p>
+    <form method="post" action="{% url 'app_rule_global' %}" class="row g-2">{% csrf_token %}<input type="hidden" name="action" value="peak">
+      <div class="col-6"><label class="small">From</label><input class="form-control" type="time" name="peak_from" value="{{ current_business.peak_from|time:'H:i' }}"></div>
+      <div class="col-6"><label class="small">To</label><input class="form-control" type="time" name="peak_to" value="{{ current_business.peak_to|time:'H:i' }}"></div>
+      <div class="col-12 ac-seg">{% for d in days %}<label><input type="checkbox" name="peak_days" value="{{ d }}" {% if d in current_business.peak_days %}checked{% endif %}>{{ d|title }}</label>{% endfor %}</div>
+      <div class="col-12"><small class="text-secondary">No day ticked = every day. Off-peak is the rest of the day.</small> <button class="btn btn-sm btn-primary float-end">Save</button></div></form></section>
+  <section class="panel"><h3 class="h6 fw-bold">Routers</h3>
+    {% for rt in routers %}<div class="ac-rt"><span><i class="bi bi-router"></i> {{ rt.name }}</span><span class="text-end">{% with s=rt.app_state %}{% if not s %}<span class="text-secondary">Nothing sent yet</span>{% elif s.status == 'error' %}<span class="text-danger" title="{{ s.message }}">Not updated — {{ s.message|truncatechars:40 }}</span>{% elif s.status == 'queued' %}<span class="text-warning-emphasis">Queued {{ s.applied_at|timesince }} ago</span>{% else %}<span class="text-success">{{ s.message }}</span><small class="d-block text-secondary">{{ s.applied_at|timesince }} ago</small>{% endif %}{% endwith %}</span></div>{% empty %}<p class="small text-secondary">Add a router first.</p>{% endfor %}
+    <p class="small text-secondary mt-2 mb-0"><i class="bi bi-info-circle"></i> Rules are matched by site name (HTTPS) and by address. Apps that use their own VPN or DNS-over-HTTPS can sometimes slip through; stopping QUIC helps most apps.</p></section>
+</div>
+</div>
+
+<div class="modal fade" id="acModal" tabindex="-1" aria-labelledby="acTitle" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><form class="modal-content" method="post" action="{% url 'app_rule_save' %}">{% csrf_token %}
+  <input type="hidden" name="id">
+  <div class="modal-header"><h5 class="modal-title" id="acTitle">New rule</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body">
+    <label class="form-label fw-bold">1. Which apps or sites?</label>
+    {% for c in catalog %}<div class="ac-cat"><i class="bi {{ c.icon }}"></i> {{ c.name }}</div><div class="ac-tiles">
+      {% for s in c.items %}<label class="ac-tile"><input type="checkbox" name="services" value="{{ s.key }}" data-name="{{ s.name }}"><span class="ac-dot" style="background:{{ s.color }}">{{ s.name|slice:":2"|upper }}</span>{{ s.name }}</label>{% endfor %}</div>{% endfor %}
+    <label class="form-label small mt-3">Other sites <span class="text-secondary">(optional — e.g. example.com, betting-site.com)</span></label>
+    <textarea class="form-control" name="custom_domains" rows="2" placeholder="one or more, separated by spaces or commas"></textarea>
+
+    <label class="form-label fw-bold mt-4">2. What should happen?</label>
+    <div class="ac-seg act">{% for k,l in actions %}<label><input type="radio" name="action" value="{{ k }}" {% if k == 'block' %}checked{% endif %}>{{ l }}</label>{% endfor %}</div>
+    <div class="row g-2 mt-1" id="acSpeed"><div class="col-6 col-md-3"><label class="small">Download per device</label><div class="input-group"><input class="form-control" type="number" step="0.1" min="0.06" name="down_mbps" value="1"><span class="input-group-text">Mb/s</span></div></div>
+      <div class="col-6 col-md-3"><label class="small">Upload per device</label><div class="input-group"><input class="form-control" type="number" step="0.1" min="0.03" name="up_mbps" value="0.5"><span class="input-group-text">Mb/s</span></div></div></div>
+
+    <label class="form-label fw-bold mt-4">3. When?</label>
+    <div class="ac-seg">{% for k,l in whens %}<label><input type="radio" name="when" value="{{ k }}" {% if k == 'always' %}checked{% endif %}>{{ l }}</label>{% endfor %}</div>
+    <div class="row g-2 mt-1" id="acHours"><div class="col-6 col-md-3"><label class="small">From</label><input class="form-control" type="time" name="from_time"></div><div class="col-6 col-md-3"><label class="small">To</label><input class="form-control" type="time" name="to_time"></div>
+      <div class="col-12"><small class="text-secondary">Overnight works too (e.g. 22:00 → 06:00).</small></div></div>
+    {% if not peak_set %}<div class="alert alert-warning small py-2 mt-2" id="acPeakWarn" hidden>Set your peak hours on the right first.</div>{% endif %}
+    <div class="ac-seg mt-2" id="acDays">{% for d in days %}<label><input type="checkbox" name="days" value="{{ d }}">{{ d|title }}</label>{% endfor %}<small class="text-secondary align-self-center ms-1">none = every day</small></div>
+
+    <label class="form-label fw-bold mt-4">4. For how long?</label>
+    <div class="ac-seg">
+      <label><input type="radio" name="span" value="permanent" checked>Permanent</label><label><input type="radio" name="span" value="30m">30 min</label><label><input type="radio" name="span" value="1h">1 hour</label>
+      <label><input type="radio" name="span" value="3h">3 hours</label><label><input type="radio" name="span" value="today">Until midnight</label><label><input type="radio" name="span" value="1d">1 day</label>
+      <label><input type="radio" name="span" value="1w">1 week</label><label><input type="radio" name="span" value="period">Set dates</label><label id="acKeep" hidden><input type="radio" name="span" value="keep">Keep current</label></div>
+    <div class="row g-2 mt-1" id="acPeriod" hidden><div class="col-md-6"><label class="small">Starts</label><input class="form-control" type="datetime-local" name="starts_at"></div><div class="col-md-6"><label class="small">Ends</label><input class="form-control" type="datetime-local" name="ends_at"></div></div>
+
+    <label class="form-label fw-bold mt-4">5. Who and where?</label>
+    <div class="ac-seg">{% for k,l in scopes %}<label><input type="radio" name="scope" value="{{ k }}" {% if k == 'customers' %}checked{% endif %}>{{ l }}</label>{% endfor %}</div>
+    <div class="ac-seg mt-2">{% for rt in routers %}<label><input type="checkbox" name="routers" value="{{ rt.id }}"><i class="bi bi-router"></i> {{ rt.name }}</label>{% endfor %}<small class="text-secondary align-self-center ms-1">none ticked = all routers</small></div>
+    <label class="form-check mt-2" id="acQuic"><input class="form-check-input" type="checkbox" name="block_quic" checked> Stop QUIC while this rule is active <small class="text-secondary">(recommended — apps then use HTTPS, where TapTap can see the site)</small></label>
+    <div class="row g-2 mt-2"><div class="col-md-8"><label class="small">Name</label><input class="form-control" name="name" maxlength="120" placeholder="(automatic)"></div>
+      <div class="col-md-4 d-flex align-items-end"><label class="form-check"><input class="form-check-input" type="checkbox" name="enabled" checked> On</label></div></div>
+    <div class="ac-sum mt-3" id="acSum" aria-live="polite"></div>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save &amp; send to routers</button></div>
+</form></div></div>
+<script>
+(function(){
+  var m=document.getElementById('acModal'),f=m.querySelector('form');
+  var NAMES={};f.querySelectorAll('input[name=services]').forEach(function(i){NAMES[i.value]=i.dataset.name;});
+  function val(n){var e=f.querySelector('input[name='+n+']:checked');return e?e.value:'';}
+  function all(n){return [].map.call(f.querySelectorAll('input[name='+n+']:checked'),function(i){return i.value;});}
+  function upd(){
+    var act=val('action'),when=val('when'),span=val('span');
+    document.getElementById('acSpeed').hidden=act!=='slow';document.getElementById('acHours').hidden=when!=='window';
+    document.getElementById('acDays').hidden=!(when==='always'||when==='window');document.getElementById('acPeriod').hidden=span!=='period';
+    document.getElementById('acQuic').hidden=act==='allow';var pw=document.getElementById('acPeakWarn');if(pw)pw.hidden=!(when==='peak'||when==='offpeak');
+    var svc=all('services').map(function(k){return NAMES[k];}),cus=f.custom_domains.value.trim().split(/[\s,;]+/).filter(Boolean),what=svc.concat(cus);
+    var verb={block:'Block',slow:'Slow down',allow:'Always allow'}[act];
+    var w={always:'all day',window:(f.from_time.value&&f.to_time.value)?'from '+f.from_time.value+' to '+f.to_time.value:'between set hours',peak:'in peak hours',offpeak:'in off-peak hours'}[when];
+    var d=all('days');if(d.length&&(when==='always'||when==='window'))w+=' on '+d.map(function(x){return x[0].toUpperCase()+x.slice(1);}).join(', ');
+    var how={permanent:'permanently','30m':'for 30 minutes','1h':'for 1 hour','3h':'for 3 hours',today:'until midnight','1d':'for 1 day','1w':'for 1 week',period:'for the dates you set',keep:'as before'}[span];
+    var rt=all('routers').length?all('routers').length+' router(s)':'all routers';
+    document.getElementById('acSum').innerHTML=what.length?'<b>'+verb+'</b> '+what.slice(0,5).join(', ')+(what.length>5?' +'+(what.length-5):'')+(act==='slow'?' to <b>'+f.down_mbps.value+' Mb/s</b> per device':'')+
+      ' for '+(val('scope')==='customers'?'logged-in customers':'everyone')+' on '+rt+', <b>'+w+'</b>, '+how+'.':'<span class="text-secondary">Pick at least one app or type a site.</span>';
+  }
+  f.addEventListener('change',upd);f.addEventListener('input',upd);
+  m.addEventListener('show.bs.modal',function(e){var b=e.relatedTarget;f.reset();f.id.value='';document.getElementById('acTitle').textContent='New rule';document.getElementById('acKeep').hidden=true;
+    if(b&&b.dataset.rule){var r=JSON.parse(b.dataset.rule);document.getElementById('acTitle').textContent='Edit rule';f.id.value=r.id;f.name.value=r.name;
+      f.querySelectorAll('input[name=services]').forEach(function(i){i.checked=r.services.indexOf(i.value)>=0;});f.custom_domains.value=r.custom;
+      f.querySelector('input[name=action][value='+r.action+']').checked=true;f.down_mbps.value=r.down;f.up_mbps.value=r.up;
+      f.querySelector('input[name=when][value='+r.when+']').checked=true;f.from_time.value=r.from;f.to_time.value=r.to;
+      f.querySelectorAll('input[name=days]').forEach(function(i){i.checked=r.days.indexOf(i.value)>=0;});
+      f.querySelector('input[name=scope][value='+r.scope+']').checked=true;f.block_quic.checked=r.quic;f.enabled.checked=r.enabled;
+      f.querySelectorAll('input[name=routers]').forEach(function(i){i.checked=r.routers.indexOf(+i.value)>=0;});
+      if(r.ends){document.getElementById('acKeep').hidden=false;f.querySelector('input[name=span][value=period]').checked=true;f.starts_at.value=r.starts;f.ends_at.value=r.ends;}}
+    upd();});
+})();
+</script>
+{% endblock %}
