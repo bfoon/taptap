@@ -159,3 +159,13 @@ def push_vouchers_task(router_id, voucher_ids):
     router = Router.objects.filter(pk=router_id).first()
     if router:
         return push_now(router, voucher_ids)
+
+
+@shared_task(ignore_result=True)
+def forget_mac_task(voucher_id, mac):
+    """Remove a locked phone's old MAC (session + cookie) from the router after it changed MAC."""
+    from .device_lock import forget_mac_now
+    from .models import Voucher
+    v = Voucher.objects.filter(pk=voucher_id).select_related('router').first()
+    if v and v.router_id:
+        forget_mac_now(v, mac)

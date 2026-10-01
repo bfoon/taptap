@@ -82,8 +82,12 @@ class DeviceLockTests(TestCase):
             def remove(s, id): removed.append(id)
         class Svc:
             def resource(s, p): return Res()
-        n = dl.enforce_sessions(r, [(self.one, {'id': '*7', 'mac-address': 'AA:BB:CC:DD:EE:02'}),
-                                    (self.one, {'id': '*8', 'mac-address': 'AA:BB:CC:DD:EE:01'})], svc=Svc())
+        # Both devices in use at the same time (data moving): kicked on the second reading in a row, not the first.
+        def rows(b):
+            return [(self.one, {'id': '*7', 'mac-address': 'AA:BB:CC:DD:EE:02', 'bytes-in': b, 'bytes-out': 0}),
+                    (self.one, {'id': '*8', 'mac-address': 'AA:BB:CC:DD:EE:01', 'bytes-in': b, 'bytes-out': 0})]
+        self.assertEqual(dl.enforce_sessions(r, rows(10_000), svc=Svc()), 0)
+        n = dl.enforce_sessions(r, rows(500_000), svc=Svc())
         self.assertEqual(n, 1); self.assertIn('*7', removed)
 
     def test_sticky_router_settings(self):

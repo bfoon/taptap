@@ -148,8 +148,9 @@ def voucher_set_profile(request, pk):
         if not plan:
             messages.error(request, 'That plan does not exist any more.'); return redirect('voucher_detail', pk=pk)
         v.plan_name, v.router_profile = plan.name, ''
-        if not v.used_at:
-            v.max_devices = plan.max_devices
+        if not v.used_at and not v.expires_at:
+            # not started yet: it takes the plan's devices and length too
+            v.max_devices, v.duration_minutes = plan.max_devices, plan.duration_minutes
         after = f'plan {plan.name} ({plan.mikrotik_profile_name or plan.name})'
     elif choice.startswith('router:'):
         name = choice[7:].strip()[:120]
@@ -160,8 +161,34 @@ def voucher_set_profile(request, pk):
     else:
         v.router_profile = ''
         after = '(from plan)'
-    v.save(update_fields=['plan_name', 'router_profile', 'max_devices'])
-    record(v, 'note', user=request.user, text=f'Router profile changed: {before} → {after}')
+    # Only the profile changes: used_at / expires_at are never touched, and the router user is updated in
+    # place ("set"), so a voucher in use keeps the time it already used — the clock does not restart.
+    v.save(update_fields=['plan_name', 'router_profile', 'max_devices', 'duration_minutes'])
+    in_use = bool(v.used_at or v.expires_at)
+    record(v, 'note', user=request.user, text=f'Router profile changed: {before} → {after}' + (' (in use — time already used kept)' if in_use else ''))
     msgs = push_vouchers([v], request.user)
-    messages.success(request, f'{v.code} now uses {after} on the router.' + (' ' + ' '.join(msgs.values()) if msgs else ''))
+    messages.success(request, f'{v.code} now uses {after} on the router.' + (' Its clock keeps running from where it was.' if in_use else '')
+                     + (' ' + ' '.join(msgs.values()) if msgs else ''))
+    return redirect('voucher_detail', pk=pk)
+
+
+@login_required
+@require_POST
+def voucher_archive_now(request, pk):
+    """Archive an expired voucher now: removed from its router, kept in TapTap (history, sale).
+    The fix for an expired voucher whose router profile no longer exists — nothing to send any more."""
+    from .voucher_history import record, time_is_up
+    business = _b(request)
+    v = get_object_or_404(business.vouchers.select_related('router'), pk=pk)
+    if not (v.status == 'expired' or time_is_up(v)):
+        messages.error(request, f'{v.code} still has time. Change its profile instead — the clock keeps running.')
+        return redirect('voucher_detail', pk=pk)
+    msg = 'No router copy.'
+    if v.router_id:
+        from .voucher_bin import remove_from_router
+        ok, msg = remove_from_router(v.router, [v], user=request.user)
+    from .models import Voucher
+    Voucher.objects.filter(pk=v.pk).update(status='archived', mikrotik_sync_status='Synced', mikrotik_sync_error='')
+    record(v, 'archived', user=request.user, reason='Archived by hand', status_before=v.status, status_after='archived', router_result=msg)
+    messages.success(request, f'{v.code} archived — off the router, kept in TapTap. {msg}')
     return redirect('voucher_detail', pk=pk)

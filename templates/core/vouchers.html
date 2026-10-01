@@ -321,6 +321,10 @@
                 {% if v.freeze_kind == 'warning' %}Warned{% else %}Frozen{% endif %}
               </span>
 
+            {% elif v.status == 'archived' %}
+
+              <span class="badge text-bg-light border" title="Removed from the router, kept in TapTap"><i class="bi bi-archive"></i> Archived</span>
+
             {% elif v.status != 'active' %}
 
               <span class="badge text-bg-secondary">

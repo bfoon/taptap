@@ -49,6 +49,8 @@ def display_state(voucher, now=None):
     now = now or timezone.now()
     if getattr(voucher, 'frozen_at', None):
         return ('warned', 'Warning — internet paused') if voucher.freeze_kind == 'warning' else ('frozen', 'Frozen')
+    if voucher.status == 'archived':
+        return 'archived', 'Archived — off the router'
     if voucher.status == 'disabled':
         return 'disabled', 'Disabled'
     if voucher.status == 'expired' or time_is_up(voucher, now):

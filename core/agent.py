@@ -357,9 +357,11 @@ def command_body(cmd):
             # Members carry their own password ("pw"); it is set on add AND on update, so a changed
             # password reaches the router. Vouchers keep password = code and never touch it on update.
             pw_set = f' password={rs(u["pw"])}' if u.get('pw') else ''
-            lines.append(f':if ([:len [/ip hotspot user find name={rs(u["n"])}]] = 0) do={{ /ip hotspot user add name={rs(u["n"])} password={rs(u.get("pw") or u["n"])} '
+            # Each user on its own: one bad voucher (e.g. a profile the router does not have) must not stop the
+            # rest of the batch. An existing user is updated in place ("set"), so its used time is kept.
+            lines.append(f':do {{ :if ([:len [/ip hotspot user find name={rs(u["n"])}]] = 0) do={{ /ip hotspot user add name={rs(u["n"])} password={rs(u.get("pw") or u["n"])} '
                          f'profile={rs(u["prof"])} comment={rs(u.get("c", "TapTap voucher"))}{extra} }} else={{ /ip hotspot user set [find name={rs(u["n"])}] '
-                         f'profile={rs(u["prof"])}{pw_set}{extra} }}')
+                         f'profile={rs(u["prof"])}{pw_set}{extra} }} }} on-error={{ :log warning ("TapTap: could not save " . {rs(u["n"])} . " with profile " . {rs(u["prof"])}) }}')
         return '; '.join(lines) or ':nothing'
     if k == 'hotspot_users_limit':
         # Plan time for router-made users (core/plan_limits.py): sets limit-uptime only, never creates a user.
@@ -601,7 +603,8 @@ def push_pending_vouchers(router, limit=25):
     from .sync import voucher_profile
     if AgentCommand.objects.filter(router=router, kind='hotspot_users', status__in=['queued', 'sent']).exists():
         return 0
-    todo = list(router.vouchers.filter(source='taptap').exclude(mikrotik_sync_status__in=['Synced', 'Queued'])[:limit])
+    todo = list(router.vouchers.filter(source='taptap').exclude(mikrotik_sync_status__in=['Synced', 'Queued'])
+                .exclude(status__in=['expired', 'archived'])[:limit])   # vouchers that are over are never re-sent
     if not todo:
         return 0
     users, profiles = [], {}

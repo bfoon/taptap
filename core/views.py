@@ -120,7 +120,8 @@ def vouchers(request):
     if state=='unsold': qs=qs.filter(status='active',sold_at__isnull=True,used_at__isnull=True)
     elif state=='sold': qs=qs.filter(sold_at__isnull=False,used_at__isnull=True)
     elif state=='used': qs=qs.filter(used_at__isnull=False)
-    elif state=='disabled': qs=qs.exclude(status='active').filter(frozen_at__isnull=True)
+    elif state=='disabled': qs=qs.exclude(status__in=['active','archived']).filter(frozen_at__isnull=True)
+    elif state=='archived': qs=qs.filter(status='archived')
     elif state=='frozen': qs=qs.filter(frozen_at__isnull=False)
     if plan: qs=qs.filter(plan_name=plan)
     holder=request.GET.get('holder','')
@@ -129,10 +130,10 @@ def vouchers(request):
     elif holder.isdigit(): qs=qs.filter(agent_id=holder)
     if q: qs=qs.filter(code_search_q(q,'code',('batch__name','customer_name','customer_phone','serial'),also_codes=('code_aliases__code',))).distinct()
     counts=business.vouchers.aggregate(all=Count('id'),unsold=Count('id',filter=Q(status='active',sold_at__isnull=True,used_at__isnull=True)),
-        sold=Count('id',filter=Q(sold_at__isnull=False,used_at__isnull=True)),used=Count('id',filter=Q(used_at__isnull=False)),disabled=Count('id',filter=~Q(status='active')&Q(frozen_at__isnull=True)),
-        frozen=Count('id',filter=Q(frozen_at__isnull=False)))
+        sold=Count('id',filter=Q(sold_at__isnull=False,used_at__isnull=True)),used=Count('id',filter=Q(used_at__isnull=False)),disabled=Count('id',filter=~Q(status__in=['active','archived'])&Q(frozen_at__isnull=True)),
+        frozen=Count('id',filter=Q(frozen_at__isnull=False)),archived=Count('id',filter=Q(status='archived')))
     params=request.GET.copy();params.pop('page',None)
-    state_tabs=[('','All',counts['all']),('unsold','In stock',counts['unsold']),('sold','Sold, not used',counts['sold']),('used','Used',counts['used']),('frozen','Frozen / warned',counts['frozen']),('disabled','Disabled / expired',counts['disabled'])]
+    state_tabs=[('','All',counts['all']),('unsold','In stock',counts['unsold']),('sold','Sold, not used',counts['sold']),('used','Used',counts['used']),('frozen','Frozen / warned',counts['frozen']),('disabled','Disabled / expired',counts['disabled']),('archived','Archived',counts['archived'])]
     return render(request,'core/vouchers.html',{'page_obj':Paginator(qs,100).get_page(request.GET.get('page')),'counts':counts,'state_tabs':state_tabs,'state':state,'plan':plan,'q':q,
         'plans':business.vouchers.exclude(plan_name__startswith='*').exclude(plan_name='').values_list('plan_name',flat=True).distinct().order_by('plan_name'),
         'agents':business.agents.filter(active=True),'all_agents':business.agents.all(),'holder':holder,

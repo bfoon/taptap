@@ -166,9 +166,12 @@ class SharingTests(Base):
         self.assertEqual(out.status, 'denied')
 
     def test_live_pass_kicks_the_second_phone_only(self):
-        rows = [(self.v, {'mac-address': 'AA:BB:CC:00:00:01', 'id': '*1'}), (self.v, {'mac-address': 'DA:99:99:99:99:99', 'id': '*2'})]
+        # Both phones moving data at the same time: the second one is disconnected on the second reading in a row.
+        def rows(b):
+            return [(self.v, {'mac-address': 'AA:BB:CC:00:00:01', 'id': '*1', 'bytes-in': b}), (self.v, {'mac-address': 'DA:99:99:99:99:99', 'id': '*2', 'bytes-in': b})]
         with mock.patch('core.device_lock.kick', return_value=True) as k, mock.patch('core.device_lock._router_mac'):
-            self.assertEqual(device_lock.enforce_sessions(self.r, rows), 1)
+            self.assertEqual(device_lock.enforce_sessions(self.r, rows(10_000)), 0)
+            self.assertEqual(device_lock.enforce_sessions(self.r, rows(600_000)), 1)
         self.assertEqual(k.call_args.args[2], 'DA:99:99:99:99:99')
         self.assertEqual(VoucherDeviceBinding.objects.get(voucher=self.v).current_mac, 'AA:BB:CC:00:00:01')
 

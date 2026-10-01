@@ -26,7 +26,7 @@ def push_now(router, voucher_ids):
     from .mikrotik import MikroTikService
     from .models import Voucher
     from .sync import voucher_profile
-    vouchers = list(Voucher.objects.filter(pk__in=voucher_ids, router=router, source='taptap').select_related('router'))
+    vouchers = list(Voucher.objects.filter(pk__in=voucher_ids, router=router, source='taptap').exclude(status__in=['expired', 'archived']).select_related('router'))
     if not vouchers:
         return 0, 0
     plans = {p.name: p for p in router.business.plans.all()}
@@ -62,7 +62,7 @@ def push_vouchers(vouchers, user=None):
     from .models import Voucher
     by_router = {}
     for v in vouchers:
-        if v.router_id and v.source == 'taptap':
+        if v.router_id and v.source == 'taptap' and v.status not in ('expired', 'archived'):
             by_router.setdefault(v.router, []).append(v.pk)
     out = {}
     for router, ids in by_router.items():

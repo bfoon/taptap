@@ -104,3 +104,60 @@ class ProfileChangeTests(Base):
             self.c.post(f'/vouchers/{v.pk}/profile/', {'profile': f'plan:{self.plan.pk}'})
         v.refresh_from_db()
         self.assertEqual((v.plan_name, v.router_profile, voucher_profile(v, self.plan)[0]), ('1 Day', '', 'daily'))
+
+
+class ProfileClockTests(Base):
+    def test_in_use_voucher_keeps_its_clock(self):
+        started = timezone.now() - timedelta(hours=5)
+        v = Voucher.objects.create(business=self.b, router=self.api, code='USE00001', plan_name='Ghost', duration_minutes=1440, used_at=started)
+        week = VoucherPlan.objects.create(business=self.b, name='1 Week', price=100, duration_minutes=10080, mikrotik_profile_name='weekly')
+        with mock.patch('core.tasks.push_vouchers_task.delay'):
+            self.c.post(f'/vouchers/{v.pk}/profile/', {'profile': f'plan:{week.pk}'})
+        v.refresh_from_db()
+        self.assertEqual((v.used_at, v.duration_minutes, v.plan_name), (started, 1440, '1 Week'))   # not reset, not lengthened
+        from .durations import router_limit
+        self.assertEqual(router_limit(v, week), '1d')                                              # router keeps the voucher's own time
+
+    def test_unused_voucher_takes_the_plan_length(self):
+        v = Voucher.objects.create(business=self.b, router=self.api, code='NEW00001', plan_name='Ghost', duration_minutes=60)
+        with mock.patch('core.tasks.push_vouchers_task.delay'):
+            self.c.post(f'/vouchers/{v.pk}/profile/', {'profile': f'plan:{self.plan.pk}'})
+        v.refresh_from_db(); self.assertEqual(v.duration_minutes, 1440)
+
+    def test_expired_voucher_is_archived_not_resent(self):
+        v = Voucher.objects.create(business=self.b, router=self.link, code='OLD00001', plan_name='Ghost', duration_minutes=60,
+                                   used_at=timezone.now() - timedelta(days=2), status='expired', mikrotik_sync_status='Pending',
+                                   mikrotik_sync_error='failure: input does not match any value of profile')
+        from .agent import push_pending_vouchers
+        with mock.patch('core.agent.queue') as q:
+            push_pending_vouchers(self.link)
+            self.assertFalse(q.called)                                      # never re-sent
+        self.assertContains(self.c.get(f'/vouchers/{v.pk}/'), 'Archive it')
+        with mock.patch('core.linkops.send'):
+            self.c.post(f'/vouchers/{v.pk}/archive/')
+        v.refresh_from_db(); self.assertEqual(v.status, 'archived')
+        r = self.c.post(f'/vouchers/{Voucher.objects.create(business=self.b, code="LIVE0001", plan_name="x", duration_minutes=60, used_at=timezone.now()).pk}/archive/')
+        self.assertEqual(Voucher.objects.get(code='LIVE0001').status, 'active')
+
+    def test_one_bad_voucher_does_not_stop_the_batch(self):
+        from types import SimpleNamespace as S
+        from .agent import command_body
+        body = command_body(S(kind='hotspot_users', params={'profiles': [], 'users': [
+            {'n': 'AAA11111', 'prof': 'missing', 'lim': '1d'}, {'n': 'BBB22222', 'prof': 'daily', 'lim': '1d'}]}))
+        self.assertEqual(body.count('on-error='), 2)
+        self.assertIn('/ip hotspot user set [find name="AAA11111"]', body)
+
+
+class ArchivedShownTests(Base):
+    def test_archive_removes_from_router_and_shows_archived(self):
+        v = Voucher.objects.create(business=self.b, router=self.api, code='END00001', plan_name='1 Day', duration_minutes=60,
+                                   used_at=timezone.now() - timedelta(days=1), status='expired')
+        with mock.patch('core.voucher_bin.remove_from_router', return_value=(True, 'Removed from API.')) as rm:
+            self.c.post(f'/vouchers/{v.pk}/archive/')
+        self.assertEqual(rm.call_args.args[0], self.api)                        # deleted from the router
+        v.refresh_from_db(); self.assertEqual(v.status, 'archived')
+        page = self.c.get(f'/vouchers/{v.pk}/')
+        self.assertContains(page, 'Archived — off the router'); self.assertContains(page, 'All archived vouchers')
+        lst = self.c.get('/vouchers/?state=archived')
+        self.assertContains(lst, 'END00001'); self.assertContains(lst, 'Archived')
+        self.assertNotContains(self.c.get('/vouchers/?state=disabled'), 'END00001')

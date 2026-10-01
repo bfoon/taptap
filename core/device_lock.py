@@ -9,8 +9,11 @@
   on, disconnected by live sync at once.
 * Only a person with voucher-support rights (owner, admin, voucher support) can free the
   slots, with "Reset devices" on the voucher.
-* One-device vouchers are also locked on the router itself (the hotspot user's mac-address),
-  so the router refuses other devices even when TapTap cannot be reached.
+* The router itself is NOT pinned to a MAC any more (that refused phones that changed address
+  before TapTap could follow); TapTap enforces the lock.
+* **Ghost sessions:** a session that moved no data for LIVE_SECONDS is treated as gone — so a
+  phone that returns with a new random MAC is never kicked because of its own old session, and
+  a device is only disconnected when it is in use at the same time as the locked one.
 * **MAC changes without the portal** (auto-login by MAC cookie, a router-served page, a phone that
   rotates its private address): when every slot is taken and an unknown MAC logs in, TapTap checks
   whether it is one of the locked phones that just changed address. The slot moves to the new MAC
@@ -34,10 +37,39 @@ logger = logging.getLogger('taptap.devicelock')
 
 MAC_RE = re.compile(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$')
 ANY_MAC = '00:00:00:00:00:00'
-SWAP_PER_DAY = 3          # private-MAC changes allowed per voucher in 24 h without a matching host name
+SWAP_PER_DAY = 6          # private-MAC changes allowed per voucher in 24 h without a matching host name
+LIVE_BYTES = 3000         # a session must move at least this much data between readings to count as "in use"
+LIVE_SECONDS = 90         # …within this many seconds; a session silent for longer is a ghost (phone left / changed MAC)
+STRIKES_TO_KICK = 2       # a refused device is disconnected only when seen in use alongside the locked device twice in a row
 KICK_EVERY = 20           # seconds: a refused device is disconnected again at most this often
 GENERIC_HOSTS = {'', 'android', 'iphone', 'ipad', 'localhost', 'unknown', 'espressif', 'esp32', 'galaxy', 'samsung',
                  'android-phone', 'phone', 'mobile', 'laptop', 'desktop', 'pc'}
+
+
+# ─────────────────────── liveness: is a session really in use, or a ghost? ───────────────────────
+# Sticky sessions keep a phone's session on the router for a while after the phone left. When the phone
+# comes back with a new (random) MAC, the old session is still listed — and used to make TapTap think two
+# devices were on the voucher, so the returning phone was kicked. TapTap now watches each session's data:
+# a session that moved no data for LIVE_SECONDS is a ghost, not a device in use.
+
+def note_activity(router_id, mac, total_bytes, now_ts):
+    key = f'lock:act:{router_id}:{mac}'
+    rec = cache.get(key)
+    total = int(total_bytes or 0)
+    if not rec or total < rec['b'] or total - rec['b'] >= LIVE_BYTES:
+        rec = {'b': total, 't': now_ts, 'seen': now_ts}        # first sight, new session or real traffic
+    else:
+        rec['seen'] = now_ts
+    cache.set(key, rec, 3600)
+    return rec
+
+
+def is_live(router_id, mac, now_ts=None):
+    """True when this MAC moved data recently (a device actually in use)."""
+    import time as _t
+    now_ts = now_ts or _t.time()
+    rec = cache.get(f'lock:act:{router_id}:{norm_mac(mac)}')
+    return bool(rec) and now_ts - rec['t'] <= LIVE_SECONDS and now_ts - rec['seen'] <= 3 * LIVE_SECONDS
 
 
 def is_private_mac(mac):
@@ -162,13 +194,17 @@ def claim(voucher, mac='', fp='', source='portal', label='', hints=None):
             hit.last_seen_at = timezone.now(); changed.append('last_seen_at')
             hit.save(update_fields=changed)
             return Outcome(status, hit)
-        if len(rows) >= slots(voucher) and mac and not fp:
-            # No portal device ID: is this a locked phone that changed its MAC? (see module notes)
+        if len(rows) >= slots(voucher) and mac:
+            # Unknown MAC (and no matching device ID — e.g. the phone's captive-portal window, which keeps
+            # its own storage): is this a locked phone that changed its MAC? (see module notes)
             same, why = _same_phone(voucher, rows, mac, hints)
             if same is not None:
                 old = same.current_mac
                 same.previous_mac, same.current_mac, same.last_seen_at = old, mac, timezone.now()
-                same.save(update_fields=['previous_mac', 'current_mac', 'last_seen_at'])
+                fields = ['previous_mac', 'current_mac', 'last_seen_at']
+                if fp:
+                    same.device_token_hash = fp; fields.append('device_token_hash')
+                same.save(update_fields=fields)
                 moved = same
             else:
                 moved = None
@@ -244,6 +280,20 @@ def _forget_mac(voucher, mac):
             from .linkops import send
             send(router, 'hotspot_kick', {'user': voucher.code, 'mac': mac}, label=f'Forget old MAC of {voucher.code}', minutes=15)
             return
+        try:            # in the background: a live pass or a login page must never wait on a router
+            from .tasks import forget_mac_task
+            forget_mac_task.delay(voucher.pk, mac)
+            return
+        except Exception:
+            pass
+        forget_mac_now(voucher, mac)
+    except Exception as exc:
+        logger.info('forget old MAC %s of %s: %s', mac, voucher.code, exc)
+
+
+def forget_mac_now(voucher, mac):
+    router = voucher.router
+    try:
         from .mikrotik import MikroTikService
         svc = MikroTikService(router).connect()
         try:
@@ -303,17 +353,47 @@ def kick(router, voucher, mac, session_id='', svc=None, quiet=False):
 
 
 def enforce_sessions(router, voucher_rows, svc=None):
-    """Live sync: lock new devices and disconnect foreign ones. voucher_rows = [(voucher, session_row)]."""
+    """Live sync: lock new devices, follow phones that changed MAC, disconnect real extra devices.
+    voucher_rows = [(voucher, session_row)].
+
+    * Every session's data is watched: one that moved nothing for LIVE_SECONDS is a ghost.
+    * Ghosts never count as "a device in use", so a returning phone with a new MAC takes over its slot
+      (and the ghost is removed from the router so it does not block the login).
+    * A refused device is disconnected only when it is in use at the same time as the locked device on
+      STRIKES_TO_KICK readings in a row — a phone switching MAC is never caught mid-switch."""
+    import time as _t
+    now_ts = _t.time()
     kicked = 0
-    online = {}
-    for v, s in voucher_rows:     # every MAC online on each voucher right now
-        online.setdefault(v.pk, set()).add(norm_mac(s.get('mac-address')))
+    live, ghosts = {}, {}
+    for v, s in voucher_rows:
+        mac = norm_mac(s.get('mac-address'))
+        if not mac:
+            continue
+        note_activity(router.pk, mac, int(s.get('bytes-in') or 0) + int(s.get('bytes-out') or 0), now_ts)
+    for v, s in voucher_rows:
+        mac = norm_mac(s.get('mac-address'))
+        if mac:
+            (live if is_live(router.pk, mac, now_ts) else ghosts).setdefault(v.pk, set()).add(mac)
     for v, s in voucher_rows:
         mac = norm_mac(s.get('mac-address'))
         if not mac or not enabled(v) or v.frozen_at or v.status != 'active':
             continue
-        out = claim(v, mac=mac, source='router', hints={'online_macs': online.get(v.pk, set()) - {mac}, 'router_id': router.pk})
-        if out.status == 'denied' and kick(router, v, mac, str(s.get('id', '')), svc=svc):
+        if mac in ghosts.get(v.pk, set()):
+            continue          # a ghost is not a device in use: it must not take (or take back) a slot
+        out = claim(v, mac=mac, source='router', hints={'online_macs': live.get(v.pk, set()) - {mac}, 'router_id': router.pk})
+        if out.status == 'moved':
+            continue          # claim() already removed the ghost's session and cookie (_forget_mac)
+        if out.status != 'denied':
+            cache.delete(f'lock:strike:{v.pk}:{mac}')
+            continue
+        locked_live = {norm_mac(m) for m in v.device_bindings.values_list('current_mac', flat=True)} & live.get(v.pk, set())
+        if not is_live(router.pk, mac, now_ts) or not locked_live:
+            continue          # not two devices in use at once (a ghost, or the locked phone is away): wait
+        key = f'lock:strike:{v.pk}:{mac}'
+        strikes = (cache.get(key) or 0) + 1
+        cache.set(key, strikes, 300)
+        if strikes >= STRIKES_TO_KICK and kick(router, v, mac, str(s.get('id', '')), svc=svc):
+            cache.delete(key)
             kicked += 1
     return kicked
 
@@ -336,7 +416,10 @@ def online_hints(voucher):
     if not snap:
         return None
     rows = (snap.get('users') or {}).get(voucher.code.upper(), [])
-    return {'online_macs': [r.get('mac') for r in rows if r.get('mac')], 'router_id': voucher.router_id}
+    # a session that moved no data in the last reading is a ghost (the phone left or changed MAC)
+    live = [r.get('mac') for r in rows if r.get('mac') and (is_live(voucher.router_id, r.get('mac'))
+                                                          or (r.get('down_bps') or 0) + (r.get('up_bps') or 0) > 2000)]
+    return {'online_macs': live, 'router_id': voucher.router_id}
 
 
 def release_stale(voucher, mac):

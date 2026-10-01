@@ -6,7 +6,7 @@
 .vd-code{font-size:1.6rem;font-weight:800;letter-spacing:.06em}
 .vd-state{display:inline-flex;align-items:center;gap:.4rem;border-radius:999px;padding:.3rem .8rem;font-weight:700;font-size:.8rem}
 .vd-state.stock{background:#e6f6ee;color:#127a4d}.vd-state.sold{background:#fff4dc;color:#8a5a00}.vd-state.used{background:#e5f3fb;color:#0b6690}
-.vd-state.disabled{background:#fdeaea;color:#a12b2b}.vd-state.expired{background:#eef1f5;color:#56687a}
+.vd-state.disabled{background:#fdeaea;color:#a12b2b}.vd-state.archived{background:#eef1f5;color:#3b4b5c}.vd-state.expired{background:#eef1f5;color:#56687a}
 .vd-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.6rem}
 .vd-grid div{border:1px solid #e3e9f1;border-radius:12px;padding:.55rem .75rem}
 .vd-grid span{display:block;font-size:.72rem;color:#51667b}.vd-grid b{font-size:.92rem;word-break:break-word}
@@ -34,6 +34,8 @@
     <div class="d-flex flex-wrap gap-2">
       {% if v.deleted_at %}
       <a class="btn btn-outline-secondary" href="{% url 'voucher_bin' %}"><i class="bi bi-trash3"></i> Open the bin</a>
+      {% elif v.status == 'archived' %}
+      <a class="btn btn-outline-secondary" href="{% url 'vouchers' %}?state=archived"><i class="bi bi-archive"></i> All archived vouchers</a>
       {% else %}
       {% if v.frozen_at %}
         {% if 'vouchers.support' in tt_perms %}<button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#freezeModal"><i class="bi bi-play-circle"></i> Unfreeze</button>{% endif %}
@@ -68,6 +70,9 @@
       {% endif %}
     </div>
   </div>
+  {% if v.status == 'archived' %}
+  <div class="alert alert-secondary mt-3 mb-0 d-flex gap-2"><i class="bi bi-archive mt-1"></i><div><b>Archived.</b> This voucher is finished: it was removed from {{ v.router.name|default:"the router" }}{% if v.router_removal == 'queued' %} (queued — applied at the router's next check-in){% elif v.router_removal == 'failed' %} (the router did not answer yet — TapTap retries){% endif %} and is kept in TapTap with its sale and full history.</div></div>
+  {% endif %}
   {% if v.frozen_at %}
   <div class="alert {% if v.freeze_kind == 'warning' %}alert-warning{% else %}alert-info{% endif %} mt-3 mb-0 d-flex gap-2"><i class="bi {% if v.freeze_kind == 'warning' %}bi-exclamation-octagon{% else %}bi-snow{% endif %} mt-1"></i><div>
     <b>{% if v.freeze_kind == 'warning' %}Warning sent{% else %}Frozen{% endif %} {{ v.frozen_at|date:'d M Y H:i' }}{% if v.frozen_by %} by {% firstof v.frozen_by.get_full_name v.frozen_by.username %}{% elif v.freeze_kind == 'warning' %} automatically{% endif %}.</b>
@@ -175,7 +180,12 @@
         <div><span>Router</span><b>{{ v.router.name|default:'—' }}</b></div>
         <div><span>Sync</span><b>{{ v.mikrotik_sync_status }}</b></div>
         {% if v.mikrotik_sync_error %}<div style="grid-column:1/-1"><span>Sync error</span><b class="text-danger">{{ v.mikrotik_sync_error }}</b>
-          {% if 'profile' in v.mikrotik_sync_error|lower and 'vouchers.support' in tt_perms %}<small class="d-block">The router does not have the profile <code>{{ profile_now }}</code>. <a href="#" data-bs-toggle="modal" data-bs-target="#profileModal">Choose another profile</a> — TapTap sends the voucher again at once.</small>{% endif %}</div>{% endif %}
+          {% if 'profile' in v.mikrotik_sync_error|lower and 'vouchers.support' in tt_perms %}
+            {% if v.status == 'expired' or time_is_up %}<small class="d-block">This voucher has ended and the router does not have its profile <code>{{ profile_now }}</code> — there is nothing left to send.
+              <form method="post" action="{% url 'voucher_archive_now' v.id %}" class="d-inline">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary py-0">Archive it</button></form> <span class="text-secondary">(off the router, kept in TapTap)</span></small>
+            {% else %}<small class="d-block">The router does not have the profile <code>{{ profile_now }}</code>. <a href="#" data-bs-toggle="modal" data-bs-target="#profileModal">Choose another profile</a> —
+              TapTap sends the voucher again at once{% if v.used_at %}; it is in use, so it keeps the time it already used (the clock does not restart){% endif %}.</small>{% endif %}
+          {% endif %}</div>{% endif %}
         {% if mirror %}
           <div><span>On the router</span><b>{% if mirror.disabled %}Disabled{% else %}Enabled{% endif %}{% if not mirror.is_present %} · not found at last sync{% endif %}</b></div>
           <div><span>Profile</span><b>{{ mirror.profile }}</b></div>
@@ -355,7 +365,9 @@
       {% if router_profiles %}<optgroup label="Profiles on {{ v.router.name }}">{% for p in router_profiles %}<option value="router:{{ p.name }}" {% if v.router_profile == p.name %}selected{% endif %}>{{ p.name }} · {{ p.shared_users }} device{{ p.shared_users|pluralize }}{% if p.rate_limit %} · {{ p.rate_limit }}{% endif %}</option>{% endfor %}</optgroup>
       {% else %}<optgroup label="Profiles on {{ v.router.name }}"><option disabled>Not read yet — press Sync on the router</option></optgroup>{% endif %}
     </select>
-    <small class="text-secondary d-block mt-2">Its time and sale do not change. TapTap sends the voucher to the router again straight away.</small>
+    {% if v.used_at or v.expires_at %}<div class="alert alert-info small py-2 mt-2 mb-0"><b>In use:</b> only the profile changes. The time already used is kept and the clock keeps running — it does not restart.{% if time_left %} About {{ time_left|duration_short }} left.{% endif %}</div>
+    {% else %}<small class="text-secondary d-block mt-2">Not used yet: choosing a plan also gives it that plan's length and devices. Its sale does not change.</small>{% endif %}
+    <small class="text-secondary d-block mt-1">TapTap updates the user on the router in place and sends it straight away.</small>
   </div>
   <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save &amp; send</button></div>
 </form></div></div>
