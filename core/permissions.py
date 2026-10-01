@@ -85,7 +85,7 @@ URL_PERMS = {
     'shared_resolve': 'vouchers.support', 'shared_settings': 'vouchers.manage', 'vouchers_delete': 'vouchers.manage', 'batch_delete': 'vouchers.manage',
     'voucher_bin': 'vouchers.view',
     'fup_new': 'network.manage', 'fup_edit': 'network.manage', 'fup_action': 'network.manage',
-    'fup_lift': ('vouchers.support', 'network.manage'), 'fup_slowed': ('vouchers.support', 'network.manage'),
+    'fup_lift': ('vouchers.support', 'network.manage'), 'fup_device': ('vouchers.support', 'network.manage'), 'fup_slowed': ('vouchers.support', 'network.manage'),
     'plans': 'plans.manage', 'plan_update': 'plans.manage', 'plan_delete': 'plans.manage',
     'router_profiles': ('plans.manage', 'network.manage'), 'router_profile_import': 'plans.manage',
     'reports': 'reports.view', 'reports_data': 'reports.view', 'reports_export': 'reports.view',

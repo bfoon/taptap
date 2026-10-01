@@ -11,6 +11,16 @@
 .steps{display:flex;gap:3px;margin-top:.35rem}.steps span{flex:1;height:6px;border-radius:3px;background:var(--surface-2,#eef2f6)}.steps span.on{background:#f59e0b}
 .dot{width:9px;height:9px;border-radius:50%;display:inline-block;background:#9aa8b6;margin-right:.3rem}.dot.on{background:#18a66a;box-shadow:0 0 0 3px #18a66a33}
 .sess{font-size:.78rem;color:#4e6479;margin-top:.6rem;border-top:1px dashed var(--border,#e3e9f1);padding-top:.5rem}.sess span{font-family:ui-monospace,monospace}
+.devs{margin-top:.8rem;border-top:1px dashed var(--border,#e3e9f1);padding-top:.6rem}
+.devs h4{font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#6b7c8f;margin:0 0 .4rem}
+.devs table{font-size:.86rem}.devs td{vertical-align:middle}
+.dname{font-weight:700;text-decoration:none}.dname:hover{text-decoration:underline}
+.dmac{display:block;font:500 .72rem ui-monospace,monospace;color:#8a9aab}
+.dbar{height:6px;border-radius:3px;background:var(--surface-2,#eef2f6);overflow:hidden;margin-top:.25rem;max-width:140px}.dbar i{display:block;height:100%;background:#3b82f6}
+.dbar i.slow{background:#f59e0b}
+.pill{display:inline-block;font-size:.68rem;font-weight:800;border-radius:99px;padding:.12rem .5rem;white-space:nowrap}
+.pill.slow{background:#fff4dc;color:#8a5a00}.pill.full{background:#e6f6ee;color:#127a4d}.pill.ex{background:#e0efff;color:#1a5fb4}.pill.blk{background:#fdeaea;color:#a12b2b}
+.dacts{display:flex;flex-wrap:wrap;gap:.25rem;justify-content:flex-end}.dacts form{margin:0}
 </style>{% endblock %}
 {% block content %}
 <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
@@ -33,7 +43,7 @@
 <div class="sl-card">
   <div class="sl-top">
     <div><span class="dot {% if r.online %}on{% endif %}" title="{% if r.online %}Online now{% else %}Not online{% endif %}"></span>
-      <a class="sl-code" href="{% url 'voucher_detail' v.id %}">{{ v.code }}</a>{% if r.device %} <span class="badge text-bg-light border" title="Only this device of the shared voucher is slowed"><i class="bi bi-phone"></i> {{ r.device }}</span>{% endif %}
+      <a class="sl-code" href="{% url 'voucher_detail' v.id %}">{{ v.code }}</a>{% if r.devices %} <span class="badge text-bg-light border" title="Each device is measured and slowed on its own"><i class="bi bi-phone"></i> Shared · {{ r.slowed_devices }} of {{ r.devices|length }} device{{ r.devices|length|pluralize }} slowed</span>{% endif %}{% if r.device %} <span class="badge text-bg-light border" title="Only this device of the shared voucher is slowed"><i class="bi bi-phone"></i> {{ r.device }}</span>{% endif %}
       <span class="text-secondary small ms-2">{{ v.plan_name }}{% if v.agent %} · {{ v.agent.name }}{% endif %}{% if v.router %} · {{ v.router.name }}{% endif %}</span></div>
     <div class="d-flex align-items-center gap-2">
       <span class="badge text-bg-warning">Step {{ r.tier }} of {{ r.steps }} · {{ r.policy.name }}</span>
@@ -47,12 +57,38 @@
     <div><small>Using now</small>{% if r.online %}<b>{{ r.down_now }}</b> <span class="text-secondary small">down</span> · {{ r.up_now }} up
       <div class="meter" title="{{ r.down_pct }}% of the cap"><i class="{% if r.down_pct >= 90 %}full{% elif r.down_pct >= 60 %}hot{% endif %}" style="width:{{ r.down_pct }}%"></i></div><em>{{ r.down_pct }}% of the cap in use</em>
       {% else %}<b class="text-secondary">Offline</b><em>The cap applies when it connects</em>{% endif %}</div>
-    <div><small>Data used</small><b>{{ r.used_gb|floatformat:2 }} GB</b><em>{{ r.policy.get_period_display }}</em></div>
+    <div><small>Data used{% if r.devices %} (heaviest device){% endif %}</small><b>{{ r.used_text }}</b><em>{{ r.policy.get_period_display }}</em></div>
     <div><small>Peak speed this period</small><b>{{ r.peak }}</b><em>fastest minute seen</em></div>
     <div><small>Next</small>{% if r.next %}<b>{{ r.next.gb }} GB</b><em>→ {{ r.next.down }}</em>{% else %}<b>Last step</b><em>no further slowing</em>{% endif %}</div>
     <div><small>Back to full speed</small><b>{% if r.resets_at %}{{ r.resets_at|date:'d M H:i' }}{% else %}When it ends{% endif %}</b><em>slowed since {{ r.since|date:'d M H:i'|default:'—' }}</em></div>
   </div>
-  {% if r.sessions %}<div class="sess">{% for s in r.sessions %}<div><i class="bi bi-phone"></i> <span>{{ s.ip }}</span> · <span>{{ s.mac }}</span> · {{ s.router }} · ↓ {{ s.down }} ↑ {{ s.up }} · online {{ s.uptime }}</div>{% endfor %}</div>{% endif %}
+  {% if r.devices %}
+  <div class="devs"><h4>Devices on this voucher</h4>
+    <div class="table-responsive"><table class="table table-sm mb-0">
+      <thead><tr><th>Device</th><th>Data used</th><th>Speed</th><th>Now</th><th class="text-end">Actions</th></tr></thead><tbody>
+      {% for d in r.devices %}<tr>
+        <td>{% if d.url %}<a class="dname" href="{{ d.url }}" title="Open this device">{{ d.label }}</a>{% else %}<b>{{ d.label }}</b>{% endif %}
+          {% for m in d.macs %}<span class="dmac">{{ m }}</span>{% endfor %}</td>
+        <td><b>{{ d.used_text }}</b>{% if d.next_gb %}<small class="d-block text-secondary">next step at {{ d.next_gb }} GB</small>{% endif %}
+          <div class="dbar" aria-hidden="true"><i class="{% if d.tier %}slow{% endif %}" style="width:{% widthratio d.used r.devices.0.used 100 %}%"></i></div></td>
+        <td>{% if d.blocked %}<span class="pill blk">Blocked</span>
+          {% elif d.exempt %}<span class="pill ex">Exempt</span>
+          {% elif d.lifted_until %}<span class="pill full">Full speed</span><small class="d-block text-secondary">until {{ d.lifted_until|date:'d M H:i' }}</small>
+          {% elif d.tier %}<span class="pill slow">Step {{ d.tier }} · {{ d.cap }}</span><small class="d-block text-secondary">{{ d.cap_up }} up</small>
+          {% else %}<span class="pill full">Full speed</span>{% endif %}</td>
+        <td>{% if d.online %}<span class="dot on"></span>↓ {{ d.down_now }} <span class="text-secondary">↑ {{ d.up_now }}</span>{% else %}<span class="text-secondary">Offline</span>{% endif %}</td>
+        <td><div class="dacts">{% if can_lift %}
+          {% if d.tier and not d.exempt and not d.blocked %}<form method="post" action="{% url 'fup_device' v.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="device" value="{{ d.key }}"><input type="hidden" name="label" value="{{ d.label }}">
+            <button class="btn btn-sm btn-outline-primary" name="action" value="lift" title="Full speed for this device until the period resets"><i class="bi bi-lightning-charge"></i> Reset speed</button></form>{% endif %}
+          <form method="post" action="{% url 'fup_device' v.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="device" value="{{ d.key }}"><input type="hidden" name="label" value="{{ d.label }}">
+            {% if d.exempt %}<button class="btn btn-sm btn-outline-secondary" name="action" value="unexempt" title="Let fair usage slow this device again">Remove exemption</button>
+            {% else %}<button class="btn btn-sm btn-outline-secondary" name="action" value="exempt" title="Fair usage never slows this device"><i class="bi bi-shield-check"></i> Exempt</button>{% endif %}</form>
+          {% if d.macs %}<form method="post" action="{% url 'fup_device' v.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="device" value="{{ d.key }}"><input type="hidden" name="label" value="{{ d.label }}">
+            {% if d.blocked %}<button class="btn btn-sm btn-outline-success" name="action" value="unblock">Unblock</button>
+            {% else %}<button class="btn btn-sm btn-outline-danger" name="action" value="block" onclick="return confirm('Block {{ d.label|escapejs }} from the Wi-Fi? It is disconnected now and cannot connect again until you unblock it.')"><i class="bi bi-slash-circle"></i> Block</button>{% endif %}</form>{% endif %}
+        {% endif %}</div></td></tr>{% endfor %}
+      </tbody></table></div></div>
+  {% elif r.sessions %}<div class="sess">{% for s in r.sessions %}<div><i class="bi bi-phone"></i> <span>{{ s.ip }}</span> · <span>{{ s.mac }}</span> · {{ s.router }} · ↓ {{ s.down }} ↑ {{ s.up }} · online {{ s.uptime }}</div>{% endfor %}</div>{% endif %}
 </div>
 {% endwith %}{% empty %}
 <div class="panel text-center py-5"><i class="bi bi-speedometer2 fs-1 text-success"></i><h3 class="h5 mt-2">Nobody is slowed down right now</h3>

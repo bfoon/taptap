@@ -104,7 +104,7 @@ urlpatterns = [
     path('batches/<int:pk>/',vdetail.batch_detail,name='batch_detail'), path('plans/<int:pk>/',vdetail.plan_detail,name='plan_detail'),
     # Fair usage (data speed steps), managed from the Security Center
     path('security/fair-usage/slowed/',vfup.fup_slowed,name='fup_slowed'), path('security/fair-usage/new/',vfup.fup_edit,name='fup_new'), path('security/fair-usage/<int:pk>/',vfup.fup_edit,name='fup_edit'),
-    path('security/fair-usage/<int:pk>/action/',vfup.fup_action,name='fup_action'), path('vouchers/<int:pk>/fair-usage/',vfup.fup_lift,name='fup_lift'),
+    path('security/fair-usage/<int:pk>/action/',vfup.fup_action,name='fup_action'), path('vouchers/<int:pk>/fair-usage/',vfup.fup_lift,name='fup_lift'), path('vouchers/<int:pk>/fair-usage/device/',vfup.fup_device,name='fup_device'),
     # Support › Help Center guides
     path('support/guides/<slug:slug>/',vhelp.support_guide,name='support_guide'),
     # Members (username + password logins), agent cash-flow statements, batch receipts

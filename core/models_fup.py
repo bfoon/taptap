@@ -62,3 +62,17 @@ class FairUsageState(models.Model):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=['voucher', 'policy', 'device'], name='uniq_fup_state_device')]
+
+
+class FairUsageExemption(models.Model):
+    """A device of a shared voucher that fair usage never slows down, until staff remove the exemption.
+    ``device`` is the same key as ``FairUsageState.device``: the sticky-voucher slot ("slot1") or the MAC."""
+    voucher = models.ForeignKey('core.Voucher', on_delete=models.CASCADE, related_name='fup_exemptions')
+    device = models.CharField(max_length=40)
+    macs = models.JSONField(default=list, blank=True)
+    label = models.CharField(max_length=120, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['voucher', 'device'], name='uniq_fup_exempt_device')]

@@ -136,3 +136,41 @@ def fup_slowed(request):
         'rows': rows, 'online': sum(1 for r in rows if r['online']), 'policies': business.fair_usage_policies.filter(active=True),
         'policy': policy, 'can_lift': 'vouchers.support' in request.tt_perms or 'network.manage' in request.tt_perms,
     })
+
+
+@login_required
+@require_POST
+def fup_device(request, pk):
+    """Slowed page, one device of a shared voucher: exempt / reset its speed cap / block / unblock."""
+    from . import device_block
+    business = _b(request)
+    v = get_object_or_404(business.vouchers, pk=pk)
+    key = str(request.POST.get('device') or '')[:40]
+    action = request.POST.get('action')
+    _, label, macs = fu._device(v, key)
+    label = request.POST.get('label', '')[:120] or label
+    try:
+        if action == 'exempt':
+            fu.exempt_device(v, key, request.user)
+            messages.success(request, f'{label} is exempt: fair usage never slows it down (until you remove the exemption).')
+        elif action == 'unexempt':
+            fu.unexempt_device(v, key, request.user)
+            messages.success(request, f'Fair usage applies to {label} again.')
+        elif action == 'lift':
+            until = fu.lift_device(v, key, request.user)
+            if until:
+                messages.success(request, f'{label} has full speed until {timezone.localtime(until):%d %b %H:%M}. The other devices keep their cap. Applied at the next sync (seconds).')
+            else:
+                messages.info(request, 'No fair usage policy covers this voucher.')
+        elif action == 'block':
+            res = device_block.block(v, macs, label, request.user)
+            messages.success(request, f'{label} is blocked from the Wi-Fi — {res.lower()}.')
+        elif action == 'unblock':
+            n = device_block.unblock(v, macs, label, request.user)
+            (messages.success if n else messages.info)(request, f'{label} can use the Wi-Fi again.' if n else f'{label} was not blocked by TapTap.')
+        else:
+            messages.error(request, 'Unknown action.')
+    except ValueError as exc:
+        messages.error(request, str(exc))
+    nxt = request.POST.get('next', '')
+    return redirect(nxt if nxt.startswith('/') and not nxt.startswith('//') else 'fup_slowed')
