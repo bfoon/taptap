@@ -1,8 +1,11 @@
 from decimal import Decimal, InvalidOperation
+from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.shortcuts import get_object_or_404, redirect
+from django.db.models import Q
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .models import RouterDevice
@@ -11,7 +14,9 @@ from .traffic_speed import apply_business
 
 
 def _business(request):
-    return getattr(request, 'tt_business', None) or request.user.business
+    # TeamAccessMiddleware points request.user.business at the active business
+    # selected in the account switcher for this request.
+    return request.user.business
 
 
 def _positive_decimal(value, label):
@@ -53,6 +58,57 @@ def _auto_name(scope, plans=None, agents=None, devices=None):
 
 
 @login_required
+def speed_control(request):
+    business = _business(request)
+    since = timezone.now() - timedelta(days=30)
+
+    # IMPORTANT:
+    # Use business.plans directly here rather than relying on a template helper.
+    # Do not hide imported/router plans. If it belongs to this business and is
+    # active, it must be selectable.
+    plans = list(
+        business.plans
+        .filter(active=True)
+        .order_by('name', 'pk')
+    )
+
+    agents = list(
+        business.agents
+        .filter(active=True)
+        .order_by('name', 'pk')
+    )
+
+    devices = list(
+        RouterDevice.objects
+        .filter(router__business=business)
+        .filter(Q(is_online=True) | Q(last_seen_at__gte=since))
+        .select_related('router')
+        .order_by('-is_online', 'router__name', 'hostname', 'mac_address', 'pk')[:1000]
+    )
+
+    rules = list(
+        TrafficSpeedRule.objects
+        .filter(business=business)
+        .prefetch_related('plans', 'agents')
+        .order_by('-enabled', '-updated_at', '-pk')
+    )
+
+    return render(
+        request,
+        'core/speed_control.html',
+        {
+            'plans': plans,
+            'agents': agents,
+            'devices': devices,
+            'rules': rules,
+            'plan_count': len(plans),
+            'agent_count': len(agents),
+            'device_count': len(devices),
+        },
+    )
+
+
+@login_required
 @require_POST
 def speed_rule_save(request):
     business = _business(request)
@@ -61,14 +117,14 @@ def speed_rule_save(request):
 
     if scope not in {'all_plans', 'plans', 'agents', 'devices'}:
         messages.error(request, 'Choose what this speed limit applies to.')
-        return redirect('traffic')
+        return redirect('traffic_speed')
 
     try:
         down = _positive_decimal(post.get('down_mbps'), 'download')
         up = _positive_decimal(post.get('up_mbps'), 'upload')
     except ValueError as exc:
         messages.error(request, str(exc))
-        return redirect('traffic')
+        return redirect('traffic_speed')
 
     rule_id = (post.get('id') or '').strip()
 
@@ -93,39 +149,38 @@ def speed_rule_save(request):
         selected_plans = list(
             business.plans
             .filter(pk__in=ids, active=True)
-            .exclude(name__startswith='*')
-            .order_by('name')
+            .order_by('name', 'pk')
         )
 
         if not selected_plans:
             messages.error(request, 'Select at least one plan.')
-            return redirect('traffic')
+            return redirect('traffic_speed')
 
     elif scope == 'agents':
         ids = [x for x in post.getlist('agent_ids') if x.isdigit()]
         selected_agents = list(
             business.agents
             .filter(pk__in=ids, active=True)
-            .order_by('name')
+            .order_by('name', 'pk')
         )
 
         if not selected_agents:
             messages.error(request, 'Select at least one agent.')
-            return redirect('traffic')
+            return redirect('traffic_speed')
 
     elif scope == 'devices':
         ids = [int(x) for x in post.getlist('device_ids') if x.isdigit()]
-        devices = list(
+        device_rows = list(
             RouterDevice.objects
             .filter(
                 pk__in=ids,
                 router__business=business,
             )
             .select_related('router')
-            .order_by('router__name', 'hostname', 'mac_address')
+            .order_by('router__name', 'hostname', 'mac_address', 'pk')
         )
 
-        for device in devices:
+        for device in device_rows:
             selected_devices.append({
                 'router': device.router_id,
                 'mac': (device.mac_address or '').upper(),
@@ -140,7 +195,7 @@ def speed_rule_save(request):
 
         if not selected_devices:
             messages.error(request, 'Select at least one device.')
-            return redirect('traffic')
+            return redirect('traffic_speed')
 
     rule.scope = scope
     rule.down_mbps = down
@@ -177,7 +232,7 @@ def speed_rule_save(request):
             + '. Live sync will retry.',
         )
 
-    return redirect('traffic')
+    return redirect('traffic_speed')
 
 
 @login_required
@@ -207,7 +262,7 @@ def speed_rule_action(request, pk):
 
     else:
         messages.error(request, 'Unknown speed-rule action.')
-        return redirect('traffic')
+        return redirect('traffic_speed')
 
     results = apply_business(business, force=True)
     failed = [router.name for router, ok, _result in results if not ok]
@@ -220,4 +275,4 @@ def speed_rule_action(request, pk):
             + '. Live sync will retry.',
         )
 
-    return redirect('traffic')
+    return redirect('traffic_speed')

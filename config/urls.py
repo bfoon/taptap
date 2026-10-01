@@ -4,7 +4,7 @@ from django.urls import include, path
 from core.admin_otp import admin_otp
 from core import views_manage, views_team
 from core.views_archive import voucher_archive_settings
-from core.views_speed import speed_rule_save, speed_rule_action
+from core.views_speed import speed_control, speed_rule_save, speed_rule_action
 
 
 urlpatterns = [
@@ -26,7 +26,12 @@ urlpatterns = [
         name="voucher_archive_settings",
     ),
 
-    # Traffic speed control.
+    # Dedicated Traffic speed-control page.
+    path(
+        "traffic/speed/",
+        speed_control,
+        name="traffic_speed",
+    ),
     path(
         "traffic/speed/save/",
         speed_rule_save,

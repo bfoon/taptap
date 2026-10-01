@@ -1,0 +1,282 @@
+{% extends 'core/base.html' %}
+{% block title %}Speed Control — TapTap{% endblock %}
+{% block heading %}Speed Control{% endblock %}
+
+{% block extra_head %}
+<style>
+.speed-wrap{max-width:1500px;margin:0 auto}
+.speed-hero{display:flex;gap:18px;align-items:flex-start;justify-content:space-between;margin-bottom:18px}
+.speed-hero h2{margin:0 0 6px;font-size:1.35rem;font-weight:800}
+.speed-hero p{margin:0;color:var(--bs-secondary-color)}
+.speed-grid{display:grid;grid-template-columns:minmax(340px,520px) 1fr;gap:18px;align-items:start}
+.speed-panel{background:var(--bs-body-bg);border:1px solid var(--bs-border-color);border-radius:16px;padding:18px}
+.speed-panel h3{font-size:1rem;font-weight:800;margin:0 0 4px}
+.speed-panel .sub{color:var(--bs-secondary-color);font-size:.9rem;margin-bottom:16px}
+.scope-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
+.scope-tab{border:1px solid var(--bs-border-color);background:var(--bs-tertiary-bg);border-radius:12px;padding:10px 8px;font-size:.85rem;font-weight:700;text-align:center;cursor:pointer}
+.scope-tab.active{background:var(--bs-primary);border-color:var(--bs-primary);color:#fff}
+.scope-pane{display:none}
+.scope-pane.active{display:block}
+.target-list{border:1px solid var(--bs-border-color);border-radius:12px;max-height:315px;overflow:auto;background:var(--bs-body-bg)}
+.target-row{display:flex;gap:10px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--bs-border-color);cursor:pointer}
+.target-row:last-child{border-bottom:0}
+.target-row:hover{background:var(--bs-tertiary-bg)}
+.target-row input{flex:0 0 auto}
+.target-main{min-width:0}
+.target-name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.target-meta{font-size:.78rem;color:var(--bs-secondary-color);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.speed-fields{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+.speed-stat{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+.speed-stat div{border:1px solid var(--bs-border-color);border-radius:12px;padding:10px}
+.speed-stat span{display:block;font-size:.72rem;color:var(--bs-secondary-color);text-transform:uppercase;letter-spacing:.04em}
+.speed-stat b{font-size:1.05rem}
+.rule-table td,.rule-table th{vertical-align:middle}
+.rule-target{max-width:390px}
+.rule-target .small{white-space:normal}
+.priority{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.priority .badge{font-weight:600}
+.empty-box{padding:24px;text-align:center;color:var(--bs-secondary-color)}
+@media(max-width:1000px){.speed-grid{grid-template-columns:1fr}.scope-tabs{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.speed-hero{display:block}.speed-hero .btn{margin-top:12px}.speed-fields{grid-template-columns:1fr}.speed-stat{grid-template-columns:1fr}.scope-tabs{grid-template-columns:1fr 1fr}}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="speed-wrap">
+  <div class="speed-hero">
+    <div>
+      <h2>Traffic speed control</h2>
+      <p>Set the normal maximum download and upload speed for plans, agents, or individual devices.</p>
+      <div class="priority">
+        <span class="text-secondary small">Priority:</span>
+        <span class="badge text-bg-dark">Device</span>
+        <span>→</span>
+        <span class="badge text-bg-secondary">Agent</span>
+        <span>→</span>
+        <span class="badge text-bg-primary">Plan</span>
+        <span>→</span>
+        <span class="badge text-bg-light border text-dark">All plans</span>
+      </div>
+      <div class="small text-secondary mt-2">Fair Usage remains separate and can slow a heavy user further.</div>
+    </div>
+    <a class="btn btn-outline-secondary" href="{% url 'traffic' %}">
+      <i class="bi bi-arrow-left"></i> Back to Traffic
+    </a>
+  </div>
+
+  <div class="speed-grid">
+    <section class="speed-panel">
+      <h3>Create speed rule</h3>
+      <div class="sub">Choose exactly who should receive this base speed.</div>
+
+      <div class="speed-stat">
+        <div><span>Plans available</span><b>{{ plan_count }}</b></div>
+        <div><span>Agents available</span><b>{{ agent_count }}</b></div>
+        <div><span>Devices available</span><b>{{ device_count }}</b></div>
+      </div>
+
+      <form method="post" action="{% url 'traffic_speed_save' %}" id="speedRuleForm">
+        {% csrf_token %}
+        <input type="hidden" name="scope" id="speedScope" value="all_plans">
+
+        <div class="scope-tabs" id="scopeTabs">
+          <button type="button" class="scope-tab active" data-scope="all_plans">All plans</button>
+          <button type="button" class="scope-tab" data-scope="plans">Plan(s)</button>
+          <button type="button" class="scope-tab" data-scope="agents">Agent(s)</button>
+          <button type="button" class="scope-tab" data-scope="devices">Device(s)</button>
+        </div>
+
+        <div class="scope-pane active" data-pane="all_plans">
+          <div class="alert alert-light border mb-0">
+            Every logged-in voucher on every active plan gets this base speed unless a more specific device, agent, or plan rule overrides it.
+          </div>
+        </div>
+
+        <div class="scope-pane" data-pane="plans">
+          {% if plans %}
+            <div class="target-list">
+              {% for p in plans %}
+                <label class="target-row">
+                  <input class="form-check-input mt-0" type="checkbox" name="plan_ids" value="{{ p.id }}">
+                  <span class="target-main">
+                    <span class="target-name">{{ p.name }}</span>
+                    <span class="target-meta">
+                      {% if p.mikrotik_profile_name %}Router profile: {{ p.mikrotik_profile_name }} · {% endif %}
+                      {% if p.speed_limit %}Current plan speed: {{ p.speed_limit }} · {% endif %}
+                      {{ p.duration_text }} · {{ p.max_devices }} device{{ p.max_devices|pluralize }}
+                    </span>
+                  </span>
+                </label>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-box border rounded-3">No active plans exist for this business.</div>
+          {% endif %}
+        </div>
+
+        <div class="scope-pane" data-pane="agents">
+          {% if agents %}
+            <div class="target-list">
+              {% for a in agents %}
+                <label class="target-row">
+                  <input class="form-check-input mt-0" type="checkbox" name="agent_ids" value="{{ a.id }}">
+                  <span class="target-main">
+                    <span class="target-name">{{ a.name }}</span>
+                    <span class="target-meta">
+                      {% if a.location %}{{ a.location }}{% endif %}
+                      {% if a.phone %}{% if a.location %} · {% endif %}{{ a.phone }}{% endif %}
+                    </span>
+                  </span>
+                </label>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-box border rounded-3">No active agents exist for this business.</div>
+          {% endif %}
+        </div>
+
+        <div class="scope-pane" data-pane="devices">
+          {% if devices %}
+            <div class="target-list">
+              {% for d in devices %}
+                <label class="target-row">
+                  <input class="form-check-input mt-0" type="checkbox" name="device_ids" value="{{ d.id }}">
+                  <span class="target-main">
+                    <span class="target-name">
+                      {% if d.is_online %}<span class="text-success">●</span>{% else %}<span class="text-secondary">○</span>{% endif %}
+                      {{ d.hostname|default:d.mac_address|default:d.ip_address|default:"Unknown device" }}
+                    </span>
+                    <span class="target-meta">
+                      {{ d.router.name }}
+                      {% if d.mac_address %} · {{ d.mac_address }}{% endif %}
+                      {% if d.ip_address %} · {{ d.ip_address }}{% endif %}
+                      {% if d.interface_name %} · {{ d.interface_name }}{% endif %}
+                    </span>
+                  </span>
+                </label>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="empty-box border rounded-3">No online or recently seen devices were found.</div>
+          {% endif %}
+        </div>
+
+        <div class="speed-fields">
+          <div>
+            <label class="form-label fw-semibold">Download speed</label>
+            <div class="input-group">
+              <input class="form-control" type="number" min="0.03" step="0.01" name="down_mbps" value="5" required>
+              <span class="input-group-text">Mb/s</span>
+            </div>
+          </div>
+          <div>
+            <label class="form-label fw-semibold">Upload speed</label>
+            <div class="input-group">
+              <input class="form-control" type="number" min="0.03" step="0.01" name="up_mbps" value="2" required>
+              <span class="input-group-text">Mb/s</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="mt-3">
+          <label class="form-label fw-semibold">Rule name <span class="text-secondary fw-normal">(optional)</span></label>
+          <input class="form-control" name="name" maxlength="160" placeholder="TapTap will make a name automatically">
+        </div>
+
+        <button class="btn btn-primary w-100 mt-3">
+          <i class="bi bi-check2-circle"></i> Save and apply speed
+        </button>
+      </form>
+    </section>
+
+    <section class="speed-panel">
+      <h3>Current speed rules</h3>
+      <div class="sub">Rules are stored in TapTap and live sync keeps the MikroTik configuration aligned.</div>
+
+      <div class="table-responsive">
+        <table class="table rule-table align-middle">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th>Rule</th>
+              <th>Targets</th>
+              <th class="text-nowrap">Download</th>
+              <th class="text-nowrap">Upload</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in rules %}
+              <tr>
+                <td>
+                  {% if r.enabled %}
+                    <span class="badge text-bg-success">Active</span>
+                  {% else %}
+                    <span class="badge text-bg-secondary">Off</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <b>{{ r.name }}</b>
+                  <div class="small text-secondary">{{ r.get_scope_display }}</div>
+                </td>
+                <td class="rule-target"><div class="small">{{ r.target_text|default:"—" }}</div></td>
+                <td class="text-nowrap"><b>{{ r.down_mbps|floatformat:"-2" }}</b> Mb/s</td>
+                <td class="text-nowrap"><b>{{ r.up_mbps|floatformat:"-2" }}</b> Mb/s</td>
+                <td class="text-end text-nowrap">
+                  <form method="post" action="{% url 'traffic_speed_action' r.id %}" class="d-inline">
+                    {% csrf_token %}
+                    <button class="btn btn-sm btn-outline-secondary" name="action" value="toggle">
+                      {% if r.enabled %}Turn off{% else %}Turn on{% endif %}
+                    </button>
+                  </form>
+                  <form method="post" action="{% url 'traffic_speed_action' r.id %}" class="d-inline"
+                        onsubmit="return confirm('Remove this speed rule?');">
+                    {% csrf_token %}
+                    <button class="btn btn-sm btn-outline-danger" name="action" value="delete" title="Delete">
+                      <i class="bi bi-trash3"></i>
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="6"><div class="empty-box">No speed rules have been created yet.</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const hidden = document.getElementById('speedScope');
+  const tabs = document.querySelectorAll('.scope-tab');
+  const panes = document.querySelectorAll('.scope-pane');
+
+  function selectScope(scope) {
+    hidden.value = scope;
+    tabs.forEach(function (tab) {
+      tab.classList.toggle('active', tab.dataset.scope === scope);
+    });
+    panes.forEach(function (pane) {
+      const active = pane.dataset.pane === scope;
+      pane.classList.toggle('active', active);
+      pane.querySelectorAll('input,select').forEach(function (el) {
+        el.disabled = !active;
+      });
+    });
+  }
+
+  tabs.forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      selectScope(tab.dataset.scope);
+    });
+  });
+
+  selectScope('all_plans');
+})();
+</script>
+{% endblock %}
