@@ -81,3 +81,53 @@ class BusinessAlertTests(TestCase):
         self.c.post(f'/alerts/business/{r.id}/', {'action': 'test'})
         self.assertTrue(EventAlert.objects.filter(title__startswith='Test:').exists())
         self.assertContains(self.c.get('/alerts/?f=business'), 'true now')
+
+
+class AgentAlertTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        from .models import Agent
+        self.owner = User.objects.create_user('owner2', 'o2@x.com', 'pw12345678')
+        self.b = Business.objects.create(user=self.owner, business_name='K', owner_name='A', phone='1', currency='D',
+                                         trial_ends_at=timezone.now() + timedelta(days=9), is_unlimited=True)
+        VoucherPlan.objects.create(business=self.b, name='1 Day', price=25, duration_minutes=1440)
+        self.awa = Agent.objects.create(business=self.b, name='Awa Shop')
+        self.musa = Agent.objects.create(business=self.b, name='Musa')
+
+    def give(self, agent, n):
+        for i in range(n):
+            Voucher.objects.create(business=self.b, agent=agent, code=f'A{Voucher.objects.count():07d}', plan_name='1 Day', price=25, duration_minutes=1440)
+
+    def test_agent_stock_low(self):
+        EventRule.objects.create(business=self.b, name='Agent low', kind='agent_stock_low', params={'threshold': 5})
+        self.give(self.awa, 2); self.give(self.musa, 8)
+        self.assertEqual(ba.evaluate(self.b, force=True), 1)
+        a = EventAlert.objects.get()
+        self.assertIn('Awa Shop', a.title); self.assertNotIn('Musa', a.body)
+        self.assertEqual(ba.evaluate(self.b, force=True), 0)                  # same agent still low: quiet
+        Voucher.objects.filter(pk__in=list(Voucher.objects.filter(agent=self.musa).values_list('pk', flat=True)[:5])).update(status='disabled')  # Musa drops to 3
+        self.assertEqual(ba.evaluate(self.b, force=True), 1)
+
+    def test_collection_due_and_collected(self):
+        from .models import CashCollection
+        self.give(self.awa, 4)
+        for v in Voucher.objects.filter(agent=self.awa):
+            record_sale(self.b, v, method='cash', agent=self.awa)
+        EventRule.objects.create(business=self.b, name='Due', kind='agent_collection_due', params={'days': 7, 'amount': 50})
+        got = EventRule.objects.create(business=self.b, name='Got cash', kind='agent_collected', params={})
+        ba.evaluate(self.b, force=True)
+        self.assertTrue(EventAlert.objects.filter(title__startswith='Collect cash from Awa Shop').exists())
+        self.assertFalse(EventAlert.objects.filter(rule=got).exists())          # first check only remembers where it starts
+        CashCollection.objects.create(business=self.b, agent=self.awa, amount=Decimal('60'), payment_method='wave')
+        ba.evaluate(self.b, force=True)
+        a = EventAlert.objects.get(rule=got)
+        self.assertEqual(a.title, 'Awa Shop handed in D60.00')
+        self.assertEqual(ba.evaluate(self.b, force=True), 0)                   # not twice
+
+    def test_first_collection_ever_is_not_missed(self):
+        from .models import CashCollection
+        got = EventRule.objects.create(business=self.b, name='Got cash', kind='agent_collected', params={})
+        ba.evaluate(self.b, force=True)
+        CashCollection.objects.create(business=self.b, agent=self.musa, amount=Decimal('10'))
+        ba.evaluate(self.b, force=True)
+        self.assertTrue(EventAlert.objects.filter(rule=got).exists())

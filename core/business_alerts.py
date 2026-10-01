@@ -136,6 +136,78 @@ def _agent_debt(business, rule, now):
     return bool(over), names, f'Agent debt above {business.currency}{amount:,.0f}', f'{names} — collect the cash.', '/finance/?tab=agents'
 
 
+def _agents(business, params):
+    qs = business.agents.filter(active=True) if hasattr(business.agents.model, 'active') else business.agents.all()
+    if params.get('agent'):
+        qs = qs.filter(pk=_int(params['agent']))
+    return list(qs.order_by('name'))
+
+
+def _agent_stock_low(business, rule, now):
+    """Agents holding fewer unsold vouchers than the level (optionally of one plan)."""
+    p = rule.params
+    th = _int(p.get('threshold'), 10)
+    low = []
+    for a in _agents(business, p):
+        qs = business.vouchers.filter(agent=a, status='active', sold_at__isnull=True, used_at__isnull=True, frozen_at__isnull=True)
+        if p.get('plan'):
+            qs = qs.filter(plan_name=p['plan'])
+        n = qs.count()
+        if n < th:
+            low.append((a, n))
+    names = ', '.join(f'{a.name} ({n})' for a, n in low[:6]) + ('…' if len(low) > 6 else '')
+    what = p.get('plan') or 'vouchers'
+    return bool(low), ','.join(str(a.pk) for a, _ in low)[:120], \
+        (f'{low[0][0].name} is running out of {what}' if len(low) == 1 else f'{len(low)} agents running out of {what}'), \
+        f'{names} — fewer than {th} left. Issue a new batch to them.', '/vouchers/generate/'
+
+
+def _agent_collection_due(business, rule, now):
+    """Agents who owe money and have not handed in cash for N days."""
+    from .finance import agent_balances
+    p = rule.params
+    days = _int(p.get('days'), 7, 1, 365)
+    floor = _dec(p.get('amount') or 0)
+    ids = {a.pk for a in _agents(business, p)}
+    due = []
+    for r in agent_balances(business):
+        a = r['agent']
+        if a.pk not in ids or r['outstanding'] <= 0 or r['outstanding'] < floor:
+            continue
+        last = r['last_collection']
+        if not last or now - last >= timedelta(days=days):
+            due.append((a, r['outstanding'], last))
+    c = business.currency
+    names = ', '.join(f'{a.name} owes {c}{o:,.0f}' + (f' (last {timezone.localtime(l):%d %b})' if l else ' (never paid in)') for a, o, l in due[:5])
+    return bool(due), ','.join(str(a.pk) for a, _, _ in due)[:120], \
+        (f'Collect cash from {due[0][0].name}' if len(due) == 1 else f'Collect cash from {len(due)} agents'), \
+        f'{names} — no hand-in for {days}+ days.', '/finance/?tab=agents'
+
+
+def _agent_collected(business, rule, now):
+    """New cash hand-ins since the last check (one alert per hand-in)."""
+    from .models import CashCollection
+    p = rule.params
+    floor = _dec(p.get('amount') or 0)
+    last_id = _int(str(rule.last_value).split('#')[0], 0)
+    qs = CashCollection.objects.filter(business=business, pk__gt=last_id).select_related('agent').order_by('pk')
+    if p.get('agent'):
+        qs = qs.filter(agent_id=_int(p['agent']))
+    rows = list(qs[:20])
+    top = CashCollection.objects.filter(business=business).order_by('-pk').values_list('pk', flat=True).first() or 0
+    if rule.last_value == '':           # first check: start from now, don't replay old hand-ins
+        return False, str(top), '', '', ''
+    hits = [c for c in rows if c.amount >= floor]
+    if not hits:
+        return False, str(max(top, last_id)), '', '', ''
+    cur = business.currency
+    total = sum(c.amount for c in hits)
+    title = (f'{hits[0].agent.name} handed in {cur}{hits[0].amount:,.2f}' if len(hits) == 1
+             else f'{len(hits)} cash hand-ins: {cur}{total:,.2f}')
+    body = '; '.join(f'{c.agent.name} {cur}{c.amount:,.2f} {c.get_payment_method_display()}' for c in hits[:5])
+    return True, f'{max(top, last_id)}#new', title, body, '/finance/?tab=agents'
+
+
 def _members_expiring(business, rule, now):
     from .voucher_history import ends_at
     hours = _int(rule.params.get('hours'), 24, 1, 720)
@@ -158,7 +230,8 @@ def _fup_slowed(business, rule, now):
 
 CHECKS = {'stock_low': lambda b, r, n: _stock(b, r, n), 'stock_restocked': lambda b, r, n: _stock(b, r, n, restock=True),
           'no_sales': _no_sales, 'daily_revenue': _daily_revenue, 'router_offline': _router_offline, 'online_high': _online_high,
-          'agent_debt': _agent_debt, 'members_expiring': _members_expiring, 'fup_slowed': _fup_slowed}
+          'agent_debt': _agent_debt, 'members_expiring': _members_expiring, 'fup_slowed': _fup_slowed,
+          'agent_stock_low': _agent_stock_low, 'agent_collection_due': _agent_collection_due, 'agent_collected': _agent_collected}
 
 
 def quiet_now(rule, now):
@@ -201,8 +274,15 @@ def evaluate(business, now=None, force=False):
             continue
         fields = ['last_checked_at']
         rule.last_checked_at = now
+        if rule.kind == 'agent_collected':
+            if ok and title:
+                fire(rule, title, body, link, now); rule.last_fired_at = now; fields.append('last_fired_at'); fired += 1
+            rule.last_value = value.split('#')[0][:120]; rule.firing = False
+            rule.save(update_fields=list(dict.fromkeys(fields + ['last_value', 'firing'])))
+            continue
         if ok:
-            changed = rule.kind in ('router_offline', 'members_expiring') and value and value != rule.last_value
+            changed = rule.kind in ('router_offline', 'members_expiring', 'agent_stock_low', 'agent_collection_due') and value and \
+                (not rule.last_value or not set(value.split(',')) <= set(rule.last_value.split(',')))
             due = rule.repeat_hours and rule.last_fired_at and now - rule.last_fired_at >= timedelta(hours=rule.repeat_hours)
             if title and (not rule.firing or changed or due):
                 fire(rule, title, body, link, now)
@@ -232,4 +312,7 @@ PRESETS = [
     ('stock_restocked', 'Stock is back', {'threshold': 20}, 'info', 0),
     ('router_offline', 'Router offline 5 min', {'minutes': 5}, 'danger', 1),
     ('no_sales', 'No sale for 3 hours (08:00–22:00)', {'hours': 3, 'open_from': 8, 'open_to': 22}, 'warning', 0),
+    ('agent_stock_low', 'Agent has fewer than 10 vouchers', {'threshold': 10}, 'warning', 12),
+    ('agent_collection_due', 'Agent cash not handed in for 7 days', {'days': 7}, 'warning', 24),
+    ('agent_collected', 'Agent handed in cash', {}, 'info', 0),
 ]

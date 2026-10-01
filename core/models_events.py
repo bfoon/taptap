@@ -12,6 +12,9 @@ class EventRule(models.Model):
         ('router_offline', 'A router is offline'),
         ('online_high', 'Many customers online at once'),
         ('agent_debt', 'An agent owes more than an amount'),
+        ('agent_stock_low', 'An agent is running out of vouchers'),
+        ('agent_collection_due', 'An agent has not handed in cash for a while'),
+        ('agent_collected', 'An agent handed in cash'),
         ('members_expiring', 'Members are about to expire'),
         ('fup_slowed', 'Customers slowed by fair usage'),
     ]

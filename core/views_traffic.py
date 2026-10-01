@@ -216,6 +216,7 @@ def alerts(request):
                                                 'ev_presets': [p for p in PRESETS if not any(r.kind == p[0] for r in ev_rules)],
                                                 'plan_names': list(business.plans.filter(active=True).order_by('name').values_list('name', flat=True)),
                                                 'router_list': business.routers.order_by('name'),
+                                                'agent_list': business.agents.filter(active=True).order_by('name'),
                                                 'unread': business.device_alerts.filter(read_at__isnull=True).count(),
                                                 'subjects': AlertRule.SUBJECTS, 'matches': AlertRule.MATCHES, 'ip_types': AlertRule.IP_TYPES,
                                                 'kinds': AlertRule.KINDS, 'actions': AlertRule.ACTIONS})
@@ -304,7 +305,7 @@ def event_rule_save(request):
         v = (p.get(k) or '').strip()
         return v if v == '' else (v if v.replace('.', '', 1).isdigit() else d)
     params = {}
-    for k in ('threshold', 'hours', 'minutes', 'amount', 'open_from', 'open_to'):
+    for k in ('threshold', 'hours', 'minutes', 'amount', 'open_from', 'open_to', 'days'):
         v = num(k)
         if v not in (None, ''):
             params[k] = v
@@ -312,6 +313,8 @@ def event_rule_save(request):
         params['plan'] = p['plan'][:120]
     if p.get('router', '').isdigit() and business.routers.filter(pk=int(p['router'])).exists():
         params['router'] = int(p['router'])
+    if p.get('agent', '').isdigit() and business.agents.filter(pk=int(p['agent'])).exists():
+        params['agent'] = int(p['agent'])
     rule.kind, rule.params = kind, params
     rule.level = p.get('level') if p.get('level') in dict(EventRule.LEVELS) else 'warning'
     for f in ('bell', 'sound', 'desktop', 'email'):
