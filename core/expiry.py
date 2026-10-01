@@ -3,7 +3,7 @@
 When a voucher's time runs out:
 1. TapTap marks it Expired.
 2. It is disabled immediately on MikroTik and active sessions are dropped.
-3. After TAPTAP_EXPIRED_ARCHIVE_DAYS (default 7), TapTap removes the HotSpot
+3. After the business retention policy from Settings (default 7 days), TapTap removes the HotSpot
    user from MikroTik.
 4. The TapTap voucher record is NOT deleted.  Its status becomes Archived.
 """

@@ -3,6 +3,7 @@ from django.urls import include, path
 
 from core.admin_otp import admin_otp
 from core import views_manage, views_team
+from core.views_archive import voucher_archive_settings
 
 
 urlpatterns = [
@@ -15,6 +16,13 @@ urlpatterns = [
         "account/business/<int:business_id>/switch/",
         views_team.business_switch,
         name="business_switch",
+    ),
+
+    # Expired voucher retention / archive settings.
+    path(
+        "settings/voucher-archive/",
+        voucher_archive_settings,
+        name="voucher_archive_settings",
     ),
 
     # Dedicated full editing screens; existing member and plan pages are unchanged.

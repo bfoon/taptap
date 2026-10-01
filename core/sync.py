@@ -108,7 +108,7 @@ def parse_mikhmon(script):
     m = MIKHMON_RE.search(str(script or ''))
     if not m:
         return None, None
-    price = _num(m.group(4)) or _num(m.group(2))   # selling price wins over cost price
+    price = _num(m.group(4)) or _num(m.group(2))
     validity = _routeros_minutes(m.group(3), 0) if m.group(3) else 0
     return price, (validity or None)
 
@@ -122,7 +122,7 @@ def price_from_text(text, currency='D'):
     if m:
         return _num(m.group(1))
     cur = re.escape(str(currency or 'D').strip())
-    if cur:  # currency written before the number, e.g. "D10" / "GMD 25" (case-sensitive so "1d" is never a price)
+    if cur:
         m = re.search(r'(?:(?<![A-Za-z])' + cur + r'|GMD)\s?(\d[\d,]*(?:\.\d+)?)(?![\d.]*\s*(?i:h|hr|hrs|hours?|d|days?|m|mins?|w|weeks?|mb|gb|mbps|kbps|k)\b)', text)
         if m:
             return _num(m.group(1))
@@ -130,7 +130,7 @@ def price_from_text(text, currency='D'):
 
 
 def profile_price(row, currency='D'):
-    """(price, validity_minutes, source) for a RouterOS HotSpot user profile (validity from the Mikhmon script)."""
+    """(price, validity_minutes, source) for a RouterOS HotSpot user profile."""
     price, validity = parse_mikhmon(row.get('on-login', row.get('on_login', '')))
     if price:
         return price, validity, 'Mikhmon on-login script'
@@ -162,16 +162,13 @@ def _profile_to_plan(router, row, summary, now):
     )
     plan = VoucherPlan.objects.filter(business=router.business, name__iexact=name).first()
     if not plan and VoucherPlan.all_objects.binned().filter(business=router.business, name__iexact=name).exists():
-        # Deleted in TapTap: the profile stays on the router for vouchers in use, but it is not imported back.
         summary['deleted_plans_skipped'] = summary.get('deleted_plans_skipped', 0) + 1
         return None
     if plan:
         summary['duplicate_plans_skipped'] += 1
-        # A MikroTik-imported plan follows RouterOS; a native TapTap plan keeps its commercial settings.
         if plan.source == 'mikrotik':
             plan.max_devices = shared
             plan.speed_limit = rate
-            # "Unlimited" chosen in TapTap is kept: the router profile has no length for it anyway.
             if plan.duration_unit != 'unlimited':
                 minutes = _routeros_minutes(session, validity or plan.duration_minutes or 1440)
                 if minutes != plan.duration_minutes:
@@ -179,8 +176,6 @@ def _profile_to_plan(router, row, summary, now):
             plan.mikrotik_profile_name = name
             if not plan.imported_from_router_id: plan.imported_from_router = router
             fields = ['max_devices','speed_limit','duration_minutes','duration_unit','mikrotik_profile_name','imported_from_router']
-            # The router is the source of truth for an imported plan's price — but a price the owner typed
-            # in TapTap is never wiped just because the router has none.
             if price and plan.price != price and plan.price_source != 'manual' and not plan.is_free:
                 plan.price = price; plan.price_source = 'router'; fields += ['price', 'price_source']
                 summary['prices_found'] = summary.get('prices_found', 0) + 1
@@ -203,11 +198,7 @@ def _profile_to_plan(router, row, summary, now):
 
 
 def sync_router(router, progress=None):
-    """Two-way RouterOS sync with de-duplication and full MikroTik inventory import.
-
-    ``progress`` is an optional callback accepting ``(percent, phase)``. It is
-    deliberately best-effort so UI/job progress can never break the sync itself.
-    """
+    """Two-way RouterOS sync with de-duplication and full MikroTik inventory import."""
     def notify(percent, phase):
         if not progress:
             return
@@ -229,7 +220,6 @@ def sync_router(router, progress=None):
     now = timezone.now()
     notify(8, 'Connected — reading HotSpot plans')
     try:
-        # 1) Pull RouterOS HotSpot user profiles -> TapTap plans, with business/name de-duplication.
         RouterHotspotProfile.objects.filter(router=router).update(is_present=False)
         profile_map = {}
         for raw in svc.hotspot_profiles():
@@ -239,7 +229,6 @@ def sync_router(router, progress=None):
 
         notify(22, 'Plans imported — reading vouchers and HotSpot users')
 
-        # 2) Pull every RouterOS HotSpot user into both the mirror and the main Voucher app.
         RouterHotspotUser.objects.filter(router=router).update(is_present=False)
         from .voucher_bin import deleted_codes, remove_with_service
         from .voucher_codes import aliases as code_aliases, rename_with_service
@@ -252,9 +241,8 @@ def sync_router(router, progress=None):
             username = str(row.get('name', '')).strip()
             if not username: continue
             if username.upper() in binned:
-                binned_seen.append(username); continue   # deleted in TapTap: remove, never re-import
+                binned_seen.append(username); continue
             if username.upper() in renamed:
-                # Old code of a renamed voucher: rename it back to the current code, never import it twice.
                 renamed_seen.append((username, renamed[username.upper()].code)); continue
             profile_name = str(row.get('profile', 'default') or 'default')
             plan = profile_map.get(profile_name.lower()) or router.business.plans.filter(name__iexact=profile_name).first()
@@ -262,7 +250,6 @@ def sync_router(router, progress=None):
             duration_minutes = _routeros_minutes(row.get('limit-uptime', row.get('limit_uptime', '')), plan.duration_minutes if plan else 1440)
             disabled = ros_bool(row.get('disabled', False))
             existing_voucher = Voucher.all_objects.filter(code__iexact=username).first()
-            # A router user whose password is not its own name logs in like a member (username + password).
             router_pw = row.get('password')
             router_pw = None if router_pw is None or str(router_pw).startswith('•') else str(router_pw)
             is_member_row = router_pw is not None and router_pw != '' and router_pw != username
@@ -294,18 +281,22 @@ def sync_router(router, progress=None):
                     existing_voucher.mikrotik_id=str(row.get('id','')); existing_voucher.plan_name=profile_name
                     existing_voucher.duration_minutes=duration_minutes; existing_voucher.max_devices=max_devices
                     _was=existing_voucher.status
-                    # Time ran out stays ran out, whatever the router says (re-enabled in WinBox?). Only "Add time" in TapTap reopens it.
-                    existing_voucher.status='expired' if _was=='expired' else ('disabled' if disabled else 'active')
+                    # Archived and expired are both one-way states. Router sync must never reopen them.
+                    if _was == 'archived':
+                        existing_voucher.status = 'archived'
+                    elif _was == 'expired':
+                        existing_voucher.status = 'expired'
+                    else:
+                        existing_voucher.status = 'disabled' if disabled else 'active'
                     if _was!=existing_voucher.status:
                         from .voucher_history import record
                         record(existing_voucher,'router_disabled' if disabled else 'router_enabled',source='router',via='Full sync',
                                status_before=_was,status_after=existing_voucher.status,text=f'Changed on {router.name}')
                     fields += ['mikrotik_id','plan_name','duration_minutes','max_devices','status']
-                    if router_pw is not None:   # router-made users: the router's password is the truth
+                    if router_pw is not None:
                         existing_voucher.login_type='member' if is_member_row else existing_voucher.login_type
                         existing_voucher.password=router_pw[:64] if is_member_row else ''
                         fields += ['login_type','password']
-                # Repair vouchers imported with no price (older TapTap versions always stored 0).
                 new_price = user_price or plan_price
                 if new_price and not existing_voucher.price and not existing_voucher.sold_at:
                     existing_voucher.price = new_price; fields.append('price'); summary['prices_repaired'] = summary.get('prices_repaired', 0) + 1
@@ -329,10 +320,8 @@ def sync_router(router, progress=None):
                     if _has_uptime(row.get('uptime')):
                         when = first_use_estimate(row.get('uptime'), now)
                         if router.sales_baseline_at:
-                            # Created and used on the router while TapTap was already watching it: a real sale.
                             if mark_activated(new_voucher, when): summary['activated_vouchers'] = summary.get('activated_vouchers', 0) + 1
                         else:
-                            # First import of an existing router: old history, mark used but never back-book revenue.
                             Voucher.objects.filter(pk=new_voucher.pk).update(used_at=when)
                 except Exception as exc:
                     summary['errors'].append(f'Could not import RouterOS voucher {username}: {exc}')
@@ -359,13 +348,14 @@ def sync_router(router, progress=None):
                 summary['errors'].append(f'Could not remove {len(binned_seen)} deleted voucher(s): {exc}')
         notify(40, 'Router vouchers imported — pushing TapTap vouchers')
 
-        try:   # sticky sessions on every hotspot profile (Settings → Voucher devices)
+        try:
             from .sticky import apply_api
             apply_api(svc, router.business)
         except Exception as exc:
             summary['errors'].append(f'Sticky sessions: {exc}')
-        # 3) Push only TapTap-authored vouchers. MikroTik imports are already authoritative on the router.
-        for voucher in router.vouchers.filter(source='taptap'):
+
+        # Important: archived vouchers stay in TapTap, but are NEVER published back to MikroTik.
+        for voucher in router.vouchers.filter(source='taptap').exclude(status='archived'):
             try:
                 plan = router.business.plans.filter(name__iexact=voucher.plan_name).first()
                 profile_name, shared, rate = voucher_profile(voucher, plan)
@@ -386,7 +376,6 @@ def sync_router(router, progress=None):
 
         notify(55, 'TapTap vouchers pushed — importing RouterOS IP bindings')
 
-        # 4) Pull IP bindings without duplicates.
         SyncedIPBinding.objects.filter(router=router).update(is_present=False)
         for raw in svc.bindings():
             row=_clean(raw); item_id=str(row.get('id','')); mac=_normalize_mac(row.get('mac-address',row.get('mac_address',''))); address=str(row.get('address',''))
@@ -404,7 +393,6 @@ def sync_router(router, progress=None):
             else: SyncedIPBinding.objects.create(router=router,**defaults)
             summary['pulled_bindings'] += 1
 
-        # 5) Push TapTap-authored bindings.
         for binding in router.synced_ip_bindings.filter(source='taptap'):
             try:
                 action,item_id=svc.upsert_binding(binding); binding.mikrotik_id=str(item_id or binding.mikrotik_id)
@@ -417,14 +405,11 @@ def sync_router(router, progress=None):
 
         notify(70, 'Bindings synchronized — scanning MACs, ports and neighbors')
 
-        # 6) Pull ports, neighbors, MAC/IP inventory and topology in the same sync.
         topo_data = svc.topology_data()
         topology = _persist_topology(router, topo_data, now)
         summary['devices_discovered'] = router.devices.filter(is_online=True).count()
 
         notify(86, 'Topology discovered — reading RouterOS configuration')
-
-        # 7) Save a broad, redacted RouterOS configuration snapshot and LB analysis.
         try:
             cfg=svc.configuration_snapshot()
             RouterConfigSnapshot.objects.update_or_create(
@@ -448,243 +433,3 @@ def sync_router(router, progress=None):
         return summary
     finally:
         svc.close()
-
-
-BULK_BATCH = 500
-
-
-def _fast_bulk_update(model, objs, fields):
-    """bulk_update() for many rows.
-
-    Django's bulk_update builds a CASE WHEN expression per field per row in Python,
-    which dominated the rebuild (about 2 s for 1,000 changed devices). On PostgreSQL
-    this sends one ``UPDATE ... FROM (VALUES ...)`` statement per batch instead.
-    Other databases use Django's implementation.
-    """
-    if not objs:
-        return
-    from django.db import connection
-    if connection.vendor != 'postgresql':
-        model.objects.bulk_update(objs, fields, batch_size=BULK_BATCH)
-        return
-    meta = model._meta
-    pk = meta.pk
-    cols = [meta.get_field(f) for f in fields]
-    table = connection.ops.quote_name(meta.db_table)
-    qn = connection.ops.quote_name
-    names = [qn(pk.column)] + [qn(c.column) for c in cols]
-    types = [pk.db_type(connection)] + [c.db_type(connection) for c in cols]
-    row_sql = '(' + ', '.join(f'%s::{t}' for t in types) + ')'
-    set_sql = ', '.join(f'{qn(c.column)} = v.{qn(c.column)}' for c in cols)
-    with connection.cursor() as cur:
-        for i in range(0, len(objs), BULK_BATCH):
-            batch = objs[i:i + BULK_BATCH]
-            params = []
-            for obj in batch:
-                params.append(pk.get_db_prep_value(obj.pk, connection))
-                for c in cols:
-                    params.append(c.get_db_prep_save(getattr(obj, c.attname), connection))
-            cur.execute(
-                f'UPDATE {table} AS t SET {set_sql} FROM (VALUES '
-                + ', '.join([row_sql] * len(batch))
-                + f') AS v({", ".join(names)}) WHERE t.{qn(pk.column)} = v.{qn(pk.column)}',
-                params,
-            )
-
-
-def _upsert(model, router, key_field, desired, fields, now, present_flag, extra_create=None):
-    """Bulk upsert rows of one router, keyed by ``key_field``.
-
-    ``desired`` maps key -> dict of field values. Existing rows are loaded once;
-    rows whose values changed are written with one bulk_update per batch, rows
-    that only need their timestamp/flag refreshed get a single UPDATE, new rows
-    are bulk-created, and rows no longer reported get ``present_flag=False``.
-    Returns {key: instance} for every desired row.
-    """
-    existing = {getattr(o, key_field): o for o in model.objects.filter(router=router)}
-    changed, unchanged_pks, new = [], [], []
-    for key, values in desired.items():
-        obj = existing.get(key)
-        if obj is None:
-            new.append(model(router=router, **{key_field: key}, **values, **(extra_create or {})))
-            continue
-        if any(getattr(obj, f) != values[f] for f in fields):
-            for f in fields:
-                setattr(obj, f, values[f])
-            changed.append(obj)
-        else:
-            unchanged_pks.append(obj.pk)
-    stamp = {present_flag: True, 'last_seen_at': now}
-    if any(f.name == 'updated_at' for f in model._meta.fields):
-        stamp['updated_at'] = now
-        for obj in changed:
-            obj.updated_at = now
-    for obj in changed:
-        setattr(obj, present_flag, True)
-        obj.last_seen_at = now
-    if changed:
-        _fast_bulk_update(model, changed, list(dict.fromkeys(fields + list(stamp))))
-    for i in range(0, len(unchanged_pks), 2000):
-        model.objects.filter(pk__in=unchanged_pks[i:i + 2000]).update(**stamp)
-    if new:
-        model.objects.bulk_create(new, batch_size=BULK_BATCH)
-    gone = [o.pk for k, o in existing.items() if k not in desired and getattr(o, present_flag)]
-    for i in range(0, len(gone), 2000):
-        model.objects.filter(pk__in=gone[i:i + 2000]).update(**{present_flag: False})
-    if new:  # bulk_create does not return primary keys on every backend: reload
-        existing = {getattr(o, key_field): o for o in model.objects.filter(router=router, **{key_field + '__in': list(desired)})}
-    else:
-        for obj in changed:
-            existing[getattr(obj, key_field)] = obj
-    return {k: existing[k] for k in desired if k in existing}
-
-
-def _persist_topology(router, data, now=None):
-    """Save ports, neighbors and the merged device inventory of one router.
-
-    Bulk version: a fixed handful of queries per table instead of one or two
-    per device, all inside one transaction (one commit), so a router with
-    thousands of DHCP/ARP/hotspot entries rebuilds in well under a second.
-    """
-    now = now or timezone.now()
-    interfaces=[_clean(x) for x in data.get('interfaces',[])]
-    ethernet={_clean(x).get('name'):_clean(x) for x in data.get('ethernet',[])}
-    bridge_ports={_clean(x).get('interface'):_clean(x) for x in data.get('bridge_ports',[])}
-    bridge_hosts=[_clean(x) for x in data.get('bridge_hosts',[])]
-    dhcp=[_clean(x) for x in data.get('dhcp_leases',[])]
-    arp=[_clean(x) for x in data.get('arp',[])]
-    hotspot_hosts=[_clean(x) for x in data.get('hotspot_hosts',[])]
-    active=[_clean(x) for x in data.get('active_users',[])]
-    wifi_regs=[_clean(x) for x in data.get('wifi_registrations',[])]
-    remote_caps=[_clean(x) for x in data.get('remote_caps',[])]
-
-    with transaction.atomic():
-        # ---------------- interfaces ----------------
-        iface_fields=['default_name','interface_type','mac_address','comment','running','disabled','mtu','rx_byte','tx_byte','raw_data']
-        wanted_ifaces={}
-        for row in interfaces:
-            name=str(row.get('name','')).strip()
-            if not name: continue
-            eth=ethernet.get(name,{})
-            wanted_ifaces[name]={
-                'default_name':eth.get('default-name',eth.get('default_name','')),'interface_type':row.get('type',''),
-                'mac_address':_normalize_mac(row.get('mac-address',row.get('mac_address',eth.get('mac-address','')))),
-                'comment':row.get('comment',''),'running':ros_bool(row.get('running',False)),'disabled':ros_bool(row.get('disabled',False)),
-                'mtu':str(row.get('actual-mtu',row.get('mtu',''))),'rx_byte':_safe_int(row.get('rx-byte',row.get('rx_byte',0))),
-                'tx_byte':_safe_int(row.get('tx-byte',row.get('tx_byte',0))),
-                'raw_data':{**row,'ethernet':eth,'bridge_port':bridge_ports.get(name,{})},
-            }
-        interface_map=_upsert(RouterInterface,router,'name',wanted_ifaces,iface_fields,now,'is_present')
-        known_roles=set(RouterInterfaceRole.objects.filter(router=router).values_list('interface_name',flat=True))
-        RouterInterfaceRole.objects.bulk_create(
-            [RouterInterfaceRole(router=router,interface_name=n,role='unused') for n in wanted_ifaces if n not in known_roles],
-            batch_size=BULK_BATCH,ignore_conflicts=True)
-
-        # ---------------- neighbors (+ CAPsMAN remote CAPs) ----------------
-        nb_fields=['identity','address','mac_address','interface_name','platform','board','version','discovered_by','device_kind','raw_data']
-        wanted_nb={}
-        for raw in data.get('neighbors',[]):
-            row=_clean(raw);identity=str(row.get('identity','')).strip();address=str(row.get('address','')).strip();mac=_normalize_mac(row.get('mac-address',row.get('mac_address','')));iface=str(row.get('interface','')).split(',')[0].strip()
-            key=mac or '|'.join([identity,address,iface])
-            if not key: continue
-            wanted_nb[key]={'identity':identity,'address':address,'mac_address':mac,'interface_name':iface,'platform':row.get('platform',''),'board':row.get('board',''),'version':row.get('version',''),'discovered_by':row.get('discovered-by',row.get('discovered_by','')),'device_kind':_neighbor_kind(row),'raw_data':row}
-        for row in remote_caps:
-            identity=str(row.get('identity',row.get('name','Remote CAP')));mac=_normalize_mac(row.get('base-mac',row.get('base_mac','')));address=str(row.get('address',''));key=mac or f'cap|{identity}|{address}'
-            wanted_nb[key]={'identity':identity,'address':address,'mac_address':mac,'interface_name':str(row.get('interface','CAPsMAN')),'platform':'CAPsMAN','board':row.get('board-name',row.get('board_name','')),'version':row.get('version',''),'discovered_by':'capsman','device_kind':'wifi','raw_data':row}
-        neighbors=list(_upsert(RouterNeighbor,router,'neighbor_key',wanted_nb,nb_fields,now,'is_online').values())
-
-        # ---------------- merged device inventory ----------------
-        merged={}
-        def touch(mac='',ip='',hostname='',iface='',source='',kind='',raw=None):
-            mac=_normalize_mac(mac);ip=str(ip or '').strip();hostname=str(hostname or '').strip();iface=str(iface or '').strip()
-            key=mac or (f'ip:{ip}' if ip else (f'name:{hostname}' if hostname else ''))
-            if not key: return
-            item=merged.setdefault(key,{'mac':mac,'ip':ip,'hostname':hostname,'iface':iface,'sources':set(),'kind':kind or 'wired','raw':{}})
-            if mac:item['mac']=mac
-            if ip:item['ip']=ip
-            if hostname:item['hostname']=hostname
-            if iface:item['iface']=iface
-            if kind:item['kind']=kind
-            if source:item['sources'].add(source)
-            if raw:item['raw'][source or 'source']=raw
-        for x in bridge_hosts:
-            if not ros_bool(x.get('local',False)): touch(x.get('mac-address'),iface=x.get('on-interface',x.get('on_interface','')),source='bridge',kind='wired',raw=x)
-        for x in dhcp: touch(x.get('mac-address'),x.get('address'),x.get('host-name',x.get('comment','')),x.get('interface',''),source='dhcp',raw=x)
-        for x in arp: touch(x.get('mac-address'),x.get('address'),'',x.get('interface',''),source='arp',raw=x)
-        for x in hotspot_hosts: touch(x.get('mac-address'),x.get('address'),x.get('user',''),'',source='hotspot-host',raw=x)
-        for x in active: touch(x.get('mac-address'),x.get('address'),x.get('user',''),'',source='hotspot-active',raw=x)
-        for x in wifi_regs: touch(x.get('mac-address'),'',x.get('comment',''),x.get('interface',''),source='wifi',kind='wifi',raw=x)
-        for n in neighbors: touch(n.mac_address,n.address,n.identity,n.interface_name,source='neighbor',kind=n.device_kind,raw=n.raw_data)
-
-        neighbors_by_iface={}
-        for n in sorted(neighbors,key=lambda n:n.identity or ''):
-            if n.interface_name and n.interface_name not in neighbors_by_iface: neighbors_by_iface[n.interface_name]=n
-        dev_fields=['mac_address','ip_address','hostname','interface_name','parent_identity','connection_type','sources','raw_data']
-        wanted_dev={}
-        for key,item in merged.items():
-            parent=neighbors_by_iface.get(item['iface'])
-            wanted_dev[key]={'mac_address':item['mac'],'ip_address':item['ip'],'hostname':item['hostname'],'interface_name':item['iface'],
-                             'parent_identity':(parent.identity or parent.address or parent.mac_address) if parent else '',
-                             'connection_type':item['kind'],'sources':', '.join(sorted(item['sources'])),'raw_data':item['raw']}
-        _upsert(RouterDevice,router,'device_key',wanted_dev,dev_fields,now,'is_online',extra_create={'first_seen_at':now})
-
-    # ---------------- page data (read-only, a few queries) ----------------
-    clients_by_interface=defaultdict(list)
-    for key in sorted(wanted_dev):
-        dev=wanted_dev[key]
-        if dev['interface_name']:
-            clients_by_interface[dev['interface_name']].append({'mac':dev['mac_address'],'name':dev['hostname'],'ip':dev['ip_address'],'kind':dev['connection_type'],'parent':dev['parent_identity']})
-    neighbors_on_port=defaultdict(list)
-    for n in sorted(neighbors,key=lambda n:n.pk or 0):
-        if n.interface_name: neighbors_on_port[n.interface_name].append(n)
-
-    role_map={x.interface_name:x for x in router.interface_roles.all()}
-    ports=[]
-    for row in interfaces:
-        name=str(row.get('name',''));itype=str(row.get('type','')).lower()
-        if itype not in {'ether','ethernet'} and not name.lower().startswith(('ether','sfp','qsfp','combo')): continue
-        obj=interface_map.get(name);role=role_map.get(name)
-        ports.append({'name':name,'running':bool(obj.running) if obj else False,'disabled':bool(obj.disabled) if obj else False,'mac_address':obj.mac_address if obj else '', 'comment':obj.comment if obj else '', 'rx_byte':obj.rx_byte if obj else 0,'tx_byte':obj.tx_byte if obj else 0,'neighbors':neighbors_on_port.get(name,[]),'clients':clients_by_interface.get(name,[])[:8],'client_count':len(clients_by_interface.get(name,[])),'bridge':bridge_ports.get(name,{}).get('bridge',''),'pvid':bridge_ports.get(name,{}).get('pvid',''),'role':role.role if role else 'unused','role_label':role.get_role_display() if role else 'Unused'})
-
-    wifi_clients_view=[{**x,'mac_address':x.get('mac-address',x.get('mac_address','')),'last_activity':x.get('last-activity',x.get('last_activity',''))} for x in wifi_regs]
-    return {'router':router,'identity':_clean(data.get('identity',{})),'routerboard':_clean(data.get('routerboard',{})),'ports':ports,'neighbors':list(router.neighbors.all().order_by('-is_online','identity')),'wifi_clients':wifi_clients_view,'devices':list(router.devices.filter(is_online=True).order_by('interface_name','hostname','mac_address')),'captured_at':now,'error':''}
-
-
-def refresh_router_topology(router, timeout=None):
-    """Live discovery for one router. Persists ports/neighbors/devices and the WAN analysis."""
-    svc=MikroTikService(router,timeout=timeout).connect();now=timezone.now()
-    try:
-        data=svc.topology_data();snap=_persist_topology(router,data,now)
-        lb=svc.analyze_load_balancing(
-            routes=data.get('routes',[]),mangle=data.get('mangle',[]),bonding=data.get('bonding',[]),
-            routing_tables=data.get('routing_tables',[]),routing_rules=data.get('routing_rules',[]),
-            addresses=data.get('addresses',[]),dhcp_clients=data.get('dhcp_clients',[]),
-            interfaces=data.get('interfaces',[]),hotspot_servers=data.get('hotspot_servers',[]),
-        )
-        snap['load_balancing']=lb
-        identity=_clean(data.get('identity',{}));board=_clean(data.get('routerboard',{}))
-        cfg,created=RouterConfigSnapshot.objects.get_or_create(router=router,defaults={'sections':{},'load_balancing':lb,'captured_at':now})
-        if not created:
-            cfg.load_balancing=lb
-        # Keep a small identity block so the graph can label and match routers without a full config snapshot.
-        sections=dict(cfg.sections or {})
-        sections['_identity']={'path':'/system/identity','count':1,'rows':[{'name':identity.get('name',''),'model':board.get('model',''),'serial':board.get('serial-number','')}]}
-        sections['IP addresses']={'path':'/ip/address','count':len(data.get('addresses',[])),'rows':redact([dict(x) for x in data.get('addresses',[])[:500]])}
-        cfg.sections=sections
-        cfg.save(update_fields=['load_balancing','sections','updated_at'])
-        router.status='Online';router.last_error='';router.last_tested_at=now;router.save(update_fields=['status','last_error','last_tested_at'])
-        return snap
-    finally: svc.close()
-
-
-def snapshot_from_database(router):
-    ports=[];role_map={x.interface_name:x for x in router.interface_roles.all()}
-    for obj in router.interfaces.filter(is_present=True).order_by('name'):
-        name=obj.name
-        if obj.interface_type.lower() not in {'ether','ethernet'} and not name.lower().startswith(('ether','sfp','qsfp','combo')): continue
-        role=role_map.get(name)
-        devices=list(router.devices.filter(is_online=True,interface_name=name)[:8])
-        ports.append({'name':name,'running':obj.running,'disabled':obj.disabled,'mac_address':obj.mac_address,'comment':obj.comment,'rx_byte':obj.rx_byte,'tx_byte':obj.tx_byte,'neighbors':list(router.neighbors.filter(interface_name=name).order_by('-is_online','identity')),'clients':[{'mac':d.mac_address,'name':d.hostname,'ip':d.ip_address,'kind':d.connection_type,'parent':d.parent_identity} for d in devices],'client_count':router.devices.filter(is_online=True,interface_name=name).count(),'bridge':obj.raw_data.get('bridge_port',{}).get('bridge','') if obj.raw_data else '','pvid':obj.raw_data.get('bridge_port',{}).get('pvid','') if obj.raw_data else '','role':role.role if role else 'unused','role_label':role.get_role_display() if role else 'Unused'})
-    try: lb=router.config_snapshot.load_balancing
-    except Exception: lb={}
-    return {'router':router,'identity':{},'routerboard':{},'ports':ports,'neighbors':list(router.neighbors.all().order_by('-is_online','identity')),'wifi_clients':[],'devices':list(router.devices.filter(is_online=True).order_by('interface_name','hostname')),'load_balancing':lb,'captured_at':router.last_tested_at,'error':router.last_error or 'Router currently unreachable. Showing the last saved discovery snapshot.'}

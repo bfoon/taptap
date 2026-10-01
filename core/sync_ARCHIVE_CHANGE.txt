@@ -1,0 +1,7 @@
+In core/sync.py replace this exact line:
+
+for voucher in router.vouchers.filter(source='taptap'):
+
+with:
+
+for voucher in router.vouchers.filter(source='taptap').exclude(status='archived'):

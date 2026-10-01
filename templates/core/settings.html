@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}{% block title %}Settings — TapTap{% endblock %}{% block heading %}Settings{% endblock %}{% block content %}
+{% extends 'core/base.html' %}{% load archive_settings %}{% archive_policy current_business as archive_policy %}{% block title %}Settings — TapTap{% endblock %}{% block heading %}Settings{% endblock %}{% block content %}
 <form method="post" class="row g-4">{% csrf_token %}
 <div class="col-xl-7"><div class="panel form-panel"><h3>Business profile</h3><p>Shown on your customer portal pages and printed vouchers.</p>
   <div class="row g-3"><div class="col-md-6"><label>Business name</label><input class="form-control" name="business_name" value="{{ current_business.business_name }}" required></div>
@@ -41,6 +41,50 @@
     <small class="text-secondary">Leave empty to carry on. A lower number may repeat serials already printed.</small></div></div>
   <button class="btn btn-primary mt-3">Save</button>
 </div></div></form>
+
+<form method="post" action="{% url 'voucher_archive_settings' %}" class="row g-4 mt-1">{% csrf_token %}
+<div class="col-12"><div class="panel form-panel">
+  <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+    <div>
+      <h3>Expired voucher cleanup</h3>
+      <p class="mb-1">Keep MikroTik clean without deleting your TapTap history.</p>
+      <small class="text-secondary">When a voucher expires it is disabled immediately. After the number of days below, TapTap removes only the HotSpot user from MikroTik and changes the TapTap record to <b>Archived</b>.</small>
+    </div>
+    <span class="badge {% if archive_policy.enabled %}text-bg-success{% else %}text-bg-secondary{% endif %}">
+      {% if archive_policy.enabled %}Active{% else %}Off{% endif %}
+    </span>
+  </div>
+
+  <div class="form-check form-switch mt-3">
+    <input class="form-check-input" type="checkbox" role="switch" id="archiveEnabled" name="enabled" {% if archive_policy.enabled %}checked{% endif %}>
+    <label class="form-check-label" for="archiveEnabled">
+      <b>Automatically archive expired vouchers</b>
+      <small class="d-block text-secondary">Default is ON. Turning this off does not stop normal expiry; vouchers still expire and disconnect, but TapTap will not remove them automatically from MikroTik.</small>
+    </label>
+  </div>
+
+  <div class="row g-3 align-items-end mt-1">
+    <div class="col-sm-5 col-md-3">
+      <label for="archiveDays">Remove from MikroTik after</label>
+      <div class="input-group">
+        <input id="archiveDays" class="form-control" type="number" min="1" max="3650" name="retention_days" value="{{ archive_policy.retention_days|default:7 }}" required>
+        <span class="input-group-text">days</span>
+      </div>
+    </div>
+    <div class="col-sm-7 col-md-6">
+      <small class="text-secondary">Default: 7 days. You may use 1, 7, 14, 30 or any value up to 3650 days.</small>
+    </div>
+    <div class="col-md-3">
+      <button class="btn btn-primary w-100"><i class="bi bi-archive"></i> Save cleanup policy</button>
+    </div>
+  </div>
+
+  <div class="alert alert-light border mt-3 mb-0 small">
+    <b>Example:</b> voucher expires today → status becomes <b>Expired</b> and MikroTik disables it immediately → after {{ archive_policy.retention_days|default:7 }} days TapTap removes it from MikroTik → status becomes <b>Archived</b> in TapTap. Sales, usage and voucher history stay in TapTap.
+  </div>
+</div></div>
+</form>
+
 <div class="row g-4 mt-1"><div class="col-xl-7"><div class="panel"><div class="panel-head"><div><h3>Team &amp; security</h3><p>Give staff their own logins with limited access, and keep your own password safe.</p></div></div>
   <div class="d-flex gap-2 flex-wrap">{% if 'team.manage' in tt_perms %}<a class="btn btn-outline-primary" href="{% url 'team' %}"><i class="bi bi-person-badge"></i> Manage team accounts</a>{% endif %}
   <a class="btn btn-outline-secondary" href="{% url 'account_password' %}"><i class="bi bi-key"></i> Change password</a>
