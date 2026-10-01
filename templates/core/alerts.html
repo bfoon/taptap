@@ -37,7 +37,7 @@
     <div class="rule {% if not r.enabled %}off{% endif %} alert">
       <span class="ic"><i class="bi {% if r.kind == 'stock_low' %}bi-box-seam{% elif r.kind == 'stock_restocked' %}bi-box2-heart{% elif r.kind == 'no_sales' %}bi-hourglass-split{% elif r.kind == 'daily_revenue' %}bi-trophy{% elif r.kind == 'router_offline' %}bi-router{% elif r.kind == 'online_high' %}bi-people{% elif r.kind == 'agent_debt' %}bi-cash-coin{% elif r.kind == 'members_expiring' %}bi-person-badge{% elif r.kind == 'agent_stock_low' %}bi-person-vcard{% elif r.kind == 'agent_collection_due' %}bi-wallet2{% elif r.kind == 'agent_collected' %}bi-piggy-bank{% else %}bi-speedometer2{% endif %}"></i></span>
       <div class="flex-grow-1"><b>{{ r.name }} {% if r.firing and r.enabled %}<span class="badge text-bg-danger">true now</span>{% endif %}</b>
-        <small>{{ r.get_kind_display }}{% if r.params.threshold %} · level {{ r.params.threshold }}{% endif %}{% if r.params.plan %} · {{ r.params.plan }}{% endif %}{% if r.params.hours %} · {{ r.params.hours }} h{% endif %}{% if r.params.minutes %} · {{ r.params.minutes }} min{% endif %}{% if r.params.amount %} · {{ current_business.currency }}{{ r.params.amount }}{% endif %}{% if r.params.days %} · {{ r.params.days }} days{% endif %}{% if r.params.agent %} · one agent{% endif %}
+        <small>{{ r.get_kind_display }}{% if r.params.threshold %} · level {{ r.params.threshold }}{% endif %}{% if r.params.plan %} · {{ r.params.plan }}{% endif %}{% if r.params.hours %} · {{ r.params.hours }} h{% endif %}{% if r.params.minutes %} · {{ r.params.minutes }} min{% endif %}{% if r.params.amount %} · {{ current_business.currency }}{{ r.params.amount }}{% endif %}{% if r.params.days %} · {{ r.params.days }} days{% endif %}{% if r.params.agents %} · {{ r.params.agents|length }} agent{{ r.params.agents|length|pluralize }}{% elif r.params.agent %} · 1 agent{% elif r.kind == 'agent_stock_low' or r.kind == 'agent_collection_due' or r.kind == 'agent_collected' or r.kind == 'agent_debt' %} · all agents{% endif %}
           · {% if r.bell %}🔔{% endif %}{% if r.sound %}🔊{% endif %}{% if r.desktop %}🖥{% endif %}{% if r.email %}✉️{% endif %}{% if r.repeat_hours %} · every {{ r.repeat_hours }} h{% endif %}{% if r.last_fired_at %} · last {{ r.last_fired_at|timesince }} ago{% endif %}</small></div>
       <div class="d-flex gap-1 flex-wrap justify-content-end">
         <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#evModal" data-rule='{"id":{{ r.id }},"name":"{{ r.name|escapejs }}","kind":"{{ r.kind }}","level":"{{ r.level }}","bell":{{ r.bell|yesno:"true,false" }},"sound":{{ r.sound|yesno:"true,false" }},"desktop":{{ r.desktop|yesno:"true,false" }},"email":{{ r.email|yesno:"true,false" }},"repeat":{{ r.repeat_hours }},"qf":"{{ r.quiet_from|default_if_none:"" }}","qt":"{{ r.quiet_to|default_if_none:"" }}","enabled":{{ r.enabled|yesno:"true,false" }},"p":{{ r.params_json }}}'>Edit</button>
@@ -128,7 +128,11 @@
   <div class="modal-body"><div class="row g-3">
     <div class="col-md-6"><label class="form-label small">Alert me when…</label><select class="form-select" name="kind">{% for k,l in ev_kinds %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
     <div class="col-md-6"><label class="form-label small">Name</label><input class="form-control" name="name" maxlength="120" placeholder="(automatic)"></div>
-    <div class="col-md-4 ev-f" data-k="agent_stock_low agent_collection_due agent_collected agent_debt"><label class="form-label small">Agent</label><select class="form-select" name="agent"><option value="">All agents</option>{% for a in agent_list %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></div>
+    <div class="col-12 ev-f" data-k="agent_stock_low agent_collection_due agent_collected agent_debt"><label class="form-label small">Agents</label>
+      <div class="d-flex flex-wrap gap-2 align-items-center ev-agents">
+        <label class="form-check m-0"><input class="form-check-input" type="checkbox" name="agents_all" checked> <b>All agents</b> <small class="text-secondary">(also new ones)</small></label>
+        {% for a in agent_list %}<label class="form-check m-0 border rounded-pill px-2 py-1"><input class="form-check-input" type="checkbox" name="agents" value="{{ a.id }}"> {{ a.name }}</label>{% empty %}<small class="text-secondary">No agents yet — add them under Finance → Agents &amp; cash.</small>{% endfor %}
+      </div></div>
     <div class="col-md-4 ev-f" data-k="stock_low stock_restocked online_high fup_slowed agent_stock_low"><label class="form-label small" id="evThLabel">Level (vouchers)</label><input class="form-control" type="number" min="1" name="threshold" value="20"></div>
     <div class="col-md-4 ev-f" data-k="stock_low stock_restocked agent_stock_low"><label class="form-label small">Plan</label><select class="form-select" name="plan"><option value="">All plans</option>{% for n in plan_names %}<option>{{ n }}</option>{% endfor %}</select></div>
     <div class="col-md-4 ev-f" data-k="stock_low stock_restocked"><label class="form-label small">Router</label><select class="form-select" name="router"><option value="">All routers</option>{% for r in router_list %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select></div>
@@ -166,11 +170,16 @@
     document.getElementById('evHelp').textContent=HELP[k]||'';
     document.getElementById('evAmtLabel').textContent=k==='agent_collection_due'?'Only if they owe at least ({{ current_business.currency }})':(k==='agent_collected'?'Only hand-ins of at least ({{ current_business.currency }})':'Amount ({{ current_business.currency }})');document.getElementById('evThLabel').textContent=k==='online_high'?'Customers online':(k==='fup_slowed'?'Customers slowed':'Level (vouchers)');}
   f.kind.onchange=show;
+  var allA=f.agents_all,boxes=function(){return [].slice.call(m.querySelectorAll('input[name=agents]'));};
+  function syncA(){boxes().forEach(function(b){b.disabled=allA.checked;if(allA.checked)b.checked=false;});}
+  allA.onchange=syncA;
+  m.addEventListener('change',function(e){if(e.target.name==='agents'&&!boxes().some(function(b){return b.checked;})){allA.checked=true;syncA();}});
   m.addEventListener('show.bs.modal',function(e){var b=e.relatedTarget;f.reset();f.id.value='';document.getElementById('evTitle').textContent='New business alert';
     if(b&&b.dataset.rule){var r=JSON.parse(b.dataset.rule);f.id.value=r.id;f.name.value=r.name;f.kind.value=r.kind;f.level.value=r.level;
       ['bell','sound','desktop','email','enabled'].forEach(function(k){f[k].checked=r[k];});f.repeat_hours.value=r.repeat;f.quiet_from.value=r.qf;f.quiet_to.value=r.qt;
-      Object.keys(r.p||{}).forEach(function(k){if(f[k])f[k].value=r.p[k];});document.getElementById('evTitle').textContent='Edit alert';}
-    show();});
+      Object.keys(r.p||{}).forEach(function(k){if(f[k]&&k!=='agents'&&k!=='agent')f[k].value=r.p[k];});
+      var ids=(r.p.agents||(r.p.agent?[r.p.agent]:[])).map(String);allA.checked=!ids.length;boxes().forEach(function(b){b.checked=ids.indexOf(b.value)>=0;});document.getElementById('evTitle').textContent='Edit alert';}
+    syncA();show();});
 })();
 </script>
 {% endblock %}

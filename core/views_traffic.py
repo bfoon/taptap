@@ -313,8 +313,9 @@ def event_rule_save(request):
         params['plan'] = p['plan'][:120]
     if p.get('router', '').isdigit() and business.routers.filter(pk=int(p['router'])).exists():
         params['router'] = int(p['router'])
-    if p.get('agent', '').isdigit() and business.agents.filter(pk=int(p['agent'])).exists():
-        params['agent'] = int(p['agent'])
+    picked = [int(x) for x in p.getlist('agents') if str(x).isdigit()]
+    if picked and p.get('agents_all') != 'on':   # several agents (empty or "All agents" = every agent, now and later)
+        params['agents'] = sorted(business.agents.filter(pk__in=picked).values_list('pk', flat=True))
     rule.kind, rule.params = kind, params
     rule.level = p.get('level') if p.get('level') in dict(EventRule.LEVELS) else 'warning'
     for f in ('bell', 'sound', 'desktop', 'email'):

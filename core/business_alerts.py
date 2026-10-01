@@ -128,18 +128,30 @@ def _online_high(business, rule, now):
     return n >= th, str(n), f'{n} customers online', f'{n} customers are online at once (alert at {th}). Check your bandwidth.', '/traffic/'
 
 
+def agent_ids(params):
+    """The agents a rule watches: a set of ids, or None for every agent.
+    New rules store 'agents' (a list); rules saved before keep their single 'agent'."""
+    ids = params.get('agents')
+    if ids is None and params.get('agent'):
+        ids = [params['agent']]
+    ids = {_int(x) for x in (ids or []) if _int(x)}
+    return ids or None
+
+
 def _agent_debt(business, rule, now):
     from .finance import agent_balances
     amount = _dec(rule.params.get('amount') or 0)
-    over = [r for r in agent_balances(business) if amount > 0 and r['outstanding'] >= amount]
+    ids = agent_ids(rule.params)
+    over = [r for r in agent_balances(business) if amount > 0 and r['outstanding'] >= amount and (ids is None or r['agent'].pk in ids)]
     names = ', '.join(f'{r["agent"].name} ({business.currency}{r["outstanding"]:,.0f})' for r in over[:5])
     return bool(over), names, f'Agent debt above {business.currency}{amount:,.0f}', f'{names} — collect the cash.', '/finance/?tab=agents'
 
 
 def _agents(business, params):
     qs = business.agents.filter(active=True) if hasattr(business.agents.model, 'active') else business.agents.all()
-    if params.get('agent'):
-        qs = qs.filter(pk=_int(params['agent']))
+    ids = agent_ids(params)
+    if ids is not None:
+        qs = qs.filter(pk__in=ids)
     return list(qs.order_by('name'))
 
 
@@ -191,8 +203,9 @@ def _agent_collected(business, rule, now):
     floor = _dec(p.get('amount') or 0)
     last_id = _int(str(rule.last_value).split('#')[0], 0)
     qs = CashCollection.objects.filter(business=business, pk__gt=last_id).select_related('agent').order_by('pk')
-    if p.get('agent'):
-        qs = qs.filter(agent_id=_int(p['agent']))
+    ids = agent_ids(p)
+    if ids is not None:
+        qs = qs.filter(agent_id__in=ids)
     rows = list(qs[:20])
     top = CashCollection.objects.filter(business=business).order_by('-pk').values_list('pk', flat=True).first() or 0
     if rule.last_value == '':           # first check: start from now, don't replay old hand-ins

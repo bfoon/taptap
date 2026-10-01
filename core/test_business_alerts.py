@@ -131,3 +131,41 @@ class AgentAlertTests(TestCase):
         CashCollection.objects.create(business=self.b, agent=self.musa, amount=Decimal('10'))
         ba.evaluate(self.b, force=True)
         self.assertTrue(EventAlert.objects.filter(rule=got).exists())
+
+
+class MultiAgentAlertTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        from .models import Agent
+        self.owner = User.objects.create_user('owner3', 'o3@x.com', 'pw12345678')
+        self.b = Business.objects.create(user=self.owner, business_name='K', owner_name='A', phone='1', currency='D',
+                                         trial_ends_at=timezone.now() + timedelta(days=9), is_unlimited=True)
+        VoucherPlan.objects.create(business=self.b, name='1 Day', price=25, duration_minutes=1440)
+        self.a1, self.a2, self.a3 = (Agent.objects.create(business=self.b, name=n) for n in ('Awa', 'Musa', 'Fatou'))
+        self.c = Client(); self.c.force_login(self.owner)
+
+    def test_pick_several_agents(self):
+        self.c.post('/alerts/business/', {'kind': 'agent_stock_low', 'threshold': '5', 'agents': [self.a1.pk, self.a3.pk],
+                                          'level': 'warning', 'bell': 'on', 'enabled': 'on'})
+        r = EventRule.objects.get()
+        self.assertEqual(r.params['agents'], sorted([self.a1.pk, self.a3.pk]))
+        ba.evaluate(self.b, force=True)                       # all three hold 0 vouchers; only Awa and Fatou are watched
+        body = EventAlert.objects.get().body
+        self.assertIn('Awa', body); self.assertIn('Fatou', body); self.assertNotIn('Musa', body)
+
+    def test_all_agents_and_old_single_agent_rules(self):
+        self.c.post('/alerts/business/', {'kind': 'agent_stock_low', 'threshold': '5', 'agents_all': 'on', 'agents': [self.a1.pk],
+                                          'level': 'warning', 'bell': 'on', 'enabled': 'on'})
+        self.assertNotIn('agents', EventRule.objects.get().params)            # "All agents" wins
+        self.assertIsNone(ba.agent_ids({}))
+        self.assertEqual(ba.agent_ids({'agent': self.a2.pk}), {self.a2.pk})   # rules saved before keep working
+
+    def test_debt_respects_agents(self):
+        from .models import Voucher as V
+        for ag in (self.a1, self.a2):
+            v = V.objects.create(business=self.b, agent=ag, code=f'D{ag.pk:07d}', plan_name='1 Day', price=100, duration_minutes=1440)
+            record_sale(self.b, v, method='cash', agent=ag)
+        EventRule.objects.create(business=self.b, name='Debt', kind='agent_debt', params={'amount': 50, 'agents': [self.a2.pk]})
+        ba.evaluate(self.b, force=True)
+        body = EventAlert.objects.get().body
+        self.assertIn('Musa', body); self.assertNotIn('Awa', body)
