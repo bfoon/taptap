@@ -70,6 +70,18 @@ def live_tick(request):
     except ValueError:
         since = 0
     data['alerts'] = unread_alerts(business, since)
+    # Business alerts: checked here too when no scheduler runs (at most once a minute per business).
+    from . import business_alerts as ba
+    if not beat_alive():
+        try:
+            ba.evaluate(business)
+        except Exception:
+            pass
+    try:
+        esince = int(request.GET.get('esince') or 0)
+    except ValueError:
+        esince = 0
+    data['biz_alerts'] = ba.unread(business, esince)
     return JsonResponse(data)
 
 

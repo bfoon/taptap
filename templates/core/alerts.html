@@ -1,6 +1,6 @@
 {% extends 'core/base.html' %}
 {% block title %}Alerts — TapTap{% endblock %}
-{% block heading %}Device alerts{% endblock %}
+{% block heading %}Alerts{% endblock %}
 {% block extra_head %}<style>
 .al-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.8rem;margin-bottom:1rem}
 .al-kpi{background:#fff;border:1px solid var(--border);border-radius:16px;padding:.85rem 1rem}.al-kpi span{display:block;font-size:.72rem;color:var(--muted);font-weight:600}.al-kpi strong{font-size:1.4rem}
@@ -19,8 +19,44 @@
 </style>{% endblock %}
 {% block content %}
 <div class="page-actions"><div><h2 class="section-title">Know when a device drops off</h2><p>Live sync scans your routers every minute. When a device you watch disappears — and is still gone after a few minutes — you get an alert in the bell, a pop-up, and a desktop notification if you turn those on.</p></div>
-  <form method="post" action="{% url 'alerts_read' %}">{% csrf_token %}<button class="btn btn-outline-secondary text-nowrap" {% if not unread %}disabled{% endif %}>Mark all read</button></form></div>
+  <form method="post" action="{% url 'alerts_read' %}">{% csrf_token %}<button class="btn btn-outline-secondary text-nowrap" {% if not unread and not ev_unread %}disabled{% endif %}>Mark all read</button></form></div>
 
+<div class="al-tabs mb-3"><a href="?f=all" class="{% if f != 'business' %}on{% endif %}"><i class="bi bi-hdd-network"></i> Devices</a><a href="?f=business" class="{% if f == 'business' %}on{% endif %}"><i class="bi bi-bell"></i> Business alerts{% if ev_unread %} ({{ ev_unread }}){% endif %}</a></div>
+{% if f == 'business' %}
+<div class="al-kpis">
+  <div class="al-kpi {% if ev_unread %}bad{% endif %}"><span>Unread business alerts</span><strong>{{ ev_unread }}</strong></div>
+  <div class="al-kpi"><span>Alert rules on</span><strong>{{ ev_on }}</strong></div>
+  <div class="al-kpi"><span>True right now</span><strong>{{ ev_firing }}</strong></div>
+</div>
+<div class="al-grid">
+  <section class="panel">
+    <div class="panel-head"><div><h3>Your business alerts</h3><p>Checked every minute. Each fires once when it becomes true (and again if you set a reminder), then re-arms.</p></div>
+      <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#evModal" data-new="1"><i class="bi bi-plus-lg"></i> New alert</button></div>
+    {% if ev_presets %}<div class="al-help"><b>Quick start:</b> {% for k,name,params,level,rep in ev_presets %}<form method="post" action="{% url 'event_rule_preset' %}" class="d-inline">{% csrf_token %}<input type="hidden" name="action" value="preset"><input type="hidden" name="kind" value="{{ k }}"><button class="btn btn-sm btn-outline-primary m-1"><i class="bi bi-plus"></i> {{ name }}</button></form>{% endfor %}</div>{% endif %}
+    {% for r in ev_rules %}
+    <div class="rule {% if not r.enabled %}off{% endif %} alert">
+      <span class="ic"><i class="bi {% if r.kind == 'stock_low' %}bi-box-seam{% elif r.kind == 'stock_restocked' %}bi-box2-heart{% elif r.kind == 'no_sales' %}bi-hourglass-split{% elif r.kind == 'daily_revenue' %}bi-trophy{% elif r.kind == 'router_offline' %}bi-router{% elif r.kind == 'online_high' %}bi-people{% elif r.kind == 'agent_debt' %}bi-cash-coin{% elif r.kind == 'members_expiring' %}bi-person-badge{% else %}bi-speedometer2{% endif %}"></i></span>
+      <div class="flex-grow-1"><b>{{ r.name }} {% if r.firing and r.enabled %}<span class="badge text-bg-danger">true now</span>{% endif %}</b>
+        <small>{{ r.get_kind_display }}{% if r.params.threshold %} · level {{ r.params.threshold }}{% endif %}{% if r.params.plan %} · {{ r.params.plan }}{% endif %}{% if r.params.hours %} · {{ r.params.hours }} h{% endif %}{% if r.params.minutes %} · {{ r.params.minutes }} min{% endif %}{% if r.params.amount %} · {{ current_business.currency }}{{ r.params.amount }}{% endif %}
+          · {% if r.bell %}🔔{% endif %}{% if r.sound %}🔊{% endif %}{% if r.desktop %}🖥{% endif %}{% if r.email %}✉️{% endif %}{% if r.repeat_hours %} · every {{ r.repeat_hours }} h{% endif %}{% if r.last_fired_at %} · last {{ r.last_fired_at|timesince }} ago{% endif %}</small></div>
+      <div class="d-flex gap-1 flex-wrap justify-content-end">
+        <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#evModal" data-rule='{"id":{{ r.id }},"name":"{{ r.name|escapejs }}","kind":"{{ r.kind }}","level":"{{ r.level }}","bell":{{ r.bell|yesno:"true,false" }},"sound":{{ r.sound|yesno:"true,false" }},"desktop":{{ r.desktop|yesno:"true,false" }},"email":{{ r.email|yesno:"true,false" }},"repeat":{{ r.repeat_hours }},"qf":"{{ r.quiet_from|default_if_none:"" }}","qt":"{{ r.quiet_to|default_if_none:"" }}","enabled":{{ r.enabled|yesno:"true,false" }},"p":{{ r.params_json }}}'>Edit</button>
+        <form method="post" action="{% url 'event_rule_action' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" name="action" value="test" title="Send a test alert">Test</button></form>
+        <form method="post" action="{% url 'event_rule_action' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" name="action" value="toggle">{% if r.enabled %}Pause{% else %}Resume{% endif %}</button></form>
+        <form method="post" action="{% url 'event_rule_action' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" name="action" value="delete" onclick="return confirm('Delete this alert?')"><i class="bi bi-trash"></i></button></form>
+      </div>
+    </div>
+    {% empty %}<p class="text-secondary small">No business alerts yet. Use Quick start or <b>New alert</b>.</p>{% endfor %}
+  </section>
+  <section class="panel">
+    <div class="panel-head"><div><h3>Recent business alerts</h3></div></div>
+    <div class="scroll-list">{% for a in ev_alerts %}
+      <div class="al-row {% if not a.read_at %}unread{% endif %}"><i class="ev bi {% if a.level == 'danger' %}bi-exclamation-octagon text-danger{% elif a.level == 'info' %}bi-info-circle text-primary{% else %}bi-exclamation-triangle text-warning{% endif %}"></i>
+        <div><b>{% if a.link %}<a href="{{ a.link }}" class="text-decoration-none">{{ a.title }}</a>{% else %}{{ a.title }}{% endif %}</b><small>{{ a.body }}</small><small>{{ a.created_at|date:'d M H:i' }}{% if a.rule %} · {{ a.rule.name }}{% endif %}</small></div></div>
+    {% empty %}<p class="text-secondary small">Nothing yet.</p>{% endfor %}</div>
+  </section>
+</div>
+{% else %}
 <div class="al-kpis">
   <div class="al-kpi {% if still_down %}bad{% endif %}"><span>Watched devices still offline</span><strong>{{ still_down }}</strong></div>
   <div class="al-kpi"><span>Unread alerts</span><strong>{{ unread }}</strong></div>
@@ -57,6 +93,7 @@
   </section>
 </div>
 
+{% endif %}
 <div class="modal fade" id="ruleModal" tabindex="-1" aria-labelledby="ruleTitle" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'alert_rule_save' %}" id="ruleForm">{% csrf_token %}
   <div class="modal-header"><h5 class="modal-title" id="ruleTitle">Add alert rule</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
   <div class="modal-body row g-3">
@@ -82,6 +119,52 @@
     if(hints[m.value]){lab.textContent=hints[m.value][0];val.placeholder=hints[m.value][1];}
     var mute=f.elements['action'].value==='mute';f.querySelectorAll('[data-alert-only]').forEach(function(e){e.style.display=mute?'none':'';});}
   m.onchange=sync;f.elements['action'].onchange=sync;sync();
+})();
+</script>
+
+<div class="modal fade" id="evModal" tabindex="-1" aria-labelledby="evTitle" aria-hidden="true"><div class="modal-dialog modal-lg"><form class="modal-content" method="post" action="{% url 'event_rule_save' %}">{% csrf_token %}
+  <input type="hidden" name="id">
+  <div class="modal-header"><h5 class="modal-title" id="evTitle">New business alert</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body"><div class="row g-3">
+    <div class="col-md-6"><label class="form-label small">Alert me when…</label><select class="form-select" name="kind">{% for k,l in ev_kinds %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-md-6"><label class="form-label small">Name</label><input class="form-control" name="name" maxlength="120" placeholder="(automatic)"></div>
+    <div class="col-md-4 ev-f" data-k="stock_low stock_restocked online_high fup_slowed"><label class="form-label small" id="evThLabel">Level (vouchers)</label><input class="form-control" type="number" min="1" name="threshold" value="20"></div>
+    <div class="col-md-4 ev-f" data-k="stock_low stock_restocked"><label class="form-label small">Plan</label><select class="form-select" name="plan"><option value="">All plans</option>{% for n in plan_names %}<option>{{ n }}</option>{% endfor %}</select></div>
+    <div class="col-md-4 ev-f" data-k="stock_low stock_restocked"><label class="form-label small">Router</label><select class="form-select" name="router"><option value="">All routers</option>{% for r in router_list %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-4 ev-f" data-k="no_sales members_expiring"><label class="form-label small">Hours</label><input class="form-control" type="number" min="1" name="hours" value="3"></div>
+    <div class="col-md-4 ev-f" data-k="no_sales"><label class="form-label small">Only between (opening hours)</label><div class="input-group"><input class="form-control" type="number" min="0" max="23" name="open_from" placeholder="08"><span class="input-group-text">–</span><input class="form-control" type="number" min="0" max="24" name="open_to" placeholder="22"></div></div>
+    <div class="col-md-4 ev-f" data-k="router_offline"><label class="form-label small">Offline for at least (minutes)</label><input class="form-control" type="number" min="0" name="minutes" value="5"></div>
+    <div class="col-md-4 ev-f" data-k="daily_revenue agent_debt"><label class="form-label small">Amount ({{ current_business.currency }})</label><input class="form-control" type="number" min="0" step="0.01" name="amount"></div>
+    <div class="col-12"><small class="text-secondary" id="evHelp"></small></div>
+    <div class="col-md-4"><label class="form-label small">Importance</label><select class="form-select" name="level">{% for k,l in ev_levels %}<option value="{{ k }}" {% if k == 'warning' %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-md-4"><label class="form-label small">Remind again every</label><div class="input-group"><input class="form-control" type="number" min="0" max="168" name="repeat_hours" value="0"><span class="input-group-text">h (0 = once)</span></div></div>
+    <div class="col-md-4"><label class="form-label small">Quiet hours (no sound / pop-up)</label><div class="input-group"><input class="form-control" type="number" min="0" max="23" name="quiet_from" placeholder="22"><span class="input-group-text">–</span><input class="form-control" type="number" min="0" max="23" name="quiet_to" placeholder="7"></div></div>
+    <div class="col-12 d-flex flex-wrap gap-3">
+      <label class="form-check"><input class="form-check-input" type="checkbox" name="bell" checked> 🔔 System bell</label>
+      <label class="form-check"><input class="form-check-input" type="checkbox" name="sound" checked> 🔊 Sound</label>
+      <label class="form-check"><input class="form-check-input" type="checkbox" name="desktop" checked> 🖥 Desktop pop-up</label>
+      <label class="form-check"><input class="form-check-input" type="checkbox" name="email"> ✉️ Email (Notifications settings)</label>
+      <label class="form-check"><input class="form-check-input" type="checkbox" name="enabled" checked> On</label>
+    </div>
+  </div></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save alert</button></div>
+</form></div></div>
+<script>
+(function(){var m=document.getElementById('evModal');if(!m)return;var f=m.querySelector('form');
+  var HELP={stock_low:'Fires when unsold shop vouchers (not held by agents) fall below the level. Remind every few hours until you restock.',
+    stock_restocked:'Fires when stock that was below the level is back at or above it — e.g. after generating a new batch.',
+    no_sales:'Fires when nothing was sold for this many hours. Set opening hours so it stays quiet at night.',
+    daily_revenue:'Fires once a day when today’s sales pass the amount.',router_offline:'Fires when a router is unreachable for this long, and again if another router drops.',
+    online_high:'Fires when this many customers are online at once (level = customers).',agent_debt:'Fires when an agent owes at least this amount.',
+    members_expiring:'Fires when members will expire within the hours you set.',fup_slowed:'Fires when this many customers are slowed by fair usage at once.'};
+  function show(){var k=f.kind.value;m.querySelectorAll('.ev-f').forEach(function(d){d.hidden=d.dataset.k.split(' ').indexOf(k)<0;});
+    document.getElementById('evHelp').textContent=HELP[k]||'';document.getElementById('evThLabel').textContent=k==='online_high'?'Customers online':(k==='fup_slowed'?'Customers slowed':'Level (vouchers)');}
+  f.kind.onchange=show;
+  m.addEventListener('show.bs.modal',function(e){var b=e.relatedTarget;f.reset();f.id.value='';document.getElementById('evTitle').textContent='New business alert';
+    if(b&&b.dataset.rule){var r=JSON.parse(b.dataset.rule);f.id.value=r.id;f.name.value=r.name;f.kind.value=r.kind;f.level.value=r.level;
+      ['bell','sound','desktop','email','enabled'].forEach(function(k){f[k].checked=r[k];});f.repeat_hours.value=r.repeat;f.quiet_from.value=r.qf;f.quiet_to.value=r.qt;
+      Object.keys(r.p||{}).forEach(function(k){if(f[k])f[k].value=r.p[k];});document.getElementById('evTitle').textContent='Edit alert';}
+    show();});
 })();
 </script>
 {% endblock %}

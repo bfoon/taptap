@@ -73,7 +73,7 @@ urlpatterns = [
     path('traffic/',views_traffic.traffic,name='traffic'), path('traffic/now/',views_traffic.traffic_now,name='traffic_now'), path('traffic/data/',views_traffic.traffic_data,name='traffic_data'),
     path('topology/node-devices/',views_traffic.node_devices,name='node_devices'), path('alerts/device/',views_traffic.device_alert_toggle,name='device_alert_toggle'),
     path('alerts/',views_traffic.alerts,name='alerts'), path('alerts/rule/',views_traffic.alert_rule_save,name='alert_rule_save'),
-    path('alerts/rule/<int:pk>/',views_traffic.alert_rule_action,name='alert_rule_action'), path('alerts/read/',views_traffic.alerts_read,name='alerts_read'),
+    path('alerts/rule/<int:pk>/',views_traffic.alert_rule_action,name='alert_rule_action'), path('alerts/read/',views_traffic.alerts_read,name='alerts_read'), path('alerts/business/',views_traffic.event_rule_save,name='event_rule_save'), path('alerts/business/add/',views_traffic.event_rule_action,name='event_rule_preset'), path('alerts/business/<int:pk>/',views_traffic.event_rule_action,name='event_rule_action'),
     path('vouchers/<int:pk>/missing/',views_missing.mark_voucher_missing,name='mark_voucher_missing'),
     path('vouchers/missing/',views_missing.missing_vouchers,name='missing_vouchers'),
     path('vouchers/missing/report/',views_missing.report_missing_vouchers,name='report_missing_vouchers'),

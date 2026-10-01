@@ -506,6 +506,14 @@ def watch_all():
             sweep(watched=watched)
         except Exception:
             logger.exception('expiry sweep')
+        # Business alerts (stock low, restocked, no sales, routers offline…) for every business that has rules.
+        try:
+            from .business_alerts import evaluate
+            for business in Business.objects.filter(event_rules__enabled=True).distinct():
+                if business.has_access:
+                    evaluate(business)
+        except Exception:
+            logger.exception('business alerts')
         return results
     finally:
         cache.delete('tt:watch:all')
