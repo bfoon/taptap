@@ -51,12 +51,13 @@ class Audit:
     def __init__(self):
         self.findings = []
 
-    def add(self, key, severity, category, title, impact, router=None, evidence=None, cli='', fix=None, link=None):
+    def add(self, key, severity, category, title, impact, router=None, evidence=None, cli='', fix=None, link=None, action=None):
         self.findings.append({
             'key': key, 'severity': severity, 'category': category, 'title': title, 'impact': impact,
             'router_id': router.id if router else None, 'router_name': router.name if router else 'All routers',
             'evidence': [str(x) for x in (evidence or [])][:12], 'evidence_more': max(0, len(evidence or []) - 12),
             'cli': cli, 'fix': fix, 'link': link,
+            'action': action,   # a Fix dialog of its own: plan-limits, sharing, admin-account
         })
 
 
@@ -166,8 +167,8 @@ def audit_router(audit, router, now):
     users = _rows(snap, 'Users')
     if any(str(g(u, 'name')) == 'admin' and not truthy(g(u, 'disabled', default='no')) for u in users):
         audit.add(f'r{router.id}:user-admin', 'medium', 'Access control', 'Default "admin" account is active',
-                  'The default username is the first one attackers try. Create a personal full-rights user, then disable admin.',
-                  router, cli='/user add name=<you> group=full password=<strong>\n/user disable admin')
+                  'The default username is the first one attackers try. Give it a strong password, or create a personal full-rights user and disable admin.',
+                  router, cli='/user add name=<you> group=full password=<strong>\n/user disable admin', action='admin-account')
     if str(router.username).lower() == 'admin':
         audit.add(f'r{router.id}:api-user-admin', 'medium', 'Access control', 'TapTap connects with the admin account',
                   'If the TapTap database is ever exposed, the router is fully compromised. Use a dedicated API user.',
@@ -232,8 +233,9 @@ def audit_router(audit, router, now):
     count = unlimited.count()
     if count:
         audit.add(f'r{router.id}:unlimited-users', 'medium' if count > 5 else 'low', 'Revenue', f'{count} hotspot user(s) never expire',
-                  'MikroTik-side users without limit-uptime give free unlimited access and are not sold through TapTap.', router,
-                  evidence=list(unlimited.values_list('username', flat=True)[:12]))
+                  'MikroTik-side users without limit-uptime give free unlimited access. Fix gives each one its plan\'s time '
+                  '(a 24 h plan gets 1d) — now, or automatically for every new one.', router,
+                  evidence=list(unlimited.values_list('username', flat=True)[:12]), action='plan-limits')
 
 
 def audit_business(business):
@@ -274,18 +276,31 @@ def audit_business(business):
             audit.add(f'r{router.id}:voucher-sync-errors', 'medium', 'Revenue', f'{errors} voucher(s) failed to publish',
                       'Customers who bought these codes cannot log in until the next successful sync.', router, link='vouchers')
 
-        # ---- voucher sharing from live hotspot sessions ----
+        # ---- voucher sharing from live hotspot sessions (one phone that changed its MAC counts once) ----
         sessions = defaultdict(set)
         for dev in router.devices.filter(is_online=True, sources__contains='hotspot-active').exclude(hostname=''):
             if dev.mac_address:
-                sessions[dev.hostname.upper()].add(dev.mac_address)
+                sessions[dev.hostname.upper()].add(dev.mac_address.upper())
         if sessions:
-            limits = dict(business.vouchers.filter(code__in=list(sessions.keys())).values_list('code', 'max_devices'))
-            shared = [(code, len(macs), limits.get(code, 1)) for code, macs in sessions.items() if len(macs) > (limits.get(code) or 1)]
+            from .models import VoucherDeviceBinding
+            vs = {v.code.upper(): v for v in business.vouchers.filter(code__in=list(sessions.keys())).only('id', 'code', 'max_devices')}
+            same = defaultdict(dict)          # voucher -> mac -> binding id (current and previous MAC of a locked phone)
+            for b in VoucherDeviceBinding.objects.filter(voucher__in=list(vs.values())).only('voucher_id', 'current_mac', 'previous_mac'):
+                for m in (b.current_mac, b.previous_mac):
+                    if m:
+                        same[b.voucher_id][m.upper()] = b.pk
+            shared = []
+            for code, macs in sessions.items():
+                v = vs.get(code)
+                limit = (v.max_devices if v else 1) or 1
+                devices = {same[v.pk].get(m, m) for m in macs} if v else macs
+                if len(devices) > limit:
+                    shared.append((code, len(devices), limit))
             if shared:
                 audit.add(f'r{router.id}:voucher-sharing', 'medium', 'Hotspot abuse', f'{len(shared)} voucher(s) used on more devices than paid for',
-                          'A code is logged in on more devices than its plan allows — usually a shared or resold voucher.', router,
-                          evidence=[f'{c}: {n} devices (plan allows {lim})' for c, n, lim in shared], link='active_users')
+                          'A code is logged in right now on more devices than its plan allows — usually a shared or resold voucher. '
+                          'Fix stops it now and keeps stopping it (sticky vouchers); phones that only changed their MAC keep working.', router,
+                          evidence=[f'{c}: {n} devices (plan allows {lim})' for c, n, lim in shared], link='active_users', action='sharing')
 
         # ---- unknown routers on the LAN (rogue / customer routers) ----
         managed_ips = {r.ip_address for r in routers if r.ip_address}
@@ -300,16 +315,36 @@ def audit_business(business):
                       'Routers you did not add to TapTap are advertising on customer ports. They may be rogue DHCP servers or resold connections.',
                       router, evidence=[f'{n.identity or n.board} {n.address} on {n.interface_name}' for n in rogue], link='topology')
     # ---- device signatures: one voucher, several physical devices ----
+    # Only the last 7 days, and with sticky vouchers on, a phone the lock REFUSED is a blocked attempt, not sharing.
     try:
         from .ads import shared_vouchers
-        shared = shared_vouchers(business, limit=40)
+        shared = shared_vouchers(business, limit=40, since=now - timedelta(days=7))
     except Exception:
         shared = []
+    if shared and getattr(business, 'device_lock', True):
+        from .models import VoucherDeviceBinding
+        bound = defaultdict(set)
+        for code, fp in VoucherDeviceBinding.objects.filter(business=business, voucher__code__in=[c for c, _, _ in shared]) \
+                .exclude(device_token_hash='').values_list('voucher__code', 'device_token_hash'):
+            bound[code].add(fp)
+        over, blocked = [], []
+        for code, sigs, allowed in shared:
+            inside = [s for s in sigs if s.fingerprint in bound[code]]
+            if len(inside) > (allowed or 1):
+                over.append((code, inside, allowed))
+            refused = len(sigs) - len(inside)
+            if refused:
+                blocked.append((code, refused, allowed))
+        shared = over
+        if blocked:
+            audit.add('sig:sharing-blocked', 'info', 'Hotspot abuse', f'Sticky vouchers refused {sum(n for _, n, _ in blocked)} extra device(s) this week',
+                      'These phones tried a code that is already locked to someone else and were refused. Nothing to fix — this is the lock working.', None,
+                      evidence=[f'{code}: {n} refused (plan allows {allowed})' for code, n, allowed in blocked], link='devices')
     if shared:
         audit.add('sig:voucher-sharing', 'medium', 'Hotspot abuse', f'{len(shared)} voucher(s) used on more devices than paid for',
-                  'Device signatures from your login pages show the same code on different phones or laptops — even when MAC addresses change. '
-                  'Usually a shared or resold voucher.', None,
-                  evidence=[f'{code}: {len(sigs)} devices (plan allows {allowed})' for code, sigs, allowed in shared], link='devices')
+                  'Device signatures from your login pages show the same code on different phones or laptops this week — even when MAC '
+                  'addresses change. Fix turns on sticky vouchers so each code stays on the devices that paid for it.', None,
+                  evidence=[f'{code}: {len(sigs)} devices (plan allows {allowed})' for code, sigs, allowed in shared], link='devices', action='sharing')
     return audit.findings
 
 

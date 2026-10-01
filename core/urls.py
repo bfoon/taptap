@@ -10,6 +10,7 @@ from . import views_profiles as vprof
 from . import views_chat as vchat
 from . import views_members as vmem
 from . import views_topology as vtopo
+from . import views_security_fixes as vsecfix
 
 urlpatterns = [
     path('routers/profiles/',vprof.router_profiles,name='router_profiles'), path('routers/<int:pk>/profiles/import/',vprof.router_profile_import,name='router_profile_import'),
@@ -112,4 +113,8 @@ urlpatterns = [
     path('topology/routers/',vtopo.topology_routers,name='topology_routers'), path('topology/routers/find/',vtopo.topology_router_find,name='topology_router_find'),
     path('topology/routers/action/',vtopo.topology_router_action,name='topology_router_action'),
     path('topology/routers/probe/',vtopo.topology_router_probe,name='topology_router_probe'),
+    # Security: Fix dialogs (plan time for router users, voucher sharing, default admin account)
+    path('security/plan-limits/<int:pk>/',vsecfix.security_plan_limits,name='security_plan_limits'),
+    path('security/sharing/',vsecfix.security_sharing,name='security_sharing'),
+    path('security/admin-account/<int:pk>/',vsecfix.security_admin_account,name='security_admin_account'),
 ]

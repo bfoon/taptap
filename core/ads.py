@@ -117,10 +117,13 @@ def record_device(business, fingerprint, components, ua, mac='', ip='', code='',
     return sig
 
 
-def shared_vouchers(business, limit=200):
-    """Voucher codes seen on more distinct device signatures than the voucher allows."""
+def shared_vouchers(business, limit=200, since=None):
+    """Voucher codes seen on more distinct device signatures than the voucher allows (seen since `since`)."""
     seen = {}
-    for sig in business.device_signatures.exclude(vouchers=[]).only('id', 'vouchers', 'model', 'os', 'label', 'fingerprint'):
+    sigs = business.device_signatures.exclude(vouchers=[])
+    if since is not None:
+        sigs = sigs.filter(last_seen__gte=since)
+    for sig in sigs.only('id', 'vouchers', 'model', 'os', 'label', 'fingerprint'):
         for code in sig.vouchers or []:
             seen.setdefault(code, []).append(sig)
     if not seen:

@@ -268,6 +268,16 @@ def watch_router(router, force=False):
             else:
                 push_event(business.pk, f'{len(gone)} vouchers were removed from {router.name}')
 
+        # ---------------- router users without a time limit: give them their plan time (automatic mode) ----------------
+        if getattr(business, 'auto_plan_limits', False):
+            try:
+                from .plan_limits import auto as plan_auto
+                res = plan_auto(router)
+                if res and res.get('set'):
+                    summary['plan_limits'] = res['set']
+            except Exception:
+                logger.exception('plan limits on %s', router.name)
+
         # ---------------- time ran out: switch off at once (calendar end or router uptime used up) ----------------
         try:
             from .expiry import enforce_on_router
@@ -514,6 +524,15 @@ def watch_all():
                     evaluate(business)
         except Exception:
             logger.exception('business alerts')
+        # Automatic plan time on TapTap Link routers (direct routers get it inside the live pass)
+        try:
+            from .linkops import uses_link
+            from .plan_limits import auto as plan_auto
+            for r in Router.objects.filter(business__auto_plan_limits=True, connection_mode='agent').select_related('business'):
+                if uses_link(r):
+                    plan_auto(r)
+        except Exception:
+            logger.exception('plan limits (link)')
         return results
     finally:
         cache.delete('tt:watch:all')

@@ -131,6 +131,9 @@
       {% if f.cli %}<pre class="sec-cli"><button type="button" class="sec-copy" title="Copy command" aria-label="Copy command"><i class="bi bi-clipboard"></i></button>{{ f.cli }}</pre>{% endif %}
       <div class="sec-ops">
         {% if f.fix and f.router_id %}<button type="button" class="btn btn-sm btn-danger" data-fix="{{ f.fix }}" data-fix-url="{% url 'security_fix' f.router_id %}"><i class="bi bi-magic"></i> Fix on router</button>{% endif %}
+        {% if f.action == 'plan-limits' and f.router_id %}<button type="button" class="btn btn-sm btn-danger" data-sec-action="plan-limits" data-url="{% url 'security_plan_limits' f.router_id %}"><i class="bi bi-hourglass-split"></i> Fix with plan time</button>{% endif %}
+        {% if f.action == 'sharing' %}<button type="button" class="btn btn-sm btn-danger" data-sec-action="sharing" data-url="{% url 'security_sharing' %}"><i class="bi bi-lock"></i> Stop it now</button>{% endif %}
+        {% if f.action == 'admin-account' and f.router_id %}<button type="button" class="btn btn-sm btn-danger" data-sec-action="admin-account" data-url="{% url 'security_admin_account' f.router_id %}"><i class="bi bi-person-lock"></i> Fix…</button>{% endif %}
         {% if f.link %}<a class="btn btn-sm btn-outline-secondary" href="{% if f.link == 'router_control' and f.router_id %}{% url 'router_control' f.router_id %}{% else %}{% url f.link %}{% endif %}">Open</a>{% endif %}
         <form method="post" action="{% url 'security_ack' %}" class="d-flex gap-2 sec-ack-form">{% csrf_token %}<input type="hidden" name="finding_key" value="{{ f.key }}"><input class="form-control form-control-sm" name="note" placeholder="Why this is fine (optional)"><button class="btn btn-sm btn-outline-secondary">Mark as reviewed</button></form>
       </div>
@@ -151,6 +154,38 @@
   </div>
 </details>
 {% endif %}
+
+<div class="modal fade" id="planModal" tabindex="-1" aria-labelledby="planTitle"><div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header"><div><h5 class="modal-title fw-bold" id="planTitle">Give router users their plan time</h5><p class="small text-secondary m-0">Each user gets the time of the plan its profile belongs to — a 24 h plan gets <code>limit-uptime=1d</code>.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body"><div id="planBody" aria-live="polite"><p class="text-secondary">Loading…</p></div>
+    <div class="form-check form-switch mt-3 p-3 border rounded-3 ps-5"><input class="form-check-input" type="checkbox" id="planAuto"><label class="form-check-label" for="planAuto"><b>Do this automatically</b><small class="d-block text-secondary">Every new router user without a time limit gets its plan time as soon as TapTap sees it.</small></label></div>
+    <div class="alert alert-danger small mt-3 mb-0" id="planErr" hidden></div></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" id="planApply">Apply plan time</button></div>
+</div></div></div>
+
+<div class="modal fade" id="adminModal" tabindex="-1" aria-labelledby="adminTitle"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" id="adminForm" novalidate>
+  <div class="modal-header"><div><h5 class="modal-title fw-bold" id="adminTitle">Secure the admin account</h5><p class="small text-secondary m-0" id="adminRouter"></p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body">
+    <fieldset class="mb-3"><legend class="form-label small fw-bold">What do you want to do?</legend>
+      <label class="d-block p-2 border rounded-3 mb-2"><input type="radio" name="act" value="password" checked> <b>Set a strong password on admin</b><small class="d-block text-secondary ms-4">Always safe. Keeps the account, replaces its password.</small></label>
+      <label class="d-block p-2 border rounded-3" id="disableOpt"><input type="radio" name="act" value="disable"> <b>Disable the admin account</b><small class="d-block text-secondary ms-4" id="disableNote">Only after another full-rights account exists.</small></label></fieldset>
+    <div data-pane="password">
+      <label class="form-label small fw-bold" for="apw1">New password</label>
+      <div class="input-group"><input class="form-control font-monospace" type="password" id="apw1" autocomplete="new-password" maxlength="64"><button class="btn btn-outline-secondary" type="button" data-show="apw1">Show</button><button class="btn btn-outline-secondary" type="button" data-gen="apw1,apw2">Generate</button></div>
+      <label class="form-label small fw-bold mt-2" for="apw2">Type it again</label><input class="form-control font-monospace" type="password" id="apw2" autocomplete="new-password" maxlength="64">
+      <small class="text-secondary d-block mt-1">At least 12 characters, mixing small and capital letters, numbers or symbols. Write it down — TapTap does not show it again.</small>
+      <div class="alert alert-info small mt-2 mb-0" id="adminTaptapNote" hidden>TapTap logs in to this router as admin, so TapTap saves the new password too and checks it works.</div></div>
+    <div data-pane="disable" hidden>
+      <div id="adminOthers" class="small mb-2"></div>
+      <div id="adminNewUser" hidden><p class="small mb-2">There is no other full-rights account yet. TapTap creates yours first, then disables admin.</p>
+        <label class="form-label small fw-bold" for="anu">Your new account name</label><input class="form-control" id="anu" maxlength="32" autocomplete="off" placeholder="e.g. musa">
+        <label class="form-label small fw-bold mt-2" for="anp1">Its password</label>
+        <div class="input-group"><input class="form-control font-monospace" type="password" id="anp1" autocomplete="new-password" maxlength="64"><button class="btn btn-outline-secondary" type="button" data-show="anp1">Show</button><button class="btn btn-outline-secondary" type="button" data-gen="anp1,anp2">Generate</button></div>
+        <label class="form-label small fw-bold mt-2" for="anp2">Type it again</label><input class="form-control font-monospace" type="password" id="anp2" autocomplete="new-password" maxlength="64"></div></div>
+    <div class="alert alert-danger small mt-3 mb-0" id="adminErr" hidden></div>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" id="adminGo">Apply on the router</button></div>
+</form></div></div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -162,6 +197,63 @@
   document.querySelectorAll('.sec-filter').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.sec-filter').forEach(x=>x.classList.toggle('on',x===b));const f=b.dataset.filter;document.querySelectorAll('#secList .sec-item').forEach(it=>{it.hidden=!(f==='all'||(f.startsWith('sev:')&&it.dataset.sev===f.slice(4))||(f.startsWith('cat:')&&it.dataset.cat===f.slice(4)));});}));
   // Copy CLI
   document.querySelectorAll('.sec-copy').forEach(b=>b.addEventListener('click',async e=>{e.preventDefault();const pre=b.parentElement;const text=[...pre.childNodes].filter(n=>n!==b).map(n=>n.textContent).join('').trim();try{await navigator.clipboard.writeText(text);b.innerHTML='<i class="bi bi-check2"></i>';setTimeout(()=>b.innerHTML='<i class="bi bi-clipboard"></i>',1500);}catch(err){}}));
+
+  // ---- Fix dialogs: plan time, voucher sharing, admin account (core/views_security_fixes.py) ----
+  const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const post=async(url,body)=>{const r=await fetch(url,{method:'POST',credentials:'same-origin',headers:{'X-CSRFToken':token,'Content-Type':'application/json'},body:JSON.stringify(body||{})});return r.json().catch(()=>({success:false,message:'Could not reach TapTap.'}));};
+  const gen=()=>{const a='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!#%+=?@';const r=new Uint32Array(16);crypto.getRandomValues(r);let s='';for(const x of r)s+=a[x%a.length];return /[a-z]/.test(s)&&/[A-Z]/.test(s)&&/\d/.test(s)?s:gen();};
+  document.querySelectorAll('[data-show]').forEach(b=>b.addEventListener('click',()=>{const i=document.getElementById(b.dataset.show);const h=i.type==='password';i.type=h?'text':'password';b.textContent=h?'Hide':'Show';}));
+  document.querySelectorAll('[data-gen]').forEach(b=>b.addEventListener('click',()=>{const v=gen();b.dataset.gen.split(',').forEach(id=>{const i=document.getElementById(id);i.value=v;i.type='text';});}));
+  const modal=id=>bootstrap.Modal.getOrCreateInstance(document.getElementById(id));
+  const TIMES=[['','Leave unlimited'],[60,'1 hour'],[180,'3 hours'],[720,'12 hours'],[1440,'1 day'],[4320,'3 days'],[10080,'7 days'],[43200,'30 days']];
+  let planUrl='';
+  document.querySelectorAll('[data-sec-action]').forEach(b=>b.addEventListener('click',async()=>{
+    const kind=b.dataset.secAction;
+    if(kind==='sharing'){
+      if(!confirm('Stop vouchers being used on more devices than paid for? Sticky vouchers are switched on and extra devices are disconnected now. Phones that only changed their MAC keep working.'))return;
+      b.disabled=true;const old=b.innerHTML;b.innerHTML='<span class="spinner-border spinner-border-sm"></span> Working…';
+      const d=await post(b.dataset.url);b.disabled=false;b.innerHTML=old;alert(d.message||'Done.');if(d.success)location.reload();return;
+    }
+    if(kind==='plan-limits'){
+      planUrl=b.dataset.url;const body=document.getElementById('planBody');body.innerHTML='<p class="text-secondary">Loading…</p>';document.getElementById('planErr').hidden=true;modal('planModal').show();
+      const r=await fetch(planUrl,{credentials:'same-origin'});const d=await r.json();
+      document.getElementById('planAuto').checked=!!d.auto;
+      if(!d.groups||!d.groups.length){body.innerHTML='<p>Every router user already has a time limit. Nothing to fix.</p>';return;}
+      body.innerHTML='<div class="table-responsive"><table class="table align-middle small"><thead><tr><th>Profile</th><th>Plan</th><th>Time each user gets</th><th class="text-end">Users</th></tr></thead><tbody>'+d.groups.map((g,i)=>
+        '<tr><td><b>'+esc(g.profile)+'</b></td><td>'+(g.plan?esc(g.plan):'<span class="text-secondary">none</span>')+'</td><td>'+(g.minutes?esc(g.label)+' <code>'+esc(g.limit)+'</code>':
+        '<select class="form-select form-select-sm" data-prof="'+esc(g.profile)+'" aria-label="Time for '+esc(g.profile)+'">'+TIMES.map(([v,l])=>'<option value="'+v+'">'+l+'</option>').join('')+'</select><small class="text-secondary d-block">'+esc(g.why)+'</small>')+
+        (g.over?'<small class="text-warning d-block">'+g.over+' already used more than this — they will be switched off</small>':'')+'</td><td class="text-end">'+g.users.length+'<small class="d-block text-secondary">'+esc(g.users.slice(0,3).join(', '))+(g.users.length>3?'…':'')+'</small></td></tr>').join('')+'</tbody></table></div>';
+      return;
+    }
+    if(kind==='admin-account'){
+      const f=document.getElementById('adminForm');f.dataset.url=b.dataset.url;f.reset();document.getElementById('adminErr').hidden=true;
+      const r=await fetch(b.dataset.url,{credentials:'same-origin'});const d=await r.json();
+      document.getElementById('adminRouter').textContent=d.router||'';
+      document.getElementById('adminTaptapNote').hidden=!d.taptap_is_admin;
+      const dis=f.querySelector('[name=act][value=disable]');dis.disabled=!d.can_disable;
+      document.getElementById('disableOpt').classList.toggle('opacity-50',!d.can_disable);
+      document.getElementById('disableNote').textContent=d.can_disable?(d.needs_new_user?'TapTap creates your own full-rights account first.':'You will log in with '+d.other_full_users.join(', ')+' afterwards.'):d.why_not_disable;
+      document.getElementById('adminOthers').textContent=d.other_full_users.length?'Other full-rights accounts: '+d.other_full_users.join(', ')+'. Admin will be disabled; log in with one of these.':'';
+      document.getElementById('adminNewUser').hidden=!d.needs_new_user;
+      f.querySelector('[name=act][value=password]').checked=true;f.querySelectorAll('[data-pane]').forEach(p=>p.hidden=p.dataset.pane!=='password');
+      modal('adminModal').show();
+    }
+  }));
+  document.querySelectorAll('#adminForm [name=act]').forEach(r=>r.addEventListener('change',()=>{document.querySelectorAll('#adminForm [data-pane]').forEach(p=>p.hidden=p.dataset.pane!==r.value);}));
+  document.getElementById('planApply')?.addEventListener('click',async e=>{
+    const btn=e.currentTarget,overrides={};document.querySelectorAll('#planBody [data-prof]').forEach(s=>{if(s.value)overrides[s.dataset.prof]=Number(s.value);});
+    btn.disabled=true;btn.innerHTML='<span class="spinner-border spinner-border-sm"></span> Applying…';
+    const d=await post(planUrl,{overrides,auto:document.getElementById('planAuto').checked});btn.disabled=false;btn.textContent='Apply plan time';
+    if(d.success){alert(d.message);location.reload();}else{const er=document.getElementById('planErr');er.textContent=d.message||'The router refused.';er.hidden=false;}
+  });
+  document.getElementById('adminForm')?.addEventListener('submit',async e=>{
+    e.preventDefault();const f=e.currentTarget,act=f.querySelector('[name=act]:checked').value,v=id=>document.getElementById(id).value;
+    if(act==='disable'&&!confirm('Disable the admin account on the router? Make sure you can log in with the other full-rights account.'))return;
+    const body=act==='password'?{action:'password',password:v('apw1'),password2:v('apw2')}:{action:'disable',new_name:v('anu'),new_password:v('anp1'),new_password2:v('anp2')};
+    const btn=document.getElementById('adminGo');btn.disabled=true;btn.innerHTML='<span class="spinner-border spinner-border-sm"></span> Applying…';
+    const d=await post(f.dataset.url,body);btn.disabled=false;btn.textContent='Apply on the router';
+    if(d.success){alert(d.message);location.reload();}else{const er=document.getElementById('adminErr');er.textContent=d.message||'The router refused.';er.hidden=false;}
+  });
   // One-click fixes
   document.querySelectorAll('[data-fix]').forEach(b=>b.addEventListener('click',async()=>{
     if(!confirm('Apply this change on the router now? It is logged in the Control Center change audit.'))return;

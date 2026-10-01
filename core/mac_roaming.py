@@ -18,7 +18,7 @@ logger = logging.getLogger('taptap.mac_roaming')
 
 def _recognized_roam(original):
     @wraps(original)
-    def wrapped(voucher, mac='', fp='', source='portal', label=''):
+    def wrapped(voucher, mac='', fp='', source='portal', label='', hints=None):
         from . import device_lock
         from .models import VoucherDeviceBinding
 
@@ -34,7 +34,7 @@ def _recognized_roam(original):
             if old:
                 old_mac = device_lock.norm_mac(old.current_mac)
 
-        result = original(voucher, mac=mac, fp=fp, source=source, label=label)
+        result = original(voucher, mac=mac, fp=fp, source=source, label=label, hints=hints)
         if not (old_mac and new_mac and old_mac != new_mac and result.allowed
                 and getattr(result.binding, 'current_mac', '') == new_mac):
             return result

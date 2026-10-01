@@ -596,6 +596,30 @@ class MikroTikService:
         'ip-proxy-open': ('/ip/proxy', None, {'enabled': 'no'}, 'Disable the open web proxy'),
     }
 
+    # ---- router login accounts (/user): only what the Security "admin account" fix needs ----
+    def system_users(self):
+        return [dict(r) for r in self.resource('/user').get()]
+
+    def system_user_set_password(self, name, password):
+        res = self.resource('/user')
+        rows = res.get(name=name)
+        if not rows:
+            raise MikroTikError(f'There is no "{name}" account on this router.')
+        res.set(id=rows[0]['id'], password=password)
+
+    def system_user_add(self, name, password, group='full'):
+        res = self.resource('/user')
+        if res.get(name=name):
+            raise MikroTikError(f'An account named "{name}" already exists on this router.')
+        res.add(name=name, group=group, password=password, comment='Created by TapTap Security')
+
+    def system_user_disable(self, name):
+        res = self.resource('/user')
+        rows = res.get(name=name)
+        if not rows:
+            raise MikroTikError(f'There is no "{name}" account on this router.')
+        res.set(id=rows[0]['id'], disabled='yes')
+
     def apply_security_fix(self, key):
         """Apply one whitelisted fix. None of these can cut off TapTap's API access."""
         if key not in self.SECURITY_FIXES:

@@ -42,6 +42,7 @@ SAFE_KINDS = {
     'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
+    'hotspot_users_limit', 'admin_password',
 }
 BATCH_GAP = 45   # seconds: one unanswered command must never freeze the whole queue
 ACK_WAIT = {'portal_install': 300, 'inventory_piece': 600, 'backup': 300, 'hotspot_users': 300, 'self_update': 300}   # seconds before a resend
@@ -304,6 +305,12 @@ def command_body(cmd):
                          f'profile={rs(u["prof"])} comment={rs(u.get("c", "TapTap voucher"))}{extra} }} else={{ /ip hotspot user set [find name={rs(u["n"])}] '
                          f'profile={rs(u["prof"])}{pw_set}{extra} }}')
         return '; '.join(lines) or ':nothing'
+    if k == 'hotspot_users_limit':
+        # Plan time for router-made users (core/plan_limits.py): sets limit-uptime only, never creates a user.
+        return '; '.join(f'/ip hotspot user set [find name={rs(u["n"])}] limit-uptime={rs(u["lim"])}' for u in p.get('users', [])) or ':nothing'
+    if k == 'admin_password':
+        # New password for the default admin account (Security). The password is wiped from TapTap once acknowledged.
+        return f'/user set [find name="admin"] password={rs(p["password"])}'
     if k == 'hotspot_user_set':
         return f'/ip hotspot user set [find name={name()}] disabled={"yes" if p.get("disabled") else "no"}'
     if k == 'hotspot_user_extend':
@@ -442,6 +449,16 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
             raise ValueError(f'Invalid {key}.')
     if params and 'mac' in params and not MAC_RE.match(str(params['mac'])):
         raise ValueError('Invalid MAC address.')
+    if kind == 'hotspot_users_limit':
+        from .plan_limits import LIM_RE
+        users = (params or {}).get('users') or []
+        if not isinstance(users, list) or not 1 <= len(users) <= 100 or not all(
+                NAME_RE.match(str(u.get('n', ''))) and LIM_RE.match(str(u.get('lim', ''))) and u.get('lim') for u in users):
+            raise ValueError('Invalid user list.')
+    if kind == 'admin_password':
+        pw = str((params or {}).get('password') or '')
+        if not 12 <= len(pw) <= 64 or any(ord(c) < 32 for c in pw):
+            raise ValueError('Invalid password.')
     if kind in ('hotspot_users_remove', 'hotspot_users_disable', 'hotspot_users_repass'):
         names = (params or {}).get('names') or []
         if not isinstance(names, list) or not 1 <= len(names) <= 100 or not all(NAME_RE.match(str(n)) for n in names):
@@ -797,6 +814,12 @@ def handle_ack(cmd_id, given_nonce, status, result=''):
     if cmd.kind == 'hotspot_users_remove':
         from .voucher_bin import link_ack
         link_ack(cmd, ok)
+    if cmd.kind == 'admin_password':
+        # never keep a router password in the command log
+        AgentCommand.objects.filter(pk=cmd.pk).update(params={'password': '••••••••'})
+        if ok:
+            from .security_admin import link_password_ack
+            link_password_ack(cmd)
     if cmd.kind == 'hotspot_users_disable' and cmd.params.get('reason') == 'expired':
         from .expiry import link_ack as expiry_ack
         expiry_ack(cmd, ok)

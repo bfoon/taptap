@@ -11,6 +11,15 @@
   slots, with "Reset devices" on the voucher.
 * One-device vouchers are also locked on the router itself (the hotspot user's mac-address),
   so the router refuses other devices even when TapTap cannot be reached.
+* **MAC changes without the portal** (auto-login by MAC cookie, a router-served page, a phone that
+  rotates its private address): when every slot is taken and an unknown MAC logs in, TapTap checks
+  whether it is one of the locked phones that just changed address. The slot moves to the new MAC
+  only if that locked device's MAC is **offline** right now, and either
+    - its Wi-Fi name (DHCP host name) is the same — phones keep their name when the MAC changes, or
+    - the new MAC is a private (randomised) address and the voucher has not moved more than
+      ``SWAP_PER_DAY`` times in 24 hours.
+  Anything else is a different device and is refused, so a customer whose phone changes its MAC
+  keeps working, while a second phone using the same code is still disconnected.
 """
 from __future__ import annotations
 
@@ -25,6 +34,54 @@ logger = logging.getLogger('taptap.devicelock')
 
 MAC_RE = re.compile(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$')
 ANY_MAC = '00:00:00:00:00:00'
+SWAP_PER_DAY = 3          # private-MAC changes allowed per voucher in 24 h without a matching host name
+KICK_EVERY = 20           # seconds: a refused device is disconnected again at most this often
+GENERIC_HOSTS = {'', 'android', 'iphone', 'ipad', 'localhost', 'unknown', 'espressif', 'esp32', 'galaxy', 'samsung',
+                 'android-phone', 'phone', 'mobile', 'laptop', 'desktop', 'pc'}
+
+
+def is_private_mac(mac):
+    """Phones' privacy MACs set the 'locally administered' bit (second hex digit 2, 6, A or E)."""
+    m = norm_mac(mac)
+    return bool(m) and int(m[1], 16) & 2 == 2
+
+
+def _host(router_id, mac):
+    if not router_id or not mac:
+        return ''
+    from .models import RouterDevice
+    h = RouterDevice.objects.filter(router_id=router_id, mac_address__iexact=mac).exclude(hostname='').values_list('hostname', flat=True).first()
+    h = str(h or '').strip().lower()
+    return '' if h in GENERIC_HOSTS or re.fullmatch(r'android-[0-9a-f]{6,}', h or '') else h
+
+
+def _swaps_today(voucher):
+    from datetime import timedelta
+    from .models import VoucherEvent
+    return VoucherEvent.objects.filter(voucher=voucher, event='device', detail__kind='mac_swap',
+                                       created_at__gte=timezone.now() - timedelta(hours=24)).count()
+
+
+def _same_phone(voucher, rows, mac, hints):
+    """Which locked device is this unknown MAC most likely to be (a MAC change), or None.
+    Only with live data (the live pass knows which MACs are online right now). Without it — e.g. a login
+    page that sent no device ID — nothing is assumed offline and the device is refused as before."""
+    if not hints or 'online_macs' not in hints:
+        return None, ''
+    online = {norm_mac(m) for m in hints.get('online_macs', ())}
+    router_id = (hints or {}).get('router_id') or voucher.router_id
+    away = [b for b in rows if b.current_mac and b.current_mac not in online]     # its old MAC is offline now
+    if not away:
+        return None, ''
+    new_host = _host(router_id, mac)
+    if new_host:
+        for b in away:
+            if _host(router_id, b.current_mac) == new_host:
+                return b, 'same Wi-Fi name “%s”' % new_host
+    if is_private_mac(mac) and _swaps_today(voucher) < SWAP_PER_DAY:
+        away.sort(key=lambda b: b.last_seen_at or b.first_bound_at)
+        return away[0], 'private MAC address'
+    return None, ''
 
 
 def norm_mac(mac):
@@ -70,7 +127,7 @@ class Outcome:
         return f'<Outcome {self.status}>'
 
 
-def claim(voucher, mac='', fp='', source='portal', label=''):
+def claim(voucher, mac='', fp='', source='portal', label='', hints=None):
     """Is this device allowed on the voucher? Takes a free slot when there is one.
     status: 'known' (already locked to it), 'moved' (known device, new MAC), 'new' (slot taken now),
     'denied' (all slots belong to other devices), 'off' (locking switched off)."""
@@ -85,6 +142,12 @@ def claim(voucher, mac='', fp='', source='portal', label=''):
         rows = list(VoucherDeviceBinding.objects.filter(voucher=voucher).order_by('slot_no'))
         hit = next((b for b in rows if fp and b.device_token_hash == fp), None) or \
             next((b for b in rows if mac and (b.current_mac == mac or b.previous_mac == mac)), None)
+        if hit and not (fp and hit.device_token_hash == fp) and mac and hit.previous_mac == mac and hit.current_mac != mac \
+                and hit.current_mac in {norm_mac(m) for m in (hints or {}).get('online_macs', ())}:
+            # Its OLD MAC while its current MAC is online: two phones taking turns on one slot. Refuse.
+            n = slots(voucher)
+            return Outcome('denied', None, f'This voucher is already in use on {"another device" if n == 1 else f"its {n} devices"}. '
+                                           'Ask the staff to reset it if you changed your phone.')
         if hit:
             changed, status = [], 'known'
             if mac and hit.current_mac != mac:
@@ -101,6 +164,26 @@ def claim(voucher, mac='', fp='', source='portal', label=''):
             if status == 'moved' and slots(voucher) == 1:
                 _router_mac(voucher, mac)
             return Outcome(status, hit)
+        if len(rows) >= slots(voucher) and mac and not fp:
+            # No portal device ID: is this a locked phone that changed its MAC? (see module notes)
+            same, why = _same_phone(voucher, rows, mac, hints)
+            if same is not None:
+                old = same.current_mac
+                same.previous_mac, same.current_mac, same.last_seen_at = old, mac, timezone.now()
+                same.save(update_fields=['previous_mac', 'current_mac', 'last_seen_at'])
+                moved = same
+            else:
+                moved = None
+        else:
+            moved = None
+        if moved is not None:
+            from .voucher_history import record
+            record(voucher, 'device', source='auto', kind='mac_swap',
+                   text=f'{moved.label or "Locked device"} changed its MAC {moved.previous_mac} → {mac} ({why}) — slot {moved.slot_no} follows it')
+            if slots(voucher) == 1:
+                _router_mac(voucher, mac)
+            _forget_mac(voucher, moved.previous_mac)        # the old MAC cannot log back in by cookie
+            return Outcome('moved', moved)
         if len(rows) >= slots(voucher):
             n = slots(voucher)
             return Outcome('denied', None, f'This voucher is already in use on {"another device" if n == 1 else f"its {n} devices"}. '
@@ -156,6 +239,31 @@ def _router_mac(voucher, mac):
         logger.info('router MAC lock for %s: %s', voucher.code, exc)
 
 
+def _forget_mac(voucher, mac):
+    """Remove the hotspot cookie (and any session) of a locked phone's previous MAC after it changed MAC."""
+    router, mac = voucher.router, norm_mac(mac)
+    if not router or not mac:
+        return
+    try:
+        from .voucher_history import channel
+        if channel(router) == 'TapTap Link':
+            from .linkops import send
+            send(router, 'hotspot_kick', {'user': voucher.code, 'mac': mac}, label=f'Forget old MAC of {voucher.code}', minutes=15)
+            return
+        from .mikrotik import MikroTikService
+        svc = MikroTikService(router).connect()
+        try:
+            for path, field in (('/ip/hotspot/active', 'mac-address'), ('/ip/hotspot/cookie', 'mac-address')):
+                res = svc.resource(path)
+                for row in res.get(user=voucher.code):
+                    if norm_mac(row.get(field)) == mac:
+                        res.remove(id=row['id'])
+        finally:
+            svc.close()
+    except Exception as exc:
+        logger.info('forget old MAC %s of %s: %s', mac, voucher.code, exc)
+
+
 def unlock_on_router(voucher):
     _router_mac(voucher, '')
 
@@ -165,7 +273,7 @@ def kick(router, voucher, mac, session_id='', svc=None):
     key = f'lock:kick:{router.pk}:{voucher.pk}:{mac}'
     if cache.get(key):
         return False
-    cache.set(key, 1, 90)
+    cache.set(key, 1, KICK_EVERY)       # every live pass, so a refused phone cannot sit on the voucher
     try:
         from .voucher_history import channel
         if svc is None and channel(router) == 'TapTap Link':
@@ -200,11 +308,14 @@ def kick(router, voucher, mac, session_id='', svc=None):
 def enforce_sessions(router, voucher_rows, svc=None):
     """Live sync: lock new devices and disconnect foreign ones. voucher_rows = [(voucher, session_row)]."""
     kicked = 0
+    online = {}
+    for v, s in voucher_rows:     # every MAC online on each voucher right now
+        online.setdefault(v.pk, set()).add(norm_mac(s.get('mac-address')))
     for v, s in voucher_rows:
         mac = norm_mac(s.get('mac-address'))
         if not mac or not enabled(v) or v.frozen_at or v.status != 'active':
             continue
-        out = claim(v, mac=mac, source='router')
+        out = claim(v, mac=mac, source='router', hints={'online_macs': online.get(v.pk, set()) - {mac}, 'router_id': router.pk})
         if out.status == 'denied' and kick(router, v, mac, str(s.get('id', '')), svc=svc):
             kicked += 1
     return kicked

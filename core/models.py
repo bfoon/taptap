@@ -37,6 +37,7 @@ class Business(models.Model):
     enforce_grace_minutes=models.PositiveSmallIntegerField(default=5,help_text='Wait this long before fixing automatically')
     # Sticky vouchers — see core/device_lock.py and core/sticky.py
     device_lock=models.BooleanField(default=True,help_text='A voucher stays locked to the devices that first used it, until staff reset it')
+    auto_plan_limits=models.BooleanField(default=False,help_text='Give router-made hotspot users without a time limit their plan time automatically (core/plan_limits.py)')
     sticky_sessions=models.BooleanField(default=True,help_text='Devices log back in by themselves when they come back (MAC cookie), idle devices are not logged out')
     sticky_keepalive=models.CharField(max_length=10,default='2h',choices=[('none','Never — keep the session until the voucher ends'),('30m','30 minutes'),('2h','2 hours'),('12h','12 hours')],
         help_text='How long the router keeps an unreachable device logged in (it logs back in by itself anyway)')
