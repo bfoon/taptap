@@ -8,7 +8,7 @@ from django.contrib import messages
 from django.core.cache import cache
 from django.core.serializers.json import DjangoJSONEncoder
 from django.contrib.auth.decorators import login_required
-from django.db.models import Q, Sum
+from django.db.models import Count, Q, Sum
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -216,7 +216,8 @@ def alerts(request):
                                                 'ev_presets': [p for p in PRESETS if not any(r.kind == p[0] for r in ev_rules)],
                                                 'plan_names': list(business.plans.filter(active=True).order_by('name').values_list('name', flat=True)),
                                                 'router_list': business.routers.order_by('name'),
-                                                'agent_list': business.agents.filter(active=True).order_by('name'),
+                                                'agent_list': business.agents.filter(active=True).annotate(held=Count('vouchers', filter=Q(vouchers__status='active', vouchers__sold_at__isnull=True, vouchers__used_at__isnull=True, vouchers__deleted_at__isnull=True))).order_by('name'),
+                                                'plan_rows': business.plans.filter(active=True).order_by('name'),
                                                 'unread': business.device_alerts.filter(read_at__isnull=True).count(),
                                                 'subjects': AlertRule.SUBJECTS, 'matches': AlertRule.MATCHES, 'ip_types': AlertRule.IP_TYPES,
                                                 'kinds': AlertRule.KINDS, 'actions': AlertRule.ACTIONS})
@@ -305,15 +306,22 @@ def event_rule_save(request):
         v = (p.get(k) or '').strip()
         return v if v == '' else (v if v.replace('.', '', 1).isdigit() else d)
     params = {}
-    for k in ('threshold', 'hours', 'minutes', 'amount', 'open_from', 'open_to', 'days'):
+    # only the settings this kind of alert uses (the form keeps hidden fields of the other kinds)
+    USES = {'stock_low': ('threshold',), 'stock_restocked': ('threshold',), 'no_sales': ('hours', 'open_from', 'open_to'),
+            'daily_revenue': ('amount',), 'router_offline': ('minutes',), 'online_high': ('threshold',), 'agent_debt': ('amount',),
+            'members_expiring': ('hours',), 'fup_slowed': ('threshold',), 'agent_stock_low': ('threshold',),
+            'agent_collection_due': ('days', 'amount'), 'agent_collected': ('amount',)}
+    for k in USES.get(kind, ()):
         v = num(k)
         if v not in (None, ''):
             params[k] = v
-    if p.get('plan'):
-        params['plan'] = p['plan'][:120]
-    if p.get('router', '').isdigit() and business.routers.filter(pk=int(p['router'])).exists():
+    chosen = [n for n in p.getlist('plans') if n] if kind in ('stock_low', 'stock_restocked', 'agent_stock_low') else []
+    if chosen and p.get('plans_all') != 'on':   # several plans (empty or "All plans" = every plan)
+        known = set(business.plans.values_list('name', flat=True))
+        params['plans'] = [n[:120] for n in chosen if n in known]
+    if kind in ('stock_low', 'stock_restocked') and p.get('router', '').isdigit() and business.routers.filter(pk=int(p['router'])).exists():
         params['router'] = int(p['router'])
-    picked = [int(x) for x in p.getlist('agents') if str(x).isdigit()]
+    picked = [int(x) for x in p.getlist('agents') if str(x).isdigit()] if kind.startswith('agent_') else []
     if picked and p.get('agents_all') != 'on':   # several agents (empty or "All agents" = every agent, now and later)
         params['agents'] = sorted(business.agents.filter(pk__in=picked).values_list('pk', flat=True))
     rule.kind, rule.params = kind, params

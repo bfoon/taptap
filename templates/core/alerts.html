@@ -16,6 +16,31 @@
 .rule b{font-size:.85rem;display:block}.rule small{font-size:.72rem;color:var(--muted)}
 .al-help{background:#f3f7fb;border-radius:12px;padding:.7rem .8rem;font-size:.78rem;color:#3d5166;margin-bottom:.8rem}
 @media(max-width:1000px){.al-grid{grid-template-columns:1fr}}
+.tt-ms{position:relative}
+.tt-ms-field{display:flex;align-items:center;flex-wrap:wrap;gap:.3rem;min-height:38px;width:100%;padding:.3rem 2.2rem .3rem .5rem;border:1px solid var(--bs-border-color,#dee2e6);border-radius:.6rem;background:var(--bs-body-bg,#fff);cursor:pointer;text-align:left;position:relative}
+.tt-ms-field::after{content:"";position:absolute;right:.8rem;top:50%;width:.5rem;height:.5rem;border-right:2px solid #6c7c90;border-bottom:2px solid #6c7c90;transform:translateY(-70%) rotate(45deg);transition:transform .15s}
+.tt-ms.open .tt-ms-field::after{transform:translateY(-30%) rotate(225deg)}
+.tt-ms.open .tt-ms-field,.tt-ms-field:focus{border-color:#86b7fe;box-shadow:0 0 0 .2rem rgba(13,110,253,.15);outline:0}
+.tt-chip{display:inline-flex;align-items:center;gap:.3rem;background:#eaf2ff;color:#1554b8;border-radius:999px;padding:.12rem .25rem .12rem .5rem;font-size:.8rem;font-weight:600;max-width:100%}
+.tt-chip.all{background:#e8f8ef;color:#138453;padding-right:.55rem}.tt-chip .av{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:.6rem;color:#fff;font-weight:800}
+.tt-chip button{border:0;background:rgba(0,0,0,.08);color:inherit;width:16px;height:16px;border-radius:50%;font-size:.65rem;line-height:1;display:grid;place-items:center;padding:0}
+.tt-chip.more{background:#eef1f5;color:#4e6479;padding-right:.5rem}
+.tt-ms-panel{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:1061;background:var(--bs-body-bg,#fff);border:1px solid var(--bs-border-color,#dee2e6);border-radius:.8rem;box-shadow:0 14px 36px rgba(10,20,35,.18);padding:.5rem;display:none}
+.tt-ms.open .tt-ms-panel{display:block;animation:msin .12s ease-out}@keyframes msin{from{opacity:0;transform:translateY(-4px)}}
+.tt-ms-panel input[type=search]{width:100%;border:1px solid var(--bs-border-color,#dee2e6);border-radius:.55rem;padding:.35rem .6rem;font-size:.85rem;margin-bottom:.35rem}
+.tt-ms-list{max-height:220px;overflow:auto}
+.tt-ms-opt{display:flex;align-items:center;gap:.55rem;width:100%;border:0;background:none;padding:.4rem .45rem;border-radius:.5rem;text-align:left;font-size:.86rem;color:inherit}
+.tt-ms-opt:hover,.tt-ms-opt.kb{background:rgba(13,110,253,.07)}
+.tt-ms-opt .av{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:800;font-size:.72rem;flex:none}
+.tt-ms-opt small{display:block;color:var(--muted,#6c7c90);font-size:.72rem}
+.tt-ms-opt .tick{margin-left:auto;width:20px;height:20px;border-radius:6px;border:2px solid #c7d2df;display:grid;place-items:center;flex:none;color:#fff;font-size:.75rem}
+.tt-ms-opt[aria-selected=true] .tick{background:#0d6efd;border-color:#0d6efd}
+.tt-ms-opt.all-opt{border-bottom:1px dashed var(--bs-border-color,#dee2e6);border-radius:.5rem .5rem 0 0;margin-bottom:.2rem}
+.tt-ms-opt.all-opt[aria-selected=true] .tick{background:#18a66a;border-color:#18a66a}
+.tt-ms-foot{display:flex;justify-content:space-between;align-items:center;gap:.4rem;border-top:1px solid var(--bs-border-color,#eef1f5);margin-top:.35rem;padding-top:.4rem;font-size:.78rem}
+.tt-ms-empty{padding:.6rem;color:var(--muted,#6c7c90);font-size:.82rem;text-align:center}
+#evModal .modal-body{overflow:visible}
+
 </style>{% endblock %}
 {% block content %}
 <div class="page-actions"><div><h2 class="section-title">Know when a device drops off</h2><p>Live sync scans your routers every minute. When a device you watch disappears — and is still gone after a few minutes — you get an alert in the bell, a pop-up, and a desktop notification if you turn those on.</p></div>
@@ -37,7 +62,7 @@
     <div class="rule {% if not r.enabled %}off{% endif %} alert">
       <span class="ic"><i class="bi {% if r.kind == 'stock_low' %}bi-box-seam{% elif r.kind == 'stock_restocked' %}bi-box2-heart{% elif r.kind == 'no_sales' %}bi-hourglass-split{% elif r.kind == 'daily_revenue' %}bi-trophy{% elif r.kind == 'router_offline' %}bi-router{% elif r.kind == 'online_high' %}bi-people{% elif r.kind == 'agent_debt' %}bi-cash-coin{% elif r.kind == 'members_expiring' %}bi-person-badge{% elif r.kind == 'agent_stock_low' %}bi-person-vcard{% elif r.kind == 'agent_collection_due' %}bi-wallet2{% elif r.kind == 'agent_collected' %}bi-piggy-bank{% else %}bi-speedometer2{% endif %}"></i></span>
       <div class="flex-grow-1"><b>{{ r.name }} {% if r.firing and r.enabled %}<span class="badge text-bg-danger">true now</span>{% endif %}</b>
-        <small>{{ r.get_kind_display }}{% if r.params.threshold %} · level {{ r.params.threshold }}{% endif %}{% if r.params.plan %} · {{ r.params.plan }}{% endif %}{% if r.params.hours %} · {{ r.params.hours }} h{% endif %}{% if r.params.minutes %} · {{ r.params.minutes }} min{% endif %}{% if r.params.amount %} · {{ current_business.currency }}{{ r.params.amount }}{% endif %}{% if r.params.days %} · {{ r.params.days }} days{% endif %}{% if r.params.agents %} · {{ r.params.agents|length }} agent{{ r.params.agents|length|pluralize }}{% elif r.params.agent %} · 1 agent{% elif r.kind == 'agent_stock_low' or r.kind == 'agent_collection_due' or r.kind == 'agent_collected' or r.kind == 'agent_debt' %} · all agents{% endif %}
+        <small>{{ r.get_kind_display }}{% if r.params.threshold %} · level {{ r.params.threshold }}{% endif %}{% if r.params.plans %} · {{ r.params.plans|join:", "|truncatechars:40 }}{% elif r.params.plan %} · {{ r.params.plan }}{% endif %}{% if r.params.hours %} · {{ r.params.hours }} h{% endif %}{% if r.params.minutes %} · {{ r.params.minutes }} min{% endif %}{% if r.params.amount %} · {{ current_business.currency }}{{ r.params.amount }}{% endif %}{% if r.params.days %} · {{ r.params.days }} days{% endif %}{% if r.params.agents %} · {{ r.params.agents|length }} agent{{ r.params.agents|length|pluralize }}{% elif r.params.agent %} · 1 agent{% elif r.kind == 'agent_stock_low' or r.kind == 'agent_collection_due' or r.kind == 'agent_collected' or r.kind == 'agent_debt' %} · all agents{% endif %}
           · {% if r.bell %}🔔{% endif %}{% if r.sound %}🔊{% endif %}{% if r.desktop %}🖥{% endif %}{% if r.email %}✉️{% endif %}{% if r.repeat_hours %} · every {{ r.repeat_hours }} h{% endif %}{% if r.last_fired_at %} · last {{ r.last_fired_at|timesince }} ago{% endif %}</small></div>
       <div class="d-flex gap-1 flex-wrap justify-content-end">
         <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#evModal" data-rule='{"id":{{ r.id }},"name":"{{ r.name|escapejs }}","kind":"{{ r.kind }}","level":"{{ r.level }}","bell":{{ r.bell|yesno:"true,false" }},"sound":{{ r.sound|yesno:"true,false" }},"desktop":{{ r.desktop|yesno:"true,false" }},"email":{{ r.email|yesno:"true,false" }},"repeat":{{ r.repeat_hours }},"qf":"{{ r.quiet_from|default_if_none:"" }}","qt":"{{ r.quiet_to|default_if_none:"" }}","enabled":{{ r.enabled|yesno:"true,false" }},"p":{{ r.params_json }}}'>Edit</button>
@@ -128,13 +153,17 @@
   <div class="modal-body"><div class="row g-3">
     <div class="col-md-6"><label class="form-label small">Alert me when…</label><select class="form-select" name="kind">{% for k,l in ev_kinds %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
     <div class="col-md-6"><label class="form-label small">Name</label><input class="form-control" name="name" maxlength="120" placeholder="(automatic)"></div>
-    <div class="col-12 ev-f" data-k="agent_stock_low agent_collection_due agent_collected agent_debt"><label class="form-label small">Agents</label>
-      <div class="d-flex flex-wrap gap-2 align-items-center ev-agents">
-        <label class="form-check m-0"><input class="form-check-input" type="checkbox" name="agents_all" checked> <b>All agents</b> <small class="text-secondary">(also new ones)</small></label>
-        {% for a in agent_list %}<label class="form-check m-0 border rounded-pill px-2 py-1"><input class="form-check-input" type="checkbox" name="agents" value="{{ a.id }}"> {{ a.name }}</label>{% empty %}<small class="text-secondary">No agents yet — add them under Finance → Agents &amp; cash.</small>{% endfor %}
+    <div class="col-md-6 ev-f" data-k="agent_stock_low agent_collection_due agent_collected agent_debt"><label class="form-label small">Agents</label>
+      <div class="tt-ms" data-all-label="All agents" data-noun="agent" data-search="Search agents…" data-all-note="Also agents you add later">
+        <input type="checkbox" name="agents_all" hidden checked>
+        {% for a in agent_list %}<input type="checkbox" name="agents" value="{{ a.id }}" data-label="{{ a.name }}" data-sub="{{ a.held }} voucher{{ a.held|pluralize }} held" hidden>{% endfor %}
       </div></div>
     <div class="col-md-4 ev-f" data-k="stock_low stock_restocked online_high fup_slowed agent_stock_low"><label class="form-label small" id="evThLabel">Level (vouchers)</label><input class="form-control" type="number" min="1" name="threshold" value="20"></div>
-    <div class="col-md-4 ev-f" data-k="stock_low stock_restocked agent_stock_low"><label class="form-label small">Plan</label><select class="form-select" name="plan"><option value="">All plans</option>{% for n in plan_names %}<option>{{ n }}</option>{% endfor %}</select></div>
+    <div class="col-md-6 ev-f" data-k="stock_low stock_restocked agent_stock_low"><label class="form-label small">Plans</label>
+      <div class="tt-ms" data-all-label="All plans" data-noun="plan" data-search="Search plans…" data-all-note="Also plans you add later">
+        <input type="checkbox" name="plans_all" hidden checked>
+        {% for p in plan_rows %}<input type="checkbox" name="plans" value="{{ p.name }}" data-label="{{ p.name }}" data-sub="{{ current_business.currency }}{{ p.price|floatformat:'-2' }} · {{ p.duration_text }}" hidden>{% endfor %}
+      </div></div>
     <div class="col-md-4 ev-f" data-k="stock_low stock_restocked"><label class="form-label small">Router</label><select class="form-select" name="router"><option value="">All routers</option>{% for r in router_list %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select></div>
     <div class="col-md-4 ev-f" data-k="no_sales members_expiring"><label class="form-label small">Hours</label><input class="form-control" type="number" min="1" name="hours" value="3"></div>
     <div class="col-md-4 ev-f" data-k="no_sales"><label class="form-label small">Only between (opening hours)</label><div class="input-group"><input class="form-control" type="number" min="0" max="23" name="open_from" placeholder="08"><span class="input-group-text">–</span><input class="form-control" type="number" min="0" max="24" name="open_to" placeholder="22"></div></div>
@@ -155,31 +184,85 @@
   </div></div>
   <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save alert</button></div>
 </form></div></div>
+
+<script>
+/* Multi-select field: chips in the field, a searchable list with an "All" option. Works on hidden checkboxes,
+   so the form posts exactly like plain checkboxes. */
+(function(){
+  var COL=['#1769e0','#7c3aed','#18a66a','#e5484d','#f59e0b','#0ea5a4','#db2777','#65a30d'];
+  function col(s){var h=0;for(var i=0;i<s.length;i++)h=(h*31+s.charCodeAt(i))>>>0;return COL[h%COL.length];}
+  function ini(s){var p=String(s).trim().split(/\s+/);return ((p[0]||'?')[0]+((p[1]||'')[0]||'')).toUpperCase();}
+  function esc(s){return String(s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function MS(root){
+    var all=root.querySelector('input[type=checkbox][name$="_all"]'),boxes=[].slice.call(root.querySelectorAll('input[type=checkbox]:not([name$="_all"])'));
+    var D=root.dataset,field=document.createElement('div'),panel=document.createElement('div'),q='',kb=-1;
+    field.className='tt-ms-field';field.tabIndex=0;field.setAttribute('role','combobox');field.setAttribute('aria-haspopup','listbox');field.setAttribute('aria-expanded','false');
+    panel.className='tt-ms-panel';panel.innerHTML='<input type="search" placeholder="'+esc(D.search||'Search…')+'" aria-label="'+esc(D.search||'Search')+'"><div class="tt-ms-list" role="listbox" aria-multiselectable="true"></div>'+
+      '<div class="tt-ms-foot"><span class="text-secondary tt-ms-count"></span><span><button type="button" class="btn btn-sm btn-link p-0 me-2 tt-ms-shown">Select shown</button><button type="button" class="btn btn-sm btn-link p-0 me-2 tt-ms-clear">Clear</button><button type="button" class="btn btn-sm btn-primary py-0 tt-ms-done">Done</button></span></div>';
+    root.appendChild(field);root.appendChild(panel);
+    var search=panel.querySelector('input'),list=panel.querySelector('.tt-ms-list');
+    function picked(){return boxes.filter(function(b){return b.checked;});}
+    function setAll(on){all.checked=on;if(on)boxes.forEach(function(b){b.checked=false;});}
+    function normalise(){if(!picked().length)all.checked=true;else all.checked=false;}
+    function drawField(){
+      var p=picked(),h='';
+      if(all.checked||!p.length)h='<span class="tt-chip all">✓ '+esc(D.allLabel||'All')+'</span>';
+      else{p.slice(0,3).forEach(function(b){var l=b.dataset.label;h+='<span class="tt-chip"><span class="av" style="background:'+col(l)+'">'+esc(ini(l))+'</span>'+esc(l)+'<button type="button" data-x="'+esc(b.value)+'" aria-label="Remove '+esc(l)+'">✕</button></span>';});
+        if(p.length>3)h+='<span class="tt-chip more">+'+(p.length-3)+' more</span>';}
+      field.innerHTML=h;
+    }
+    function drawList(){
+      var t=q.toLowerCase(),shown=boxes.filter(function(b){return !t||(b.dataset.label+' '+(b.dataset.sub||'')).toLowerCase().indexOf(t)>=0;});
+      var h=t?'':'<button type="button" class="tt-ms-opt all-opt" role="option" data-all="1" aria-selected="'+(all.checked?'true':'false')+'"><span class="av" style="background:#18a66a">∞</span><span><b>'+esc(D.allLabel||'All')+'</b><small>'+esc(D.allNote||'')+'</small></span><span class="tick">✓</span></button>';
+      h+=shown.map(function(b,i){var l=b.dataset.label;return '<button type="button" class="tt-ms-opt'+(i===kb?' kb':'')+'" role="option" data-v="'+esc(b.value)+'" aria-selected="'+(b.checked?'true':'false')+'"><span class="av" style="background:'+col(l)+'">'+esc(ini(l))+'</span><span>'+esc(l)+(b.dataset.sub?'<small>'+esc(b.dataset.sub)+'</small>':'')+'</span><span class="tick">✓</span></button>';}).join('');
+      if(!shown.length)h+='<div class="tt-ms-empty">No '+esc(D.noun||'item')+' matches “'+esc(q)+'”.</div>';
+      list.innerHTML=h;
+      var n=picked().length;panel.querySelector('.tt-ms-count').textContent=all.checked||!n?(D.allLabel||'All'):n+' '+(D.noun||'item')+(n>1?'s':'')+' selected';
+      panel.querySelector('.tt-ms-shown').hidden=!t||!shown.length;
+    }
+    function draw(){drawField();drawList();}
+    function open(){document.querySelectorAll('.tt-ms.open').forEach(function(o){if(o!==root)o._ms.close();});root.classList.add('open');field.setAttribute('aria-expanded','true');q='';search.value='';kb=-1;drawList();setTimeout(function(){search.focus();},30);}
+    function close(){root.classList.remove('open');field.setAttribute('aria-expanded','false');normalise();draw();}
+    function toggleVal(v){var b=boxes.filter(function(x){return x.value===v;})[0];if(!b)return;b.checked=!b.checked;all.checked=false;normalise();draw();}
+    field.addEventListener('click',function(e){var x=e.target.closest('[data-x]');if(x){e.stopPropagation();toggleVal(x.dataset.x);return;}root.classList.contains('open')?close():open();});
+    field.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '||e.key==='ArrowDown'){e.preventDefault();open();}});
+    list.addEventListener('click',function(e){var o=e.target.closest('.tt-ms-opt');if(!o)return;if(o.dataset.all){setAll(!all.checked||!!picked().length);if(!all.checked)all.checked=true;draw();}else toggleVal(o.dataset.v);search.focus();});
+    search.addEventListener('input',function(){q=search.value;kb=0;drawList();});
+    search.addEventListener('keydown',function(e){var opts=list.querySelectorAll('.tt-ms-opt:not(.all-opt)');
+      if(e.key==='ArrowDown'){e.preventDefault();kb=Math.min(opts.length-1,kb+1);drawList();}else if(e.key==='ArrowUp'){e.preventDefault();kb=Math.max(0,kb-1);drawList();}
+      else if(e.key==='Enter'){e.preventDefault();var o=opts[kb<0?0:kb];if(o)toggleVal(o.dataset.v);}else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();close();field.focus();}});
+    panel.querySelector('.tt-ms-clear').onclick=function(){setAll(true);draw();};
+    panel.querySelector('.tt-ms-done').onclick=function(){close();field.focus();};
+    panel.querySelector('.tt-ms-shown').onclick=function(){var t=q.toLowerCase();boxes.forEach(function(b){if((b.dataset.label+' '+(b.dataset.sub||'')).toLowerCase().indexOf(t)>=0)b.checked=true;});all.checked=false;draw();};
+    document.addEventListener('click',function(e){if(root.classList.contains('open')&&e.composedPath().indexOf(root)<0)close();});   // (a re-drawn option is no longer in the page, so check the click path)
+    root._ms={close:close,refresh:function(){normalise();draw();},set:function(values){var vs=(values||[]).map(String);boxes.forEach(function(b){b.checked=vs.indexOf(b.value)>=0;});all.checked=!vs.length;draw();}};
+    draw();
+  }
+  document.querySelectorAll('.tt-ms').forEach(MS);
+})();
+</script>
 <script>
 (function(){var m=document.getElementById('evModal');if(!m)return;var f=m.querySelector('form');
-  var HELP={stock_low:'Fires when unsold shop vouchers (not held by agents) fall below the level. Remind every few hours until you restock.',
+  var HELP={stock_low:'Fires when unsold shop vouchers (not held by agents) of the plans you pick, counted together, fall below the level. Remind every few hours until you restock.',
     stock_restocked:'Fires when stock that was below the level is back at or above it — e.g. after generating a new batch.',
     no_sales:'Fires when nothing was sold for this many hours. Set opening hours so it stays quiet at night.',
     daily_revenue:'Fires once a day when today’s sales pass the amount.',router_offline:'Fires when a router is unreachable for this long, and again if another router drops.',
     online_high:'Fires when this many customers are online at once (level = customers).',agent_debt:'Fires when an agent owes at least this amount.',
     members_expiring:'Fires when members will expire within the hours you set.',fup_slowed:'Fires when this many customers are slowed by fair usage at once.',
-    agent_stock_low:'Fires when an agent holds fewer unsold vouchers than the level (of one plan, or all). Fires again when another agent runs low.',
+    agent_stock_low:'Fires when an agent holds fewer unsold vouchers than the level (of the plans you pick, counted together, or all). Fires again when another agent runs low.',
     agent_collection_due:'Fires when an agent owes money and has not handed in cash for this many days. Amount = only if they owe at least this much (optional).',
     agent_collected:'Fires every time an agent hands in cash (recorded in Finance). Amount = only hand-ins of at least this much (optional).'};
   function show(){var k=f.kind.value;m.querySelectorAll('.ev-f').forEach(function(d){d.hidden=d.dataset.k.split(' ').indexOf(k)<0;});
     document.getElementById('evHelp').textContent=HELP[k]||'';
     document.getElementById('evAmtLabel').textContent=k==='agent_collection_due'?'Only if they owe at least ({{ current_business.currency }})':(k==='agent_collected'?'Only hand-ins of at least ({{ current_business.currency }})':'Amount ({{ current_business.currency }})');document.getElementById('evThLabel').textContent=k==='online_high'?'Customers online':(k==='fup_slowed'?'Customers slowed':'Level (vouchers)');}
   f.kind.onchange=show;
-  var allA=f.agents_all,boxes=function(){return [].slice.call(m.querySelectorAll('input[name=agents]'));};
-  function syncA(){boxes().forEach(function(b){b.disabled=allA.checked;if(allA.checked)b.checked=false;});}
-  allA.onchange=syncA;
-  m.addEventListener('change',function(e){if(e.target.name==='agents'&&!boxes().some(function(b){return b.checked;})){allA.checked=true;syncA();}});
+  function ms(name){var el=f.querySelector('input[name='+name+']');return el?el.closest('.tt-ms')._ms:null;}
   m.addEventListener('show.bs.modal',function(e){var b=e.relatedTarget;f.reset();f.id.value='';document.getElementById('evTitle').textContent='New business alert';
     if(b&&b.dataset.rule){var r=JSON.parse(b.dataset.rule);f.id.value=r.id;f.name.value=r.name;f.kind.value=r.kind;f.level.value=r.level;
       ['bell','sound','desktop','email','enabled'].forEach(function(k){f[k].checked=r[k];});f.repeat_hours.value=r.repeat;f.quiet_from.value=r.qf;f.quiet_to.value=r.qt;
-      Object.keys(r.p||{}).forEach(function(k){if(f[k]&&k!=='agents'&&k!=='agent')f[k].value=r.p[k];});
-      var ids=(r.p.agents||(r.p.agent?[r.p.agent]:[])).map(String);allA.checked=!ids.length;boxes().forEach(function(b){b.checked=ids.indexOf(b.value)>=0;});document.getElementById('evTitle').textContent='Edit alert';}
-    syncA();show();});
+      Object.keys(r.p||{}).forEach(function(k){if(f[k]&&f[k].type!=='checkbox'&&!/^(agents?|plans?)$/.test(k))f[k].value=r.p[k];});
+      if(ms('agents'))ms('agents').set(r.p.agents||(r.p.agent?[r.p.agent]:[]));if(ms('plans'))ms('plans').set(r.p.plans||(r.p.plan?[r.p.plan]:[]));document.getElementById('evTitle').textContent='Edit alert';}
+    if(!(b&&b.dataset.rule)){if(ms('agents'))ms('agents').set([]);if(ms('plans'))ms('plans').set([]);}show();});
 })();
 </script>
 {% endblock %}

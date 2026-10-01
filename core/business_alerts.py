@@ -37,11 +37,26 @@ def _dec(v):
         return Decimal('0')
 
 
+def plan_names(params):
+    """The plans a rule watches: a list of names, or [] for all plans ('plan' = rules saved before)."""
+    names = params.get('plans')
+    if names is None and params.get('plan'):
+        names = [params['plan']]
+    return [str(n) for n in (names or []) if str(n).strip()]
+
+
+def plans_text(params, empty='all plans'):
+    names = plan_names(params)
+    if not names:
+        return empty
+    return ', '.join(names[:3]) + (f' +{len(names) - 3}' if len(names) > 3 else '')
+
+
 def stock_qs(business, params):
     qs = business.vouchers.filter(status='active', sold_at__isnull=True, used_at__isnull=True, frozen_at__isnull=True,
                                   agent__isnull=True).exclude(login_type='member')
-    if params.get('plan'):
-        qs = qs.filter(plan_name=params['plan'])
+    if plan_names(params):
+        qs = qs.filter(plan_name__in=plan_names(params))
     if params.get('router'):
         qs = qs.filter(router_id=_int(params['router']))
     return qs
@@ -49,8 +64,8 @@ def stock_qs(business, params):
 
 def _where(business, params):
     bits = []
-    if params.get('plan'):
-        bits.append(params['plan'])
+    if plan_names(params):
+        bits.append(plans_text(params))
     if params.get('router'):
         r = business.routers.filter(pk=_int(params['router'])).first()
         if r:
@@ -162,13 +177,13 @@ def _agent_stock_low(business, rule, now):
     low = []
     for a in _agents(business, p):
         qs = business.vouchers.filter(agent=a, status='active', sold_at__isnull=True, used_at__isnull=True, frozen_at__isnull=True)
-        if p.get('plan'):
-            qs = qs.filter(plan_name=p['plan'])
+        if plan_names(p):
+            qs = qs.filter(plan_name__in=plan_names(p))
         n = qs.count()
         if n < th:
             low.append((a, n))
     names = ', '.join(f'{a.name} ({n})' for a, n in low[:6]) + ('…' if len(low) > 6 else '')
-    what = p.get('plan') or 'vouchers'
+    what = plans_text(p, 'vouchers')
     return bool(low), ','.join(str(a.pk) for a, _ in low)[:120], \
         (f'{low[0][0].name} is running out of {what}' if len(low) == 1 else f'{len(low)} agents running out of {what}'), \
         f'{names} — fewer than {th} left. Issue a new batch to them.', '/vouchers/generate/'

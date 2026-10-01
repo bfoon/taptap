@@ -74,10 +74,10 @@ class BusinessAlertTests(TestCase):
         self.assertEqual(self.c.get('/alerts/?f=business').status_code, 200)
         self.c.post('/alerts/business/add/', {'action': 'preset', 'kind': 'stock_low'})
         r = EventRule.objects.get(kind='stock_low')
-        self.c.post('/alerts/business/', {'id': r.id, 'kind': 'stock_low', 'threshold': '8', 'plan': '1 Day', 'level': 'danger',
+        self.c.post('/alerts/business/', {'id': r.id, 'kind': 'stock_low', 'threshold': '8', 'plans': ['1 Day'], 'level': 'danger',
                                           'bell': 'on', 'sound': 'on', 'enabled': 'on', 'repeat_hours': '4'})
         r.refresh_from_db()
-        self.assertEqual((r.params['threshold'], r.params['plan'], r.level, r.desktop, r.repeat_hours), ('8', '1 Day', 'danger', False, 4))
+        self.assertEqual((r.params['threshold'], r.params['plans'], r.level, r.desktop, r.repeat_hours), ('8', ['1 Day'], 'danger', False, 4))
         self.c.post(f'/alerts/business/{r.id}/', {'action': 'test'})
         self.assertTrue(EventAlert.objects.filter(title__startswith='Test:').exists())
         self.assertContains(self.c.get('/alerts/?f=business'), 'true now')
@@ -169,3 +169,28 @@ class MultiAgentAlertTests(TestCase):
         ba.evaluate(self.b, force=True)
         body = EventAlert.objects.get().body
         self.assertIn('Musa', body); self.assertNotIn('Awa', body)
+
+
+class MultiPlanAlertTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.owner = User.objects.create_user('owner4', 'o4@x.com', 'pw12345678')
+        self.b = Business.objects.create(user=self.owner, business_name='K', owner_name='A', phone='1', currency='D',
+                                         trial_ends_at=timezone.now() + timedelta(days=9), is_unlimited=True)
+        for n in ('1 Hour', '1 Day', 'Monthly'):
+            VoucherPlan.objects.create(business=self.b, name=n, price=10, duration_minutes=60)
+        self.c = Client(); self.c.force_login(self.owner)
+
+    def test_several_plans_and_only_relevant_settings(self):
+        for i, n in enumerate(['1 Day', '1 Day', 'Monthly', '1 Hour', '1 Hour', '1 Hour', '1 Hour']):
+            Voucher.objects.create(business=self.b, code=f'P{i:07d}', plan_name=n, price=10, duration_minutes=60)
+        self.c.post('/alerts/business/', {'kind': 'stock_low', 'threshold': '3', 'plans': ['1 Day', 'Monthly', 'Ghost'], 'hours': '5', 'days': '9',
+                                          'agents': ['1'], 'level': 'warning', 'bell': 'on', 'enabled': 'on'})
+        r = EventRule.objects.get()
+        self.assertEqual(r.params, {'threshold': '3', 'plans': ['1 Day', 'Monthly']})     # unknown plan and other kinds' fields dropped
+        ba.evaluate(self.b, force=True)                       # 1 Day + Monthly = 3 → not below 3
+        self.assertFalse(EventAlert.objects.exists(), list(EventAlert.objects.values_list('title', 'body')))
+        Voucher.objects.filter(plan_name='Monthly').update(status='disabled')
+        ba.evaluate(self.b, force=True)
+        self.assertIn('1 Day, Monthly', EventAlert.objects.get().title)
+        self.assertEqual(ba.plan_names({'plan': '1 Hour'}), ['1 Hour'])   # rules saved before keep working
