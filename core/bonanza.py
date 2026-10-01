@@ -214,8 +214,8 @@ def _pay_instantly(s, prize):
             vh.record(reward, 'note', source='system', text=f'Bonanza prize from {s.bonanza.name} (won with {v.code})')
             if reward.router_id:
                 try:
-                    from .tasks import enqueue_router_sync
-                    enqueue_router_sync(reward.router)
+                    from .voucher_push import push_vouchers
+                    push_vouchers([reward])          # just this voucher, not a full sync
                 except Exception:
                     pass   # the next background sync publishes it anyway
         elif prize.kind == 'time':

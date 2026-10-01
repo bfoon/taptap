@@ -246,10 +246,16 @@ def catalog_plan_edit(request, pk):
                 )
                 updated = 0
                 if d.get('apply_to_unused') == 'on':
+                    ids = list(eligible.values_list('pk', flat=True))
                     updated = eligible.update(
                         duration_minutes=minutes, max_devices=devices, price=price,
                         mikrotik_sync_status='Pending', mikrotik_sync_error='',
                     )
+                    try:   # just these vouchers, not a full router sync
+                        from .voucher_push import push_vouchers
+                        push_vouchers(list(business.vouchers.filter(pk__in=ids).select_related('router')), request.user)
+                    except Exception:
+                        pass
                 elif old_minutes != minutes:
                     # Leave outstanding voucher duration unchanged unless asked.
                     pass
@@ -258,7 +264,7 @@ def catalog_plan_edit(request, pk):
             schedule_redeploy(business)
             msg = f'Plan {name} saved.'
             if updated:
-                msg += f' {updated} unused and unsold vouchers updated and queued for router synchronization.'
+                msg += f' {updated} unused and unsold vouchers updated and being sent to their routers.'
             if p.source == 'mikrotik':
                 msg += ' Note: profile-controlled duration/devices/speed may be restored from MikroTik on the next sync.'
             messages.success(request, msg)

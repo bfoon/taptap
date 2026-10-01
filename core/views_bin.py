@@ -131,3 +131,37 @@ def voucher_bin(request):
     page = Paginator({'vouchers': vouchers, 'batches': batches, 'plans': plans}[tab], 50).get_page(request.GET.get('page'))
     return render(request, 'core/voucher_bin.html', {'tab': tab, 'q': q, 'page_obj': page, 'counts': counts,
                                                      'pending': Voucher.all_objects.binned().filter(business=business, router_removal__in=['queued', 'failed']).count()})
+
+
+@login_required
+@require_POST
+def voucher_set_profile(request, pk):
+    """Choose the hotspot user profile a voucher uses on its router (fixes "unknown user profile")."""
+    from .voucher_history import record
+    from .voucher_push import push_vouchers
+    business = _b(request)
+    v = get_object_or_404(business.vouchers.select_related('router'), pk=pk)
+    choice = request.POST.get('profile', '')
+    before = v.router_profile or '(from plan)'
+    if choice.startswith('plan:'):
+        plan = business.plans.filter(pk=choice[5:] if choice[5:].isdigit() else 0).first()
+        if not plan:
+            messages.error(request, 'That plan does not exist any more.'); return redirect('voucher_detail', pk=pk)
+        v.plan_name, v.router_profile = plan.name, ''
+        if not v.used_at:
+            v.max_devices = plan.max_devices
+        after = f'plan {plan.name} ({plan.mikrotik_profile_name or plan.name})'
+    elif choice.startswith('router:'):
+        name = choice[7:].strip()[:120]
+        if not name:
+            messages.error(request, 'Choose a profile.'); return redirect('voucher_detail', pk=pk)
+        v.router_profile = name
+        after = name
+    else:
+        v.router_profile = ''
+        after = '(from plan)'
+    v.save(update_fields=['plan_name', 'router_profile', 'max_devices'])
+    record(v, 'note', user=request.user, text=f'Router profile changed: {before} → {after}')
+    msgs = push_vouchers([v], request.user)
+    messages.success(request, f'{v.code} now uses {after} on the router.' + (' ' + ' '.join(msgs.values()) if msgs else ''))
+    return redirect('voucher_detail', pk=pk)

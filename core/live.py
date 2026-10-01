@@ -516,6 +516,14 @@ def watch_all():
             sweep(watched=watched)
         except Exception:
             logger.exception('expiry sweep')
+        # Remove the old per-MAC router lock from TapTap vouchers, once per router.
+        try:
+            from .device_lock import unlock_router
+            from .models import Router
+            for r in Router.objects.filter(business__live_sync=True):
+                unlock_router(r)
+        except Exception:
+            logger.exception('router MAC unlock')
         # App & site control: resend a router's rules when they changed (temporary rules starting / ending).
         try:
             from .app_control import push_all

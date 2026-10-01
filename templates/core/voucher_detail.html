@@ -152,6 +152,8 @@
         <div><span>Origin</span><b>{{ v.get_source_display }}</b></div>
         {% if old_codes %}<div><span>Previous code{{ old_codes|length|pluralize }}</span><b>{% for a in old_codes %}<code class="text-decoration-line-through" title="Changed {{ a.changed_at|date:'d M Y H:i' }}{% if a.changed_by %} by {% firstof a.changed_by.get_full_name a.changed_by.username %}{% endif %}{% if a.reason %} — {{ a.reason }}{% endif %}">{{ a.code }}</code>{% if not forloop.last %}, {% endif %}{% endfor %}</b></div>{% endif %}
         <div><span>Serial</span><b class="font-monospace">{% if v.serial %}{{ v.serial }}{% else %}{{ v.pk|stringformat:"06d" }}{% endif %}</b></div>
+        <div><span>Router profile</span><b class="font-monospace">{{ profile_now }}</b>{% if v.router_profile %}<small class="d-block text-secondary">chosen by hand</small>{% endif %}
+          {% if 'vouchers.support' in tt_perms and not v.deleted_at and v.router %}<button class="btn btn-sm btn-link p-0" data-bs-toggle="modal" data-bs-target="#profileModal">Change</button>{% endif %}</div>
         <div><span>Batch</span><b>{{ v.batch.name|default:'—' }}</b></div>
         <div><span>Held by</span><b>{% if v.agent %}<a href="{% url 'agent_detail' v.agent_id %}">{{ v.agent.name }}</a>{% else %}Shop{% endif %}</b></div>
         {% if v.customer_name or v.customer_phone %}<div><span>Customer</span><b>{{ v.customer_name|default:'' }} {{ v.customer_phone|default:'' }}</b></div>{% endif %}
@@ -172,7 +174,8 @@
       <div class="vd-grid">
         <div><span>Router</span><b>{{ v.router.name|default:'—' }}</b></div>
         <div><span>Sync</span><b>{{ v.mikrotik_sync_status }}</b></div>
-        {% if v.mikrotik_sync_error %}<div style="grid-column:1/-1"><span>Sync error</span><b class="text-danger">{{ v.mikrotik_sync_error }}</b></div>{% endif %}
+        {% if v.mikrotik_sync_error %}<div style="grid-column:1/-1"><span>Sync error</span><b class="text-danger">{{ v.mikrotik_sync_error }}</b>
+          {% if 'profile' in v.mikrotik_sync_error|lower and 'vouchers.support' in tt_perms %}<small class="d-block">The router does not have the profile <code>{{ profile_now }}</code>. <a href="#" data-bs-toggle="modal" data-bs-target="#profileModal">Choose another profile</a> — TapTap sends the voucher again at once.</small>{% endif %}</div>{% endif %}
         {% if mirror %}
           <div><span>On the router</span><b>{% if mirror.disabled %}Disabled{% else %}Enabled{% endif %}{% if not mirror.is_present %} · not found at last sync{% endif %}</b></div>
           <div><span>Profile</span><b>{{ mirror.profile }}</b></div>
@@ -338,6 +341,23 @@
     <label class="form-label">Reason <span class="text-secondary">(required, kept in the history)</span></label>
     <input name="reason" class="form-control" maxlength="255" required placeholder="e.g. Code leaked, card unreadable, customer asked"></div>
   <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Change code</button></div>
+</form></div></div>
+{% endif %}
+
+{% if 'vouchers.support' in tt_perms and v.router and not v.deleted_at %}
+<div class="modal fade" id="profileModal" tabindex="-1" aria-labelledby="profTitle" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'voucher_set_profile' v.id %}">{% csrf_token %}
+  <div class="modal-header"><h5 class="modal-title" id="profTitle">Router profile for {{ v.code }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body">
+    <p class="small text-secondary">The hotspot user profile on {{ v.router.name }} sets this voucher's devices and speed. Now: <code>{{ profile_now }}</code>.</p>
+    <select class="form-select" name="profile" size="9" aria-label="Profile">
+      <option value="" {% if not v.router_profile %}selected{% endif %}>Automatic — from its plan ({{ v.plan_name|default:"custom" }})</option>
+      {% if profile_plans %}<optgroup label="TapTap plans (the voucher moves to this plan)">{% for p in profile_plans %}<option value="plan:{{ p.id }}">{{ p.name }} — profile {{ p.mikrotik_profile_name|default:p.name }} · {{ p.max_devices }} device{{ p.max_devices|pluralize }}</option>{% endfor %}</optgroup>{% endif %}
+      {% if router_profiles %}<optgroup label="Profiles on {{ v.router.name }}">{% for p in router_profiles %}<option value="router:{{ p.name }}" {% if v.router_profile == p.name %}selected{% endif %}>{{ p.name }} · {{ p.shared_users }} device{{ p.shared_users|pluralize }}{% if p.rate_limit %} · {{ p.rate_limit }}{% endif %}</option>{% endfor %}</optgroup>
+      {% else %}<optgroup label="Profiles on {{ v.router.name }}"><option disabled>Not read yet — press Sync on the router</option></optgroup>{% endif %}
+    </select>
+    <small class="text-secondary d-block mt-2">Its time and sale do not change. TapTap sends the voucher to the router again straight away.</small>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save &amp; send</button></div>
 </form></div></div>
 {% endif %}
 

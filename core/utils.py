@@ -144,6 +144,9 @@ def voucher_profile(voucher, plan=None):
     * Custom one-off vouchers share a small set of TapTap profiles keyed by devices + speed so the
       router isn't flooded with one profile per customer.
     """
+    if getattr(voucher, 'router_profile', ''):
+        # chosen by hand on the voucher page (e.g. to fix "unknown user profile" on a router)
+        return voucher.router_profile, max(1, int(voucher.max_devices or 1)), (voucher.rate_limit or '').strip()
     unlimited = not voucher.duration_minutes and not voucher.expires_at
     if unlimited:
         devices = (plan.max_devices if plan is not None else voucher.max_devices) or 1

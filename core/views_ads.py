@@ -229,9 +229,15 @@ def portal_state(request, slug):
     block = portal_block(v)
     if not block and v.status == 'active':
         from . import device_lock          # sticky vouchers: refuse devices the voucher is not locked to
-        lock = device_lock.claim(v, mac=data.get('mac', ''), fp=data.get('fp', ''), source='portal')
+        lock = device_lock.claim(v, mac=data.get('mac', ''), fp=data.get('fp', ''), source='portal', hints=device_lock.online_hints(v))
         if not lock.allowed:
             block = device_lock.portal_block(v, lock.message)
+        else:
+            # Its own old session (from before the phone left / changed MAC) would make the router refuse
+            # the login ("no more sessions"): remove it first, and tell the page how long to wait.
+            wait = device_lock.release_stale(v, data.get('mac', ''))
+            if wait:
+                return _cors(JsonResponse({'ok': True, 'wait': wait, 'message': 'Getting your connection ready…'}))
     # The real username (right upper/lower case) so router-served pages log members in exactly.
     return _cors(JsonResponse(block or {'ok': True, 'code': v.code}))
 

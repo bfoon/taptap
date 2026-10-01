@@ -161,8 +161,6 @@ def claim(voucher, mac='', fp='', source='portal', label='', hints=None):
                 if hit.label: changed.append('label')
             hit.last_seen_at = timezone.now(); changed.append('last_seen_at')
             hit.save(update_fields=changed)
-            if status == 'moved' and slots(voucher) == 1:
-                _router_mac(voucher, mac)
             return Outcome(status, hit)
         if len(rows) >= slots(voucher) and mac and not fp:
             # No portal device ID: is this a locked phone that changed its MAC? (see module notes)
@@ -180,8 +178,6 @@ def claim(voucher, mac='', fp='', source='portal', label='', hints=None):
             from .voucher_history import record
             record(voucher, 'device', source='auto', kind='mac_swap',
                    text=f'{moved.label or "Locked device"} changed its MAC {moved.previous_mac} → {mac} ({why}) — slot {moved.slot_no} follows it')
-            if slots(voucher) == 1:
-                _router_mac(voucher, mac)
             _forget_mac(voucher, moved.previous_mac)        # the old MAC cannot log back in by cookie
             return Outcome('moved', moved)
         if len(rows) >= slots(voucher):
@@ -196,8 +192,6 @@ def claim(voucher, mac='', fp='', source='portal', label='', hints=None):
     what = b.label or mac or 'a device'
     record(voucher, 'device', source='auto', text=f'Locked to {what}' + (f' ({mac})' if mac and b.label else '') +
            f' — device {slot} of {slots(voucher)}')
-    if slots(voucher) == 1 and mac:
-        _router_mac(voucher, mac)
     return Outcome('new', b)
 
 
@@ -268,7 +262,7 @@ def unlock_on_router(voucher):
     _router_mac(voucher, '')
 
 
-def kick(router, voucher, mac, session_id='', svc=None):
+def kick(router, voucher, mac, session_id='', svc=None, quiet=False):
     """Disconnect one foreign device from a voucher (keeps the locked devices online)."""
     key = f'lock:kick:{router.pk}:{voucher.pk}:{mac}'
     if cache.get(key):
@@ -300,6 +294,9 @@ def kick(router, voucher, mac, session_id='', svc=None):
         logger.info('kick %s from %s: %s', mac, voucher.code, exc)
         return False
     from .voucher_history import record
+    if quiet:
+        record(voucher, 'device', source='auto', text=f'Old session {mac} removed so the locked device can log in again')
+        return True
     record(voucher, 'enforced', source='auto', reason='Device not allowed',
            text=f'{mac} was disconnected — this voucher is locked to {"another device" if slots(voucher) == 1 else f"its {slots(voucher)} devices"}')
     return True
@@ -324,3 +321,68 @@ def enforce_sessions(router, voucher_rows, svc=None):
 def portal_block(voucher, message):
     return {'success': False, 'blocked': True, 'kind': 'locked', 'code': voucher.code, 'can_accept': False,
             'title': 'Voucher in use on another device', 'message': message, 'contact': voucher.business.phone or '', 'keep': ''}
+
+
+# ─────────────────────── smooth re-login (no "router lock", no stale session) ───────────────────────
+# The router no longer pins a voucher to one MAC (a phone that came back with a new MAC address was
+# refused by the router — "invalid username" — before TapTap could follow it). TapTap enforces the
+# lock itself: the portal refuses other devices and live sync removes any that get on.
+
+def online_hints(voucher):
+    """Live data for claim(): the MACs this voucher has online on its router right now."""
+    if not voucher.router_id:
+        return None
+    snap = cache.get(f'tt:tr:users:{voucher.router_id}')
+    if not snap:
+        return None
+    rows = (snap.get('users') or {}).get(voucher.code.upper(), [])
+    return {'online_macs': [r.get('mac') for r in rows if r.get('mac')], 'router_id': voucher.router_id}
+
+
+def release_stale(voucher, mac):
+    """The locked device is logging in again: remove this voucher's old sessions that would block it
+    (a ghost of the same phone with its old MAC, kept by the router after the phone left — the router
+    then answers "no more sessions are allowed for user"). Returns seconds the login page should wait
+    (TapTap Link applies it at the next check-in)."""
+    mac = norm_mac(mac)
+    if not voucher.router_id or not mac:
+        return 0
+    snap = cache.get(f'tt:tr:users:{voucher.router_id}') or {}
+    sessions = (snap.get('users') or {}).get(voucher.code.upper(), [])
+    keep = {norm_mac(m) for m in voucher.device_bindings.values_list('current_mac', flat=True)} - {mac}
+    stale = [norm_mac(r.get('mac')) for r in sessions
+             if norm_mac(r.get('mac')) and norm_mac(r.get('mac')) != mac and norm_mac(r.get('mac')) not in keep]
+    if not stale or len(sessions) < slots(voucher):
+        return 0                                  # a free session slot: nothing in the way
+    from .voucher_history import channel
+    for old in stale:
+        cache.delete(f'lock:kick:{voucher.router_id}:{voucher.pk}:{old}')
+        kick(voucher.router, voucher, old, quiet=True)
+    return 15 if channel(voucher.router) == 'TapTap Link' else 0
+
+
+def unlock_router(router):
+    """Remove the per-MAC lock older TapTap versions put on hotspot users (once per router)."""
+    key = f'tt:maclock:cleared:{router.pk}'
+    if cache.get(key):
+        return False
+    from .voucher_history import channel
+    try:
+        if channel(router) == 'TapTap Link':
+            from .linkops import send
+            send(router, 'hotspot_mac_unlock_all', {}, label='Let locked vouchers log in again from a new MAC (TapTap checks the device)', minutes=60 * 24)
+        else:
+            from .mikrotik import MikroTikService
+            svc = MikroTikService(router).connect()
+            try:
+                users = svc.resource('/ip/hotspot/user')
+                for row in users.get():
+                    if norm_mac(row.get('mac-address')) and str(row.get('comment', '')).startswith('TapTap') and row.get('id'):
+                        users.set(id=row['id'], mac_address=ANY_MAC)
+            finally:
+                svc.close()
+    except Exception as exc:
+        logger.info('unlock %s: %s', router, exc)
+        return False
+    cache.set(key, 1, 86400 * 365)
+    return True

@@ -149,3 +149,13 @@ def chat_email_missed():
     """Email chat messages people have not read (Chat settings → email me unread messages)."""
     from .chat import email_missed
     return email_missed()
+
+
+@shared_task(ignore_result=True)
+def push_vouchers_task(router_id, voucher_ids):
+    """Send only these vouchers to one router (no full sync)."""
+    from .models import Router
+    from .voucher_push import push_now
+    router = Router.objects.filter(pk=router_id).first()
+    if router:
+        return push_now(router, voucher_ids)

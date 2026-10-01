@@ -35,6 +35,7 @@ from .utils import (generate_codes, code_format_from_post, code_format_ctx, desc
                     duration_to_routeros, log, code_search_q)
 from .portal_deploy import default_pages
 from . import serials
+from .utils import voucher_profile as _vprofile
 
 import logging
 
@@ -177,14 +178,13 @@ def generate_vouchers(request):
                 _,sales=assign_batch(batch,agent,settlement,request.POST.get('pay_method','cash'),request.user,request.POST.get('reference','')[:120])
                 messages.info(request,f'Batch issued to {agent.name}'+(f' — bought upfront for {business.currency}{sum(x.amount for x in sales):,.2f}.' if sales else ' on credit: each voucher is credited to them as it sells.'))
         if router:
+            # Send just this batch to the router — not a full router sync.
             try:
-                _,created=enqueue_router_sync(router,request.user)
-                if created:
-                    messages.info(request,f'{router.name} background sync was queued to publish the new vouchers to RouterOS.')
-                else:
-                    messages.info(request,f'{router.name} already has a background sync running; the new vouchers will be picked up by that sync or the next one.')
+                from .voucher_push import push_vouchers
+                for msg in push_vouchers(list(batch.vouchers.all()),request.user).values():
+                    messages.info(request,msg+'.')
             except Exception as e:
-                messages.warning(request,f'Vouchers were created in TapTap, but the router background sync could not be queued: {e}')
+                messages.warning(request,f'Vouchers were created in TapTap; sending them to {router.name} failed for now ({e}). They go with the next sync.')
         messages.success(request,f'{qty} voucher(s) created successfully.')
         if fmt['length']!=portal_len and 'login' in default_pages(business):
             messages.warning(request,f'These codes have {fmt["length"]} characters but your default customer portal shows {portal_len} letter boxes. '
@@ -289,6 +289,9 @@ def voucher_detail(request,pk):
     return render(request,'core/voucher_detail.html',{
         'v':v,'state_key':state_key,'state_label':state_label,'ends_at':end,'time_left':left,'time_is_up':vh.time_is_up(v,now),
         'timeline':vh.timeline(v,now),'bindings':v.device_bindings.order_by('slot_no'),
+        'profile_now':_vprofile(v,business.plans.filter(name=v.plan_name).first())[0],
+        'router_profiles':list(v.router.hotspot_profiles.filter(is_present=True).order_by('name').values('name','shared_users','rate_limit')) if v.router_id else [],
+        'profile_plans':business.plans.filter(active=True).order_by('name'),
         'free_slots':max(0,max(1,v.max_devices or 1)-v.device_bindings.count()),
         'empty_slots':[i for i in range(1,max(1,v.max_devices or 1)+1) if i not in set(v.device_bindings.values_list('slot_no',flat=True))][:10],
         'sale':VoucherSale.objects.filter(voucher=v).select_related('agent','recorded_by').first(),
@@ -380,11 +383,15 @@ def plan_update(request,pk):
     moved=unsold.exclude(price=price).update(price=price) if request.POST.get('apply_unsold') and (price or free) else 0
     retimed=0
     if request.POST.get('apply_duration') and plan.duration_minutes!=old_minutes:
-        retimed=business.vouchers.filter(plan_name=plan.name,used_at__isnull=True,expires_at__isnull=True,frozen_at__isnull=True)\
-            .update(duration_minutes=plan.duration_minutes,mikrotik_sync_status='Pending')
+        qs=business.vouchers.filter(plan_name=plan.name,used_at__isnull=True,expires_at__isnull=True,frozen_at__isnull=True)
+        ids=list(qs.values_list('pk',flat=True))
+        retimed=qs.update(duration_minutes=plan.duration_minutes,mikrotik_sync_status='Pending')
+        try:   # send just these vouchers to their routers (no full sync)
+            from .voucher_push import push_vouchers; push_vouchers(list(business.vouchers.filter(pk__in=ids).select_related('router')),request.user)
+        except Exception: pass
     msg=f'{plan.name} saved — {"free" if free else f"{business.currency}{price}"}, {plan.duration_text.lower() if plan.duration_minutes else "no time limit"}.'
     if fixed or moved: msg+=f' {fixed+moved} voucher price{"s" if fixed+moved!=1 else ""} updated.'
-    if retimed: msg+=f' {retimed} unused voucher{"s" if retimed!=1 else ""} now {"unlimited" if not plan.duration_minutes else plan.duration_text} (sent to the router on the next sync).'
+    if retimed: msg+=f' {retimed} unused voucher{"s" if retimed!=1 else ""} now {"unlimited" if not plan.duration_minutes else plan.duration_text} (being sent to the routers).'
     messages.success(request,msg)
     from .portal_deploy import schedule_redeploy; schedule_redeploy(plan.business)
     return redirect('plans')

@@ -235,6 +235,7 @@ class Voucher(models.Model):
     mikrotik_sync_status=models.CharField(max_length=30,default='Pending')
     mikrotik_sync_error=models.TextField(blank=True)
     serial=models.CharField(max_length=60,blank=True,db_index=True,help_text='Printed serial number (set when the voucher is created)')
+    router_profile=models.CharField(max_length=120,blank=True,help_text='Hotspot user profile chosen by hand for this voucher (empty = from its plan)')
     created_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
     created_by_label=models.CharField(max_length=150,blank=True,help_text='Who created it (name and role at the time)')
     created_at=models.DateTimeField(auto_now_add=True)

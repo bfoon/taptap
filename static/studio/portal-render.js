@@ -574,6 +574,11 @@
           var dv0 = (ctx.settings && ctx.settings.collect_device === false) ? {} : deviceSignature();
           postJSON(ctx.stateUrl, { code: code, fp: dv0.fp || '', c: dv0.c || {}, mac: ctx.mt.mac || '', ip: ctx.mt.ip || '' }, function (st) {
             if (st.blocked) { btn.disabled = false; out.innerHTML = ''; showBlock(ctx, st, login); return; }
+            if (st.wait) {   // TapTap is clearing this voucher's old session on the router first
+              var left = +st.wait; say('ok', esc(st.message || 'Getting your connection ready…') + ' <b class="tp-left">' + left + '</b> s');
+              var tm = setInterval(function () { left--; var n = out.querySelector('.tp-left'); if (n) n.textContent = Math.max(0, left); if (left <= 0) { clearInterval(tm); login(code); } }, 1000);
+              return;
+            }
             login(st.code || code);
           }, function () { sendDevice(ctx, code); login(code); }, 4000);
           return;
@@ -593,7 +598,11 @@
           }
           if (!d.success) { btn.disabled = false; say('err', esc(d.message || (member ? 'Username or password is wrong.' : 'That code was not recognised. Check it and try again.'))); return; }
           var real = d.code || code;
-          if (ctx.mt && ctx.mt.linkLoginOnly) { say('ok', (member ? 'Welcome back, ' + esc(real) : 'Valid ' + esc(d.plan) + ' voucher') + ' — connecting…'); postForm(ctx.mt.linkLoginOnly, { username: real, password: passFor(real), dst: dst, popup: 'true' }); }
+          if (ctx.mt && ctx.mt.linkLoginOnly) {
+            var go = function () { postForm(ctx.mt.linkLoginOnly, { username: real, password: passFor(real), dst: dst, popup: 'true' }); };
+            say('ok', (member ? 'Welcome back, ' + esc(real) : 'Valid ' + esc(d.plan) + ' voucher') + ' — connecting…');
+            if (d.wait) setTimeout(go, d.wait * 1000); else go();      // waits while TapTap clears an old session
+          }
           else if (member) { btn.disabled = false; say('ok', 'Your account is ready. Join <b>' + esc(ctx.business.ssid || 'our Wi-Fi') + '</b> and log in on the Wi-Fi page with your username and password.'); }
           else { btn.disabled = false; say('ok', '<b>' + esc(d.plan) + '</b> voucher is valid' + (d.duration ? ' (' + esc(d.duration) + ')' : '') + '. Join <b>' + esc(ctx.business.ssid || 'our Wi-Fi') + '</b> and enter it on the login page to go online.'); }
         };

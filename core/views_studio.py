@@ -243,9 +243,10 @@ def portal_check(request, slug):
     if v.expires_at and v.expires_at <= timezone.now(): return JsonResponse({'success': False, 'message': 'This voucher has expired.'}, status=403)
     # Sticky vouchers: only the devices this voucher is locked to may use it (core/device_lock.py)
     from . import device_lock
-    lock = device_lock.claim(v, mac=data.get('mac', ''), fp=data.get('fp', ''), source='portal')
+    lock = device_lock.claim(v, mac=data.get('mac', ''), fp=data.get('fp', ''), source='portal', hints=device_lock.online_hints(v))
     if not lock.allowed:
         return JsonResponse(device_lock.portal_block(v, lock.message), status=403)
+    stale_wait = device_lock.release_stale(v, data.get('mac', ''))   # its own old session would block the router login
     PortalPage.objects.filter(pk=page.pk).update(connects=page.connects + 1)
     if data.get('fp'):
         try:
@@ -257,7 +258,7 @@ def portal_check(request, slug):
                 return JsonResponse(portal_block(v), status=403)
         except Exception:
             pass  # identification must never block a customer from logging in
-    return JsonResponse({'success': True, 'code': v.code, 'plan': v.plan_name, 'duration': duration_text(v.duration_minutes), 'devices': v.max_devices,
+    return JsonResponse({'success': True, 'wait': stale_wait, 'code': v.code, 'plan': v.plan_name, 'duration': duration_text(v.duration_minutes), 'devices': v.max_devices,
                          'member': v.is_member})
 
 
