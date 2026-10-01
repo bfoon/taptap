@@ -91,6 +91,24 @@ def rs(value):
     return f'"{v}"'
 
 
+# RouterOS: free a device whose voucher ended — remove its hotspot host and drop it from MikroTik Wi-Fi so the
+# phone reconnects and sees the login page again (iPhones only look for it when they join; see
+# MikroTikService.release_devices). Wi-Fi menus are reached through :parse: on a router without that package
+# a plain command would stop the whole script from running.
+DROP_DEVICE = (':local drop do={ :do { /ip hotspot host remove [find mac-address=$m] } on-error={}; '
+               ':foreach t in={"/interface wireless registration-table";"/caps-man registration-table";'
+               '"/interface wifi registration-table";"/interface wifiwave2 registration-table"} do={ '
+               ':do { :local f [:parse ($t . " remove [find mac-address=" . $m . "]")]; $f } on-error={} } }; ')
+
+
+def free_login(user_expr):
+    """RouterOS: end a user's sessions and cookies and free their devices (needs DROP_DEVICE first)."""
+    return (f':foreach a in=[/ip hotspot active find user={user_expr}] do={{ :local m [/ip hotspot active get $a mac-address]; '
+            f':do {{ /ip hotspot active remove $a }} on-error={{}}; $drop m=$m }}; '
+            f':foreach c in=[/ip hotspot cookie find user={user_expr}] do={{ :local m [/ip hotspot cookie get $c mac-address]; '
+            f':do {{ /ip hotspot cookie remove $c }} on-error={{}}; $drop m=$m }}')
+
+
 SCRIPT_VERSION = 5   # v5: reports IP-binding bypass devices (fair usage); v4: direct scheduler execution + single-instance guard
 
 
@@ -328,6 +346,11 @@ def command_body(cmd):
     if k == 'hotspot_users_disable':
         # Freeze / unfreeze many vouchers: disabling also drops any live session.
         names = ';'.join(rs(n) for n in p.get('names', []))
+        if p.get('disabled') and p.get('reason') == 'expired':
+            # Time ran out (core/expiry.py): also free the devices so phones — iPhones above all — see the login
+            # page again (see MikroTikService.release_devices). Wi-Fi tables are reached through :parse so the
+            # script still runs on routers without that package (an unknown menu would stop the whole script).
+            return DROP_DEVICE + f':foreach n in={{{names}}} do={{ /ip hotspot user set [find name=$n] disabled=yes; {free_login("$n")} }}'
         if p.get('disabled'):
             return (f':foreach n in={{{names}}} do={{ /ip hotspot user set [find name=$n] disabled=yes; '
                     f':do {{ /ip hotspot active remove [find user=$n] }} on-error={{}} }}')

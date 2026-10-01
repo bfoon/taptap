@@ -81,6 +81,20 @@ def mark_expired(vouchers, now, why, via, detail=''):
     return changed
 
 
+def _free_devices(svc, voucher, macs=()):
+    """End the sessions, cookies, hotspot hosts and Wi-Fi association of a voucher whose time ran out, so
+    phones see the login page again (MikroTikService.release_devices — needed for iPhones in particular)."""
+    from .models import VoucherDeviceBinding
+    known = set(macs)
+    for cur, prev in VoucherDeviceBinding.objects.filter(voucher=voucher).values_list('current_mac', 'previous_mac'):
+        known.update(m for m in (cur, prev) if m)
+    release = getattr(svc, 'release_devices', None)
+    if release:
+        return release(voucher.code, known)
+    svc.reset_active_by_name(voucher.code)
+    return 0
+
+
 # ─────────────────────────── inside the live pass (API routers, live rows at hand) ───────────────────────────
 def enforce_on_router(router, svc, users, active, now):
     """Called by ``live.watch_router`` with the rows it just read. Returns the codes switched off / kicked."""
@@ -113,11 +127,26 @@ def enforce_on_router(router, svc, users, active, now):
             if enabled:
                 svc.disable_voucher(v.code)
                 RouterHotspotUser.objects.filter(router=router, username__iexact=v.code).update(disabled=True)
-            if key in online:
-                svc.reset_active_by_name(v.code)
+            macs = [s.get('mac-address') for s in active if str(s.get('user', '')).strip().upper() == key]
+            _free_devices(svc, v, macs)      # sessions, cookies, hosts, Wi-Fi: the phone gets the login page again
             switched.add(key)
         except Exception as exc:     # try again next pass
             logger.warning('expiry: could not switch off %s on %s: %s', v.code, router.name, exc)
+    # 4. once a minute: an expired voucher whose cookie is still on the router (expired before, or switched off
+    #    some other way) still holds its phone — free it so the login page shows again.
+    if hasattr(svc, 'release_devices') and cache.add(f'tt:exp:cookies:{router.pk}', 1, 60):
+        try:
+            with_cookie = {str(c.get('user', '')).strip().upper() for c in svc.resource('/ip/hotspot/cookie').get()}
+        except Exception:
+            with_cookie = set()
+        if with_cookie:
+            for v in base.filter(router=router, status='expired').only('pk', 'code'):
+                if v.code.upper() in with_cookie and v.code.upper() not in switched:
+                    try:
+                        _free_devices(svc, v)
+                        switched.add(v.code.upper())
+                    except Exception as exc:
+                        logger.info('expiry: could not free devices of %s: %s', v.code, exc)
     return switched, len(newly)
 
 
@@ -210,7 +239,7 @@ def _push_api(router, vouchers):
         for v in vouchers:
             try:
                 svc.disable_voucher(v.code)
-                svc.reset_active_by_name(v.code)
+                _free_devices(svc, v)
                 RouterHotspotUser.objects.filter(router=router, username__iexact=v.code).update(disabled=True)
                 cache.set(_confirmed_key(router.pk, v.code), 1, 86400)
                 done += 1

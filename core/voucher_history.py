@@ -130,6 +130,12 @@ def _router_apply(voucher, action, hours=None, user=None, minutes=None, total=Fa
             if action == 'disable':
                 svc.disable_voucher(voucher.code)
                 svc.reset_active_by_name(voucher.code)
+                try:      # free the phone so it sees the login page again (iPhones: see MikroTikService.release_devices)
+                    from .models import VoucherDeviceBinding
+                    macs = [m for pair in VoucherDeviceBinding.objects.filter(voucher=voucher).values_list('current_mac', 'previous_mac') for m in pair if m]
+                    svc.release_devices(voucher.code, macs)
+                except Exception:
+                    pass
                 return via, 'Applied on the router', True
             if action == 'enable':
                 if minutes:

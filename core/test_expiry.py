@@ -196,3 +196,97 @@ class ExpiryTests(TestCase):
             expiry.sweep()                                            # next minute: the old one again
             self.assertEqual(svc.disabled[-1], 'OLD00001')
 
+
+
+class FreeDevicesTests(TestCase):
+    """When time runs out the phone must see the login page again (iPhones only look for it when they join Wi-Fi)."""
+    def setUp(self):
+        cache.clear()
+        owner = User.objects.create_user('f@x.com', 'f@x.com', 'pw')
+        self.biz = Business.objects.create(user=owner, business_name='B', owner_name='O', phone='1', trial_ends_at=timezone.now() + timedelta(days=7))
+        self.r = Router.objects.create(business=self.biz, name='hAP', ip_address='10.0.0.1', username='u', password='p', status='Online')
+        self.now = timezone.now()
+
+    def test_release_devices_clears_session_cookie_host_and_wifi(self):
+        from .mikrotik import MikroTikService
+        store = {
+            '/ip/hotspot/active': [{'id': '*a', 'user': 'IPH00001', 'mac-address': 'aa:bb:cc:00:00:01'}],
+            '/ip/hotspot/cookie': [{'id': '*c', 'user': 'IPH00001', 'mac-address': 'AA:BB:CC:00:00:01'},
+                                   {'id': '*d', 'user': 'OTHER001', 'mac-address': 'AA:BB:CC:00:00:09'}],
+            '/ip/hotspot/host': [{'id': '*h1', 'mac-address': 'AA:BB:CC:00:00:01'}, {'id': '*h2', 'mac-address': 'AA:BB:CC:00:00:09'}],
+            '/interface/wireless/registration-table': [{'id': '*w', 'mac-address': 'AA:BB:CC:00:00:01'}, {'id': '*x', 'mac-address': '11:22:33:44:55:66'}],
+        }
+
+        class Res:
+            def __init__(self, path):
+                if path not in store and 'registration-table' in path:
+                    raise Exception('no such command prefix')     # radio package not installed
+                self.rows = store.setdefault(path, [])
+            def get(self, **f): return [r for r in self.rows if all(r.get(k) == v for k, v in f.items())]
+            def remove(self, id): self.rows[:] = [r for r in self.rows if r['id'] != id]
+
+        class Svc(MikroTikService):
+            def resource(self, path): return Res(path)
+
+        dropped = Svc(self.r).release_devices('IPH00001')
+        self.assertEqual(dropped, 1)
+        self.assertEqual(store['/ip/hotspot/active'], [])
+        self.assertEqual([c['user'] for c in store['/ip/hotspot/cookie']], ['OTHER001'])       # others untouched
+        self.assertEqual([h['id'] for h in store['/ip/hotspot/host']], ['*h2'])
+        self.assertEqual([w['id'] for w in store['/interface/wireless/registration-table']], ['*x'])
+
+    def test_expiry_frees_the_phone(self):
+        from .models import VoucherDeviceBinding
+        v = Voucher.objects.create(business=self.biz, router=self.r, code='IPH00002', plan_name='Day', duration_minutes=1440,
+                                   used_at=self.now - timedelta(days=2), expires_at=self.now - timedelta(days=1))
+        VoucherDeviceBinding.objects.create(business=self.biz, voucher=v, slot_no=1, current_mac='DA:00:00:00:00:02')
+        freed = []
+
+        class Svc(FakeSvc):
+            def release_devices(s, code, macs=()):
+                freed.append((code, set(macs)))
+                return 1
+
+            def resource(s, path):
+                class R:
+                    def get(self_, **k): return []
+                return R()
+
+        svc = Svc(users=[{'name': 'IPH00002', 'disabled': 'false', 'uptime': '2h', 'limit-uptime': '1d'}],
+                  active=[{'user': 'IPH00002', 'mac-address': 'AA:BB:CC:00:00:02'}])
+        expiry.enforce_on_router(self.r, svc, svc.users, svc.active, self.now)
+        self.assertEqual(freed, [('IPH00002', {'AA:BB:CC:00:00:02', 'DA:00:00:00:00:02'})])
+
+    def test_already_expired_phone_with_a_cookie_left_is_freed(self):
+        Voucher.objects.create(business=self.biz, router=self.r, code='OLD00002', plan_name='Day', status='expired',
+                               used_at=self.now - timedelta(days=5), expires_at=self.now - timedelta(days=4))
+        freed = []
+
+        class Svc(FakeSvc):
+            def release_devices(s, code, macs=()):
+                freed.append(code); return 0
+
+            def resource(s, path):
+                class R:
+                    def get(self_, **k): return [{'user': 'OLD00002', 'mac-address': 'AA:BB:CC:00:00:03'}] if path == '/ip/hotspot/cookie' else []
+                return R()
+
+        svc = Svc(users=[{'name': 'OLD00002', 'disabled': 'true'}])
+        expiry.enforce_on_router(self.r, svc, svc.users, [], self.now)
+        self.assertEqual(freed, ['OLD00002'])
+
+    def test_link_script_frees_devices_and_runs_on_any_routeros(self):
+        from types import SimpleNamespace
+        from . import agent
+        command_body = agent.command_body          # as installed at start-up (core.hotspot_recovery wraps it)
+        body = command_body(SimpleNamespace(kind='hotspot_users_disable', pk=1, params={'names': ['IPH00001'], 'disabled': True, 'reason': 'expired'}))
+        self.assertIn('/ip hotspot cookie remove $c', body)
+        self.assertIn('/ip hotspot host remove [find mac-address=$m]', body)
+        self.assertIn(':parse ($t . " remove [find mac-address=" . $m . "]")', body)
+        outside = body.replace('"/interface wifi registration-table"', '').replace('"/interface wifiwave2 registration-table"', '')
+        self.assertNotIn('/interface wifi', outside)            # never a bare v7-only menu: v6 routers would reject the whole script
+        freeze = command_body(SimpleNamespace(kind='hotspot_users_disable', pk=2, params={'names': ['IPH00001'], 'disabled': True}))
+        self.assertNotIn('$drop', freeze)                       # freezing keeps the existing behaviour
+        one = command_body(SimpleNamespace(kind='hotspot_user_set', pk=3, params={'name': 'IPH00001', 'disabled': True}))
+        self.assertIn('/ip hotspot user set [find name="IPH00001"] disabled=yes', one)
+        self.assertIn('$drop m=$m', one)                          # a disabled voucher frees its phone too

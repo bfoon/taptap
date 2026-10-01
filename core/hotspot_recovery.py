@@ -66,14 +66,15 @@ def _link_command_body(original):
         if kind == 'hotspot_user_set' and p.get('disabled'):
             # Disable/expiry is terminal for the current login. Clear remembered
             # auth at the same moment so reconnecting becomes an unauthenticated
-            # HotSpot client and RouterOS can present the login page again.
-            from .agent import rs
+            # HotSpot client and RouterOS can present the login page again — and
+            # free the device (host + Wi-Fi) so an iPhone, which only looks for a
+            # login page when it joins the Wi-Fi, reconnects and shows it.
+            from .agent import DROP_DEVICE, free_login, rs
             name = rs(p['name'])
-            return (
-                f'/ip hotspot user set [find name={name}] disabled=yes; '
-                f':do {{ /ip hotspot active remove [find user={name}] }} on-error={{}}; '
-                f':do {{ /ip hotspot cookie remove [find user={name}] }} on-error={{}}'
-            )
+            return DROP_DEVICE + f'/ip hotspot user set [find name={name}] disabled=yes; ' + free_login(name)
+
+        if kind == 'hotspot_users_disable' and p.get('disabled') and p.get('reason') == 'expired':
+            return original(cmd)       # strict expiry: core.agent frees the devices too (cookies included)
 
         if kind == 'hotspot_users_disable' and p.get('disabled'):
             from .agent import rs

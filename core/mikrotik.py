@@ -360,6 +360,59 @@ class MikroTikService:
         for row in self.resource('/ip/hotspot/active').get(user=code):
             self.resource('/ip/hotspot/active').remove(id=row['id'])
 
+    # Wi-Fi association tables of MikroTik radios (legacy wireless, CAPsMAN, RouterOS 7 WiFi / wifiwave2)
+    WIFI_REG_TABLES = ('/interface/wireless/registration-table', '/caps-man/registration-table',
+                       '/interface/wifi/registration-table', '/interface/wifiwave2/registration-table')
+
+    def release_devices(self, code, macs=()):
+        """A voucher ended: free its devices so they see the login page again — iPhones above all.
+
+        An iPhone looks for a login page only when it joins the Wi-Fi (captive.apple.com). If the voucher
+        ends while it stays connected it never looks again: apps and Safari use HTTPS, which a hotspot
+        cannot redirect, so the customer sees "no internet" and no page to type a new voucher. So:
+          1. end the voucher's sessions and delete its HTTP / MAC cookies (no silent re-login);
+          2. remove those devices' hotspot hosts (they start again as new, unauthorised devices);
+          3. drop them from MikroTik Wi-Fi radios — the phone reconnects by itself within seconds, checks
+             again, and the login sheet opens. (Access points of other makers, e.g. TP-Link, cannot be told
+             to do this; there steps 1–2 still make the page appear as soon as the phone re-checks.)
+        Returns the number of Wi-Fi disconnections."""
+        def norm(v):
+            h = ''.join(c for c in str(v or '').upper() if c in '0123456789ABCDEF')
+            return ':'.join(h[i:i + 2] for i in range(0, 12, 2)) if len(h) == 12 else ''
+        want = {norm(x) for x in macs} - {''}
+        for path in ('/ip/hotspot/active', '/ip/hotspot/cookie'):
+            try:
+                res = self.resource(path)
+                for row in res.get(user=code):
+                    if norm(row.get('mac-address')):
+                        want.add(norm(row.get('mac-address')))
+                    res.remove(id=row['id'])
+            except Exception:
+                pass
+        if not want:
+            return 0
+        try:
+            hosts = self.resource('/ip/hotspot/host')
+            for row in hosts.get():
+                if norm(row.get('mac-address')) in want:
+                    hosts.remove(id=row['id'])
+        except Exception:
+            pass
+        dropped = 0
+        for path in self.WIFI_REG_TABLES:
+            try:
+                res = self.resource(path)
+                rows = res.get()
+            except Exception:          # this router has no such radio package
+                continue
+            for row in rows:
+                if norm(row.get('mac-address')) in want:
+                    try:
+                        res.remove(id=row['id']); dropped += 1
+                    except Exception:
+                        pass
+        return dropped
+
     # ----------------------------- IP binding ----------------------------
     def bindings(self):
         return self.resource('/ip/hotspot/ip-binding').get()
