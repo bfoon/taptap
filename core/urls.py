@@ -121,4 +121,5 @@ urlpatterns = [
     path('security/sharing/',vsecfix.security_sharing,name='security_sharing'),
     path('security/admin-account/<int:pk>/',vsecfix.security_admin_account,name='security_admin_account'),
     path('plans/fix-profile/',views.plan_fix_profile,name='plan_fix_profile'),
+    path('batches/<int:pk>/health/',vdetail.batch_health_action,name='batch_health_action'),
 ]

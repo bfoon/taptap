@@ -80,7 +80,7 @@ URL_PERMS = {
     'report_missing_batch': ('vouchers.support', 'vouchers.create'), 'resolve_missing_report': 'vouchers.support',
     'mark_voucher_missing': ('vouchers.support', 'vouchers.create'),
     'delete_expired': 'vouchers.manage',
-    'voucher_delete': 'vouchers.manage', 'voucher_set_profile': 'vouchers.support', 'change_voucher_code': 'vouchers.manage',
+    'voucher_delete': 'vouchers.manage', 'voucher_set_profile': 'vouchers.support', 'batch_health_action': 'vouchers.support', 'change_voucher_code': 'vouchers.manage',
     'voucher_freeze': 'vouchers.support', 'voucher_warn': 'vouchers.warn', 'session_warn': 'vouchers.warn', 'vouchers_freeze': 'vouchers.manage', 'batch_freeze': 'vouchers.manage',
     'shared_resolve': 'vouchers.support', 'shared_settings': 'vouchers.manage', 'vouchers_delete': 'vouchers.manage', 'batch_delete': 'vouchers.manage',
     'voucher_bin': 'vouchers.view',

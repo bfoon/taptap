@@ -15,7 +15,9 @@ from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db.models import Count, F, Max, Min, Q, Sum
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, render
+from django.contrib import messages
+from django.shortcuts import get_object_or_404, redirect, render
+from django.views.decorators.http import require_POST
 from django.template.loader import render_to_string
 from django.utils import timezone
 
@@ -119,10 +121,32 @@ def batch_detail(request, pk):
     sales = business.sales.filter(voucher__batch=batch).aggregate(n=Count('pk'), v=Sum('amount'), c=Sum('commission'))
     routers = list(qs.exclude(router__isnull=True).values('router__name').annotate(n=Count('pk')).order_by('-n'))
     open_report = business.missing_voucher_reports.filter(batch=batch).exclude(status='resolved').order_by('-reported_at').first()
+    from . import batch_health
+    from .models import RouterHotspotProfile
+    health = batch_health.check(batch, live=request.GET.get('check') == 'live')
+    router_ids = {x['v'].router_id for x in health['vouchers'] if x['v'].router_id}
+    profile_choices = sorted(set(RouterHotspotProfile.objects.filter(router_id__in=router_ids, is_present=True).values_list('name', flat=True)))
     return _voucher_lists(request, qs, {
         'batch': batch, 'sales': sales, 'routers': routers, 'open_report': open_report,
-        'designs': business.voucher_designs.all(),
+        'designs': business.voucher_designs.all(), 'health': health, 'profile_choices': profile_choices,
+        'other_plans': business.plans.exclude(pk=batch.plan_id or 0).order_by('name'),
     }, 'core/batch_detail.html')
+
+
+@login_required
+@require_POST
+def batch_health_action(request, pk):
+    """Batch page: repair unused vouchers, or swap their profile (core/batch_health.py)."""
+    from . import batch_health
+    batch = get_object_or_404(request.user.business.batches, pk=pk)
+    try:
+        if request.POST.get('action') == 'swap':
+            messages.success(request, batch_health.swap(batch, request.POST.get('target', ''), request.user))
+        else:
+            messages.success(request, batch_health.repair(batch, request.user))
+    except ValueError as exc:
+        messages.error(request, str(exc))
+    return redirect('batch_detail', pk=pk)
 
 
 @login_required

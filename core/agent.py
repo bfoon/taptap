@@ -40,7 +40,7 @@ POLICY = 'ftp,read,write,test,reboot,sensitive'
 SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
     'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
-    'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile',
+    'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
     'hotspot_users_limit', 'admin_password',
 }
@@ -305,6 +305,20 @@ def command_body(cmd):
         ev = f'/interface enable [find name="{p["name"]}"]; /system scheduler remove [find name="{sched}"]'
         return (f'/system scheduler remove [find name={rs(sched)}]; /system scheduler add name={rs(sched)} interval={mins}m '
                 f'policy={POLICY} on-event={rs(ev)} comment="TapTap automatic restore"; /interface disable [find name={name()}]')
+    if k == 'hotspot_users_heal':
+        # Batch page "Profile & stock health" (core/batch_health.py): make unused vouchers work — right profile
+        # (created if missing), enabled, no MAC lock, plan time, no old sessions/cookies. Never touches passwords.
+        lines = []
+        for prof in p.get('profiles', []):
+            lines.append(f':if ([:len [/ip hotspot user profile find name={rs(prof["name"])}]] = 0) do={{ /ip hotspot user profile add '
+                         f'name={rs(prof["name"])} shared-users={int(prof.get("shared") or 1)}' + (f' rate-limit={rs(prof["rate"])}' if prof.get('rate') else '') + ' }')
+        for u in p.get('users', []):
+            n = rs(u['n'])
+            lim = f' limit-uptime={rs(u["lim"])}' if u.get('lim') else ''
+            lines.append(f':if ([:len [/ip hotspot user find name={n}]] > 0) do={{ /ip hotspot user set [find name={n}] profile={rs(u["prof"])} '
+                         f'disabled=no mac-address=00:00:00:00:00:00{lim}; :do {{ /ip hotspot active remove [find user={n}] }} on-error={{}}; '
+                         f':do {{ /ip hotspot cookie remove [find user={n}] }} on-error={{}} }}')
+        return '; '.join(lines) or ':nothing'
     if k == 'hotspot_users_profile':
         # Fix "unknown profile" users (core/orphan_profiles.py): create the plan's profile if missing, move the users onto it.
         prof = p['profile']
@@ -494,6 +508,15 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
         pw = str((params or {}).get('password') or '')
         if not 12 <= len(pw) <= 64 or any(ord(c) < 32 for c in pw):
             raise ValueError('Invalid password.')
+    if kind == 'hotspot_users_heal':
+        from .plan_limits import LIM_RE
+        pr, us = (params or {}).get('profiles') or [], (params or {}).get('users') or []
+        prof_ok = lambda x: bool(re.match(r'^[\w .@:+/-]{1,120}$', str(x or '')))
+        if not isinstance(us, list) or not 1 <= len(us) <= 100 or len(pr) > 20 \
+                or not all(prof_ok(x.get('name')) and 1 <= int(x.get('shared') or 1) <= 100
+                           and (not x.get('rate') or re.match(r'^[0-9kKmMgG/ ]{1,60}$', str(x['rate']))) for x in pr) \
+                or not all(NAME_RE.match(str(u.get('n', ''))) and prof_ok(u.get('prof')) and (not u.get('lim') or LIM_RE.match(str(u['lim']))) for u in us):
+            raise ValueError('Invalid repair list.')
     if kind == 'hotspot_users_profile':
         pr = (params or {}).get('profile') or {}
         names = (params or {}).get('names') or []
