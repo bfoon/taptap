@@ -40,7 +40,7 @@ POLICY = 'ftp,read,write,test,reboot,sensitive'
 SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
     'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
-    'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal',
+    'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
     'hotspot_users_limit', 'admin_password',
 }
@@ -319,6 +319,10 @@ def command_body(cmd):
                          f'disabled=no mac-address=00:00:00:00:00:00{lim}; :do {{ /ip hotspot active remove [find user={n}] }} on-error={{}}; '
                          f':do {{ /ip hotspot cookie remove [find user={n}] }} on-error={{}} }}')
         return '; '.join(lines) or ':nothing'
+    if k == 'hotspot_profile_remove':
+        # Delete an unknown profile (*1, *C…) once no hotspot user uses it any more (core/orphan_profiles.py).
+        n = rs(p['name'])
+        return f':if ([:len [/ip hotspot user find profile={n}]] = 0) do={{ :do {{ /ip hotspot user profile remove [find name={n}] }} on-error={{}} }}'
     if k == 'hotspot_users_profile':
         # Fix "unknown profile" users (core/orphan_profiles.py): create the plan's profile if missing, move the users onto it.
         prof = p['profile']
@@ -494,6 +498,8 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
         if len((params or {}).get('source', '')) > 2000:
             raise ValueError('Script is too long (2000 characters max).')
     for key in ('name', 'user'):
+        if kind == 'hotspot_profile_remove' and key == 'name':
+            continue          # checked above: only unknown-profile IDs such as *1 / *C are accepted
         if params and key in params and not NAME_RE.match(str(params[key])):
             raise ValueError(f'Invalid {key}.')
     if params and 'mac' in params and not MAC_RE.match(str(params['mac'])):
@@ -508,6 +514,10 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
         pw = str((params or {}).get('password') or '')
         if not 12 <= len(pw) <= 64 or any(ord(c) < 32 for c in pw):
             raise ValueError('Invalid password.')
+    if kind == 'hotspot_profile_remove':
+        from .orphan_profiles import is_orphan
+        if not is_orphan((params or {}).get('name')):
+            raise ValueError('Only unknown profiles (like *1) can be removed this way.')
     if kind == 'hotspot_users_heal':
         from .plan_limits import LIM_RE
         pr, us = (params or {}).get('profiles') or [], (params or {}).get('users') or []

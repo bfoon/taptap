@@ -114,3 +114,94 @@ def fix(business, router_id, bad, plan, user=None):
                                           fields={'plan': plan.name, 'profile': prof, 'vouchers': len(names)}, status='success')
     log(business, 'Plan Fixed', f'{len(names)} voucher(s) with unknown profile {bad} → plan {plan.name}')
     return f'{len(names)} voucher{"s" if len(names) != 1 else ""} now use the plan “{plan.name}” — {result}.'
+
+
+# ─────────────────────────── delete unknown profiles ───────────────────────────
+def _traces(business):
+    """{(router_id, name): {'plan': VoucherPlan|None, 'on_router': bool}} for *X names that live on as a plan or in
+    TapTap's copy of a router's profiles (even with no voucher left)."""
+    from .models import RouterHotspotProfile
+    out = {}
+    for m in RouterHotspotProfile.objects.filter(business=business, name__regex=ORPHAN_DB_RE, is_present=True):
+        out.setdefault((m.router_id, m.name), {'plan': None, 'on_router': False})['on_router'] = True
+    for p in business.plans.filter(name__regex=ORPHAN_DB_RE):
+        key = next((k for k in out if k[1] == p.name), (getattr(p, 'imported_from_router_id', None), p.name))
+        out.setdefault(key, {'plan': None, 'on_router': False})['plan'] = p
+    return out
+
+
+def groups_with_traces(business):
+    """groups() plus *X names that have no voucher left but still exist as a plan or a router profile."""
+    from .models import Router
+    gs = groups(business)
+    traces = _traces(business)
+    routers = {r.pk: r for r in Router.objects.filter(business=business)}
+    seen = set()
+    for g in gs:
+        t = traces.get((g['router_id'] or None, g['profile'])) or next((v for k, v in traces.items() if k[1] == g['profile']), None)
+        g['orphan_plan'], g['on_router'] = (t or {}).get('plan'), bool((t or {}).get('on_router'))
+        seen.add(g['profile'])
+    for (rid, name), t in traces.items():
+        if name in seen:
+            continue
+        gs.append({'router': routers.get(rid), 'router_id': rid or 0, 'profile': name, 'total': 0, 'used': 0, 'unused': 0, 'codes': [],
+                   'suggestion': '', 'plan': None, 'orphan_plan': t['plan'], 'on_router': t['on_router']})
+    return gs
+
+
+def _remove_router_profile(router, name, user=None):
+    """Remove a profile literally named *X from the router — only when no user uses it any more."""
+    from .voucher_history import channel
+    if channel(router) == 'TapTap Link':
+        from .linkops import send
+        send(router, 'hotspot_profile_remove', {'name': name}, label=f'Remove unknown profile {name}', user=user)
+        return 'queued for the router'
+    from .mikrotik import MikroTikService
+    with MikroTikService(router) as svc:
+        if svc.resource('/ip/hotspot/user').get(profile=name):
+            return 'still used by users on the router — not removed there'
+        res = svc.resource('/ip/hotspot/user/profile')
+        for row in res.get(name=name):
+            res.remove(id=row['id'])
+    return 'removed from the router'
+
+
+def delete(business, router_id, bad, plan=None, user=None):
+    """Correct every voucher on the unknown profile ``bad`` (to ``plan``), then delete the name everywhere.
+    Returns a message. Raises ValueError when a plan is needed or a router cannot be reached."""
+    from .models import RouterHotspotProfile
+    from .voucher_bin import BinError, delete_plan
+    if not is_orphan(bad):
+        raise ValueError('Only unknown profiles (like *1 or *C) can be deleted here.')
+    router = business.routers.filter(pk=router_id).first() if router_id else None
+    vqs = business.vouchers.filter(plan_name=bad)
+    vqs = vqs.filter(router=router) if router else vqs.filter(router__isnull=True)
+    parts = []
+    if vqs.exists():
+        if plan is None:
+            raise ValueError(f'{vqs.count()} voucher(s) still use {bad}. Choose the plan to move them to first.')
+        parts.append(fix(business, router.pk if router else None, bad, plan, user).rstrip('.'))
+    # the name on the router(s), in TapTap's copy, and as a plan — once nothing uses it any more
+    mirror = RouterHotspotProfile.objects.filter(business=business, name=bad)
+    if router:
+        mirror = mirror.filter(router=router)
+    for m in mirror.select_related('router'):
+        if m.is_present and m.router_id:
+            try:
+                parts.append(f'profile {bad} {_remove_router_profile(m.router, bad, user)} ({m.router.name})')
+            except Exception as exc:
+                raise ValueError(f'{m.router.name} could not be reached: {exc}')
+    mirror.delete()
+    for p in business.plans.filter(name=bad):
+        if business.vouchers.filter(plan_name=bad).exists():
+            parts.append(f'plan {bad} kept: other vouchers still use it')
+            continue
+        from .permissions import ALL_PERMISSIONS
+        try:
+            delete_plan(p, user=user, reason=f'Unknown profile {bad} cleaned up', perms=ALL_PERMISSIONS)
+            parts.append(f'plan {bad} moved to the bin')
+        except BinError as exc:
+            parts.append(f'plan {bad} kept: {exc}')
+    from .utils import log
+    log(business, 'Plan Fixed', f'Unknown profile {bad} deleted' + (f' on {router.name}' if router else ''))
+    return f'Unknown profile {bad} deleted. ' + ('; '.join(parts) + '.' if parts else '')

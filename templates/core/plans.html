@@ -27,20 +27,33 @@
 <div class="tab-pane fade" id="paneFix" role="tabpanel" aria-labelledby="tabFix">
   <div class="panel mb-4"><div class="panel-head"><div><h3>Vouchers with an unknown profile</h3>
     <p>Their profile shows as a code like <code>*1</code> or <code>*C</code>: RouterOS shows a profile’s internal ID when that profile was deleted while vouchers still use it.
-      Choose the plan they belong to. TapTap moves them to it — and creates the plan’s profile on the router if it is not there yet.</p></div></div>
-  {% if orphans %}<div class="table-responsive"><table class="table align-middle">
+      Choose the plan they belong to. TapTap moves them to it — and creates the plan’s profile on the router if it is not there yet.
+      <b>Fix &amp; delete</b> also removes the unknown name everywhere once no voucher uses it.</p></div></div>
+  {% if orphans %}
+  <form method="post" action="{% url 'plan_fix_profile' %}" class="d-flex flex-wrap gap-2 align-items-center p-3 mb-3 rounded-3 border bg-body-tertiary">{% csrf_token %}<input type="hidden" name="action" value="delete_all">
+    <b class="small">All at once:</b>
+    <select class="form-select form-select-sm w-auto" name="plan" aria-label="Plan for all unknown profiles">
+      <option value="">Choose the plan for every voucher…</option>{% for p in plans %}<option value="{{ p.id }}">{{ p.name }}{% if p.price %} · {{ p.price|money:c }}{% endif %}</option>{% endfor %}</select>
+    <button class="btn btn-sm btn-danger" onclick="return confirm('Move every voucher on an unknown profile to the chosen plan, then delete all {{ orphans|length }} unknown profile{{ orphans|length|pluralize }}?')"><i class="bi bi-trash"></i> Fix &amp; delete all {{ orphans|length }}</button>
+    <small class="text-secondary">Unknown profiles without vouchers are deleted even if no plan is chosen.</small>
+  </form>
+  <div class="table-responsive"><table class="table align-middle">
     <thead><tr><th>Unknown profile</th><th>Router</th><th class="text-end">Vouchers</th><th>Examples</th><th style="min-width:330px">Give them this plan</th></tr></thead><tbody>
     {% for g in orphans %}<tr>
-      <td><code class="fs-6">{{ g.profile }}</code>{% if g.suggestion %}<small class="d-block text-success">Router still knows it as “{{ g.suggestion }}”</small>{% endif %}</td>
+      <td><code class="fs-6">{{ g.profile }}</code>{% if g.suggestion %}<small class="d-block text-success">Router still knows it as “{{ g.suggestion }}”</small>{% endif %}
+        {% if g.orphan_plan %}<small class="d-block text-secondary">Also a plan with this name</small>{% endif %}{% if g.on_router %}<small class="d-block text-secondary">A profile with this name is on the router</small>{% endif %}</td>
       <td>{% if g.router %}{{ g.router.name }}{% else %}<span class="text-secondary">No router</span>{% endif %}</td>
       <td class="text-end"><b>{{ g.total }}</b><small class="d-block text-secondary">{{ g.used }} used · {{ g.unused }} unused</small></td>
       <td><small class="font-monospace">{{ g.codes|join:", " }}{% if g.total > g.codes|length %}…{% endif %}</small></td>
       <td><form method="post" action="{% url 'plan_fix_profile' %}" class="fix-form">{% csrf_token %}
         <input type="hidden" name="profile" value="{{ g.profile }}"><input type="hidden" name="router_id" value="{{ g.router_id }}">
-        <div class="d-flex gap-2"><select class="form-select form-select-sm" name="plan" aria-label="Plan for {{ g.profile }}" data-fix-plan>
+        {% if g.total %}<div class="d-flex gap-2"><select class="form-select form-select-sm" name="plan" aria-label="Plan for {{ g.profile }}" data-fix-plan>
           <option value="">Choose a plan…</option>{% for p in plans %}<option value="{{ p.id }}" {% if g.plan and g.plan.id == p.id %}selected{% endif %}>{{ p.name }}{% if p.price %} · {{ p.price|money:c }}{% endif %}</option>{% endfor %}
           <option value="new">+ New plan…</option></select>
-          <button class="btn btn-sm btn-primary text-nowrap">Fix {{ g.total }}</button></div>
+          <button class="btn btn-sm btn-primary text-nowrap" name="action" value="fix">Fix {{ g.total }}</button>
+          <button class="btn btn-sm btn-outline-danger text-nowrap" name="action" value="delete" title="Fix the vouchers, then delete {{ g.profile }}" onclick="return confirm('Move the {{ g.total }} voucher{{ g.total|pluralize }} to the chosen plan, then delete {{ g.profile }}?')"><i class="bi bi-trash"></i> Fix &amp; delete</button></div>
+        {% else %}<div class="d-flex gap-2 align-items-center"><span class="small text-secondary">No voucher uses it any more.</span>
+          <button class="btn btn-sm btn-outline-danger" name="action" value="delete"><i class="bi bi-trash"></i> Delete {{ g.profile }}</button></div>{% endif %}
         <div class="row g-2 mt-1" data-new-plan hidden>
           <div class="col-12"><input class="form-control form-control-sm" name="new_name" placeholder="Plan name, e.g. 24 Hours" aria-label="New plan name" value="{{ g.suggestion }}"></div>
           <div class="col-4"><input class="form-control form-control-sm" name="new_price" type="number" min="0" step="0.01" placeholder="Price" aria-label="Price"></div>

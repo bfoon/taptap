@@ -107,3 +107,95 @@ class OrphanProfileTests(TestCase):
         bad = self.client.post(reverse('plan_fix_profile'), {'profile': '24 Hours', 'router_id': self.r.pk, 'plan': self.plan.pk})
         self.assertEqual(Voucher.objects.get(code='OK0001').plan_name, '24 Hours')          # only *IDs can be "fixed"
         self.assertEqual(bad.status_code, 302)
+
+
+class ProfileStore:
+    """Router users and profiles for the delete tests."""
+    def __init__(self, users, profiles):
+        self.store = {'/ip/hotspot/user': users, '/ip/hotspot/user/profile': profiles}
+        self.created = []
+
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+    def resource(self, path):
+        rows = self.store.setdefault(path, [])
+
+        class R:
+            def get(self_, **f): return [r for r in rows if all(str(r.get(k)) == str(v) for k, v in f.items())]
+            def set(self_, id, **kw):
+                for r in rows:
+                    if r['id'] == id:
+                        r.update(kw)
+            def remove(self_, id): rows[:] = [r for r in rows if r['id'] != id]
+        return R()
+
+    def ensure_hotspot_profile(self, name, max_devices=1, rate_limit=''): self.created.append(name)
+
+
+@override_settings(AUTH_EMAIL_OTP=False)
+class DeleteUnknownProfileTests(OrphanProfileTests):
+    def api(self, users, profiles):
+        svc = ProfileStore(users, profiles)
+        return svc, mock.patch('core.mikrotik.MikroTikService', return_value=svc), mock.patch('core.voucher_history.channel', return_value='Direct API')
+
+    def test_needs_a_plan_while_vouchers_use_it(self):
+        with self.assertRaises(ValueError):
+            op.delete(self.biz, self.r.pk, '*C', None, self.owner)
+        with self.assertRaises(ValueError):
+            op.delete(self.biz, self.r.pk, '24 Hours', self.plan, self.owner)            # real names are never deleted here
+
+    def test_fix_then_delete_everywhere(self):
+        RouterHotspotProfile.objects.create(business=self.biz, router=self.r, name='*C', mikrotik_id='*20')
+        stray = VoucherPlan.objects.create(business=self.biz, name='*C', price=0, duration_minutes=60)
+        users = [{'id': '*u1', 'name': 'CC0001', 'profile': '*C'}]
+        profiles = [{'id': '*20', 'name': '*C'}, {'id': '*21', 'name': '24hours'}]
+        svc, p1, p2 = self.api(users, profiles)
+        with p1, p2:
+            msg = op.delete(self.biz, self.r.pk, '*C', self.plan, self.owner)
+        self.assertEqual(Voucher.objects.get(code='CC0001').plan_name, '24 Hours')       # corrected first
+        self.assertEqual(users[0]['profile'], '24hours')
+        self.assertEqual([p['name'] for p in profiles], ['24hours'])                     # *C removed from the router
+        self.assertFalse(RouterHotspotProfile.objects.filter(name='*C').exists())
+        self.assertFalse(VoucherPlan.objects.filter(pk=stray.pk).exists())               # plan in the bin
+        self.assertTrue(VoucherPlan.all_objects.filter(pk=stray.pk, deleted_at__isnull=False).exists())
+        self.assertIn('removed from the router', msg)
+        self.assertNotIn('*C', [g['profile'] for g in op.groups_with_traces(self.biz)])
+
+    def test_router_profile_kept_while_router_users_still_use_it(self):
+        RouterHotspotProfile.objects.create(business=self.biz, router=self.r, name='*C', mikrotik_id='*20')
+        users = [{'id': '*u1', 'name': 'CC0001', 'profile': '*C'}, {'id': '*u9', 'name': 'NOT-IN-TAPTAP', 'profile': '*C'}]
+        profiles = [{'id': '*20', 'name': '*C'}]
+        svc, p1, p2 = self.api(users, profiles)
+        with p1, p2:
+            msg = op.delete(self.biz, self.r.pk, '*C', self.plan, self.owner)
+        self.assertEqual([p['name'] for p in profiles], ['*C'])
+        self.assertIn('still used by users on the router', msg)
+
+    def test_leftover_without_vouchers_is_listed_and_deleted_without_a_plan(self):
+        RouterHotspotProfile.objects.create(business=self.biz, router=self.r, name='*7', mikrotik_id='*7')
+        g = [x for x in op.groups_with_traces(self.biz) if x['profile'] == '*7'][0]
+        self.assertEqual((g['total'], g['on_router']), (0, True))
+        svc, p1, p2 = self.api([], [{'id': '*7', 'name': '*7'}])
+        with p1, p2:
+            op.delete(self.biz, self.r.pk, '*7', None, self.owner)
+        self.assertEqual(svc.store['/ip/hotspot/user/profile'], [])
+
+    def test_link_removes_only_unused_unknown_profiles(self):
+        from .agent import command_body, queue
+        RouterHotspotProfile.objects.create(business=self.biz, router=self.r, name='*7', mikrotik_id='*7')
+        with mock.patch('core.voucher_history.channel', return_value='TapTap Link'), mock.patch('core.linkops.ensure_online'):
+            op.delete(self.biz, self.r.pk, '*7', None, self.owner)
+        body = command_body(AgentCommand.objects.get(kind='hotspot_profile_remove'))
+        self.assertEqual(body, ':if ([:len [/ip hotspot user find profile="*7"]] = 0) do={ :do { /ip hotspot user profile remove [find name="*7"] } on-error={} }')
+        with self.assertRaises(ValueError):
+            queue(self.r, 'hotspot_profile_remove', {'name': 'default'})
+
+    def test_fix_and_delete_all_from_the_page(self):
+        svc, p1, p2 = self.api([], [])
+        with p1, p2:
+            r = self.client.post(reverse('plan_fix_profile'), {'action': 'delete_all', 'plan': self.plan.pk})
+        self.assertRedirects(r, '/plans/#fix', fetch_redirect_response=False)
+        self.assertFalse(Voucher.objects.filter(plan_name__in=['*1', '*C']).exists())
+        self.assertEqual(op.groups_with_traces(self.biz), [])
+        self.assertContains(self.client.get(reverse('plans')), 'Every voucher has a known profile')

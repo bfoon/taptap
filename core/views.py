@@ -352,9 +352,9 @@ def plans(request):
         p.zero_vouchers=zero_map.get(p.name,0); u=usage.get(p.name,{})
         p.v_total,p.v_used,p.v_unused,p.v_sold_unused=u.get('total',0),u.get('used',0),u.get('unused',0),u.get('sold_unused',0)
         p.can_delete=not p.v_used or 'plans.delete_used' in perms
-    from .orphan_profiles import groups as orphan_groups
+    from .orphan_profiles import groups_with_traces as orphan_groups_t
     return render(request,'core/plans.html',{'plans':plan_list,'form':form,'missing':[p for p in plan_list if not p.price and not p.is_free],
-        'orphans':orphan_groups(business)})
+        'orphans':orphan_groups_t(business)})
 
 
 @login_required
@@ -1099,11 +1099,12 @@ def api_voucher_login(request):
 @require_POST
 def plan_fix_profile(request):
     """Plans → "Fix unknown profiles": give vouchers whose plan is a RouterOS ID (*1, *C…) a real plan."""
-    from .orphan_profiles import fix, is_orphan
+    from .orphan_profiles import delete as delete_orphan, fix, groups_with_traces, is_orphan
     business = b(request)
+    action = request.POST.get('action', 'fix')
     bad = request.POST.get('profile', '')
     router_id = request.POST.get('router_id', '')
-    if not is_orphan(bad):
+    if action != 'delete_all' and not is_orphan(bad):
         messages.error(request, 'That is not an unknown profile.'); return redirect('/plans/#fix')
     plan = None
     if request.POST.get('plan') == 'new':
@@ -1124,10 +1125,26 @@ def plan_fix_profile(request):
             from .portal_deploy import schedule_redeploy; schedule_redeploy(business)
     else:
         plan = business.plans.filter(pk=request.POST.get('plan') or 0).first()
-    if not plan:
-        messages.error(request, 'Choose a plan, or create a new one.'); return redirect('/plans/#fix')
+    rid = int(router_id) if str(router_id).isdigit() and int(router_id) else None
     try:
-        messages.success(request, fix(business, int(router_id) if str(router_id).isdigit() else None, bad, plan, request.user))
+        if action == 'delete_all':
+            # Fix every unknown profile with one plan, then delete them all
+            done, errors = 0, []
+            for g in groups_with_traces(business):
+                try:
+                    delete_orphan(business, g['router_id'] or None, g['profile'], plan, request.user); done += 1
+                except ValueError as exc:
+                    errors.append(f'{g["profile"]}: {exc}')
+            if done:
+                messages.success(request, f'{done} unknown profile{"s" if done != 1 else ""} corrected and deleted' + (f' — vouchers moved to “{plan.name}”.' if plan else '.'))
+            for e in errors:
+                messages.error(request, e)
+        elif action == 'delete':
+            messages.success(request, delete_orphan(business, rid, bad, plan, request.user))
+        else:
+            if not plan:
+                messages.error(request, 'Choose a plan, or create a new one.'); return redirect('/plans/#fix')
+            messages.success(request, fix(business, rid, bad, plan, request.user))
     except ValueError as exc:
         messages.error(request, str(exc))
     return redirect('/plans/#fix')
