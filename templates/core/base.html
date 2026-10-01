@@ -14,7 +14,12 @@
 .ab-list{max-height:300px;overflow:auto}.ab-item{display:flex;gap:.55rem;padding:.45rem 0;border-bottom:1px solid #f0f3f7;font-size:.78rem}.ab-item i{font-size:1rem}.ab-item.off i{color:#d64545}.ab-item.on i{color:#18a66a}
 .ab-item small{display:block;color:#8a9aab}.tt-toasts{position:fixed;right:1rem;bottom:1rem;z-index:1090;display:flex;flex-direction:column;gap:.5rem;max-width:360px}
 .tt-toast{background:#102033;color:#fff;border-radius:12px;padding:.65rem .8rem;font-size:.82rem;box-shadow:0 10px 30px #0006;display:flex;gap:.6rem;align-items:flex-start;animation:ttIn .3s ease}
-.tt-toast.off{border-left:4px solid #d64545}.tt-toast.warn{border-left:4px solid #f59e0b}.tt-toast.on{border-left:4px solid #18a66a}.tt-toast button{background:none;border:0;color:#9fb3c8;margin-left:auto}@keyframes ttIn{from{transform:translateY(10px);opacity:0}}</style>{% block extra_head %}{% endblock %}</head>
+.tt-toast.off{border-left:4px solid #d64545}.tt-toast.warn{border-left:4px solid #f59e0b}.tt-toast.on{border-left:4px solid #18a66a}.tt-toast button{background:none;border:0;color:#9fb3c8;margin-left:auto}@keyframes ttIn{from{transform:translateY(10px);opacity:0}}
+.business-switch-menu{min-width:310px;max-height:70vh;overflow:auto}
+.business-switch-menu form{margin:0}
+.business-switch-menu .dropdown-item.active small{color:rgba(255,255,255,.72)!important}
+.business-switch-avatar{cursor:pointer}
+</style>{% block extra_head %}{% endblock %}</head>
 <body class="{% if user.is_authenticated %}app-shell{% endif %}">
 {% if user.is_authenticated %}
 <aside class="sidebar d-none d-lg-flex"><a class="brand" href="{% url 'dashboard' %}"><span class="brand-mark"><i class="bi bi-wifi"></i></span><span>TapTap<small>Connect. Tap. Go.</small></span></a><nav>
@@ -29,7 +34,32 @@
 <div class="live-panel" id="alertPanel" role="dialog" aria-label="Alerts"><div class="lp-head"><b>Alerts</b><a href="{% url 'alerts' %}" class="small">All alerts &amp; rules</a></div><div class="ab-list"></div>
 <div class="d-flex gap-2 mt-2"><button type="button" class="btn btn-sm btn-light flex-grow-1" id="alertRead">Mark all read</button><button type="button" class="btn btn-sm btn-outline-primary flex-grow-1" id="alertDesk">Desktop alerts</button></div></div>
 <a href="#" class="live-pill" id="livePill" data-tick="{% url 'live_tick' %}" data-now="{% url 'live_now' %}" aria-expanded="false" aria-controls="livePanel" title="Live sync with your routers"><span class="lp-dot"></span><span class="lp-text">Live</span><span class="lp-badge" hidden></span></a>
-<div class="live-panel" id="livePanel" role="dialog" aria-label="Live sync"><div class="lp-head"><b>Live sync</b><a href="{% url 'security' %}#live-settings" class="small">Settings</a></div><p class="lp-mode small mb-2"></p><div class="lp-routers"></div><div class="lp-sub">Recent changes</div><div class="lp-events"></div><div class="lp-inc"></div><button type="button" class="btn btn-sm btn-primary w-100 mt-2" id="liveNow"><i class="bi bi-arrow-repeat"></i> Sync now</button></div></div>{% if 'subscription.manage' in tt_perms %}<a href="{% url 'subscription' %}" class="subscription-pill {% if current_business.days_left <= 5 %}warning{% endif %}"><i class="bi bi-lightning-charge-fill"></i>{% if current_business.is_unlimited %}Unlimited{% else %}{{ current_business.days_left }} days left{% endif %}</a>{% endif %}<div class="avatar" title="{% firstof user.get_full_name user.email %}{% if tt_role_label %} · {{ tt_role_label }}{% endif %}">{% if user.first_name %}{{ user.first_name|slice:':1'|upper }}{% else %}{{ user.email|slice:':1'|upper }}{% endif %}</div></div></header>
+<div class="live-panel" id="livePanel" role="dialog" aria-label="Live sync"><div class="lp-head"><b>Live sync</b><a href="{% url 'security' %}#live-settings" class="small">Settings</a></div><p class="lp-mode small mb-2"></p><div class="lp-routers"></div><div class="lp-sub">Recent changes</div><div class="lp-events"></div><div class="lp-inc"></div><button type="button" class="btn btn-sm btn-primary w-100 mt-2" id="liveNow"><i class="bi bi-arrow-repeat"></i> Sync now</button></div></div>{% if 'subscription.manage' in tt_perms %}<a href="{% url 'subscription' %}" class="subscription-pill {% if current_business.days_left <= 5 %}warning{% endif %}"><i class="bi bi-lightning-charge-fill"></i>{% if current_business.is_unlimited %}Unlimited{% else %}{{ current_business.days_left }} days left{% endif %}</a>{% endif %}
+{% if tt_view_as %}
+<div class="avatar" title="{% firstof user.get_full_name user.email %}{% if tt_role_label %} · {{ tt_role_label }}{% endif %}">{% if user.first_name %}{{ user.first_name|slice:':1'|upper }}{% else %}{{ user.email|slice:':1'|upper }}{% endif %}</div>
+{% else %}
+<div class="dropdown">
+<button class="avatar border-0 business-switch-avatar" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="{% firstof user.get_full_name user.email %}{% if tt_role_label %} · {{ tt_role_label }}{% endif %}">{% if user.first_name %}{{ user.first_name|slice:':1'|upper }}{% else %}{{ user.email|slice:':1'|upper }}{% endif %}</button>
+<div class="dropdown-menu dropdown-menu-end shadow p-2 business-switch-menu">
+<div class="px-2 py-2 border-bottom mb-1"><div class="fw-semibold">{% firstof user.get_full_name user.email %}</div><div class="small text-muted">{{ user.email }}</div></div>
+{% if tt_businesses %}
+<div class="dropdown-header">Businesses</div>
+{% for option in tt_businesses %}
+<form method="post" action="{% url 'business_switch' option.id %}">{% csrf_token %}
+<button type="submit" class="dropdown-item rounded d-flex align-items-center gap-2 py-2{% if option.current %} active{% endif %}">
+<span class="flex-grow-1 text-start"><span class="d-block fw-semibold">{{ option.name }}</span><small class="{% if option.current %}text-white-50{% else %}text-muted{% endif %}">{{ option.role_label }}</small></span>
+{% if option.current %}<i class="bi bi-check2"></i>{% else %}<i class="bi bi-arrow-left-right text-muted"></i>{% endif %}
+</button>
+</form>
+{% endfor %}
+{% endif %}
+<div class="dropdown-divider"></div>
+<a class="dropdown-item rounded" href="{% url 'account_password' %}"><i class="bi bi-key me-2"></i>My password</a>
+<a class="dropdown-item rounded text-danger" href="{% url 'logout' %}"><i class="bi bi-box-arrow-left me-2"></i>Sign out</a>
+</div>
+</div>
+{% endif %}
+</div></header>
 {% if messages %}<div class="mb-3">{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show">{{ message }}<button class="btn-close" data-bs-dismiss="alert"></button></div>{% endfor %}</div>{% endif %}
 {% block content %}{% endblock %}<footer class="app-footer">TapTap • Wi‑Fi Business Made Simple <span>Fast • Reliable • Local</span></footer></main>
 {% else %}{% block public_content %}{% endblock %}{% endif %}

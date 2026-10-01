@@ -6,9 +6,9 @@ from .permissions import STAFF_ROLES, ROLES, role_permissions
 
 
 class TeamMember(models.Model):
-    """A staff login that works inside someone else's business with a limited role."""
+    """A staff login that can work in one of several TapTap businesses."""
     business = models.ForeignKey('core.Business', on_delete=models.CASCADE, related_name='team')
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='membership')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='memberships')
     role = models.CharField(max_length=30, choices=STAFF_ROLES, default='viewer')
     extra_permissions = models.JSONField(default=list, blank=True, help_text='Extra permission codes on top of the role')
     phone = models.CharField(max_length=60, blank=True)
@@ -19,6 +19,12 @@ class TeamMember(models.Model):
 
     class Meta:
         ordering = ['user__first_name', 'user__email']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['business', 'user'],
+                name='uniq_team_member_business_user',
+            ),
+        ]
 
     @property
     def permissions(self):
