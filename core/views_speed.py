@@ -42,6 +42,9 @@ def _auto_name(scope, plans=None, agents=None, devices=None):
     if scope == 'all_plans':
         return 'All plans'
 
+    if scope == 'all_bypass':
+        return 'All bypass devices'
+
     if scope == 'plans':
         names = [p.name for p in plans]
         return 'Plans: ' + ', '.join(names[:3]) + (f' +{len(names)-3}' if len(names) > 3 else '')
@@ -115,7 +118,7 @@ def speed_rule_save(request):
     post = request.POST
     scope = post.get('scope', '').strip()
 
-    if scope not in {'all_plans', 'plans', 'agents', 'devices'}:
+    if scope not in {'all_plans', 'all_bypass', 'plans', 'agents', 'devices'}:
         messages.error(request, 'Choose what this speed limit applies to.')
         return redirect('traffic_speed')
 

@@ -12,7 +12,7 @@
 .speed-panel{background:var(--bs-body-bg);border:1px solid var(--bs-border-color);border-radius:16px;padding:18px}
 .speed-panel h3{font-size:1rem;font-weight:800;margin:0 0 4px}
 .speed-panel .sub{color:var(--bs-secondary-color);font-size:.9rem;margin-bottom:16px}
-.scope-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:16px}
+.scope-tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:16px}
 .scope-tab{border:1px solid var(--bs-border-color);background:var(--bs-tertiary-bg);border-radius:12px;padding:10px 8px;font-size:.85rem;font-weight:700;text-align:center;cursor:pointer}
 .scope-tab.active{background:var(--bs-primary);border-color:var(--bs-primary);color:#fff}
 .scope-pane{display:none}
@@ -56,6 +56,8 @@
         <span class="badge text-bg-primary">Plan</span>
         <span>→</span>
         <span class="badge text-bg-light border text-dark">All plans</span>
+        <span class="text-secondary ms-2">•</span>
+        <span class="badge text-bg-warning">All bypass</span>
       </div>
       <div class="small text-secondary mt-2">Fair Usage remains separate and can slow a heavy user further.</div>
     </div>
@@ -81,6 +83,7 @@
 
         <div class="scope-tabs" id="scopeTabs">
           <button type="button" class="scope-tab active" data-scope="all_plans">All plans</button>
+          <button type="button" class="scope-tab" data-scope="all_bypass">All bypass</button>
           <button type="button" class="scope-tab" data-scope="plans">Plan(s)</button>
           <button type="button" class="scope-tab" data-scope="agents">Agent(s)</button>
           <button type="button" class="scope-tab" data-scope="devices">Device(s)</button>
@@ -89,6 +92,12 @@
         <div class="scope-pane active" data-pane="all_plans">
           <div class="alert alert-light border mb-0">
             Every logged-in voucher on every active plan gets this base speed unless a more specific device, agent, or plan rule overrides it.
+          </div>
+        </div>
+
+        <div class="scope-pane" data-pane="all_bypass">
+          <div class="alert alert-warning border mb-0">
+            Every active MikroTik HotSpot bypass/IP-binding device gets this speed. Voucher plans and agents are not affected.
           </div>
         </div>
 

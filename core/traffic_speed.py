@@ -62,6 +62,7 @@ def _active_business_rules(business):
 
 def _rule_maps(rules):
     all_rules = []
+    bypass_rules = []
     plan_rules = []
     agent_rules = []
     device_rules = []
@@ -91,17 +92,22 @@ def _rule_maps(rules):
                     names.add(p.mikrotik_profile_name.strip().lower())
             plan_rules.append((rule, names))
 
+        elif rule.scope == 'all_bypass':
+            bypass_rules.append(rule)
+
         elif rule.scope == 'all_plans':
             all_rules.append(rule)
 
-    return device_rules, agent_rules, plan_rules, all_rules
+    return device_rules, agent_rules, plan_rules, bypass_rules, all_rules
 
 
 def _pick_rule(router, session, voucher, maps):
     """First matching rule using device > agent > plan > all-plans."""
-    device_rules, agent_rules, plan_rules, all_rules = maps
+    device_rules, agent_rules, plan_rules, bypass_rules, all_rules = maps
     mac = _mac(session.get('mac-address') or session.get('mac'))
     ip = str(session.get('address') or session.get('ip') or '').strip()
+    user = str(session.get('user') or '').strip()
+    is_bypass = bool(session.get('bypass')) or user.upper().startswith('BYPASS:')
 
     for rule, devices in device_rules:
         for d in devices:
@@ -111,6 +117,9 @@ def _pick_rule(router, session, voucher, maps):
                 return rule
             if not d['mac'] and d['ip'] and ip and d['ip'] == ip:
                 return rule
+
+    if is_bypass:
+        return bypass_rules[0] if bypass_rules else None
 
     if voucher is None:
         return None

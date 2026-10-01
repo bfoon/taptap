@@ -74,6 +74,7 @@ class TrafficSpeedRule(models.Model):
     """
     SCOPES = [
         ('all_plans', 'All plans'),
+        ('all_bypass', 'All bypass devices'),
         ('plans', 'Selected plan(s)'),
         ('agents', 'Agent(s)'),
         ('devices', 'Device(s)'),
@@ -136,6 +137,8 @@ class TrafficSpeedRule(models.Model):
     def target_text(self):
         if self.scope == 'all_plans':
             return 'All plans'
+        if self.scope == 'all_bypass':
+            return 'All bypass devices'
         if self.scope == 'plans':
             names = list(self.plans.values_list('name', flat=True)[:5])
             more = self.plans.count() - len(names)
