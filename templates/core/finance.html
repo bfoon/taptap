@@ -54,6 +54,7 @@
   <div class="kpi"><small>Expenses</small><strong>{{ s.expenses|money:c }}</strong>{{ s.expenses_change|delta:True }} <em>+ {{ s.commission|money:c }} commission</em></div>
   <div class="kpi {% if s.profit < 0 %}neg{% endif %}"><small>Net profit</small><strong>{{ s.profit|money:c }}</strong>{{ s.profit_change|delta }} <em>{{ s.margin }}% margin</em></div>
   <div class="kpi"><small>Cash position</small><strong>{{ s.cash_position|money:c }}</strong><em>Takings + agent hand-ins − expenses, all time</em></div>
+  <div class="kpi"><small>Carried forward</small><strong>{{ movement.opening.n }}</strong><em>unsold on {{ movement.since|date:'d M' }} · {{ movement.opening.value|money:c }}{% if movement.opening_agents.n %} · {{ movement.opening_agents.n }} with agents{% endif %}</em></div>
   <div class="kpi"><small>Stock on hand</small><strong>{{ s.stock_count }}</strong><em>unsold vouchers worth {{ s.stock_value|money:c }}</em></div>
 </div>
 
@@ -83,6 +84,25 @@
   <div class="col-xl-7"><div class="chart-panel h-100"><header><div><h3>Last 12 months</h3><p>The shape of the business, month by month</p></div></header><div class="chart-box"><canvas id="yearChart"></canvas></div></div></div>
   <div class="col-xl-5"><div class="chart-panel h-100"><header><div><h3>Profit &amp; loss</h3><p>{{ period.label }}</p></div><a class="btn btn-sm btn-light" href="{% url 'finance_export' %}?type=pnl&{{ query }}" aria-label="Download P&amp;L"><i class="bi bi-download"></i></a></header>
     <table class="pl-table">{% for label,val,kind in pl_rows %}<tr class="{{ kind }}{% if kind == 'total' %}{% if val < 0 %} neg{% else %} pos{% endif %}{% endif %}"><td>{{ label }}</td><td>{{ val|money:c }}</td></tr>{% endfor %}</table></div></div>
+</div>
+
+<style>.mv-flow{display:flex;flex-wrap:wrap;align-items:stretch;gap:.4rem}.mv-box{flex:1 1 120px;border:1px solid var(--border);border-radius:14px;padding:.6rem .7rem;background:var(--panel,#fff)}.mv-box small{display:block;font-size:.72rem;font-weight:700;color:var(--muted)}.mv-box strong{font-size:1.35rem}.mv-box em{display:block;font-style:normal;font-size:.75rem;color:var(--muted)}.mv-box.end{border-color:#1769e0;background:#f2f7ff}.mv-op{align-self:center;font-weight:800;color:var(--muted);font-size:1.1rem}html[data-theme="dark"] .mv-box.end{background:#14243a}</style>
+<div class="chart-panel mt-3"><header><div><h3>Voucher stock this period</h3><p>{{ period.label }} — what was carried in, made, sold and left over</p></div></header>
+  <div class="mv-flow">
+    <div class="mv-box"><small>Carried forward</small><strong>{{ movement.opening.n }}</strong><em>{{ movement.opening.value|money:c }}<br>shop {{ movement.opening_shop.n }} · agents {{ movement.opening_agents.n }}</em></div>
+    <span class="mv-op">+</span>
+    <div class="mv-box"><small>Generated</small><strong>{{ movement.added.n }}</strong><em>{{ movement.added.value|money:c }}</em></div>
+    <span class="mv-op">−</span>
+    <div class="mv-box"><small>Sold or used</small><strong>{{ movement.left.n }}</strong><em>{{ movement.left.value|money:c }}</em></div>
+    <span class="mv-op">−</span>
+    <div class="mv-box"><small>Deleted</small><strong>{{ movement.removed.n }}</strong><em>{{ movement.removed.value|money:c }}</em></div>
+    <span class="mv-op">=</span>
+    <div class="mv-box end"><small>In stock at the end</small><strong>{{ movement.closing.n }}</strong><em>{{ movement.closing.value|money:c }}</em></div>
+  </div>
+  {% if movement.plans %}<div class="table-responsive mt-2"><table class="table table-sm align-middle mb-0"><thead><tr><th>Plan</th><th class="num">Carried forward</th><th class="num">Generated</th><th class="num">Sold / used</th><th class="num">Deleted</th><th class="num">At the end</th><th class="num">Value at the end</th></tr></thead><tbody>
+    {% for r in movement.plans %}<tr><td><b>{{ r.plan }}</b></td><td class="num">{{ r.opening }}</td><td class="num">{{ r.added }}</td><td class="num">{{ r.left }}</td><td class="num">{{ r.removed }}</td><td class="num"><b>{{ r.closing }}</b></td><td class="num">{{ r.closing_value|money:c }}</td></tr>{% endfor %}
+  </tbody></table></div>{% endif %}
+  <small class="text-secondary d-block mt-2">Members are not counted. A voucher leaves stock when it is sold or first used, whichever comes first.</small>
 </div>
 
 <div class="row g-3 mt-1">

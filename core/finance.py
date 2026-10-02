@@ -606,3 +606,48 @@ def batch_receipt(batch):
         'words': amount_in_words(expected if agent else value, batch.business.currency),
         'issued': timezone.localtime(batch.issued_at) if batch.issued_at else created,
     }
+
+
+def stock_movement(business, period):
+    """Voucher stock roll-forward for a period (members not included):
+
+        carried forward (unsold at the start) + generated − sold or used − deleted = in stock at the end
+
+    A voucher leaves stock when it is sold or first used, whichever comes first. Vouchers held by
+    agents are counted separately from shop stock. Value = the vouchers' prices.
+    """
+    from .models import Voucher
+    start, end = period.start, period.end
+    base = Voucher.all_objects.filter(business=business).exclude(login_type='member')
+
+    def unsold_at(t):
+        return (Q(created_at__lt=t) & (Q(sold_at__isnull=True) | Q(sold_at__gte=t))
+                & (Q(used_at__isnull=True) | Q(used_at__gte=t)) & (Q(deleted_at__isnull=True) | Q(deleted_at__gte=t)))
+
+    def tally(qs):
+        r = qs.aggregate(n=Count('id'), v=Sum('price'))
+        return {'n': r['n'] or 0, 'value': r['v'] or Decimal('0')}
+
+    opening_q = base.filter(unsold_at(start))
+    added_q = base.filter(created_at__gte=start, created_at__lt=end)
+    pool = base.filter(Q(pk__in=opening_q.values('pk')) | Q(pk__in=added_q.values('pk')))
+    left_q = pool.filter((Q(sold_at__gte=start) & Q(sold_at__lt=end)) | (Q(sold_at__isnull=True) & Q(used_at__gte=start) & Q(used_at__lt=end))
+                         | (Q(used_at__gte=start) & Q(used_at__lt=end) & Q(sold_at__gte=end)))
+    removed_q = pool.exclude(pk__in=left_q.values('pk')).filter(deleted_at__gte=start, deleted_at__lt=end)
+    closing_q = base.filter(unsold_at(end))
+    out = {
+        'opening': tally(opening_q), 'opening_shop': tally(opening_q.filter(agent__isnull=True)),
+        'opening_agents': tally(opening_q.filter(agent__isnull=False)),
+        'added': tally(added_q), 'left': tally(left_q), 'removed': tally(removed_q), 'closing': tally(closing_q),
+        'since': timezone.localtime(start),
+    }
+    # per plan
+    rows = {}
+    for key, qs in (('opening', opening_q), ('added', added_q), ('left', left_q), ('removed', removed_q), ('closing', closing_q)):
+        for r in qs.values('plan_name').annotate(n=Count('id'), v=Sum('price')):
+            row = rows.setdefault(r['plan_name'] or '—', {'plan': r['plan_name'] or '—', 'opening': 0, 'added': 0, 'left': 0, 'removed': 0, 'closing': 0, 'closing_value': Decimal('0')})
+            row[key] = r['n']
+            if key == 'closing':
+                row['closing_value'] = r['v'] or Decimal('0')
+    out['plans'] = sorted(rows.values(), key=lambda r: (-r['opening'] - r['added'], r['plan']))
+    return out

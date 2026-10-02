@@ -60,6 +60,8 @@ def finance(request):
     tab = request.GET.get('tab', 'overview') if fin_full else 'agents'  # finance staff only see agents & cash
     summary = finance_summary(business, period)
     charts = finance_charts(business, period)
+    from .finance import stock_movement
+    movement = stock_movement(business, period)
 
     sales = business.sales.select_related('agent', 'router', 'voucher').filter(sold_at__gte=period.start, sold_at__lt=period.end)
     expenses = business.expenses.select_related('router').filter(paid_at__gte=period.start, paid_at__lt=period.end)
@@ -101,7 +103,7 @@ def finance(request):
                                      .exclude(login_type='member', price=0)
                                      .values_list('plan_name', flat=True).distinct()[:8])}
     ctx = {
-        'health': health, 'fin_full': fin_full,
+        'health': health, 'fin_full': fin_full, 'movement': movement,
         'tab': tab, 'period': period, 'presets': PRESETS, 'summary': summary, 'charts': charts,
         'sales_page': Paginator(sales, 40).get_page(request.GET.get('sp')),
         'expenses_page': Paginator(expenses, 40).get_page(request.GET.get('ep')),
