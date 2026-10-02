@@ -47,7 +47,13 @@
     <div class="chassis-top-row">
       <div class="chassis-brand"><span class="brand-mark small"><i class="bi bi-wifi"></i></span><div><b>MikroTik</b><small>{{ snap.router.name }}</small></div></div>
       <div class="chassis-health" data-router-health="{{ snap.router.id }}"><div class="ch-health-loading"><i class="bi bi-arrow-repeat"></i> Reading RouterOS system health…</div></div>
-      <div class="chassis-leds"><span class="led power on"></span><small>PWR</small><span class="led {% if snap.router.status == 'Online' %}on{% endif %}"></span><small>USR</small></div>
+      <div class="chassis-side-controls">
+        <div class="chassis-leds"><span class="led power on"></span><small>PWR</small><span class="led {% if snap.router.status == 'Online' %}on{% endif %}"></span><small>USR</small></div>
+        <button type="button" class="ch-restart ch-restart-side" data-router-restart title="Restart {{ snap.router.name }}">
+          <i class="bi bi-bootstrap-reboot"></i>
+          <span>Restart</span>
+        </button>
+      </div>
     </div>
     <div class="port-bank">
   {% for port in snap.ports %}<div class="router-port {% if port.running and not port.disabled %}active{% elif port.disabled %}disabled{% endif %}" data-port="{{ port.name }}" data-router="{{ snap.router.id }}" data-router-name="{{ snap.router.name }}" role="button" tabindex="0" aria-label="Inspect port {{ port.name }}" title="Click for configuration, devices and live speed"><div class="port-label">{{ port.name }} <span class="port-role role-{{ port.role }}">{{ port.role_label }}</span></div><div class="rj45"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div><div class="port-leds"><i></i><i></i></div><div class="port-state">{% if port.disabled %}Disabled{% elif port.running %}Link up{% else %}No link{% endif %}{% if port.bridge %} · {{ port.bridge }}{% endif %}</div><div class="port-connected">{% if port.neighbors %}{% for n in port.neighbors %}<span class="device-pill network"><i class="bi bi-diagram-3"></i>{% firstof n.identity n.address n.mac_address %}</span>{% endfor %}{% elif port.client_count %}{% for c in port.clients|slice:':3' %}<span class="device-pill"><i class="bi bi-pc-display"></i>{% firstof c.name c.ip c.mac %}</span>{% endfor %}{% if port.client_count > 3 %}<small>+{{ port.client_count|add:'-3' }} more</small>{% endif %}{% else %}<small>Nothing learned</small>{% endif %}</div></div>{% empty %}<div class="text-secondary small p-3">No Ethernet/SFP ports saved yet — run discovery.</div>{% endfor %}

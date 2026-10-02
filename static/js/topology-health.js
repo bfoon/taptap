@@ -310,17 +310,7 @@
         <span><i class="bi bi-broadcast"></i>${escapeHtml(h.source || 'RouterOS')}</span>
         ${h.stale ? '<span class="stale"><i class="bi bi-exclamation-circle"></i>Last Link heartbeat</span>' : ''}
         ${h.health && Object.keys(h.health).length ? `<span title="${escapeHtml(Object.entries(h.health).map(([k,v])=>k+': '+v).join(' | '))}"><i class="bi bi-heart-pulse"></i>${Object.keys(h.health).length} health sensor${Object.keys(h.health).length === 1 ? '' : 's'}</span>` : ''}
-        <button type="button" class="ch-restart" data-router-restart>
-          <i class="bi bi-bootstrap-reboot"></i> Restart MikroTik
-        </button>
       </div>`;
-
-    const restart = box.querySelector('[data-router-restart]');
-    if (restart) {
-      restart.addEventListener('click', function () {
-        rebootRouter(panel, restart);
-      });
-    }
 
     classify(box.querySelector('[data-health-stat="cpu"]'), cpu);
     if (h.memory_total) classify(box.querySelector('[data-health-stat="memory"]'), mem);
@@ -434,7 +424,19 @@
     render(panel, live);
   }
 
+  function bindRestart(panel) {
+    const button = panel.querySelector('[data-router-restart]');
+    if (!button || button.dataset.bound === '1') return;
+
+    button.dataset.bound = '1';
+    button.addEventListener('click', function () {
+      rebootRouter(panel, button);
+    });
+  }
+
   async function load(panel) {
+    bindRestart(panel);
+
     const id = panel.id.replace('router-', '');
     if (!id) return;
 
@@ -454,6 +456,7 @@
     await Promise.allSettled(panels.map(load));
   }
 
+  panels.forEach(bindRestart);
   refreshAll();
 
   const timer = window.setInterval(refreshAll, REFRESH_MS);
