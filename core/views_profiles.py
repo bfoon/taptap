@@ -29,7 +29,7 @@ def _check(business):
         a = audit(business)
     except Exception:
         return None
-    a['total'] = len(a['plans']) + len(a['vouchers']) + len(a['drift'])
+    a['total'] = len(a['plans']) + len(a['vouchers']) + len(a['drift']) + len(a['devices'])
     return a
 
 
@@ -67,5 +67,5 @@ def profile_check_fix(request):
     r = apply(business, request.user)
     log(business, 'Profiles Fixed', f"{r['plans']} plan(s), {r['vouchers']} voucher(s) given their profile's length, {r['drift']} put back on TapTap's profile")
     messages.success(request, f"Done: {r['plans']} plan(s) and {r['vouchers']} voucher(s) now follow their profile's length; "
-                              f"{r['drift']} voucher(s) put back on the right profile on the router. " + ' '.join(r['messages']))
+                              f"{r['devices']} voucher(s) now allow their plan's devices; {r['drift']} voucher(s) put back on the right profile on the router. " + ' '.join(r['messages']))
     return redirect('/routers/profiles/')

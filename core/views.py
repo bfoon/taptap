@@ -380,6 +380,7 @@ def plan_update(request,pk):
         except ValueError as e: messages.error(request,str(e));return redirect('plans')
     elif request.POST.get('duration_hours','').isdigit():
         plan.duration_minutes=max(1,int(request.POST['duration_hours']))*60;plan.duration_unit='hours'
+    old_devices=plan.max_devices
     if request.POST.get('max_devices','').isdigit(): plan.max_devices=max(1,int(request.POST['max_devices']))
     plan.active=request.POST.get('active')=='1'
     plan.save()
@@ -393,6 +394,13 @@ def plan_update(request,pk):
         retimed=qs.update(duration_minutes=plan.duration_minutes,mikrotik_sync_status='Pending')
         try:   # send just these vouchers to their routers (no full sync)
             from .voucher_push import push_vouchers; push_vouchers(list(business.vouchers.filter(pk__in=ids).select_related('router')),request.user)
+        except Exception: pass
+    if plan.max_devices!=old_devices:
+        # every voucher of this plan allows the plan's devices (the router profile's shared-users follows)
+        dqs=business.vouchers.filter(plan_name=plan.name,status='active',router_profile='').exclude(login_type='member')
+        dids=list(dqs.values_list('pk',flat=True)); dqs.update(max_devices=plan.max_devices)
+        try:
+            from .voucher_push import push_vouchers; push_vouchers(list(business.vouchers.filter(pk__in=dids,source='taptap').select_related('router')),request.user)
         except Exception: pass
     msg=f'{plan.name} saved — {"free" if free else f"{business.currency}{price}"}, {plan.duration_text.lower() if plan.duration_minutes else "no time limit"}.'
     if fixed or moved: msg+=f' {fixed+moved} voucher price{"s" if fixed+moved!=1 else ""} updated.'

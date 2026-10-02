@@ -315,7 +315,8 @@ def _users(router, rows, now):
         from .orphan_profiles import resolve as _resolve_profile     # "*1" → its name, when the router still has it
         profile_name = _resolve_profile(router, profile_name)
         plan = router.business.plans.filter(name__iexact=profile_name).first()
-        max_devices = plan.max_devices if plan else 1
+        from .profile_time import profile_devices
+        max_devices = plan.max_devices if plan else profile_devices(router, profile_name)   # no plan: the profile's shared-users
         duration_minutes = _routeros_minutes(row.get('limit-uptime', row.get('limit_uptime', '')), plan.duration_minutes if plan else 1440)
         if not duration_minutes and plan is not None and plan.duration_minutes:
             duration_minutes = plan.duration_minutes      # "0s" / no limit on the user: the profile's length counts

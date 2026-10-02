@@ -895,10 +895,11 @@ def sync_router(
                 .first()
             )
 
+            from .profile_time import profile_devices
             max_devices = (
                 plan.max_devices
                 if plan
-                else 1
+                else profile_devices(router, profile_name)   # no plan: the profile's shared-users, not 1
             )
 
             duration_minutes = (

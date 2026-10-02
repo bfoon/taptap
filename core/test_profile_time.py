@@ -84,3 +84,32 @@ class ImportTests(Base):
                                    mikrotik_profile_name='24HRS', imported_from_router=self.r)
         plan = _profile_to_plan(self.r, {'name': '24HRS', 'shared-users': '1'}, {'duplicate_plans_skipped': 0, 'pulled_plans': 0}, timezone.now())
         plan.refresh_from_db(); self.assertEqual(plan.duration_minutes, 1440)
+
+
+class DeviceCountTests(Base):
+    def test_vouchers_get_their_plans_devices(self):
+        RouterHotspotProfile.objects.create(business=self.b, router=self.r, name='FAMILY10', shared_users=10, raw_data={})
+        VoucherPlan.objects.create(business=self.b, name='Family', price=500, duration_minutes=43200, max_devices=10, mikrotik_profile_name='FAMILY10')
+        tt = Voucher.objects.create(business=self.b, router=self.r, code='FAM00001', plan_name='Family', duration_minutes=43200, max_devices=1, source='taptap')
+        mk = Voucher.objects.create(business=self.b, router=self.r, code='MKF00001', plan_name='Old name', duration_minutes=43200, max_devices=1, source='mikrotik')
+        RouterHotspotUser.objects.create(business=self.b, router=self.r, username='MKF00001', profile='FAMILY10', is_present=True)
+        a = pt.audit(self.b)
+        self.assertEqual(sorted((x['voucher'].code, x['devices']) for x in a['devices']), [('FAM00001', 10), ('MKF00001', 10)])
+        with mock.patch('core.voucher_push.push_vouchers', return_value={}) as push:
+            pt.apply(self.b, self.owner)
+        tt.refresh_from_db(); mk.refresh_from_db()
+        self.assertEqual((tt.max_devices, mk.max_devices), (10, 10))
+        self.assertIn(tt, push.call_args.args[0])
+
+    def test_import_without_plan_uses_profile_shared_users(self):
+        RouterHotspotProfile.objects.create(business=self.b, router=self.r, name='SHARE5', shared_users=5, raw_data={})
+        self.assertEqual(pt.profile_devices(self.r, 'SHARE5'), 5)
+        self.assertEqual(pt.profile_devices(self.r, 'nope'), 1)
+
+    def test_changing_plan_devices_updates_its_vouchers(self):
+        plan = VoucherPlan.objects.create(business=self.b, name='Family', price=500, duration_minutes=43200, max_devices=1)
+        v = Voucher.objects.create(business=self.b, router=self.r, code='FAM00002', plan_name='Family', duration_minutes=43200, max_devices=1, source='taptap',
+                                   used_at=timezone.now())
+        with mock.patch('core.voucher_push.push_vouchers', return_value={}):
+            self.c.post(f'/plans/{plan.pk}/update/', {'price': '500', 'max_devices': '10', 'active': '1'})
+        v.refresh_from_db(); self.assertEqual(v.max_devices, 10)

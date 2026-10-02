@@ -75,6 +75,39 @@ def profile_minutes(row):
     return (v, 'name') if v else (0, '')
 
 
+def profile_devices(router, profile_name, default=1):
+    """shared-users of a router profile (how many devices one voucher may use)."""
+    from .models import RouterHotspotProfile
+    if router is None or not profile_name:
+        return default
+    p = RouterHotspotProfile.objects.filter(router=router, name=profile_name, is_present=True).first()
+    if not p:
+        return default
+    try:
+        return max(1, int(p.shared_users or (p.raw_data or {}).get('shared-users') or default))
+    except (TypeError, ValueError):
+        return default
+
+
+def expected_devices(voucher, plans, profiles, mirror):
+    """How many devices a voucher should allow, or None when TapTap cannot tell.
+    TapTap vouchers: their plan (or the profile chosen by hand). Router-made vouchers: the router
+    profile they are on (the router enforces its shared-users)."""
+    def shared(rid, name):
+        p = profiles.get((rid, name))
+        try:
+            return max(1, int(p.shared_users)) if p is not None and p.shared_users else None
+        except (TypeError, ValueError):
+            return None
+    if voucher.router_profile:
+        return shared(voucher.router_id, voucher.router_profile) or None
+    plan = plans.get(voucher.plan_name)
+    if voucher.source == 'taptap':
+        return plan.max_devices if plan is not None else None
+    have = mirror.get((voucher.router_id, voucher.code.upper()))
+    return shared(voucher.router_id, have) if have else (plan.max_devices if plan is not None else None)
+
+
 def _profiles(business):
     """{(router_id, name): RouterHotspotProfile} of profiles present on the routers."""
     from .models import RouterHotspotProfile
@@ -112,7 +145,7 @@ def audit(business):
     from .models import RouterHotspotUser
     profiles = _profiles(business)
     plans = {p.name: p for p in business.plans.all()}
-    out = {'plans': [], 'vouchers': [], 'drift': [], 'deleted': []}
+    out = {'plans': [], 'vouchers': [], 'drift': [], 'deleted': [], 'devices': []}
     # 1) plans vs their profile
     for p in plans.values():
         pname = p.mikrotik_profile_name or p.name
@@ -140,6 +173,11 @@ def audit(business):
             mins, where = profile_minutes(_row(prof)) if prof else (name_minutes(pname), 'profile name')
         if mins:
             out['vouchers'].append({'voucher': v, 'minutes': mins, 'where': where})
+    # 2b) vouchers allowing a different number of devices than their plan / profile (e.g. 1 instead of 10)
+    for v in business.vouchers.filter(status='active').exclude(login_type='member').select_related('router')[:20000]:
+        want = expected_devices(v, plans, profiles, mirror)
+        if want and want != (v.max_devices or 1):
+            out['devices'].append({'voucher': v, 'devices': want})
     # 3) TapTap vouchers whose router copy is on another profile; 4) deleted profiles
     for v in business.vouchers.filter(router__isnull=False, status='active').exclude(login_type='member').select_related('router')[:20000]:
         have = mirror.get((v.router_id, v.code.upper()))
@@ -173,6 +211,14 @@ def apply(business, user=None):
                + (' — in use: start time kept, end time now set' if v.used_at else ''))
         if v.source == 'taptap':
             to_push.append(v)
+    for x in a['devices']:
+        v = x['voucher']
+        before = v.max_devices
+        type(v).objects.filter(pk=v.pk).update(max_devices=x['devices'])
+        v.max_devices = x['devices']
+        record(v, 'note', user=user, text=f'Devices allowed corrected: {before} → {x["devices"]} (from its plan / profile)')
+        if v.source == 'taptap':
+            to_push.append(v)
     for x in a['drift']:
         to_push.append(x['voucher'])
     seen, uniq = set(), []
@@ -180,7 +226,7 @@ def apply(business, user=None):
         if v.pk not in seen:
             seen.add(v.pk); uniq.append(v)
     msgs = push_vouchers(uniq, user) if uniq else {}
-    return {'plans': len(a['plans']), 'vouchers': len(a['vouchers']), 'drift': len(a['drift']), 'deleted': len(a['deleted']),
+    return {'plans': len(a['plans']), 'vouchers': len(a['vouchers']), 'drift': len(a['drift']), 'deleted': len(a['deleted']), 'devices': len(a['devices']),
             'pushed': len(uniq), 'messages': list(msgs.values())}
 
 
