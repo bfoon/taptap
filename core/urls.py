@@ -18,7 +18,7 @@ urlpatterns = [
     path('go/voucher/<str:code>/',vgo.go_voucher,name='go_voucher'), path('go/device/<str:mac>/',vgo.go_device,name='go_device'),
     path('traffic/apps/',vapps.app_control,name='app_control'), path('traffic/apps/save/',vapps.app_rule_save,name='app_rule_save'),
     path('traffic/apps/do/',vapps.app_rule_action,name='app_rule_global'), path('traffic/apps/<int:pk>/',vapps.app_rule_action,name='app_rule_action'),
-    path('routers/profiles/',vprof.router_profiles,name='router_profiles'), path('routers/<int:pk>/profiles/import/',vprof.router_profile_import,name='router_profile_import'),
+    path('routers/profiles/',vprof.router_profiles,name='router_profiles'), path('routers/profiles/check/',vprof.profile_check_fix,name='profile_check_fix'), path('routers/<int:pk>/profiles/import/',vprof.router_profile_import,name='router_profile_import'),
     path('chat/',vchat.chat_page,name='chat_page'), path('chat/state/',vchat.chat_state,name='chat_state'),
     path('chat/t/<int:pk>/',vchat.chat_history,name='chat_history'), path('chat/send/',vchat.chat_send,name='chat_send'),
     path('chat/read/',vchat.chat_read,name='chat_read'), path('chat/direct/',vchat.chat_direct,name='chat_direct'),

@@ -19,7 +19,18 @@ def router_profiles(request):
         'total': sum(len(g['profiles']) for g in groups),
         'can_manage': 'plans.manage' in getattr(request, 'tt_perms', set()),
         'can_sync': 'network.manage' in getattr(request, 'tt_perms', set()),
+        'check': _check(business),
     })
+
+
+def _check(business):
+    from .profile_time import audit
+    try:
+        a = audit(business)
+    except Exception:
+        return None
+    a['total'] = len(a['plans']) + len(a['vouchers']) + len(a['drift'])
+    return a
 
 
 @login_required
@@ -43,3 +54,18 @@ def router_profile_import(request, pk):
     else:
         messages.info(request, f'{name} already belongs to the plan {plan.name}.')
     return redirect(request.POST.get('next') or '/routers/profiles/')
+
+
+
+@login_required
+@require_POST
+def profile_check_fix(request):
+    """Make TapTap and the routers agree: profile lengths, vouchers without a time limit, drifted profiles."""
+    from .profile_time import apply
+    from .utils import log
+    business = request.user.business
+    r = apply(business, request.user)
+    log(business, 'Profiles Fixed', f"{r['plans']} plan(s), {r['vouchers']} voucher(s) given their profile's length, {r['drift']} put back on TapTap's profile")
+    messages.success(request, f"Done: {r['plans']} plan(s) and {r['vouchers']} voucher(s) now follow their profile's length; "
+                              f"{r['drift']} voucher(s) put back on the right profile on the router. " + ' '.join(r['messages']))
+    return redirect('/routers/profiles/')

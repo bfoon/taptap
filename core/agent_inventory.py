@@ -317,6 +317,8 @@ def _users(router, rows, now):
         plan = router.business.plans.filter(name__iexact=profile_name).first()
         max_devices = plan.max_devices if plan else 1
         duration_minutes = _routeros_minutes(row.get('limit-uptime', row.get('limit_uptime', '')), plan.duration_minutes if plan else 1440)
+        if not duration_minutes and plan is not None and plan.duration_minutes:
+            duration_minutes = plan.duration_minutes      # "0s" / no limit on the user: the profile's length counts
         disabled = ros_bool(row.get('disabled', False))
         existing_voucher = Voucher.all_objects.filter(code__iexact=username).first()
         source = 'taptap' if existing_voucher and existing_voucher.business_id == router.business_id and existing_voucher.source == 'taptap' else 'mikrotik'
@@ -423,6 +425,11 @@ def _users(router, rows, now):
             heal(router, binned_seen)
         except Exception as exc:
             summary['errors'].append(f'Could not queue removal of deleted vouchers: {exc}')
+    try:   # TapTap's vouchers must sit on TapTap's profile on the router: put back any that drifted
+        from .profile_time import reconcile_router
+        summary['profiles_reconciled'] = reconcile_router(router)
+    except Exception as exc:
+        summary['errors'].append(f'Profile check: {exc}')
     return summary
 
 

@@ -36,6 +36,7 @@ from .utils import (generate_codes, code_format_from_post, code_format_ctx, desc
 from .portal_deploy import default_pages
 from . import serials
 from .utils import voucher_profile as _vprofile
+from .profile_time import profile_state as _profile_state
 
 import logging
 
@@ -291,6 +292,7 @@ def voucher_detail(request,pk):
         'v':v,'state_key':state_key,'state_label':state_label,'ends_at':end,'time_left':left,'time_is_up':vh.time_is_up(v,now),
         'timeline':vh.timeline(v,now),'bindings':v.device_bindings.order_by('slot_no'),
         'profile_now':_vprofile(v,business.plans.filter(name=v.plan_name).first())[0],
+        'profile_router':_profile_state(v),
         'router_profiles':list(v.router.hotspot_profiles.filter(is_present=True).order_by('name').values('name','shared_users','rate_limit')) if v.router_id else [],
         'profile_plans':business.plans.filter(active=True).order_by('name'),
         'free_slots':max(0,max(1,v.max_devices or 1)-v.device_bindings.count()),

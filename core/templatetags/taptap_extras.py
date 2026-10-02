@@ -159,3 +159,13 @@ def device_link(mac, label='', css=''):
     if not mac:
         return label or '—'
     return format_html('<a class="tt-dlink {}" href="{}" title="Open device {}">{}</a>', css, reverse('go_device', args=[mac]), mac, label or mac)
+
+
+
+@register.filter
+def duration_minutes_text(minutes):
+    from core.durations import text
+    try:
+        return text(int(minutes)) if int(minutes) else 'no limit'
+    except (TypeError, ValueError):
+        return ''

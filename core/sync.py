@@ -372,6 +372,11 @@ def profile_price(
     return None, validity, ''
 
 
+def _pm_create(row):
+    from .profile_time import profile_minutes
+    return profile_minutes(row)[0]
+
+
 def _profile_to_plan(
     router,
     row,
@@ -519,13 +524,17 @@ def _profile_to_plan(
             plan.max_devices = shared
             plan.speed_limit = rate
 
+            from .profile_time import profile_minutes as _pm
+            _from_profile = _pm(row)[0]
             if (
                 plan.duration_unit
                 != 'unlimited'
+                or (plan.source == 'mikrotik' and _from_profile and not plan.is_free)   # profile says 24h / 30 days: not unlimited (free staff plans stay as you set them)
             ):
                 minutes = _routeros_minutes(
                     session,
                     validity
+                    or _from_profile
                     or plan.duration_minutes
                     or 1440,
                 )
@@ -639,12 +648,14 @@ def _profile_to_plan(
         duration_minutes=_routeros_minutes(
             session,
             validity
+            or _pm_create(row)
             or 1440,
         ),
         duration_unit=best_unit(
             _routeros_minutes(
                 session,
                 validity
+                or _pm_create(row)
                 or 1440,
             )
         ),
@@ -906,6 +917,8 @@ def sync_router(
                     ),
                 )
             )
+            if not duration_minutes and plan is not None and plan.duration_minutes:
+                duration_minutes = plan.duration_minutes      # "0s" / no limit on the user: the profile's length counts
 
             disabled = ros_bool(
                 row.get(
@@ -1866,6 +1879,13 @@ def sync_router(
             ).update(
                 sales_baseline_at=timezone.now()
             )
+
+        # TapTap's vouchers must sit on TapTap's profile on the router: put back any that drifted.
+        try:
+            from .profile_time import reconcile_router
+            summary['profiles_reconciled'] = reconcile_router(router)
+        except Exception as exc:
+            summary['errors'].append(f'Profile check: {exc}')
 
         notify(
             100,

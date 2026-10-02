@@ -17,6 +17,26 @@
   </form>
 </div>
 
+{% if check %}
+<section class="panel mb-3" style="border-left:4px solid {% if check.total %}#d97706{% else %}#18a66a{% endif %}">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+    <div><h3 class="h6 fw-bold m-0"><i class="bi bi-clipboard-check"></i> Profile check — TapTap and your routers must agree</h3>
+      <small class="text-secondary">{% if check.total %}Some plans or vouchers do not match their profile. This costs money: vouchers can run with no end, or on a profile you did not choose.{% else %}All plans and vouchers match their router profiles.{% endif %}</small></div>
+    {% if check.total and can_manage %}<form method="post" action="{% url 'profile_check_fix' %}" onsubmit="return confirm('Fix all? Plans and vouchers get their profile\'s length (vouchers in use keep their start time), and TapTap\'s vouchers are re-sent to the routers on the right profile.')">{% csrf_token %}<button class="btn btn-warning btn-sm"><i class="bi bi-magic"></i> Fix all</button></form>{% endif %}
+  </div>
+  {% if check.total or check.deleted %}<div class="row g-2 mt-1 small">
+    <div class="col-md-3"><b>{{ check.plans|length }}</b> plan{{ check.plans|length|pluralize }} with a different length than the profile
+      {% for x in check.plans|slice:":4" %}<div class="text-secondary">{{ x.plan.name }}: {{ x.plan.duration_text|default:"no limit" }} → <b>{{ x.minutes|duration_minutes_text }}</b> <span title="from the profile's {{ x.where }}">({{ x.where }})</span></div>{% endfor %}</div>
+    <div class="col-md-3"><b>{{ check.vouchers|length }}</b> voucher{{ check.vouchers|length|pluralize }} with no time limit although the profile has one
+      {% for x in check.vouchers|slice:":4" %}<div class="text-secondary">{% voucher_link x.voucher.code %} → {{ x.minutes|duration_minutes_text }}</div>{% endfor %}</div>
+    <div class="col-md-3"><b>{{ check.drift|length }}</b> TapTap voucher{{ check.drift|length|pluralize }} on another profile on the router
+      {% for x in check.drift|slice:":4" %}<div class="text-secondary">{% voucher_link x.voucher.code %}: router <code>{{ x.router_has }}</code> → <code>{{ x.taptap_says }}</code></div>{% endfor %}</div>
+    <div class="col-md-3"><b>{{ check.deleted|length }}</b> voucher{{ check.deleted|length|pluralize }} on a profile deleted on the router
+      {% for x in check.deleted|slice:":4" %}<div class="text-secondary">{% voucher_link x.voucher.code %}: <code>{{ x.profile }}</code> <span class="badge text-bg-light border">deleted</span></div>{% endfor %}
+      {% if check.deleted %}<div class="text-secondary">Open a voucher and use <b>Change profile</b>, or let it finish.</div>{% endif %}</div>
+  </div>{% endif %}
+</section>
+{% endif %}
 {% if missing %}<div class="alert alert-info small"><i class="bi bi-info-circle"></i> <b>{{ missing|length }} TapTap plan{{ missing|length|pluralize }} not on {% if router %}{{ router.name }}{% else %}these routers{% endif %} yet:</b>
   {% for p in missing|slice:":8" %}<a href="{% url 'plan_detail' p.id %}">{{ p.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% if missing|length > 8 %}…{% endif %}.
   TapTap creates the profile on a router with the first voucher it sends there.</div>{% endif %}
