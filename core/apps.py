@@ -24,6 +24,11 @@ class CoreConfig(AppConfig):
         from .mac_roaming import install as install_mac_roaming
         install_mac_roaming()
 
+        # Extend TapTap Link heartbeat with the full RouterOS resource/health set:
+        # storage, CPU details, architecture and every /system/health sensor.
+        from .link_system_health import install as install_link_system_health
+        install_link_system_health()
+
         # Traffic base-speed rules run immediately before Fair Usage.
         # Device > agent > plan > all plans; Fair Usage may still reduce more.
         from .traffic_speed import install as install_traffic_speed

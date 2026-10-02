@@ -309,6 +309,7 @@
         ${h.uptime ? `<span><i class="bi bi-clock-history"></i>Up ${escapeHtml(h.uptime)}</span>` : ''}
         <span><i class="bi bi-broadcast"></i>${escapeHtml(h.source || 'RouterOS')}</span>
         ${h.stale ? '<span class="stale"><i class="bi bi-exclamation-circle"></i>Last Link heartbeat</span>' : ''}
+        ${h.health && Object.keys(h.health).length ? `<span title="${escapeHtml(Object.entries(h.health).map(([k,v])=>k+': '+v).join(' | '))}"><i class="bi bi-heart-pulse"></i>${Object.keys(h.health).length} health sensor${Object.keys(h.health).length === 1 ? '' : 's'}</span>` : ''}
         <button type="button" class="ch-restart" data-router-restart>
           <i class="bi bi-bootstrap-reboot"></i> Restart MikroTik
         </button>
@@ -379,28 +380,55 @@
       throw new Error('TapTap Link health unavailable');
     }
 
-    // The Link heartbeat is the authoritative LIVE CPU/memory/session source.
+    // The normal Link status endpoint remains the fastest live source for the
+    // basic CPU / memory / session fields.
     const live = buildFromLink(data, panel);
 
-    // Enrich it with RouterOS resource details when available. On a healthy
-    // TapTap Tunnel this is live; on Link-only routers the existing resource
-    // endpoint can return the last synchronized resource snapshot.
+    // TapTap Link v6 also publishes the complete heartbeat resource/health maps
+    // through the existing read-only resource endpoint. Read both menus so
+    // storage, CPU details, temperature, voltage, fans and any board-specific
+    // health sensor can be used without a direct RouterOS API connection.
     try {
       const resource = await readResource(id, '/system/resource');
-      const extra = buildFromResource(resource, {}, panel);
 
+      let health = {};
+      try {
+        health = await readResource(id, '/system/health');
+      } catch (_) {
+        health = {};
+      }
+
+      const extra = buildFromResource(resource, health, panel);
+
+      live.cpu_load = extra.cpu_load || live.cpu_load;
       live.cpu_count = extra.cpu_count || live.cpu_count;
       live.cpu_frequency_mhz = extra.cpu_frequency_mhz || live.cpu_frequency_mhz;
       live.cpu_name = extra.cpu_name || live.cpu_name;
+
+      live.memory_total = extra.memory_total || live.memory_total;
+      live.memory_free = extra.memory_free || live.memory_free;
+      live.memory_used = extra.memory_total ? extra.memory_used : live.memory_used;
+      live.memory_percent = extra.memory_total ? extra.memory_percent : live.memory_percent;
+
       live.disk_total = extra.disk_total || live.disk_total;
       live.disk_free = extra.disk_free || live.disk_free;
-      live.disk_used = extra.disk_used || live.disk_used;
-      live.disk_percent = extra.disk_percent || live.disk_percent;
+      live.disk_used = extra.disk_total ? extra.disk_used : live.disk_used;
+      live.disk_percent = extra.disk_total ? extra.disk_percent : live.disk_percent;
+
       live.architecture = extra.architecture || live.architecture;
       live.platform = extra.platform || live.platform;
       live.board = live.board || extra.board;
+      live.version = live.version || extra.version;
+      live.uptime = live.uptime || extra.uptime;
+
+      if (extra.temperature_c != null) live.temperature_c = extra.temperature_c;
+      if (extra.voltage_v != null) live.voltage_v = extra.voltage_v;
+
+      live.health = health;
+      live.resource = resource;
     } catch (_) {
-      // Link heartbeat data alone is enough to draw the panel.
+      // During the short period before an old Link script self-updates to v6,
+      // the basic Link heartbeat still keeps CPU/memory/session values visible.
     }
 
     render(panel, live);
