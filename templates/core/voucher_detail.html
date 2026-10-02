@@ -159,7 +159,7 @@
         <div><span>Serial</span><b class="font-monospace">{% if v.serial %}{{ v.serial }}{% else %}{{ v.pk|stringformat:"06d" }}{% endif %}</b></div>
         <div><span>Router profile</span><b class="font-monospace">{{ profile_now }}</b>{% if v.router_profile %}<small class="d-block text-secondary">chosen by hand</small>{% endif %}
           {% with st=profile_router.0 rp=profile_router.1 %}{% if st == 'deleted' %}<small class="d-block text-danger"><i class="bi bi-exclamation-triangle"></i> On the router: <code>{{ rp }}</code> — <b>deleted on the router</b>. Change the profile or let the voucher finish.</small>
-          {% elif rp and rp != profile_now and v.source == 'taptap' %}<small class="d-block text-warning-emphasis">Router has <code>{{ rp }}</code> — TapTap puts it back on <code>{{ profile_now }}</code> at the next sync.</small>
+          {% elif rp and rp != profile_now and v.source == 'taptap' or rp and rp != profile_now and v.router_profile %}<small class="d-block text-warning-emphasis">Router has <code>{{ rp }}</code> — TapTap puts it back on <code>{{ profile_now }}</code> at the next sync.</small>
           {% elif rp and rp != profile_now %}<small class="d-block text-secondary">Router: <code>{{ rp }}</code></small>{% endif %}{% endwith %}
           {% if 'vouchers.support' in tt_perms and not v.deleted_at and v.router %}<button class="btn btn-sm btn-link p-0" data-bs-toggle="modal" data-bs-target="#profileModal">Change</button>{% endif %}</div>
         <div><span>Batch</span><b>{{ v.batch.name|default:'—' }}</b></div>

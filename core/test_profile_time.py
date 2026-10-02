@@ -113,3 +113,50 @@ class DeviceCountTests(Base):
         with mock.patch('core.voucher_push.push_vouchers', return_value={}):
             self.c.post(f'/plans/{plan.pk}/update/', {'price': '500', 'max_devices': '10', 'active': '1'})
         v.refresh_from_db(); self.assertEqual(v.max_devices, 10)
+
+
+class RouterVoucherProfileTests(Base):
+    """Like the screenshot: a Mikhmon voucher on 'mywifi-10-devices' (router allows 1) showing 1 device."""
+    def setUp(self):
+        super().setUp()
+        RouterHotspotProfile.objects.create(business=self.b, router=self.r, name='mywifi-10-devices', shared_users=1, raw_data={})
+        RouterHotspotProfile.objects.create(business=self.b, router=self.r, name='FAMILY-10-DEVICE', shared_users=10, raw_data={})
+        self.plan = VoucherPlan.objects.create(business=self.b, name='mywifi-10-devices', price=1200, duration_minutes=43200, max_devices=1,
+                                               source='mikrotik', mikrotik_profile_name='mywifi-10-devices')
+        self.v = Voucher.objects.create(business=self.b, router=self.r, code='MK002231', plan_name='mywifi-10-devices', duration_minutes=43200,
+                                        max_devices=1, source='mikrotik', used_at=timezone.now() - timedelta(days=16))
+        RouterHotspotUser.objects.create(business=self.b, router=self.r, username='MK002231', profile='mywifi-10-devices', is_present=True)
+
+    def test_name_says_10_devices(self):
+        self.assertEqual(pt.name_devices('mywifi-10-devices'), 10)
+        self.assertEqual(pt.name_devices('FAMILY 5 USERS'), 5)
+        self.assertEqual(pt.name_devices('30DAYS'), 0)
+        a = pt.audit(self.b)
+        self.assertEqual([(x['profile'], x['allows'], x['name_says']) for x in a['profile_devices']], [('mywifi-10-devices', 1, 10)])
+        with mock.patch('core.voucher_push.set_profile_shared', return_value=(True, 'ok')) as sps, \
+             mock.patch('core.voucher_push.push_vouchers', return_value={}):
+            RouterHotspotProfile.objects.filter(name='mywifi-10-devices').update(shared_users=10)   # what set_profile_shared records
+            pt.apply(self.b, self.owner)
+        self.v.refresh_from_db(); self.plan.refresh_from_db()
+        self.assertEqual((self.v.max_devices, self.plan.max_devices), (10, 10))
+
+    def test_changing_profile_by_hand_moves_router_voucher(self):
+        with mock.patch('core.voucher_push.set_router_profile', return_value=(True, 'moved')) as srp:
+            self.c.post(f'/vouchers/{self.v.pk}/profile/', {'profile': 'router:FAMILY-10-DEVICE'})
+        self.v.refresh_from_db()
+        self.assertEqual((self.v.router_profile, self.v.max_devices), ('FAMILY-10-DEVICE', 10))
+        self.assertEqual(srp.call_args.args[1], 'FAMILY-10-DEVICE')
+        self.assertIsNotNone(self.v.used_at)                                        # clock kept
+
+    def test_sync_moves_router_voucher_to_the_profile_chosen_in_taptap(self):
+        Voucher.objects.filter(pk=self.v.pk).update(router_profile='FAMILY-10-DEVICE')
+        with mock.patch('core.voucher_push.set_router_profile', return_value=(True, 'moved')) as srp:
+            pt.reconcile_router(self.r)
+        self.assertEqual(srp.call_args.args[1], 'FAMILY-10-DEVICE')
+
+    def test_link_commands(self):
+        from types import SimpleNamespace as S
+        from .agent import command_body
+        b = command_body(S(kind='hotspot_user_profile', params={'name': 'MK002231', 'profile': 'FAMILY-10-DEVICE', 'shared': 10, 'rate': ''}))
+        self.assertIn('profile="FAMILY-10-DEVICE"', b); self.assertNotIn('limit-uptime', b)
+        self.assertIn('shared-users=10', command_body(S(kind='hotspot_profile_shared', params={'profile': 'mywifi-10-devices', 'shared': 10})))

@@ -166,9 +166,24 @@ def voucher_set_profile(request, pk):
     v.save(update_fields=['plan_name', 'router_profile', 'max_devices', 'duration_minutes'])
     in_use = bool(v.used_at or v.expires_at)
     record(v, 'note', user=request.user, text=f'Router profile changed: {before} → {after}' + (' (in use — time already used kept)' if in_use else ''))
-    msgs = push_vouchers([v], request.user)
-    messages.success(request, f'{v.code} now uses {after} on the router.' + (' Its clock keeps running from where it was.' if in_use else '')
-                     + (' ' + ' '.join(msgs.values()) if msgs else ''))
+    # Devices follow the profile the voucher is now on (its shared-users on the router), else the plan.
+    from .profile_time import profile_devices
+    from .utils import voucher_profile
+    plan_now = business.plans.filter(name=v.plan_name).first()
+    prof_name, shared, rate = voucher_profile(v, plan_now)
+    devices = profile_devices(v.router, prof_name, default=0) or (plan_now.max_devices if plan_now else 0) or v.max_devices
+    if devices != v.max_devices:
+        record(v, 'note', user=request.user, text=f'Devices allowed: {v.max_devices} → {devices} (from profile {prof_name})')
+        type(v).objects.filter(pk=v.pk).update(max_devices=devices); v.max_devices = devices
+    if v.source == 'taptap':
+        msgs = list(push_vouchers([v], request.user).values())
+    else:
+        # made on the router (Mikhmon / WinBox): change only its profile there — password, limit and time stay
+        from .voucher_push import set_router_profile
+        ok, m = set_router_profile(v, prof_name, devices or shared, rate, request.user)
+        msgs = [m] if ok else [f'Not changed on the router yet: {m}']
+    messages.success(request, f'{v.code} now uses {prof_name} on the router.' + (' Its clock keeps running from where it was.' if in_use else '')
+                     + (' ' + ' '.join(msgs) if msgs else ''))
     return redirect('voucher_detail', pk=pk)
 
 

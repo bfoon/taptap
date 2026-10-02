@@ -39,7 +39,7 @@ DEFAULT_EXPIRY = {'reboot': 5, 'port_restart': 5, 'interface_set': 15, 'port_off
 POLICY = 'ftp,read,write,test,reboot,sensitive'
 SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
-    'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
+    'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
     'hotspot_users_limit', 'admin_password',
@@ -407,6 +407,13 @@ def command_body(cmd):
         from .sticky import script
         from types import SimpleNamespace
         return script(SimpleNamespace(sticky_sessions=bool(p.get('on')), sticky_keepalive=p.get('keepalive') or '2h'))
+    if k == 'hotspot_user_profile':   # move one user onto a profile (created only if missing); nothing else changes
+        prof = rs(p['profile'])
+        return (f':if ([:len [/ip hotspot user profile find name={prof}]] = 0) do={{ /ip hotspot user profile add name={prof} shared-users={int(p.get("shared") or 1)}'
+                + (f' rate-limit={rs(p["rate"])}' if p.get('rate') else '') + ' }; '
+                f':local u [/ip hotspot user find name={rs(p["name"])}]; :if ([:len $u] > 0) do={{ /ip hotspot user set $u profile={prof} }}')
+    if k == 'hotspot_profile_shared':   # how many devices a profile allows
+        return f'/ip hotspot user profile set [find name={rs(p["profile"])}] shared-users={max(1, int(p.get("shared") or 1))}'
     if k == 'hotspot_mac_unlock_all':   # older versions pinned TapTap vouchers to one MAC on the router
         return ':foreach u in=[/ip hotspot user find where comment~"^TapTap" and mac-address!=00:00:00:00:00:00] do={ /ip hotspot user set $u mac-address=00:00:00:00:00:00 }'
     if k == 'app_control':   # App & site control (core/app_control.py builds and escapes every value)
@@ -565,6 +572,10 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
             hours = (params or {}).get('hours')
             if not isinstance(hours, int) or not 1 <= hours <= 8760:
                 raise ValueError('Extra time must be between 1 hour and 1 year.')
+    if kind in ('hotspot_user_profile', 'hotspot_profile_shared'):
+        pr = str((params or {}).get('profile', ''))
+        if not re.match(r'^[^"\\$;{}\[\]\r\n]{1,64}$', pr) or (kind == 'hotspot_user_profile' and not NAME_RE.match(str((params or {}).get('name', '')))):
+            raise ValueError('Invalid profile or voucher name.')
     if kind in ('hotspot_user_mac', 'hotspot_kick'):
         mac = str((params or {}).get('mac', ''))
         if not re.match(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$', mac):

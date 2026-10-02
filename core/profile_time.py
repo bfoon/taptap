@@ -75,6 +75,15 @@ def profile_minutes(row):
     return (v, 'name') if v else (0, '')
 
 
+DEV_RE = re.compile(r'(\d{1,3})\s*[-_ ]?\s*(devices?|devs?|users?|pax|persons?|people|sharing|shared|phones?)(?![a-z])', re.I)
+
+
+def name_devices(name):
+    """Devices a profile name implies ("mywifi-10-devices", "FAMILY 5 USERS"), 0 = says nothing."""
+    m = DEV_RE.search(str(name or ''))
+    return int(m.group(1)) if m and 0 < int(m.group(1)) <= 500 else 0
+
+
 def profile_devices(router, profile_name, default=1):
     """shared-users of a router profile (how many devices one voucher may use)."""
     from .models import RouterHotspotProfile
@@ -99,8 +108,8 @@ def expected_devices(voucher, plans, profiles, mirror):
             return max(1, int(p.shared_users)) if p is not None and p.shared_users else None
         except (TypeError, ValueError):
             return None
-    if voucher.router_profile:
-        return shared(voucher.router_id, voucher.router_profile) or None
+    if voucher.router_profile and shared(voucher.router_id, voucher.router_profile):
+        return shared(voucher.router_id, voucher.router_profile)
     plan = plans.get(voucher.plan_name)
     if voucher.source == 'taptap':
         return plan.max_devices if plan is not None else None
@@ -157,6 +166,14 @@ def audit(business):
         if best[0] and best[0] != (p.duration_minutes or 0):
             out['plans'].append({'plan': p, 'profile': pname, 'minutes': best[0], 'where': best[1]})
     fixed_len = {x['plan'].name: x['minutes'] for x in out['plans']}
+    # 1c) plans allowing a different number of devices than their router profile
+    out['plan_devices'] = []
+    for p in plans.values():
+        pname = p.mikrotik_profile_name or p.name
+        for (rid, n), prof in profiles.items():
+            if n == pname and (prof.shared_users or 1) != (p.max_devices or 1) and not (p.is_free and not p.duration_minutes):
+                out['plan_devices'].append({'plan': p, 'router': prof.router, 'profile': n, 'profile_allows': prof.shared_users or 1})
+                break
     # 2) vouchers with no time limit although their profile has one
     mirror = {(u.router_id, u.username.upper()): u.profile for u in
               RouterHotspotUser.objects.filter(business=business, is_present=True).only('router_id', 'username', 'profile')}
@@ -173,6 +190,16 @@ def audit(business):
             mins, where = profile_minutes(_row(prof)) if prof else (name_minutes(pname), 'profile name')
         if mins:
             out['vouchers'].append({'voucher': v, 'minutes': mins, 'where': where})
+    # 1b) router profiles whose name says N devices but which allow a different number (shared-users)
+    out['profile_devices'] = []
+    for (rid, name), prof in profiles.items():
+        n = name_devices(name)
+        if n and n != (prof.shared_users or 1):
+            out['profile_devices'].append({'router': prof.router, 'profile': name, 'name_says': n, 'allows': prof.shared_users or 1})
+    renamed = {(x['router'].pk, x['profile']): x['name_says'] for x in out['profile_devices']}
+    for k, n in renamed.items():
+        if k in profiles:
+            profiles[k].shared_users = n           # judge vouchers by what the profile will allow once fixed
     # 2b) vouchers allowing a different number of devices than their plan / profile (e.g. 1 instead of 10)
     for v in business.vouchers.filter(status='active').exclude(login_type='member').select_related('router')[:20000]:
         want = expected_devices(v, plans, profiles, mirror)
@@ -198,6 +225,26 @@ def apply(business, user=None):
     from .voucher_history import record
     from .voucher_push import push_vouchers
     a = audit(business)
+    from .voucher_push import set_profile_shared
+    shared_msgs = []
+    for x in a.get('profile_devices', []):
+        ok, m = set_profile_shared(x['router'], x['profile'], x['name_says'], user)
+        shared_msgs.append(m)
+        if ok:
+            business.plans.filter(mikrotik_profile_name=x['profile']).update(max_devices=x['name_says'])
+            business.plans.filter(name=x['profile'], mikrotik_profile_name='').update(max_devices=x['name_says'])
+    if a.get('profile_devices'):
+        a = audit(business)
+    # plans vs their profile's devices: router-made plans follow the router; TapTap's plans set the router profile
+    for x in a.get('plan_devices', []):
+        p = x['plan']
+        if p.source == 'mikrotik':
+            type(p).objects.filter(pk=p.pk).update(max_devices=x['profile_allows'])
+        else:
+            ok, m = set_profile_shared(x['router'], x['profile'], p.max_devices or 1, user)
+            shared_msgs.append(m)
+    if a.get('plan_devices'):
+        a = audit(business)
     for x in a['plans']:
         p = x['plan']
         p.duration_minutes, p.duration_unit = x['minutes'], best_unit(x['minutes'])
@@ -227,6 +274,7 @@ def apply(business, user=None):
             seen.add(v.pk); uniq.append(v)
     msgs = push_vouchers(uniq, user) if uniq else {}
     return {'plans': len(a['plans']), 'vouchers': len(a['vouchers']), 'drift': len(a['drift']), 'deleted': len(a['deleted']), 'devices': len(a['devices']),
+            'profile_devices': len(shared_msgs),
             'pushed': len(uniq), 'messages': list(msgs.values())}
 
 
@@ -244,4 +292,12 @@ def reconcile_router(router):
     if drifted:
         logger.info('%s: %d voucher(s) on the wrong profile, re-sending', router, len(drifted))
         push_vouchers(drifted)
-    return len(drifted)
+    # a profile chosen by hand in TapTap wins on the router too — also for vouchers made on the router
+    from .voucher_push import set_router_profile
+    moved = 0
+    for v in router.vouchers.exclude(router_profile='').exclude(source='taptap').filter(status='active'):
+        have = mirror.get(v.code.upper())
+        if have is not None and have != v.router_profile:
+            ok, _ = set_router_profile(v, v.router_profile, v.max_devices or 1)
+            moved += 1 if ok else 0
+    return len(drifted) + moved
