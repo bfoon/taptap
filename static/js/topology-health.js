@@ -9,9 +9,10 @@
   const script = document.currentScript;
   const resourceRoute = script?.dataset.resourceUrl || '';
   const linkRoute = script?.dataset.linkUrl || '';
+  const rebootRoute = script?.dataset.rebootUrl || '';
   const REFRESH_MS = 20000;
 
-  if (!resourceRoute || !linkRoute) return;
+  if (!resourceRoute || !linkRoute || !rebootRoute) return;
 
   const panels = Array.from(
     document.querySelectorAll('.topology-router-panel[id^="router-"]')
@@ -20,7 +21,10 @@
   if (!panels.length) return;
 
   function routeFor(pattern, id) {
-    return pattern.replace(/\/0\/?$/, '/' + id + '/');
+    // Django reverse URLs contain /0/ in the middle, for example:
+    // /routers/0/control/resource/ and /routers/0/link/status/.
+    // Replace that path segment, not only an ID at the end of the URL.
+    return String(pattern || '').replace('/0/', '/' + id + '/');
   }
 
   function bytes(n) {
@@ -70,6 +74,87 @@
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#039;');
+  }
+
+
+  async function responseJson(response) {
+    const text = await response.text();
+
+    if (!text) {
+      return {};
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (_) {
+      const type = response.headers.get('content-type') || '';
+      const preview = text.replace(/\s+/g, ' ').slice(0, 180);
+
+      if (response.redirected || /text\/html/i.test(type) || preview.startsWith('<!DOCTYPE') || preview.startsWith('<html')) {
+        throw new Error(
+          'TapTap returned an HTML page instead of JSON. ' +
+          'Check that the router URL is correct and that your login is still active.'
+        );
+      }
+
+      throw new Error('TapTap returned an invalid response: ' + preview);
+    }
+  }
+
+  function csrfToken() {
+    const match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+    return match ? decodeURIComponent(match[1]) : '';
+  }
+
+  async function rebootRouter(panel, button) {
+    const id = panel.id.replace('router-', '');
+    const routerName = panel.dataset.routerName || 'this MikroTik';
+
+    const typed = window.prompt(
+      'Restart ' + routerName + '?\\n\\n' +
+      'All connected users will disconnect while the MikroTik reboots.\\n\\n' +
+      'Type the router name exactly to confirm:',
+      ''
+    );
+
+    if (typed == null) return;
+
+    const old = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Restarting…';
+
+    try {
+      const body = new FormData();
+      body.append('confirm', typed);
+
+      const response = await fetch(routeFor(rebootRoute, id), {
+        method: 'POST',
+        body: body,
+        credentials: 'same-origin',
+        headers: {
+          'X-CSRFToken': csrfToken(),
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        cache: 'no-store'
+      });
+
+      const data = await responseJson(response);
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message || 'The MikroTik restart was not accepted.');
+      }
+
+      button.innerHTML = '<i class="bi bi-check-circle"></i> Restart queued';
+      window.setTimeout(function () {
+        button.disabled = false;
+        button.innerHTML = old;
+      }, 7000);
+
+    } catch (err) {
+      window.alert(err.message || 'Could not restart the MikroTik.');
+      button.disabled = false;
+      button.innerHTML = old;
+    }
   }
 
   function stat(icon, title, value, detail, percent, id) {
@@ -224,7 +309,17 @@
         ${h.uptime ? `<span><i class="bi bi-clock-history"></i>Up ${escapeHtml(h.uptime)}</span>` : ''}
         <span><i class="bi bi-broadcast"></i>${escapeHtml(h.source || 'RouterOS')}</span>
         ${h.stale ? '<span class="stale"><i class="bi bi-exclamation-circle"></i>Last Link heartbeat</span>' : ''}
+        <button type="button" class="ch-restart" data-router-restart>
+          <i class="bi bi-bootstrap-reboot"></i> Restart MikroTik
+        </button>
       </div>`;
+
+    const restart = box.querySelector('[data-router-restart]');
+    if (restart) {
+      restart.addEventListener('click', function () {
+        rebootRouter(panel, restart);
+      });
+    }
 
     classify(box.querySelector('[data-health-stat="cpu"]'), cpu);
     if (h.memory_total) classify(box.querySelector('[data-health-stat="memory"]'), mem);
@@ -253,7 +348,7 @@
       headers: {'X-Requested-With': 'XMLHttpRequest'},
       cache: 'no-store'
     });
-    const data = await response.json();
+    const data = await responseJson(response);
     if (!response.ok || !data.success) {
       throw new Error(data.message || 'RouterOS resource read failed');
     }
@@ -278,7 +373,7 @@
       headers: {'X-Requested-With': 'XMLHttpRequest'},
       cache: 'no-store'
     });
-    const data = await response.json();
+    const data = await responseJson(response);
 
     if (!response.ok || !data.enrolled) {
       throw new Error('TapTap Link health unavailable');

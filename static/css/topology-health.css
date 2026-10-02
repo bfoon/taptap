@@ -175,3 +175,34 @@
     padding:.4rem;
   }
 }
+
+
+.ch-restart{
+  margin-left:auto;
+  border:1px solid #7b4a4a;
+  background:#2d1719;
+  color:#ffb4b4;
+  border-radius:7px;
+  padding:.24rem .5rem;
+  font-size:.5rem;
+  font-weight:800;
+  line-height:1.2;
+  cursor:pointer;
+  white-space:nowrap;
+}
+
+.ch-restart:hover{
+  background:#3b1b1f;
+  border-color:#a65a5a;
+  color:#ffd0d0;
+}
+
+.ch-restart:disabled{
+  opacity:.65;
+  cursor:wait;
+}
+
+.ch-restart i{
+  margin-right:.2rem;
+  color:inherit;
+}
