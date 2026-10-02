@@ -136,3 +136,26 @@ def money2(value, currency='D'):
     except Exception: return value
     sign = '−' if v < 0 else ''
     return f'{sign}{currency or "D"}{abs(v):,.2f}'
+
+
+
+@register.simple_tag
+def voucher_link(code, css=''):
+    """<a> to a voucher's page from its code (works for any code shown anywhere)."""
+    from django.urls import reverse
+    from django.utils.html import format_html
+    code = str(code or '').strip()
+    if not code or code in ('—', '-'):
+        return code or '—'
+    return format_html('<a class="tt-vlink {}" href="{}" title="Open voucher {}">{}</a>', css, reverse('go_voucher', args=[code]), code, code)
+
+
+@register.simple_tag
+def device_link(mac, label='', css=''):
+    """<a> to a device's page from its MAC."""
+    from django.urls import reverse
+    from django.utils.html import format_html
+    mac = str(mac or '').strip()
+    if not mac:
+        return label or '—'
+    return format_html('<a class="tt-dlink {}" href="{}" title="Open device {}">{}</a>', css, reverse('go_device', args=[mac]), mac, label or mac)

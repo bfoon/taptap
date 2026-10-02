@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}
+{% extends 'core/base.html' %}{% load taptap_extras %}
 {% block title %}Speed Control — TapTap{% endblock %}
 {% block heading %}Speed Control{% endblock %}
 
@@ -157,7 +157,7 @@
                     </span>
                     <span class="target-meta">
                       {{ d.router.name }}
-                      {% if d.mac_address %} · {{ d.mac_address }}{% endif %}
+                      {% if d.mac_address %} · {% device_link d.mac_address %}{% endif %}
                       {% if d.ip_address %} · {{ d.ip_address }}{% endif %}
                       {% if d.interface_name %} · {{ d.interface_name }}{% endif %}
                     </span>

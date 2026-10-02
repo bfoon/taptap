@@ -113,6 +113,6 @@
 
 {% block scripts %}
 <script src="{% static 'vendor/chart.umd.min.js' %}"></script>
-<script src="{% static 'js/traffic-live.js' %}?v=2" data-data-url="{% url 'traffic_data' %}?{{ query }}" data-now-url="{% url 'traffic_now' %}{% if sel_router %}?router={{ sel_router }}{% endif %}"></script>
+<script src="{% static 'js/traffic-live.js' %}?v=3" data-data-url="{% url 'traffic_data' %}?{{ query }}" data-now-url="{% url 'traffic_now' %}{% if sel_router %}?router={{ sel_router }}{% endif %}"></script>
 
 {% endblock %}

@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}
+{% extends 'core/base.html' %}{% load taptap_extras %}
 {% block title %}Active Users — TapTap{% endblock %}
 {% block heading %}Live Active Connections{% endblock %}
 
@@ -255,7 +255,7 @@
                 {{ x.user|default:'?'|slice:":1"|upper }}
               </span>
               <div>
-                <b>{{ x.user|default:'—' }}</b>{% if x.fup_speed %} <span class="badge text-bg-warning" title="Fair usage: {{ x.fup_gb }} GB used">Slowed · {{ x.fup_speed }} Mb/s</span>{% endif %}
+                <b>{% if x.user %}{% voucher_link x.user %}{% else %}—{% endif %}</b>{% if x.fup_speed %} <span class="badge text-bg-warning" title="Fair usage: {{ x.fup_gb }} GB used">Slowed · {{ x.fup_speed }} Mb/s</span>{% endif %}
                 {% if x.missing_reported %}
                   <span class="badge text-bg-danger ms-1">Reported missing</span>
                 {% endif %}
@@ -277,7 +277,7 @@
           <td>{{ x.batch_name|default:'—' }}</td>
 
           <td>{{ x.address|default:'—' }}</td>
-          <td><code>{{ x.mac_address|default:'—' }}</code></td>
+          <td><code>{% if x.mac_address %}{% device_link x.mac_address %}{% else %}—{% endif %}</code></td>
           <td>{{ x.uptime|default:'—' }}</td>
 
           <td>
@@ -342,7 +342,7 @@
               <div class="detail-grid">
                 <div class="detail-card">
                   <span class="label">User / voucher</span>
-                  <span class="value">{{ x.user|default:'—' }}</span>
+                  <span class="value">{% if x.user %}{% voucher_link x.user %}{% else %}—{% endif %}</span>
                 </div>
 
                 <div class="detail-card">

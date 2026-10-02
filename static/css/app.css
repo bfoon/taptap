@@ -46,3 +46,7 @@
 
 /* Rows inside a scrolling list keep their natural height (flex lists such as Security findings were squashed) */
 .scroll-list>*{flex-shrink:0}
+
+/* clickable voucher codes and device MACs (go to their page) */
+.tt-vlink,.tt-dlink{color:inherit;text-decoration:underline dotted rgba(23,105,224,.55);text-underline-offset:3px}
+.tt-vlink:hover,.tt-dlink:hover{color:#1769e0;text-decoration-style:solid}

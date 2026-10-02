@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}
+{% extends 'core/base.html' %}{% load taptap_extras %}
 {% block title %}Alerts — TapTap{% endblock %}
 {% block heading %}Alerts{% endblock %}
 {% block extra_head %}<style>
@@ -96,7 +96,7 @@
     <div class="al-row {{ a.event }} {% if not a.read_at %}unread{% endif %}">
       <i class="bi ev {% if a.event == 'offline' %}bi-exclamation-octagon{% else %}bi-check-circle{% endif %}"></i>
       <div class="flex-grow-1"><b>{{ a.name }}</b> {% if a.event == 'offline' %}went offline{% else %}is back online{% if a.offline_since %} after {{ a.offline_since|timesince:a.created_at }}{% endif %}{% endif %}
-        <small>{{ a.ip_address|default:'' }}{% if a.mac_address %} · {{ a.mac_address }}{% endif %} · {{ a.router.name }}{% if a.rule %} · rule: {{ a.rule.name }}{% endif %}</small></div>
+        <small>{{ a.ip_address|default:'' }}{% if a.mac_address %} · {% device_link a.mac_address %}{% endif %} · {{ a.router.name }}{% if a.rule %} · rule: {{ a.rule.name }}{% endif %}</small></div>
       <small class="text-nowrap">{{ a.created_at|date:'d M H:i' }}</small>
     </div>
     {% empty %}<p class="text-secondary small mb-0">No alerts yet. When a watched device goes offline it appears here.</p>{% endfor %}</div>

@@ -1,5 +1,5 @@
 {% extends 'core/base.html' %}
-{% load static %}
+{% load static taptap_extras %}
 {% block title %}Security — TapTap{% endblock %}
 {% block heading %}Security Center{% endblock %}
 {% block extra_head %}<link href="{% static 'css/netviz.css' %}?v=5" rel="stylesheet">{% endblock %}
@@ -51,8 +51,8 @@
     <div class="inc-clock" {% if i.status == 'open' and current_business.auto_enforce and i.fix_due_at %}data-due="{{ i.fix_due_at|date:'c' }}" data-start="{{ i.first_seen|date:'c' }}"{% endif %}>
       <svg viewBox="0 0 44 44" aria-hidden="true"><circle cx="22" cy="22" r="18" class="bg"/><circle cx="22" cy="22" r="18" class="fg" stroke-dasharray="113.1" stroke-dashoffset="0"/></svg>
       <span>{% if i.status == 'ignored' %}<i class="bi bi-pause"></i>{% elif not current_business.auto_enforce %}<i class="bi bi-hand-index"></i>{% endif %}</span></div>
-    <div class="inc-main"><b>{{ i.username }}</b> <span class="inc-reason {{ i.reason }}">{{ i.get_reason_display }}</span>
-      <small>{{ i.detail }} · {{ i.router.name }}{% if i.mac_address %} · {{ i.mac_address }}{% endif %}{% if i.ip_address %} · {{ i.ip_address }}{% endif %}</small>
+    <div class="inc-main"><b>{% voucher_link i.username %}</b> <span class="inc-reason {{ i.reason }}">{{ i.get_reason_display }}</span>
+      <small>{{ i.detail }} · {{ i.router.name }}{% if i.mac_address %} · {% device_link i.mac_address %}{% endif %}{% if i.ip_address %} · {{ i.ip_address }}{% endif %}</small>
       <small class="inc-when">{% if i.status == 'ignored' %}Allowed by you — will not be disconnected automatically{% elif current_business.auto_enforce and i.fix_due_at %}<span class="inc-count">Auto-fix {{ i.fix_due_at|timeuntil }}</span>{% else %}Automatic fixing is off{% endif %} · first seen {{ i.first_seen|timesince }} ago{% if i.error %} · <span class="text-danger">last try failed: {{ i.error }}</span>{% endif %}</small></div>
     <div class="inc-act">
       <form method="post" action="{% url 'incident_fix' i.id %}" class="inc-fix">{% csrf_token %}<button class="btn btn-sm btn-danger"><i class="bi bi-plug"></i> Fix now</button></form>

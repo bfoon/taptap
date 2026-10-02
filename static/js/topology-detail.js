@@ -337,7 +337,7 @@
     if ((pr.same_unit || []).length) bits.push(`<span class="td-pill">${pr.same_unit.length + 1} MACs, one box</span>`);
     return `<details class="td-probe" data-k="${esc(e.key)}"${open || openProbes.has(e.key) ? ' open' : ''}><summary>Probed ${esc(ago(pr.at))} ${bits.join(' ')}</summary>
       <ul>${(pr.notes || []).map(n => `<li>${esc(n)}</li>`).join('')}</ul>${(pr.ip_conflict || []).length ? `<div class="small">Also on ${esc(pr.ip)}: ${pr.ip_conflict.map(c =>
-        `<span class="font-monospace">${esc(c.mac)}</span>${c.hostname ? ' (' + esc(c.hostname) + ')' : ''} on ${esc(c.port || '?')}`).join(', ')}</div>` : ''}</details>`;
+        `<a class="font-monospace tt-dlink" href="/go/device/${encodeURIComponent(c.mac || '')}/">${esc(c.mac)}</a>${c.hostname ? ' (' + esc(c.hostname) + ')' : ''} on ${esc(c.port || '?')}`).join(', ')}</div>` : ''}</details>`;
   }
   async function runProbe(key, btn, out) {
     const label = btn ? btn.innerHTML : '';
@@ -502,7 +502,7 @@
     out.innerHTML = `<p class="small mb-1"><b>${d.rows.length}</b> device${d.rows.length === 1 ? '' : 's'} found. Tick the routers to add:</p>
       <div class="td-found">${d.rows.map((r, i) => `<label class="td-cand${r.state === 'confirmed' ? ' done' : ''}">
         <input type="checkbox" data-i="${i}" ${r.state === 'confirmed' ? 'disabled checked' : (r.score >= 35 || d.rows.length <= 5) ? 'checked' : ''}>
-        <span><b>${esc(r.ip)}</b> <span class="font-monospace">${esc(r.mac)}</span>${r.brand ? ` <em class="td-brand in">${esc(r.brand)}</em>` : ''}
+        <span><b>${esc(r.ip)}</b> <a class="font-monospace tt-dlink" href="/go/device/${encodeURIComponent(r.mac || '')}/">${esc(r.mac)}</a>${r.brand ? ` <em class="td-brand in">${esc(r.brand)}</em>` : ''}
         <small>${esc(r.hostname || 'no name')} · ${esc(r.router)} › ${esc(r.port || '?')}${r.online ? '' : ' · offline'}${r.state === 'confirmed' ? ' · already added' : r.state === 'ignored' ? ' · marked not a router' : ''}</small></span></label>`).join('')}</div>
       <button type="button" class="btn btn-primary btn-sm mt-2" id="tdAddSel">Add selected</button>`;
     $('#tdAddSel').onclick = async () => {

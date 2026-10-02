@@ -6,6 +6,7 @@ from . import views_ads, views_ports, views_live, views_traffic, views_missing, 
 from . import views_team as vteam, views_platform as vp, views_detail as vdetail, views_bin as vbin, views_freeze as vfz
 from . import views_fup as vfup
 from . import views_bonanza as vbz
+from . import views_go as vgo
 from . import views_apps as vapps
 from . import views_profiles as vprof
 from . import views_chat as vchat
@@ -14,6 +15,7 @@ from . import views_topology as vtopo
 from . import views_security_fixes as vsecfix
 
 urlpatterns = [
+    path('go/voucher/<str:code>/',vgo.go_voucher,name='go_voucher'), path('go/device/<str:mac>/',vgo.go_device,name='go_device'),
     path('traffic/apps/',vapps.app_control,name='app_control'), path('traffic/apps/save/',vapps.app_rule_save,name='app_rule_save'),
     path('traffic/apps/do/',vapps.app_rule_action,name='app_rule_global'), path('traffic/apps/<int:pk>/',vapps.app_rule_action,name='app_rule_action'),
     path('routers/profiles/',vprof.router_profiles,name='router_profiles'), path('routers/<int:pk>/profiles/import/',vprof.router_profile_import,name='router_profile_import'),

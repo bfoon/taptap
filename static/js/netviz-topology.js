@@ -320,7 +320,7 @@
         add('Port', n.port); add('Devices', n.count); add('Wireless', n.wifi); add('Logged in to hotspot', n.hotspot);
         extra += `<input class="form-control form-control-sm nm-dev-filter" placeholder="Filter devices"><div class="nm-devlist">${(n.devices || []).map(d => `
           <div class="nm-dev"><i class="bi ${d.kind === 'wifi' ? 'bi-wifi' : 'bi-pc-display'}"></i><div><b>${esc(d.name || d.ip || d.mac || 'Device')}</b>
-          <small>${esc(d.ip || 'no IP')} · ${esc(d.mac || 'no MAC')}${d.via ? ' · via ' + esc(d.via) : ''}</small></div></div>`).join('')}</div>`;
+          <small>${esc(d.ip || 'no IP')} · ${d.mac ? `<a class="tt-dlink" href="/go/device/${encodeURIComponent(d.mac)}/">${esc(d.mac)}</a>` : 'no MAC'}${d.via ? ' · via ' + esc(d.via) : ''}</small></div></div>`).join('')}</div>`;
         if (n.count > (n.devices || []).length) extra += `<p class="nm-more">Showing ${(n.devices || []).length} of ${n.count}. The full list is in Router Inventory.</p>`;
       } else if (n.type !== 'internet') {
         add('IP address', n.ip); add('MAC address', n.mac); add('Model', n.board); add('Platform', n.platform); add('Version', n.version);

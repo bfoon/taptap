@@ -136,7 +136,7 @@
         '<td class="tr-num" data-f="dn"></td><td class="tr-num" data-f="up"></td><td class="tr-num"><b data-f="total"></b></td><td><div class="tr-share"><i data-f="bar"></i></div><small class="text-secondary" data-f="share"></small></td>' +
         '<td class="tr-num" data-f="peak"></td><td class="tr-num" data-f="hours"></td>'; },
       function (tr, r) {
-        q(tr, 'user').textContent = r.username; q(tr, 'plan').textContent = r.plan || ''; q(tr, 'device').textContent = r.device || ''; q(tr, 'mac').textContent = r.mac_address || '';
+        q(tr, 'user').innerHTML = vlink(r.username); q(tr, 'plan').textContent = r.plan || ''; q(tr, 'device').innerHTML = r.device ? dlink(r.mac_address, r.device) : ''; q(tr, 'mac').innerHTML = dlink(r.mac_address);
         tween(q(tr, 'dn'), r.dn, bytes); tween(q(tr, 'up'), r.up, bytes); tween(q(tr, 'total'), r.total, bytes); tween(q(tr, 'peak'), r.peak, bps); tween(q(tr, 'hours'), r.hours, int);
         bar(q(tr, 'bar'), r.share); setText(q(tr, 'share'), r.share + '%');
       }, 'Per-user consumption appears as customers use the hotspot.', 8);
@@ -235,8 +235,8 @@
       var el = have[k];
       if (!el) { el = document.createElement('div'); el.className = 'tr-s'; el.dataset.key = k;
         el.innerHTML = '<span class="fill"></span><span class="pct" data-f="pct"></span><b data-f="who"></b><small data-f="meta"></small><div class="rates"><span class="d" data-f="dn"></span><span class="u" data-f="up"></span></div>'; }
-      el.querySelector('[data-f=who]').innerHTML = esc(s.user) + (s.device ? ' · <span style="font-weight:500">' + esc(s.device) + '</span>' : '');
-      el.querySelector('[data-f=meta]').textContent = [s.ip, s.mac, s.router].filter(Boolean).join(' · ') + ' · ' + s.session_h + ' this session';
+      el.querySelector('[data-f=who]').innerHTML = vlink(s.user) + (s.device ? ' · <span style="font-weight:500">' + dlink(s.mac, s.device) + '</span>' : '');
+      el.querySelector('[data-f=meta]').innerHTML = [esc(s.ip || ''), dlink(s.mac), esc(s.router || '')].filter(Boolean).join(' · ') + ' · ' + esc(s.session_h) + ' this session';
       var dn = el.querySelector('[data-f=dn]'), up = el.querySelector('[data-f=up]');
       tween(dn, s.down_bps, function (v) { return '↓ ' + bps(v); }); tween(up, s.up_bps, function (v) { return '↑ ' + bps(v); });
       el.querySelector('[data-f=pct]').textContent = s.share ? s.share + '%' : '';
@@ -245,6 +245,10 @@
     });
     Object.keys(have).forEach(function (k) { if (!seen[k]) have[k].remove(); });
   }
+  // links to a voucher's / device's page (bypass devices show as BYPASS:<MAC>)
+  function vlink(u) { if (!u) return '—'; var m = /^BYPASS:(.+)$/i.exec(u); if (m) return dlink(m[1], 'Bypass ' + m[1]);
+    return '<a class="tt-vlink" href="/go/voucher/' + encodeURIComponent(u) + '/">' + esc(u) + '</a>'; }
+  function dlink(mac, label) { return mac ? '<a class="tt-dlink" href="/go/device/' + encodeURIComponent(mac) + '/">' + esc(label || mac) + '</a>' : ''; }
   function loadNow() {
     clearTimeout(nowTimer);
     if (paused || document.hidden) { nowTimer = setTimeout(loadNow, NOW_EVERY); return; }

@@ -130,7 +130,7 @@
         (x.paid?'<span class="ib-paid" title="Recorded by '+esc(x.paid.by||'—')+'">Last paid '+esc(x.paid.amount)+' · '+esc(x.paid.method)+' · '+new Date(x.paid.at).toLocaleDateString()+'</span>':(x.type==='bypassed'?'<span class="ib-unpaid">No payment recorded</span>':''))+
         (x.fup?(x.fup.tier?'<span class="ib-slow" title="Fair usage: '+esc(x.fup.policy)+'">🐢 Slowed to '+esc(x.fup.speed)+' · '+x.fup.used_gb+' GB</span>':'<span class="ib-fu">'+x.fup.used_gb+' GB used'+(x.fup.next_gb?' · slows at '+x.fup.next_gb+' GB':'')+'</span>'):'')+
         (x.error?'<span class="ib-err">'+esc(x.error)+'</span>':'')+'</td>'+
-      '<td><span class="ib-mac">'+esc(x.mac||'—')+'</span></td><td class="ib-hide-sm">'+esc(x.address||'—')+'</td>'+
+      '<td><span class="ib-mac">'+(x.mac?'<a class="tt-dlink" href="/go/device/'+encodeURIComponent(x.mac)+'/">'+esc(x.mac)+'</a>':'—')+'</span></td><td class="ib-hide-sm">'+esc(x.address||'—')+'</td>'+
       '<td><select class="form-select form-select-sm ib-type '+x.type+'" data-type="'+x.id+'" aria-label="Type">'+['bypassed','regular','blocked'].map(function(t){return '<option'+(t===x.type?' selected':'')+'>'+t+'</option>';}).join('')+'</select></td>'+
       '<td class="ib-hide-sm">'+esc(x.router)+'</td>'+
       '<td class="text-end"><div class="dropdown"><button class="btn btn-sm btn-light" data-bs-toggle="dropdown" aria-label="More actions"><i class="bi bi-three-dots"></i></button><ul class="dropdown-menu dropdown-menu-end">'+
