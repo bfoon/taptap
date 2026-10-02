@@ -1,0 +1,54 @@
+{% extends 'core/platform/base.html' %}{% load static taptap_extras %}
+{% block title %}Traffic — Platform{% endblock %}{% block heading %}Traffic across TapTap{% endblock %}
+{% block content %}
+<style>
+.pt-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:.6rem;margin-bottom:1rem}
+.pt-kpi{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:14px;padding:.7rem .9rem}.pt-kpi small{display:block;color:var(--muted,#6c7c90);font-weight:700;font-size:.74rem}.pt-kpi strong{font-size:1.4rem}
+.pt-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}@media(max-width:1000px){.pt-grid{grid-template-columns:1fr}}
+.pt-row{display:flex;justify-content:space-between;gap:.6rem;padding:.32rem 0;border-bottom:1px solid var(--border,#eef1f5);font-size:.86rem}
+.pt-bar{height:6px;border-radius:4px;background:#eef2f7;margin-top:3px;overflow:hidden}.pt-bar i{display:block;height:100%;background:#1769e0}
+.pt-hours{display:grid;grid-template-columns:repeat(24,1fr);gap:3px;align-items:end;height:120px}.pt-hours div{background:#1769e0;border-radius:3px 3px 0 0;min-height:2px;opacity:.85}
+.pt-hl{display:grid;grid-template-columns:repeat(24,1fr);font-size:.62rem;color:var(--muted,#6c7c90);text-align:center}
+.pt-days{display:flex;gap:3px;align-items:end;height:110px}.pt-days div{flex:1;background:#7c3aed;border-radius:3px 3px 0 0;min-height:2px;opacity:.8}
+</style>
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <nav class="d-flex gap-1" aria-label="Period">{% for k,p in d.periods.items %}<a class="btn btn-sm {% if k == d.key %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="?period={{ k }}">{{ p.0 }}</a>{% endfor %}</nav>
+  <div class="dropdown"><button class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-download"></i> Download</button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li><a class="dropdown-item fw-bold" href="?period={{ d.key }}&format=zip">Everything (ZIP of CSV files)</a></li><li><hr class="dropdown-divider"></li>
+      {% for k,l in "summary:Summary,categories:By type,apps:Apps & services,cdns:CDNs and what they served,devices:Devices by brand / model,daily:Per day,hourly:Per hour of day"|kvlist %}<li><a class="dropdown-item" href="?period={{ d.key }}&format=csv&kind={{ k }}">{{ l }} (CSV)</a></li>{% endfor %}
+    </ul></div>
+</div>
+<p class="small text-secondary">{{ d.label }} · every business together. Only totals — no customer, voucher, MAC or IP is shown or exported. Each export is logged in the support log.</p>
+
+<div class="pt-kpis">
+  <div class="pt-kpi"><small>Data</small><strong>{{ d.total|data_size }}</strong><span class="small text-secondary">{{ d.down|data_size }} down · {{ d.up|data_size }} up</span></div>
+  <div class="pt-kpi"><small>Businesses with traffic</small><strong>{{ d.businesses }}</strong><span class="small text-secondary">of {{ d.all_businesses }}</span></div>
+  <div class="pt-kpi"><small>Devices seen</small><strong>{{ d.devices.count }}</strong><span class="small text-secondary">on login pages</span></div>
+  <div class="pt-kpi"><small>Top type</small><strong style="font-size:1.1rem">{{ d.categories.0.name|default:"—" }}</strong><span class="small text-secondary">{{ d.categories.0.pct|default:0 }}% of data</span></div>
+</div>
+
+<div class="pt-grid mb-3">
+  <section class="panel"><h3 class="h6 fw-bold">Busiest hours of the day</h3><div class="pt-hours">{% for h in d.hours %}<div style="height:{{ h.pct }}%" title="{{ h.hour }}:00 — {{ h.bytes|data_size }}"></div>{% endfor %}</div>
+    <div class="pt-hl">{% for h in d.hours %}<span>{% if h.hour|divisibleby:3 %}{{ h.hour }}{% endif %}</span>{% endfor %}</div></section>
+  <section class="panel"><h3 class="h6 fw-bold">Per day</h3><div class="pt-days">{% for x in d.days %}<div style="height:{{ x.pct }}%" title="{{ x.day|date:'d M' }} — {{ x.bytes|data_size }}"></div>{% empty %}<p class="small text-secondary">No traffic yet.</p>{% endfor %}</div></section>
+</div>
+
+<div class="pt-grid mb-3">
+  <section class="panel"><h3 class="h6 fw-bold">By type</h3>{% for c in d.categories %}<div class="pt-row"><div class="flex-grow-1"><b>{{ c.name }}</b><div class="pt-bar"><i style="width:{{ c.pct }}%"></i></div></div><div class="text-end"><b>{{ c.bytes|data_size }}</b><small class="d-block text-secondary">{{ c.pct }}%</small></div></div>{% empty %}<p class="small text-secondary">No traffic yet.</p>{% endfor %}</section>
+  <section class="panel"><h3 class="h6 fw-bold">Top apps &amp; services</h3><div class="scroll-list">{% for a in d.apps %}<div class="pt-row"><div><b>{{ a.name }}</b><small class="d-block text-secondary">{{ a.category }} · {{ a.businesses }} business{{ a.businesses|pluralize:"es" }}</small></div><div class="text-end"><b>{{ a.bytes|data_size }}</b><small class="d-block text-secondary">{{ a.pct }}%</small></div></div>{% empty %}<p class="small text-secondary">No traffic yet.</p>{% endfor %}</div></section>
+</div>
+
+<section class="panel mb-3"><div class="tt-cdn" data-url="{% url 'platform_traffic' %}?period={{ d.key }}&format=cdn"></div></section>
+
+<section class="panel mb-3"><h3 class="h6 fw-bold">Devices by brand and model <small class="text-secondary fw-normal">— counted, never listed</small></h3>
+  <div class="pt-grid">
+    <div>{% for b in d.devices.brands %}<div class="pt-row"><div class="flex-grow-1"><b>{{ b.name }}</b><div class="pt-bar"><i style="width:{{ b.pct }}%;background:#18a66a"></i></div></div><div class="text-end"><b>{{ b.count }}</b><small class="d-block text-secondary">{{ b.pct }}%</small></div></div>{% empty %}<p class="small text-secondary">No devices seen in this period.</p>{% endfor %}
+      <div class="d-flex flex-wrap gap-3 mt-3 small">{% for t in d.devices.types %}<span><b>{{ t.count }}</b> {{ t.name }}</span>{% endfor %}</div>
+      <div class="d-flex flex-wrap gap-3 mt-1 small text-secondary">{% for o in d.devices.os %}<span>{{ o.name }} {{ o.count }}</span>{% endfor %}</div></div>
+    <div><div class="scroll-list">{% for m in d.devices.models %}<div class="pt-row"><span><b>{{ m.model }}</b> <small class="text-secondary">{{ m.brand }}</small></span><b>{{ m.count }}</b></div>{% empty %}<p class="small text-secondary">No model has {{ d.devices.min_group }} or more devices yet.</p>{% endfor %}</div>
+      {% if d.devices.small_models %}<small class="text-secondary d-block mt-1">{{ d.devices.small_models }} device{{ d.devices.small_models|pluralize }} on models with fewer than {{ d.devices.min_group }} devices are not listed by model.</small>{% endif %}</div>
+  </div>
+</section>
+<script src="{% static 'js/cdn-spread.js' %}" defer></script>
+{% endblock %}

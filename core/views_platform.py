@@ -443,3 +443,46 @@ def audit_log(request):
     if q:
         qs = qs.filter(Q(business__business_name__icontains=q) | Q(action__icontains=q) | Q(details__icontains=q) | Q(actor__email__icontains=q))
     return render(request, 'core/platform/audit.html', {'page_obj': Paginator(qs, 60).get_page(request.GET.get('page')), 'q': q})
+
+
+# ─────────────────────────── platform-wide traffic (aggregated only) ───────────────────────────
+@superuser_required
+def traffic(request):
+    """All businesses together: data by type, app and CDN, busiest days/hours, devices by brand/model."""
+    import csv
+    import io
+    import zipfile
+    from django.http import HttpResponse, JsonResponse
+    from .platform_traffic import analysis, csv_rows
+    data = analysis(request.GET.get('period', '7d'))
+    fmt = request.GET.get('format', '')
+    if fmt == 'cdn':
+        return JsonResponse({'cdns': data['cdns'], 'others': data['others']})
+    stamp = f"{data['start']:%Y%m%d}-{data['end']:%Y%m%d}"
+    if fmt == 'csv':
+        kind = request.GET.get('kind', 'summary')
+        head, rows = csv_rows(data, kind)
+        resp = HttpResponse(content_type='text/csv; charset=utf-8')
+        resp['Content-Disposition'] = f'attachment; filename="taptap-platform-{kind}-{stamp}.csv"'
+        resp.write('\ufeff')
+        w = csv.writer(resp); w.writerow(head); w.writerows(rows)
+        audit(request, None, 'Traffic export', f'{kind}, {data["label"]}')
+        return resp
+    if fmt == 'zip':
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
+            for kind in ('summary', 'categories', 'apps', 'cdns', 'devices', 'daily', 'hourly'):
+                head, rows = csv_rows(data, kind)
+                s = io.StringIO(); w = csv.writer(s); w.writerow(head); w.writerows(rows)
+                z.writestr(f'{kind}.csv', '\ufeff' + s.getvalue())
+        audit(request, None, 'Traffic export', f'all tables, {data["label"]}')
+        resp = HttpResponse(buf.getvalue(), content_type='application/zip')
+        resp['Content-Disposition'] = f'attachment; filename="taptap-platform-traffic-{stamp}.zip"'
+        return resp
+    peak = max((h['bytes'] for h in data['hours']), default=0) or 1
+    for h in data['hours']:
+        h['pct'] = round(h['bytes'] * 100 / peak)
+    dpeak = max((d['bytes'] for d in data['days']), default=0) or 1
+    for d in data['days']:
+        d['pct'] = round(d['bytes'] * 100 / dpeak)
+    return render(request, 'core/platform/traffic.html', {'d': data, 'n': 'platform_traffic', 'query': request.GET.urlencode()})

@@ -169,3 +169,9 @@ def duration_minutes_text(minutes):
         return text(int(minutes)) if int(minutes) else 'no limit'
     except (TypeError, ValueError):
         return ''
+
+
+@register.filter
+def kvlist(value):
+    """"a:A,b:B" → [('a','A'), ('b','B')] (small fixed menus in templates)."""
+    return [tuple(x.split(':', 1)) for x in str(value).split(',') if ':' in x]
