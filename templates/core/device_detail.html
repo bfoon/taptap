@@ -44,6 +44,8 @@
       <div><b class="text-break">{{ s.domain }}</b><small>{{ s.app }}</small><div class="top-bar"><i style="width:{{ s.pct }}%;background:#1769e0"></i></div></div>
       <div class="text-end"><b>{{ s.total|data_size }}</b><small>{{ s.pct }}%</small></div></div>{% empty %}<p class="text-secondary small">Sites appear when the router’s DNS cache names them.</p>{% endfor %}</div></div></div>
 </div>
+<div class="panel mt-3"><div class="tt-cdn" data-url="{% url 'traffic_cdn' %}?device={{ d.pk }}&period={{ period }}"></div></div>
+<script src="{% static 'js/cdn-spread.js' %}" defer></script>
 <p class="small text-secondary mt-3">Apps are recognised from the sites the device talks to, sampled from the router once a minute; “Hotspot total” is everything the hotspot counted for this device, so it can be a little higher.</p>
 {{ chart_data|json_script:"ddData" }}
 {% endif %}

@@ -51,6 +51,26 @@ APP_RULES = [
     ('Apple updates & iCloud', 'Updates & downloads', ['apple.com', 'icloud', 'mzstatic', 'cdn-apple', 'aaplimg']),
     ('Google Play & Android', 'Updates & downloads', ['play.googleapis', 'android.clients', 'gvt1', 'gvt2', 'play-lh', 'googleusercontent']),
     ('Steam & games', 'Gaming', ['steam', 'valve', 'epicgames', 'riotgames', 'playstation', 'xboxlive', 'pubg', 'garena', 'freefire', 'roblox', 'activision']),
+    ('Pinterest', 'Social', ['pinterest', 'pinimg']),
+    ('Reddit', 'Social', ['reddit', 'redd.it', 'redditmedia', 'redditstatic']),
+    ('Twitch', 'Video', ['twitch', 'jtvnw', 'ttvnw']),
+    ('Disney+', 'Video', ['disneyplus', 'disney-plus', 'bamgrid', 'dssott']),
+    ('Prime Video', 'Video', ['primevideo', 'aiv-cdn', 'aiv-delivery', 'pv-cdn']),
+    ('Showmax / DStv', 'Video', ['showmax', 'dstv', 'multichoice']),
+    ('Vimeo', 'Video', ['vimeo', 'vimeocdn']),
+    ('Dailymotion', 'Video', ['dailymotion', 'dmcdn']),
+    ('Apple TV & Music', 'Video', ['tv.apple', 'music.apple', 'itunes', 'aod.itunes', 'hls.apple']),
+    ('Deezer', 'Music', ['deezer', 'dzcdn']),
+    ('SoundCloud', 'Music', ['soundcloud', 'sndcdn']),
+    ('Shazam', 'Music', ['shazam']),
+    ('Imo / Viber / Signal', 'Messaging & calls', ['imo.im', 'viber', 'signal.org']),
+    ('Discord', 'Messaging & calls', ['discord']),
+    ('Mobile games', 'Gaming', ['supercell', 'clashofclans', 'king.com', 'unity3d', 'unityads', 'applovin', 'miniclip', 'moonton', 'mobilelegends', 'callofduty']),
+    ('App downloads (Samsung, Huawei, Xiaomi)', 'Updates & downloads', ['samsungapps', 'galaxystore', 'samsungcloud', 'dbankcdn', 'hicloud', 'appgallery', 'xiaomi', 'miui', 'mi-img']),
+    ('Firefox & Mozilla', 'Updates & downloads', ['mozilla', 'firefox']),
+    ('GitHub', 'Updates & downloads', ['github', 'githubusercontent']),
+    ('Ads & tracking', 'Web & search', ['doubleclick', 'googlesyndication', 'adservice', 'adsrvr', 'criteo', 'taboola', 'outbrain', 'adnxs', 'scorecardresearch', 'app-measurement']),
+    ('News & media', 'Web & search', ['bbc', 'cnn', 'aljazeera', 'foroyaa', 'thepoint.gm', 'standard.gm', 'nytimes', 'guardian', 'reuters']),
     ('Google', 'Web & search', ['google', 'gstatic', 'googleapis', 'gmail']),
     ('Microsoft & Office', 'Web & search', ['microsoft', 'office', 'live.com', 'outlook', 'bing', 'msn']),
     ('Amazon & AWS', 'Web & search', ['amazonaws', 'amazon', 'cloudfront']),
@@ -62,6 +82,64 @@ PORT_RULES = {53: ('DNS', 'System'), 123: ('Time sync', 'System'), 853: ('DNS', 
               5222: ('WhatsApp', 'Messaging & calls'), 1935: ('Live streaming', 'Video'), 5228: ('Google Play & Android', 'Updates & downloads'),
               443: ('Other secure websites', 'Web & search'), 80: ('Other websites', 'Web & search')}
 CATEGORY_ORDER = ['Video', 'Social', 'Messaging & calls', 'Updates & downloads', 'Music', 'Gaming', 'Web & search', 'System', 'Other']
+
+
+# ───────────────────────── CDNs: who delivered it, and for which service ─────────────────────────
+# A big share of traffic comes from content delivery networks. The connection only shows the CDN's
+# address; the router's DNS cache tells TapTap which name the phone asked for (CNAME chain), so the
+# service behind the CDN (Pinterest via Fastly, a game via Akamai…) can be named.
+CDN_RULES = [
+    ('Fastly', ['fastly', 'fastlylb', 'fastly-edge']),
+    ('Akamai', ['akamai', 'akamaized', 'akamaiedge', 'akamaihd', 'edgekey', 'edgesuite', 'akadns', 'akamaitechnologies']),
+    ('Cloudflare', ['cloudflare', 'cdn.cloudflare', 'cloudflare-dns', 'cf-ipfs', 'workers.dev', 'pages.dev']),
+    ('Amazon CloudFront', ['cloudfront']),
+    ('Amazon AWS', ['amazonaws', 'awsglobalaccelerator', 'elb.amazonaws']),
+    ('Google Cloud CDN', ['googleusercontent', '1e100.net', 'gvt1', 'gvt2', 'googlehosted', 'c.docs.google']),
+    ('Microsoft Azure CDN', ['azureedge', 'msecnd', 'azurefd', 'trafficmanager', 'azure', 'footprint.net']),
+    ('Edgio / Limelight', ['llnwd', 'llnwi', 'edgecastcdn', 'systemcdn', 'edgio', 'lldns']),
+    ('Bunny CDN', ['b-cdn', 'bunnycdn']),
+    ('StackPath', ['stackpathdns', 'stackpathcdn', 'hwcdn', 'netdna']),
+    ('jsDelivr', ['jsdelivr']),
+    ('CDN77', ['cdn77']),
+    ('Alibaba CDN', ['alicdn', 'alikunlun', 'kunlun', 'aliyuncs']),
+    ('Tencent CDN', ['tcdn', 'qcloud', 'dnsv1', 'cdntip']),
+    ('ByteDance CDN', ['bytecdn', 'byteimg', 'ibyteimg', 'bytefcdn', 'bytedns', 'tiktokcdn']),
+    ('Meta CDN', ['fbcdn', 'cdninstagram', 'whatsapp.net']),
+    ('Apple CDN', ['aaplimg', 'cdn-apple', 'mzstatic']),
+]
+GENERIC_APPS = {'Other', 'Other secure websites', 'Other websites', 'Akamai CDN', 'Cloudflare', 'Amazon & AWS'}
+
+
+def cdn_of(host):
+    low = str(host or '').lower()
+    for name, frags in CDN_RULES:
+        if any(f in low for f in frags):
+            return name
+    return ''
+
+
+def service_hint(cdn_host):
+    """Name a CDN host may carry inside it: dualstack.pinterest.map.fastly.net → pinterest,
+    www.example.com.edgekey.net → www.example.com, abc.akamaized.net → abc."""
+    h = str(cdn_host or '').lower().rstrip('.')
+    m = re.match(r'^(?:dualstack\.)?([a-z0-9-]+)\.(?:map|global|freetls|ssl)\.fastly\.net$', h)
+    if m:
+        return m.group(1)
+    m = re.match(r'^(.+?)\.(?:edgekey|edgesuite|akamaized|akamaihd)\.net$', h)
+    if m:
+        return m.group(1)
+    return ''
+
+
+def hint_category(name):
+    low = str(name or '').lower()
+    if any(w in low for w in ('video', 'vod', 'hls', 'dash', 'stream', 'live', 'media', 'tv')):
+        return 'Video'
+    if any(w in low for w in ('audio', 'music', 'radio', 'podcast', 'sound')):
+        return 'Music'
+    if any(w in low for w in ('update', 'download', 'dl.', 'apps', 'store', 'apk', 'cdn-dl', 'patch', 'game')):
+        return 'Updates & downloads'
+    return ''
 
 
 def registered_domain(name):
@@ -86,6 +164,25 @@ def classify(name, port=None, proto=''):
         app, cat = PORT_RULES[port]
         return app, cat, registered_domain(low) or 'unresolved'
     return ('Other', 'Other', registered_domain(low) or 'unresolved')
+
+
+def classify_via(value, port=None, proto=''):
+    """(app, category, domain, cdn) for a DNS-map value ("name" or "name<TAB>cdn-host")."""
+    name, _, cdn_host = str(value or '').partition('\t')
+    via = cdn_of(cdn_host or name)
+    app, cat, domain = classify(name, port, proto)
+    if via and app in GENERIC_APPS:
+        hint = service_hint(cdn_host or name)
+        if hint:
+            a2, c2, _ = classify(hint, port, proto)
+            if a2 not in GENERIC_APPS:
+                app, cat = a2, c2
+        if app in GENERIC_APPS:
+            # still unknown: keep the site the phone asked for, and guess what it is from its name
+            app = 'Other sites'
+            cat = hint_category(name + ' ' + cdn_host) or 'Web & search'
+            domain = registered_domain(name) if name and not cdn_of(name) else (hint or registered_domain(name))
+    return app, cat, domain, via
 
 
 # ───────────────────────── helpers ─────────────────────────
@@ -189,11 +286,7 @@ def _dns_map(router, svc):
         return m
     m = {}
     try:
-        for r in svc.safe_get('/ip/dns/cache'):
-            name = str(r.get('name', ''))
-            addr = str(r.get('address') or (r.get('data') if str(r.get('type', 'A')).upper() in {'A', 'AAAA'} else '') or '')
-            if name and addr and addr not in m:
-                m[addr] = name.rstrip('.')
+        m = dns_map_from_rows(svc.safe_get('/ip/dns/cache'))
     except Exception as exc:
         logger.info('dns cache %s: %s', router, exc)
     cache.set(key, m, 600)
@@ -294,13 +387,32 @@ def collect_apps(router, svc, now):
 
 
 def dns_map_from_rows(rows):
-    """address → name from RouterOS DNS cache rows (v6: address, v7: type/data)."""
-    m = {}
+    """address → name from RouterOS DNS cache rows (v6: address, v7: type/data).
+
+    The name is the one the phone asked for: CNAME chains are followed back, so an address of
+    dualstack.pinterest.map.fastly.net maps to i.pinimg.com. When a CDN is in the chain the value
+    is "asked-for-name<TAB>cdn-host"."""
+    rev, a_rows = {}, []
     for r in rows or []:
-        name = str(r.get('name', ''))
-        addr = str(r.get('address') or (r.get('data') if str(r.get('type', 'A')).upper() in {'A', 'AAAA'} else '') or '')
-        if name and addr and addr not in m:
-            m[addr] = name.rstrip('.')
+        name = str(r.get('name', '')).lower().rstrip('.')
+        typ = str(r.get('type', 'A')).upper()
+        if typ == 'CNAME':
+            target = str(r.get('data', '')).lower().rstrip('.')
+            if name and target:
+                rev.setdefault(target, name)
+            continue
+        addr = str(r.get('address') or (r.get('data') if typ in {'A', 'AAAA'} else '') or '')
+        if name and addr:
+            a_rows.append((addr, name))
+    m = {}
+    for addr, name in a_rows:
+        if addr in m:
+            continue
+        origin, chain, hops = name, [name], 0
+        while origin in rev and hops < 6:
+            origin = rev[origin]; chain.append(origin); hops += 1
+        cdn_host = next((h for h in chain if cdn_of(h)), '')
+        m[addr] = f'{origin}\t{cdn_host}' if cdn_host and cdn_host != origin else origin
     return m
 
 
@@ -332,10 +444,10 @@ def ingest_connections(router, conns, dns, now):
             d_up, d_down = up, down  # connection opened since the last sample
         if d_up + d_down <= 0:
             continue
-        app, cat, domain = classify(dns.get(dst_ip, ''), port, str(c.get('protocol', '')).lower())
-        a = agg[(app, cat, domain)]
+        app, cat, domain, via = classify_via(dns.get(dst_ip, ''), port, str(c.get('protocol', '')).lower())
+        a = agg[(app, cat, domain, via)]
         a[0] += d_down; a[1] += d_up
-        d = per_dev[(src_ip, app, cat, domain)]
+        d = per_dev[(src_ip, app, cat, domain, via)]
         d[0] += d_down; d[1] += d_up
     cache.set(key, cur, 3600)
     if not agg:
@@ -346,39 +458,41 @@ def ingest_connections(router, conns, dns, now):
     except Exception as exc:   # the per-router report must never suffer from this
         logger.info('device app usage %s: %s', router, exc)
     rows = sorted(agg.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))
-    keep, rest = rows[:40], rows[40:]
+    keep, rest = rows[:60], rows[60:]
     if rest:
         other = [sum(v[0] for _, v in rest), sum(v[1] for _, v in rest)]
-        keep.append((('Other', 'Other', 'many sites'), other))
-    for (app, cat, domain), (dn, up) in keep:
+        keep.append((('Other', 'Other', 'many sites', ''), other))
+    for (app, cat, domain, via), (dn, up) in keep:
         obj, created = AppUsage.objects.get_or_create(router=router, hour=hour, app=app, domain=domain[:120],
-                                                      defaults={'business': router.business, 'category': cat, 'download': dn, 'upload': up})
+                                                      defaults={'business': router.business, 'category': cat, 'via': via[:40], 'download': dn, 'upload': up})
         if not created:
-            AppUsage.objects.filter(pk=obj.pk).update(download=F('download') + dn, upload=F('upload') + up)
+            AppUsage.objects.filter(pk=obj.pk).update(download=F('download') + dn, upload=F('upload') + up,
+                                                      **({'via': via[:40]} if via and not obj.via else {}))
     return len(keep)
 
 
-DEVICE_TOP = 15   # sites kept per device per sample; the rest is summed as "Other"
+DEVICE_TOP = 25   # sites kept per device per sample; the rest is summed as "Other"
 
 
 def _store_per_device(router, per_dev, hour):
     """Save the sample split by device: IP → MAC and voucher from the live hotspot sessions."""
     ipmap = cache.get(f'tt:tr:ipmap:{router.pk}') or {}
     by_ip = defaultdict(list)
-    for (ip, app, cat, domain), v in per_dev.items():
-        by_ip[ip].append(((app, cat, domain), v))
+    for (ip, app, cat, domain, via), v in per_dev.items():
+        by_ip[ip].append(((app, cat, domain, via), v))
     for ip, rows in by_ip.items():
         mac, user = (ipmap.get(ip) or ['', ''])
         rows.sort(key=lambda kv: -(kv[1][0] + kv[1][1]))
         keep, rest = rows[:DEVICE_TOP], rows[DEVICE_TOP:]
         if rest:
-            keep.append((('Other', 'Other', 'many sites'), [sum(v[0] for _, v in rest), sum(v[1] for _, v in rest)]))
-        for (app, cat, domain), (dn, up) in keep:
+            keep.append((('Other', 'Other', 'many sites', ''), [sum(v[0] for _, v in rest), sum(v[1] for _, v in rest)]))
+        for (app, cat, domain, via), (dn, up) in keep:
             obj, created = DeviceAppUsage.objects.get_or_create(
                 router=router, hour=hour, mac=(mac or '').upper()[:32], ip=ip[:45], app=app, domain=domain[:120],
-                defaults={'business': router.business, 'category': cat, 'username': (user or '')[:120], 'download': dn, 'upload': up})
+                defaults={'business': router.business, 'category': cat, 'via': via[:40], 'username': (user or '')[:120], 'download': dn, 'upload': up})
             if not created:
-                DeviceAppUsage.objects.filter(pk=obj.pk).update(download=F('download') + dn, upload=F('upload') + up)
+                DeviceAppUsage.objects.filter(pk=obj.pk).update(download=F('download') + dn, upload=F('upload') + up,
+                                                                **({'via': via[:40]} if via and not obj.via else {}))
 
 
 def prune():

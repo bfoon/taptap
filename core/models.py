@@ -902,6 +902,7 @@ class AppUsage(models.Model):
     app=models.CharField(max_length=60)
     category=models.CharField(max_length=40)
     domain=models.CharField(max_length=120)
+    via=models.CharField(max_length=40,blank=True,default='',help_text='CDN that delivered it (Fastly, Akamai, Cloudflare…)')
     download=models.BigIntegerField(default=0)
     upload=models.BigIntegerField(default=0)
     class Meta:
@@ -920,6 +921,7 @@ class DeviceAppUsage(models.Model):
     app=models.CharField(max_length=60)
     category=models.CharField(max_length=40)
     domain=models.CharField(max_length=120)
+    via=models.CharField(max_length=40,blank=True,default='',help_text='CDN that delivered it (Fastly, Akamai, Cloudflare…)')
     download=models.BigIntegerField(default=0)
     upload=models.BigIntegerField(default=0)
     class Meta:

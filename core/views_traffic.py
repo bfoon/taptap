@@ -75,6 +75,25 @@ def traffic_data(request):
 
 
 @login_required
+def traffic_cdn(request):
+    """CDNs and "Other" traffic for the traffic page (same period / router) or one device (?device=<id>)."""
+    from .cdn_report import cdns, others
+    from .models import DeviceAppUsage
+    business, period, router = _traffic_args(request)
+    dev = request.GET.get('device', '')
+    if dev.isdigit():
+        d = business.device_signatures.filter(pk=int(dev)).first()
+        macs = [str(m).upper() for m in ((d.macs or []) if d else []) if m] or ([d.last_mac.upper()] if d and d.last_mac else ['-'])
+        days = {'24h': 1, '7d': 7, '30d': 30}.get(request.GET.get('period'), 7)
+        qs = DeviceAppUsage.objects.filter(business=business, hour__gte=timezone.now() - timedelta(days=days), mac__in=macs)
+    else:
+        qs = AppUsage.objects.filter(business=business, hour__gte=period.start, hour__lt=period.end)
+        if router:
+            qs = qs.filter(router_id=router)
+    return JsonResponse({'cdns': cdns(qs), 'others': others(qs)})
+
+
+@login_required
 def traffic_now(request):
     return JsonResponse(right_now(_b(request), request.GET.get('router')))
 

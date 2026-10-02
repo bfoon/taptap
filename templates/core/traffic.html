@@ -102,6 +102,8 @@
     <div class="table-responsive"><table class="table align-middle tr-table"><thead><tr><th>Site</th><th>App</th><th class="tr-num">Data</th></tr></thead><tbody id="tbSites"></tbody></table></div></section>
 </div>
 
+<section class="panel mb-3"><div class="tt-cdn" data-url="{% url 'traffic_cdn' %}?{{ query }}"></div></section>
+
 <section class="panel mb-3"><div class="panel-head"><div><h3>Who uses the most data</h3><p id="usersNote">Per voucher and device in this period.</p></div></div>
   <div class="table-responsive"><table class="table align-middle tr-table"><thead><tr><th>Voucher / user</th><th>Device</th><th class="tr-num">Download</th><th class="tr-num">Upload</th><th class="tr-num">Total</th><th>Share</th><th class="tr-num">Top speed</th><th class="tr-num">Hours online</th></tr></thead><tbody id="tbUsers"></tbody></table></div></section>
 
@@ -113,6 +115,7 @@
 
 {% block scripts %}
 <script src="{% static 'vendor/chart.umd.min.js' %}"></script>
+<script src="{% static 'js/cdn-spread.js' %}" defer></script>
 <script src="{% static 'js/traffic-live.js' %}?v=3" data-data-url="{% url 'traffic_data' %}?{{ query }}" data-now-url="{% url 'traffic_now' %}{% if sel_router %}?router={{ sel_router }}{% endif %}"></script>
 
 {% endblock %}
