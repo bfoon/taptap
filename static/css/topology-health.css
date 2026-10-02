@@ -1,0 +1,177 @@
+/* MikroTik front-panel system health */
+
+.mikrotik-chassis .chassis-top-row{
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  gap:1rem;
+  align-items:start;
+  margin-bottom:.9rem;
+}
+
+.mikrotik-chassis .chassis-top-row .chassis-leds{
+  margin:.1rem 0 0;
+  white-space:nowrap;
+}
+
+.chassis-health{
+  min-width:0;
+}
+
+.ch-health-grid{
+  display:grid;
+  grid-template-columns:repeat(5,minmax(88px,1fr));
+  gap:.45rem;
+}
+
+.ch-health-item{
+  min-width:0;
+  border:1px solid #46515d;
+  background:#111820;
+  border-radius:9px;
+  padding:.42rem .5rem;
+  box-shadow:inset 0 1px #ffffff08;
+}
+
+.ch-health-item>span{
+  display:flex;
+  align-items:center;
+  gap:.28rem;
+  color:#8fa2b5;
+  font-size:.5rem;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  white-space:nowrap;
+}
+
+.ch-health-item>span i{
+  color:#68aefa;
+  font-size:.64rem;
+}
+
+.ch-health-item>b{
+  display:block;
+  color:#f0f5fa;
+  font-size:.78rem;
+  line-height:1.25;
+  margin:.12rem 0 .2rem;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.ch-health-item small{
+  display:block;
+  color:#71879b;
+  font-size:.48rem;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.ch-health-bar{
+  height:3px;
+  overflow:hidden;
+  border-radius:99px;
+  background:#26313c;
+}
+
+.ch-health-bar>i{
+  display:block;
+  width:0;
+  height:100%;
+  border-radius:99px;
+  background:#39c985;
+  transition:width .5s ease,background .3s;
+}
+
+.ch-health-item.warn .ch-health-bar>i{
+  background:#f3b23b;
+}
+
+.ch-health-item.hot .ch-health-bar>i{
+  background:#ef5b5b;
+}
+
+.ch-health-meta{
+  display:flex;
+  flex-wrap:wrap;
+  gap:.35rem .75rem;
+  margin-top:.42rem;
+  color:#8799aa;
+  font-size:.5rem;
+  min-height:.8rem;
+}
+
+.ch-health-meta span{
+  white-space:nowrap;
+}
+
+.ch-health-meta i{
+  color:#6eaef0;
+  margin-right:.2rem;
+}
+
+.ch-health-meta .stale{
+  color:#e1af51;
+}
+
+.ch-health-loading{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:48px;
+  color:#7f91a2;
+  font-size:.6rem;
+  border:1px dashed #46515d;
+  border-radius:9px;
+}
+
+.ch-health-loading i{
+  margin-right:.35rem;
+}
+
+.ch-health-loading.bad{
+  color:#e49b9b;
+  border-color:#704343;
+}
+
+@media(max-width:1250px){
+  .mikrotik-chassis .chassis-top-row{
+    grid-template-columns:auto 1fr;
+  }
+  .mikrotik-chassis .chassis-top-row .chassis-leds{
+    grid-column:1;
+  }
+  .chassis-health{
+    grid-column:2;
+    grid-row:1/3;
+  }
+  .ch-health-grid{
+    grid-template-columns:repeat(3,minmax(90px,1fr));
+  }
+}
+
+@media(max-width:850px){
+  .mikrotik-chassis .chassis-top-row{
+    grid-template-columns:1fr;
+  }
+  .mikrotik-chassis .chassis-top-row .chassis-leds,
+  .chassis-health{
+    grid-column:auto;
+    grid-row:auto;
+  }
+  .ch-health-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+}
+
+@media(max-width:520px){
+  .ch-health-grid{
+    grid-template-columns:1fr 1fr;
+  }
+  .ch-health-item{
+    padding:.4rem;
+  }
+}
