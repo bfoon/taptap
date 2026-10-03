@@ -1,0 +1,259 @@
+<section class="panel mb-3" id="voucher-entry-security">
+  <div class="panel-head">
+    <div>
+      <h3><i class="bi bi-shield-lock-fill"></i> Voucher entry protection</h3>
+      <p>
+        Protect the customer login page from voucher guessing. TapTap counts wrong voucher/member credentials per device,
+        warns the customer before the limit, then temporarily blocks that device from entering more codes.
+      </p>
+    </div>
+    {% if voucher_entry_policy.enabled %}
+      <span class="badge text-bg-success"><i class="bi bi-shield-check"></i> On</span>
+    {% else %}
+      <span class="badge text-bg-secondary">Off</span>
+    {% endif %}
+  </div>
+
+  <form method="post" action="{% url 'voucher_entry_policy_save' %}" class="row g-3 align-items-end">
+    {% csrf_token %}
+
+    <div class="col-12">
+      <label class="form-check form-switch">
+        <input
+          class="form-check-input"
+          type="checkbox"
+          name="enabled"
+          {% if voucher_entry_policy.enabled %}checked{% endif %}
+        >
+        <span class="form-check-label">
+          <b>Enable voucher-entry countdown and device lockout</b>
+          <small class="d-block text-secondary">
+            Only wrong voucher codes and wrong member username/password attempts count.
+            Expired, disabled, frozen or already-used vouchers do not count as guessing attempts.
+          </small>
+        </span>
+      </label>
+    </div>
+
+    <div class="col-sm-6 col-lg-3">
+      <label class="form-label fw-semibold">Block after</label>
+      <div class="input-group">
+        <input
+          class="form-control"
+          type="number"
+          name="max_attempts"
+          min="2"
+          max="50"
+          value="{{ voucher_entry_policy.max_attempts }}"
+          required
+        >
+        <span class="input-group-text">wrong tries</span>
+      </div>
+    </div>
+
+    <div class="col-sm-6 col-lg-3">
+      <label class="form-label fw-semibold">Warn when</label>
+      <div class="input-group">
+        <input
+          class="form-control"
+          type="number"
+          name="warning_remaining"
+          min="1"
+          max="49"
+          value="{{ voucher_entry_policy.warning_remaining }}"
+          required
+        >
+        <span class="input-group-text">tries remain</span>
+      </div>
+    </div>
+
+    <div class="col-sm-6 col-lg-3">
+      <label class="form-label fw-semibold">Count tries within</label>
+      <div class="input-group">
+        <input
+          class="form-control"
+          type="number"
+          name="window_minutes"
+          min="1"
+          max="1440"
+          value="{{ voucher_entry_policy.window_minutes }}"
+          required
+        >
+        <span class="input-group-text">minutes</span>
+      </div>
+    </div>
+
+    <div class="col-sm-6 col-lg-3">
+      <label class="form-label fw-semibold">Block device for</label>
+      <div class="input-group">
+        <input
+          class="form-control"
+          type="number"
+          name="block_minutes"
+          min="1"
+          max="10080"
+          value="{{ voucher_entry_policy.block_minutes }}"
+          required
+        >
+        <span class="input-group-text">minutes</span>
+      </div>
+    </div>
+
+    <div class="col-lg-6">
+      <label class="form-label fw-semibold">
+        Warning message
+        <span class="fw-normal text-secondary">(optional)</span>
+      </label>
+      <textarea
+        class="form-control"
+        name="warning_text"
+        rows="2"
+        maxlength="1000"
+        placeholder="Example: Please check your voucher carefully. Too many wrong entries will temporarily block this device."
+      >{{ voucher_entry_policy.warning_text }}</textarea>
+      <small class="text-secondary">
+        TapTap automatically adds the number of attempts remaining.
+      </small>
+    </div>
+
+    <div class="col-lg-6">
+      <label class="form-label fw-semibold">
+        Blocked message
+        <span class="fw-normal text-secondary">(optional)</span>
+      </label>
+      <textarea
+        class="form-control"
+        name="blocked_text"
+        rows="2"
+        maxlength="1500"
+        placeholder="Example: This device has been temporarily blocked because too many incorrect voucher codes were entered."
+      >{{ voucher_entry_policy.blocked_text }}</textarea>
+      <small class="text-secondary">
+        TapTap automatically shows the unblock time and your support number.
+      </small>
+    </div>
+
+    <div class="col-12 d-flex flex-wrap gap-2 align-items-center">
+      <button class="btn btn-primary">
+        <i class="bi bi-shield-check"></i> Save voucher-entry protection
+      </button>
+
+      {% if current_business.support_phone or current_business.phone %}
+        <span class="small text-secondary">
+          Customer support shown on lockout:
+          <b>{{ current_business.support_phone|default:current_business.phone }}</b>
+        </span>
+      {% endif %}
+    </div>
+  </form>
+
+  <div class="alert alert-light border mt-3 mb-0 small">
+    <b>Example:</b>
+    if you set <b>{{ voucher_entry_policy.max_attempts }} tries</b> and warn with
+    <b>{{ voucher_entry_policy.warning_remaining }} remaining</b>, a customer entering wrong codes sees a warning before the limit.
+    At the threshold, that device cannot submit another voucher for
+    <b>{{ voucher_entry_policy.block_minutes }} minute{{ voucher_entry_policy.block_minutes|pluralize }}</b>.
+    The captive login page stays available so the customer can see why they are blocked and call you.
+  </div>
+
+  {% if voucher_entry_blocked %}
+    <div class="d-flex justify-content-between align-items-center mt-4 mb-2">
+      <div>
+        <h4 class="h6 fw-bold mb-0">Blocked now</h4>
+        <small class="text-secondary">{{ voucher_entry_blocked|length }} device{{ voucher_entry_blocked|length|pluralize }} currently locked out</small>
+      </div>
+      <form method="post" action="{% url 'voucher_entry_unblock_all' %}">
+        {% csrf_token %}
+        <button
+          class="btn btn-sm btn-outline-danger"
+          onclick="return confirm('Unblock every device currently locked out of voucher entry?')"
+        >
+          <i class="bi bi-unlock"></i> Unblock all
+        </button>
+      </form>
+    </div>
+
+    <div class="table-responsive">
+      <table class="table align-middle">
+        <thead>
+          <tr>
+            <th>Device</th>
+            <th>IP</th>
+            <th class="text-center">Wrong tries</th>
+            <th>Blocked until</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in voucher_entry_blocked %}
+            <tr>
+              <td>
+                {% if d.mac_address %}
+                  <b><code>{{ d.mac_address }}</code></b>
+                {% elif d.fingerprint_hash %}
+                  <b>Browser/device fingerprint</b>
+                  <small class="d-block text-secondary">{{ d.fingerprint_hash|slice:":12" }}…</small>
+                {% else %}
+                  <b>IP-based device</b>
+                {% endif %}
+              </td>
+              <td>{{ d.ip_address|default:"—" }}</td>
+              <td class="text-center"><span class="badge text-bg-danger">{{ d.attempts }}</span></td>
+              <td>
+                <b>{{ d.blocked_until|date:"d M H:i:s" }}</b>
+                <small class="d-block text-secondary">{{ d.blocked_until|timeuntil }} remaining</small>
+              </td>
+              <td class="text-end">
+                <form method="post" action="{% url 'voucher_entry_unblock' d.id %}">
+                  {% csrf_token %}
+                  <button class="btn btn-sm btn-success">
+                    <i class="bi bi-unlock"></i> Unblock now
+                  </button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="mt-4 border-top pt-3 text-secondary small">
+      <i class="bi bi-check-circle text-success"></i>
+      No device is currently blocked from voucher entry.
+    </div>
+  {% endif %}
+
+  {% if voucher_entry_recent %}
+    <details class="mt-3">
+      <summary class="small fw-bold">Recent devices approaching the threshold</summary>
+      <div class="table-responsive mt-2">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th>Device</th>
+              <th>IP</th>
+              <th>Wrong tries</th>
+              <th>Last wrong entry</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for d in voucher_entry_recent %}
+              <tr>
+                <td>
+                  {% if d.mac_address %}
+                    <code>{{ d.mac_address }}</code>
+                  {% else %}
+                    Device fingerprint
+                  {% endif %}
+                </td>
+                <td>{{ d.ip_address|default:"—" }}</td>
+                <td>{{ d.attempts }} / {{ voucher_entry_policy.max_attempts }}</td>
+                <td>{{ d.last_attempt_at|timesince }} ago</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  {% endif %}
+</section>

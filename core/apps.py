@@ -29,6 +29,11 @@ class CoreConfig(AppConfig):
         from .link_system_health import install as install_link_system_health
         install_link_system_health()
 
+        # Voucher/member entry brute-force protection:
+        # configurable countdown, warning, temporary device lockout and manual unblock.
+        from .voucher_entry_security import install as install_voucher_entry_security
+        install_voucher_entry_security()
+
         # Traffic base-speed rules run immediately before Fair Usage.
         # Device > agent > plan > all plans; Fair Usage may still reduce more.
         from .traffic_speed import install as install_traffic_speed

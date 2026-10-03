@@ -5,6 +5,11 @@ from core.admin_otp import admin_otp
 from core import views_manage, views_team
 from core.views_archive import voucher_archive_settings
 from core.views_speed import speed_control, speed_rule_save, speed_rule_action
+from core.views_voucher_entry import (
+    voucher_entry_policy_save,
+    voucher_entry_unblock,
+    voucher_entry_unblock_all,
+)
 
 
 urlpatterns = [
@@ -24,6 +29,23 @@ urlpatterns = [
         "settings/voucher-archive/",
         voucher_archive_settings,
         name="voucher_archive_settings",
+    ),
+
+    # Voucher-entry security.
+    path(
+        "security/voucher-entry/save/",
+        voucher_entry_policy_save,
+        name="voucher_entry_policy_save",
+    ),
+    path(
+        "security/voucher-entry/<int:pk>/unblock/",
+        voucher_entry_unblock,
+        name="voucher_entry_unblock",
+    ),
+    path(
+        "security/voucher-entry/unblock-all/",
+        voucher_entry_unblock_all,
+        name="voucher_entry_unblock_all",
     ),
 
     # Dedicated Traffic speed-control page.
