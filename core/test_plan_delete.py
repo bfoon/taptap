@@ -40,16 +40,21 @@ class PlanDeleteTests(TestCase):
     def delete(self, plan, reason='discontinued'):
         return self.client.post(reverse('plan_delete', args=[plan.pk]), {'reason': reason}, **HTML)
 
-    def test_plan_never_used_goes_to_bin_with_its_vouchers_and_empty_batch(self):
+    def empty(self, plan):
+        """Only an empty plan can be deleted: its vouchers end (history) so it has no live voucher left."""
+        Voucher.objects.filter(plan_name=plan.name).update(status='expired')
+
+    def test_plan_with_vouchers_cannot_be_deleted_until_empty(self):
         self.client.force_login(self.owner)
+        self.delete(self.fresh)                                         # still has 2 live vouchers: refused
+        self.assertIsNone(VoucherPlan.all_objects.get(pk=self.fresh.pk).deleted_at)
+        self.client.post(reverse('plan_move', args=[self.fresh.pk]), {'to': self.busy.pk}, **HTML)   # move them away
+        self.assertEqual(Voucher.objects.filter(plan_name='Promo').count(), 0)
         self.delete(self.fresh)
         p = VoucherPlan.all_objects.get(pk=self.fresh.pk)
-        self.assertIsNotNone(p.deleted_at)
         self.assertEqual((p.delete_reason, p.deleted_by, p.active), ('discontinued', self.owner, False))
         self.assertFalse(self.biz.plans.filter(pk=p.pk).exists())
-        self.assertEqual(Voucher.all_objects.binned().filter(plan_name='Promo').count(), 2)
-        self.assertIsNotNone(VoucherBatch.all_objects.get(pk=self.batch.pk).deleted_at)
-        self.assertEqual(p.delete_info['vouchers_deleted'], 2)
+        self.assertEqual(VoucherBatch.objects.get(pk=self.batch.pk).plan, self.busy)   # the batch moved with its vouchers
 
     def test_reason_required(self):
         self.client.force_login(self.owner)
@@ -57,18 +62,18 @@ class PlanDeleteTests(TestCase):
         self.assertIsNone(VoucherPlan.all_objects.get(pk=self.fresh.pk).deleted_at)
 
     def test_used_plan_owner_and_admin_can_delete_used_kept(self):
+        self.empty(self.busy)
         for who in (self.owner, self.member('admin')):
             VoucherPlan.all_objects.filter(pk=self.busy.pk).update(deleted_at=None)
             self.client.force_login(who)
             self.delete(self.busy)
             self.assertIsNotNone(VoucherPlan.all_objects.get(pk=self.busy.pk).deleted_at, who)
         used = Voucher.objects.get(pk=self.used.pk)
-        self.assertEqual((used.plan_name, used.status), ('Day', 'active'))  # history kept, still works
-        self.assertIsNotNone(Voucher.all_objects.get(pk=self.sold.pk).deleted_at)  # unused (sold) one binned
-        self.assertFalse(VoucherSale.objects.filter(voucher_id=self.sold.pk).exists())  # its sale left finance
+        self.assertEqual(used.plan_name, 'Day')  # history kept
 
     def test_used_plan_not_deletable_by_staff_with_plans_manage_extra(self):
         u = self.member('voucher_creator', extra=['plans.manage', 'plans.delete_used'])  # the second extra is ignored
+        self.empty(self.busy); self.empty(self.fresh)
         self.client.force_login(u)
         self.delete(self.busy)
         self.assertIsNone(VoucherPlan.all_objects.get(pk=self.busy.pk).deleted_at)
@@ -84,6 +89,11 @@ class PlanDeleteTests(TestCase):
     def test_plans_page_buttons(self):
         self.client.force_login(self.owner)
         r = self.client.get(reverse('plans'), **HTML)
+        self.assertContains(r, 'data-bs-target="#planDelete"', count=0)          # both still have vouchers
+        self.assertContains(r, 'data-bs-target="#planMove"', count=2)
+        self.assertContains(r, 'to another plan first')
+        self.empty(self.fresh); self.empty(self.busy)
+        r = self.client.get(reverse('plans'), **HTML)
         self.assertContains(r, 'data-bs-target="#planDelete"', count=2)
         self.assertContains(r, reverse('plan_detail', args=[self.fresh.pk]))  # plan details link is back
         self.client.force_login(self.member('voucher_creator', extra=['plans.manage']))
@@ -93,6 +103,7 @@ class PlanDeleteTests(TestCase):
 
     def test_bin_shows_deleted_plans(self):
         self.client.force_login(self.owner)
+        self.empty(self.fresh)
         self.delete(self.fresh)
         r = self.client.get(reverse('voucher_bin'), {'tab': 'plans'}, **HTML)
         self.assertContains(r, 'Promo')
@@ -101,6 +112,7 @@ class PlanDeleteTests(TestCase):
     def test_name_can_be_reused_and_sync_does_not_bring_it_back(self):
         from .sync import _profile_to_plan
         self.client.force_login(self.owner)
+        self.empty(self.fresh)
         self.delete(self.fresh)
         router = Router.objects.create(business=self.biz, name='R', ip_address='10.0.0.1', username='u', password='p')
         summary = {'duplicate_plans_skipped': 0, 'pulled_plans': 0}
@@ -117,5 +129,6 @@ class PlanDeleteTests(TestCase):
 
     def test_deleted_plan_detail_is_gone(self):
         self.client.force_login(self.owner)
+        self.empty(self.fresh)
         self.delete(self.fresh)
         self.assertEqual(self.client.get(reverse('plan_detail', args=[self.fresh.pk]), **HTML).status_code, 404)

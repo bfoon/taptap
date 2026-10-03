@@ -189,6 +189,10 @@ def can_delete_plan(plan, perms):
         return False, 'This plan is already in the bin.'
     if 'plans.manage' not in perms:
         return False, 'Your role cannot delete plans.'
+    live = Voucher.objects.filter(business=plan.business, plan_name=plan.name, status__in=('active', 'disabled')).count()
+    if live:
+        # only an empty plan can be deleted: move its vouchers to another plan first (nobody is disrupted)
+        return False, f'{plan.name} still has {live} voucher(s). Move them to another plan first (“Move vouchers”), then delete it.'
     used = Voucher.objects.filter(business=plan.business, plan_name=plan.name, used_at__isnull=False).exists()
     if used and 'plans.delete_used' not in perms:
         return False, 'Vouchers of this plan have been used — only an Owner or Admin can delete it.'

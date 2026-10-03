@@ -349,12 +349,14 @@ def plans(request):
     zero=business.vouchers.filter(price=0,sold_at__isnull=True).values('plan_name').annotate(n=Count('id'))
     zero_map={r['plan_name']:r['n'] for r in zero}
     usage={r['plan_name']:r for r in business.vouchers.values('plan_name').annotate(total=Count('id'),used=Count('id',filter=Q(used_at__isnull=False)),
-        unused=Count('id',filter=Q(used_at__isnull=True)),sold_unused=Count('id',filter=Q(used_at__isnull=True,sold_at__isnull=False)))}
+        unused=Count('id',filter=Q(used_at__isnull=True)),sold_unused=Count('id',filter=Q(used_at__isnull=True,sold_at__isnull=False)),
+        live=Count('id',filter=Q(status__in=['active','disabled'])),live_used=Count('id',filter=Q(status__in=['active','disabled'],used_at__isnull=False)))}
     perms=getattr(request,'tt_perms',frozenset())
     for p in plan_list:
         p.zero_vouchers=zero_map.get(p.name,0); u=usage.get(p.name,{})
         p.v_total,p.v_used,p.v_unused,p.v_sold_unused=u.get('total',0),u.get('used',0),u.get('unused',0),u.get('sold_unused',0)
-        p.can_delete=not p.v_used or 'plans.delete_used' in perms
+        p.v_live,p.v_live_used=u.get('live',0),u.get('live_used',0)
+        p.can_delete=not p.v_live and (not p.v_used or 'plans.delete_used' in perms)   # only an empty plan
     from .orphan_profiles import groups_with_traces as orphan_groups_t
     return render(request,'core/plans.html',{'plans':plan_list,'form':form,'missing':[p for p in plan_list if not p.price and not p.is_free],
         'orphans':orphan_groups_t(business)})

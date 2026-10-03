@@ -207,3 +207,31 @@ def voucher_archive_now(request, pk):
     record(v, 'archived', user=request.user, reason='Archived by hand', status_before=v.status, status_after='archived', router_result=msg)
     messages.success(request, f'{v.code} archived — off the router, kept in TapTap. {msg}')
     return redirect('voucher_detail', pk=pk)
+
+
+@login_required
+@require_POST
+def plan_move(request, pk):
+    """Move all vouchers of a plan to another plan (no disruption); optionally delete the emptied plan."""
+    from .plan_move import move_vouchers
+    business = _b(request)
+    src = get_object_or_404(business.plans, pk=pk)
+    dst = business.plans.filter(pk=request.POST.get('to') if str(request.POST.get('to', '')).isdigit() else 0).first()
+    if not dst or dst.pk == src.pk:
+        messages.error(request, 'Choose the plan the vouchers should move to.')
+        return redirect('plans')
+    try:
+        r = move_vouchers(src, dst, request.user)
+    except ValueError as e:
+        messages.error(request, str(e)); return redirect('plans')
+    msg = (f"{r['moved']} voucher(s) moved from {src.name} to {dst.name}: {r['in_use']} in use keep their time, "
+           f"{r['unused']} unused now follow {dst.name}." + (f" {r['router_moved']} of {r['router_made']} router-made voucher(s) changed on the router." if r['router_made'] else ''))
+    if request.POST.get('delete_after') == 'on':
+        try:
+            delete_plan(src, user=request.user, reason=f'Emptied — vouchers moved to {dst.name}', perms=getattr(request, 'tt_perms', frozenset()))
+            msg += f' {src.name} is now in the bin.'
+        except BinError as e:
+            msg += f' {src.name} was not deleted: {e}'
+    messages.success(request, msg)
+    from .portal_deploy import schedule_redeploy; schedule_redeploy(business)
+    return redirect('plans')
