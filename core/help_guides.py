@@ -16,8 +16,9 @@ CATEGORIES = [
 ]
 
 
-def S(title, body, link=None, tip=None, code=None):
-    return {'title': title, 'body': body, 'link': link, 'tip': tip, 'code': code}
+def S(title, body, link=None, tip=None, code=None, image=None, alt=''):
+    """One step. image = a file under static/ (e.g. 'help/router-register.svg'), shown under the text."""
+    return {'title': title, 'body': body, 'link': link, 'tip': tip, 'code': code, 'image': image, 'alt': alt or title}
 
 
 def P(symptom, *fixes):
@@ -40,6 +41,36 @@ GUIDES = [
      ], 'related': ['add-router-link', 'create-plans', 'generate-vouchers', 'publish-portal']},
 
     # ───────────────────────────── routers ─────────────────────────────
+    {'slug': 'register-mikrotik', 'title': 'Register a new MikroTik — start to finish', 'category': 'routers', 'icon': 'bi-router', 'minutes': 15, 'popular': True,
+     'summary': 'From a new router to customers logging in: connect it to TapTap, import it, put your login page on it and test with a voucher.',
+     'keywords': 'register new mikrotik router add connect setup install link quick install winbox terminal hotspot first router second router',
+     'steps': [
+         S('Before you start', 'The router needs **RouterOS 6.49 or newer** (7.x is best) and a working internet connection. Its hotspot must be set up: in WinBox go to **IP › Hotspot**, press **Hotspot Setup**, choose the customer-facing interface (bridge or Wi-Fi) and accept the suggestions. Write down the router’s WinBox login.',
+           tip='Already have Mikhmon or your own hotspot on the router? Keep it — TapTap imports your existing profiles and vouchers in step 5.',
+           code='/ip hotspot setup'),
+         S('Register it in TapTap', 'Open **MikroTik Control**. Under **Register router via TapTap Link**, type a name you will recognise (e.g. “Main Hall”) and press **Create Router & Generate Link**.',
+           ('routers', 'Open MikroTik Control'), image='help/router-register.svg', alt='MikroTik Control with the Register router via TapTap Link card'),
+         S('Copy the quick-install block', 'The router’s TapTap Link page opens with a **Quick install** block. Press **Copy quick install** — one press copies all of it. It contains this router’s private token and is shown once; if you lose it, press **Rotate token** for a new one (the old one stops working).',
+           image='help/router-quick-install.svg', alt='The quick install block with Copy quick install and Rotate token buttons'),
+         S('Paste it into the router', 'In **WinBox**, open **New Terminal**, paste the whole block and press **Enter**. Wait until it says the script ran and the prompt comes back.',
+           tip='Paste the complete block in one go. Pasting only part of it is the most common reason a router never checks in.',
+           image='help/router-winbox-terminal.svg', alt='WinBox terminal after pasting the quick install'),
+         S('Wait for green, then Sync', 'Within a minute the router shows **● Online** in MikroTik Control. Press **Sync** once: TapTap imports the hotspot profiles as plans (price and length read from the profile), the vouchers already on the router, devices and settings.',
+           ('routers', 'Open MikroTik Control'), image='help/router-online-sync.svg', alt='The router online in MikroTik Control and the first sync result'),
+         S('Put your login page on it', 'Open **Portal Studio** and press **Put on all routers**. The router downloads your login, status and logout pages and lets them reach TapTap before customers log in (voucher check, wrong-code counting, adverts). It also gives the hotspot the easy address from Settings (e.g. **login.wifi**).',
+           ('portal_studio', 'Open Portal Studio'), image='help/router-put-portal.svg', alt='Portal Studio with Put on all routers and the per-router status'),
+         S('Check the plans and prices', 'Open **Plans**. Each profile from the router is now a plan: check its price, length and devices. A plan whose price TapTap could not read shows a warning — type the price once.', ('plans', 'Open Plans')),
+         S('Test with a real voucher', 'Generate one voucher for the new router (**Generate**, choose the router), connect a phone to the Wi-Fi, enter the code on the login page and browse. Then open the voucher in TapTap: it shows the device, the time running and the data used.', ('generate_vouchers', 'Generate a voucher'),
+           tip='Turn on Live sync (Security) so expired vouchers, shared codes and fair usage are handled within a minute.'),
+     ],
+     'problems': [
+         P('The router never turns green', 'Paste the whole block again in a New Terminal, then follow “Router won’t check in (TapTap Link)”.',
+           'Check the router has internet: in the terminal run `/ping 8.8.8.8 count=3` and `/ping taptapnetwork.com count=3`.'),
+         P('Phones join the Wi-Fi but no login page opens', 'Run **Hotspot Setup** on the right interface (step 1), then press **Put on all routers** again. Customers can also type **login.wifi** in the browser.'),
+         P('“Put on all routers” stays queued', 'TapTap Link applies it at the router’s next check-in. If it fails, the router shows the reason on the Portal Studio list — usually no internet or not enough space.'),
+         P('TapTap runs on the same network as the router', 'You can use Direct API instead of TapTap Link — see “Add a router with Direct API”.'),
+     ],
+     'related': ['add-router-link', 'router-sync', 'publish-portal', 'troubleshoot-link']},
     {'slug': 'add-router-link', 'title': 'Add a router with TapTap Link (recommended)', 'category': 'routers', 'icon': 'bi-link-45deg', 'minutes': 5, 'popular': True,
      'summary': 'The router connects out to TapTap over HTTPS — no public IP, no open port, no VPN.',
      'keywords': 'add router connect mikrotik link agent winbox terminal script register new router',
@@ -228,6 +259,30 @@ GUIDES = [
      'related': ['shared-auto-warn']},
 
     # ───────────────────────────── added: sticky vouchers, printing, Bonanza, chat ─────────────────────────────
+    {'slug': 'rotating-adverts', 'title': 'Show rotating pictures (adverts) on your login page', 'category': 'portal', 'icon': 'bi-images', 'minutes': 10, 'popular': True,
+     'summary': 'Create adverts with pictures — your own offers or ones you sell to local businesses — and let them change by themselves on the login page.',
+     'keywords': 'advert ads rotating pictures images carousel slideshow banner sponsored promotion slide rotate login page business sell advertising',
+     'steps': [
+         S('Create your first advert', 'Open **Adverts** and press **Create your first advert** (or **New advert**). Type a short **Headline** and **Message**, and a **Button text** and **Link** if people should be able to tap it (a website, or WhatsApp like `wa.me/2207000000`).',
+           ('ads', 'Open Adverts'), image='help/ads-new-advert.svg', alt='The New advert form with picture, placements, dates and preview'),
+         S('Add a picture', 'Under **Picture**, choose a photo or poster. TapTap shrinks it in your browser to under 300 KB, so it loads fast and also works on pages that run from the router. Wide pictures (about 3:2) look best in the carousel.',
+           tip='No picture? The advert shows as a coloured text card — pick the background and text colours.'),
+         S('Choose where and when', 'Tick **Login page** under **Show on** (you can also tick After login and Status page). Set **Start** and **End** dates for a paid campaign, and a **Weight** from 1 to 10 — higher weight is shown more often. Press **Save advert**.'),
+         S('Make two or more', 'A carousel needs at least two live adverts to rotate. Create the others the same way — for example one for your own voucher offer and one for each business that pays you.'),
+         S('Add an Advert block to the login page', 'Open **Portal Studio**, edit your login page, press **+ Add block** and choose **Advert**. Drag it where you want it (under the voucher box works well).',
+           ('portal_studio', 'Open Portal Studio')),
+         S('Make it rotate', 'In the Advert block settings, set **Show as** to **Carousel** and move **Change slide every** (3–20 seconds; 6 is a good start). Give it a small label like “Sponsored”, or leave it empty. Only adverts ticked for this page are shown, and customers can swipe or tap the dots.',
+           image='help/ads-carousel-block.svg', alt='Portal Studio advert block set to Carousel with the Change slide every slider'),
+         S('Publish and put it on your routers', 'Press **Publish**. Hosted pages show changes at once; pages running from the router get new adverts when you press **Put on all routers** in Portal Studio — do it after you add or change adverts.',
+           image='help/ads-carousel-phone.svg', alt='Three phones showing the adverts rotating every 6 seconds'),
+         S('See how they perform', 'Back in **Adverts**, each advert shows its views and taps. Use them to price campaigns for advertisers, and mark a campaign **Paid** when they pay you.', ('ads', 'Open Adverts')),
+     ],
+     'problems': [
+         P('Only one advert shows, it never changes', 'The carousel rotates live adverts ticked for that page: check at least two are **Active**, inside their dates, and have **Login page** ticked.'),
+         P('A new advert does not appear on the router’s page', 'Press **Put on all routers** in Portal Studio — router pages include the adverts from the moment they are put on the router.'),
+         P('The picture looks cut off', 'Use a wider picture (about 3:2), or keep the important part in the middle.'),
+     ],
+     'related': ['publish-portal', 'print-vouchers']},
     {'slug': 'sticky-vouchers', 'title': 'Sticky vouchers: lock devices and reconnect automatically', 'category': 'security', 'icon': 'bi-phone-vibrate', 'minutes': 5, 'popular': True,
      'summary': 'Each voucher stays on the devices that first used it, and customers reconnect by themselves when they come back.',
      'keywords': 'sticky device lock mac cookie reconnect idle keepalive reset devices shared slot new phone',

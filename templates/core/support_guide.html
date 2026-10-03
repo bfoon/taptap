@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}{% load taptap_extras %}{% block title %}{{ g.title }} — Help — TapTap{% endblock %}{% block heading %}Help Center{% endblock %}
+{% extends 'core/base.html' %}{% load static %}{% load taptap_extras %}{% block title %}{{ g.title }} — Help — TapTap{% endblock %}{% block heading %}Help Center{% endblock %}
 {% block extra_head %}<style>
 .hg{max-width:860px}.hg-head h2{font-size:1.45rem;font-weight:800;margin:.2rem 0 .3rem}.hg-meta{display:flex;flex-wrap:wrap;gap:.8rem;color:#6b7c8f;font-size:.85rem}
 .hg-progress{height:8px;border-radius:4px;background:var(--surface-2,#eef2f6);overflow:hidden;margin:1rem 0 .3rem}.hg-progress i{display:block;height:100%;background:#18a66a;width:0;transition:width .3s}
@@ -6,6 +6,7 @@
 .hg-step{position:relative;background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:1rem 1rem 1rem 3.6rem;margin-bottom:.7rem;transition:border-color .2s,opacity .2s}
 .hg-step .num{position:absolute;left:1rem;top:1rem;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:#1769e0;color:#fff;font-weight:800}
 .hg-step.done{border-color:#18a66a}.hg-step.done .num{background:#18a66a}.hg-step.done h3{text-decoration:line-through;opacity:.7}
+.hg-img{margin:.8rem 0 0}.hg-img img{display:block;width:100%;max-width:720px;height:auto;border-radius:12px;border:1px solid var(--border,#e3e9f1);box-shadow:0 8px 22px rgba(10,20,35,.08)}
 .hg-step h3{font-size:1.02rem;font-weight:800;margin:0 0 .3rem}.hg-step p{margin:0;line-height:1.55}
 .hg-tip{margin-top:.6rem;background:#fff8e6;border-left:3px solid #f59e0b;border-radius:8px;padding:.45rem .7rem;font-size:.86rem;color:#6b4a00}
 .hg-code{position:relative;margin-top:.6rem}.hg-code pre{background:#0d1724;color:#d8e6f4;border-radius:10px;padding:.7rem .9rem;font-size:.8rem;margin:0;white-space:pre-wrap}
@@ -33,6 +34,7 @@
     <li class="hg-step" data-i="{{ forloop.counter }}"><span class="num">{{ forloop.counter }}</span>
       <h3>{{ s.title }}</h3><p>{{ s.body|guide_md }}</p>
       {% if s.code %}<div class="hg-code"><pre><code>{{ s.code }}</code></pre><button type="button" class="btn btn-sm btn-light" data-copy>Copy</button></div>{% endif %}
+      {% if s.image %}<figure class="hg-img"><a href="{% static s.image %}" target="_blank" rel="noopener" title="Open full size"><img src="{% static s.image %}" alt="{{ s.alt }}" loading="lazy"></a></figure>{% endif %}
       {% if s.tip %}<div class="hg-tip"><i class="bi bi-lightbulb"></i> {{ s.tip|guide_md }}</div>{% endif %}
       <div class="d-flex flex-wrap gap-2 align-items-center">
         {% if s.link %}<a class="btn btn-sm btn-outline-primary mt-2" href="{{ s.link.url }}" target="_blank" rel="noopener">{{ s.link.label }} <i class="bi bi-box-arrow-up-right"></i></a>{% endif %}
