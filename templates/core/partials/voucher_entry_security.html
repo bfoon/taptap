@@ -14,6 +14,13 @@
     {% endif %}
   </div>
 
+  {% if voucher_entry_policy.enabled %}
+  <div class="alert {% if voucher_entry_portal_seen %}alert-success{% else %}alert-warning{% endif %} small py-2">
+    {% if voucher_entry_portal_seen %}<i class="bi bi-check-circle"></i> Your routers' login pages reach TapTap — last check {{ voucher_entry_portal_seen|timesince }} ago. Counting, warnings and lockouts are shown to customers.
+    {% else %}<i class="bi bi-exclamation-triangle"></i> <b>No login page on your routers has reached TapTap yet.</b> The count, the warning and the lockout only work when the router's login page can talk to TapTap before the customer logs in.
+      Open <a href="{% url 'portal_studio' %}">Portal Studio</a> and press <b>Put on all routers</b>: it installs the latest login page and lets it reach TapTap over HTTPS (walled garden). Then try a wrong code on the portal.{% endif %}
+  </div>
+  {% endif %}
   <form method="post" action="{% url 'voucher_entry_policy_save' %}" class="row g-3 align-items-end">
     {% csrf_token %}
 

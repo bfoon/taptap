@@ -70,3 +70,36 @@ class VoucherEntryProtectionTests(TestCase):
             self.c.post('/p/kl-1/check/', json.dumps({'code': f'BAD0000{i}', 'fp': 'fp-h', 'mac': 'AA:BB:CC:00:00:05'}), content_type='application/json')
         d = self.c.post('/p/kl-1/check/', json.dumps({'code': 'BAD00009', 'fp': 'fp-h', 'mac': 'AA:BB:CC:00:00:05'}), content_type='application/json').json()
         self.assertTrue(d['security_block']); self.assertIn('+220 300 1111', d['message'])
+
+
+class PortalReachTests(VoucherEntryProtectionTests):
+    def test_deploy_lets_the_login_page_reach_taptap_over_https(self):
+        from .portal_deploy import install_script
+        script = install_script('https://taptapnetwork.com', 'TOKEN', ['login'], 'taptapnetwork.com', 'yes')
+        self.assertIn('/ip hotspot walled-garden add dst-host="taptapnetwork.com"', script.replace('dst-host=taptapnetwork.com', 'dst-host="taptapnetwork.com"'))
+        self.assertIn('/ip hotspot walled-garden ip add dst-host=', script)
+        self.assertIn('action=accept', script)
+
+    def test_security_page_says_whether_router_pages_reach_taptap(self):
+        owner = User.objects.get(username='o')
+        c = Client(); c.force_login(owner)
+        self.assertContains(c.get('/security/'), 'No login page on your routers has reached TapTap yet')
+        self.state('BAD00001')                                         # a router-served page asked TapTap
+        self.assertContains(c.get('/security/'), "login pages reach TapTap")
+
+
+class CsrfRegressionTests(VoucherEntryProtectionTests):
+    """The real cause of "no count, no warning, no lock": router-served pages have no CSRF token,
+    and the protection wrappers lost @csrf_exempt, so every call got 403 and the page logged in blind."""
+    def test_router_and_hosted_calls_work_without_csrf_token(self):
+        c = Client(enforce_csrf_checks=True, REMOTE_ADDR='41.223.1.1', HTTP_ORIGIN='http://10.5.50.1')
+        r = c.post('/p/kl-1/state/', json.dumps({'code': 'BAD00001', 'fp': 'f', 'mac': 'AA:BB:CC:00:00:01', 'ip': '10.5.50.2'}), content_type='text/plain')
+        self.assertEqual(r.status_code, 200); self.assertTrue(r.json()['invalid'])
+        r = c.post('/p/kl-1/check/', json.dumps({'code': 'BAD00002', 'fp': 'f', 'mac': 'AA:BB:CC:00:00:01'}), content_type='application/json')
+        self.assertEqual(r.status_code, 200)
+
+    def test_renderer_handles_the_answers(self):
+        from pathlib import Path
+        from django.conf import settings
+        js = (Path(settings.BASE_DIR) / 'static' / 'studio' / 'portal-render.js').read_text()
+        self.assertIn('function security(st)', js); self.assertIn('if (security(st)) return;', js)

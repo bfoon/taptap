@@ -353,6 +353,7 @@ def portal_export(request, pk):
             z.writestr('taptap-walled-garden.rsc',
                        f'# Let customers reach the TapTap-hosted portal before they log in\n'
                        f'/ip hotspot walled-garden add dst-host={host} comment="TapTap portal"\n'
+                       f'/ip hotspot walled-garden ip add dst-host={host} action=accept comment="TapTap portal (https)"\n'
                        f'/ip hotspot walled-garden add dst-host=fonts.googleapis.com comment="TapTap portal fonts"\n'
                        f'/ip hotspot walled-garden add dst-host=fonts.gstatic.com comment="TapTap portal fonts"\n'
                        f'# The hosted page logs in with a plain password, so allow PAP alongside CHAP:\n'

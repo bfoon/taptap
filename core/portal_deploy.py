@@ -95,6 +95,10 @@ def install_script(base, token, files, host, check):
     if host and HOST_RE.match(host):
         lines.append(f':if ([:len [/ip hotspot walled-garden find dst-host={_rs(host)}]] = 0) do={{ '
                      f'/ip hotspot walled-garden add dst-host={_rs(host)} comment="TapTap portal (device id, adverts)" }}')
+        # HTTPS calls (voucher check, wrong-code count, warnings, device id) are not covered by the HTTP walled
+        # garden: without this the login page cannot reach TapTap before login and logs in blind.
+        lines.append(f':do {{ :if ([:len [/ip hotspot walled-garden ip find dst-host={_rs(host)}]] = 0) do={{ '
+                     f'/ip hotspot walled-garden ip add dst-host={_rs(host)} action=accept comment="TapTap portal (https: voucher check, warnings)" }} }} on-error={{ :log warning "TapTap portal: could not add the https walled-garden entry" }}')
     lines.append(':if ($n = 0) do={ :error "TapTap portal: no hotspot is set up on this router" }')
     lines.append(':log info "TapTap portal installed"')
     return '; '.join(lines)

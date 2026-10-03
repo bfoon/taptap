@@ -127,6 +127,14 @@ def _related_blocked(business, row):
             .filter(q).exclude(pk=row.pk).order_by('-blocked_until').first())
 
 
+def _portal_seen(business):
+    """When a router-served login page last reached TapTap (None = never seen)."""
+    from django.core.cache import cache
+    from django.utils.dateparse import parse_datetime
+    v = cache.get(f'tt:portal:state:{business.pk}')
+    return parse_datetime(v) if v else None
+
+
 def _policy(business):
     obj, _created = (
         VoucherEntryPolicy.objects
@@ -970,6 +978,8 @@ def install():
             )
             or {}
         )
+        from django.core.cache import cache as _cache
+        _cache.set(f'tt:portal:state:{page.business_id}', timezone.now().isoformat(), 86400 * 30)   # the router page reached TapTap
 
         row, policy = _prepare(
             page.business,
@@ -1145,6 +1155,10 @@ def install():
                         recent,
                     'voucher_entry_now':
                         now,
+                    'voucher_entry_portal_seen':
+                        _portal_seen(business),
+                    'voucher_entry_router_pages':
+                        business.portal_pages.filter(is_published=True).exists() if hasattr(business, 'portal_pages') else False,
                     'current_business':
                         business,
                 },
@@ -1230,6 +1244,13 @@ def install():
             pass
 
         return response
+
+    # The originals are @csrf_exempt: the customer's login page is on the router (another origin) and has
+    # no CSRF token. A plain wrapper lost that, so every check got "403 Forbidden" — the page then logged in
+    # blind: no count, no warning, no lockout. Keep the wrappers exempt like the views they replace.
+    from django.views.decorators.csrf import csrf_exempt
+    protected_portal_check = csrf_exempt(protected_portal_check)
+    protected_portal_state = csrf_exempt(protected_portal_state)
 
     views_studio.portal_check = (
         protected_portal_check

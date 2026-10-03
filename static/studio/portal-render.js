@@ -506,6 +506,26 @@
       var mUser = form.querySelector('input[name=m_user]'), mPass = form.querySelector('input[name=m_pass]');
       var tabs = form.querySelectorAll('.tp-tabs button');
       function say(kind, msg) { out.innerHTML = '<div class="tp-msg ' + kind + '" role="' + (kind === 'err' ? 'alert' : 'status') + '">' + icon(kind === 'err' ? 'warn' : 'check') + '<span>' + msg + '</span></div>'; }
+      // Voucher entry protection: wrong code (with tries left), strong warning, or a timed lock with a live countdown.
+      function tries(n) { return (n === 0 || n) ? ' <b class="tp-tries">' + n + ' ' + (n === 1 ? 'try' : 'tries') + ' left</b>' : ''; }
+      function security(st) {
+        if (st.security_block) {
+          var left = Math.max(1, +st.block_remaining_seconds || 60), fields = form.querySelectorAll('input,button');
+          fields.forEach(function (f) { f.disabled = true; });
+          var fmt = function (n) { var h = Math.floor(n / 3600), m = Math.floor(n % 3600 / 60), x = n % 60; return (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (x < 10 ? '0' : '') + x; };
+          say('err', '<b>⛔ Locked</b> ' + esc(st.message || 'Too many wrong codes.') + '<br><b class="tp-left" style="font-size:1.4em">' + fmt(left) + '</b>');
+          var tm = setInterval(function () { left--; var n = out.querySelector('.tp-left'); if (n) n.textContent = fmt(Math.max(0, left));
+            if (left <= 0) { clearInterval(tm); fields.forEach(function (f) { f.disabled = false; }); say('ok', 'You can try again now. Type the code carefully.'); } }, 1000);
+          return true;
+        }
+        if (st.invalid || st.security_warning) {
+          btn.disabled = false;
+          say('err', (st.security_warning ? '<b>⚠️</b> ' : '') + esc(st.message || 'That code was not recognised.') + (st.security_warning ? '' : tries(st.attempts_remaining)));
+          if (input) { input.focus(); if (input.select) input.select(); }
+          return true;
+        }
+        return false;
+      }
       function setMode(m, focus) {
         form.setAttribute('data-mode', m);
         [].forEach.call(tabs, function (t) { var on = t.getAttribute('data-tab') === m; t.setAttribute('aria-selected', on ? 'true' : 'false'); t.tabIndex = on ? 0 : -1; });
@@ -573,6 +593,7 @@
           btn.disabled = true; say('ok', member ? 'Checking your account…' : 'Checking your voucher…');
           var dv0 = (ctx.settings && ctx.settings.collect_device === false) ? {} : deviceSignature();
           postJSON(ctx.stateUrl, { code: code, fp: dv0.fp || '', c: dv0.c || {}, mac: ctx.mt.mac || '', ip: ctx.mt.ip || '' }, function (st) {
+            if (security(st)) return;      // wrong code / warning / locked: answered here, nothing sent to the router
             if (st.blocked) { btn.disabled = false; out.innerHTML = ''; showBlock(ctx, st, login); return; }
             if (st.wait) {   // TapTap is clearing this voucher's old session on the router first
               var left = +st.wait; say('ok', esc(st.message || 'Getting your connection ready…') + ' <b class="tp-left">' + left + '</b> s');
@@ -596,6 +617,7 @@
             });
             return;
           }
+          if (!d.success && security(d)) return;
           if (!d.success) { btn.disabled = false; say('err', esc(d.message || (member ? 'Username or password is wrong.' : 'That code was not recognised. Check it and try again.'))); return; }
           var real = d.code || code;
           if (ctx.mt && ctx.mt.linkLoginOnly) {
