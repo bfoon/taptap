@@ -59,3 +59,15 @@ class AgentPortalTests(TestCase):
         self.agent.refresh_from_db()
         self.assertNotEqual(self.agent.portal_token, self.tok)
         self.assertEqual(self.c.get(f'/ag/{self.tok}/').status_code, 404)     # old QR no longer works
+
+
+class HelpLineTests(AgentPortalTests):
+    def test_help_line_then_agent_number(self):
+        self.b.support_phone = '+220 300 1111'; self.b.save()
+        self.assertContains(self.check('BUSY1234'), 'tel:+220 300 1111')           # customer help line wins over the business phone
+        owner = Client(); owner.force_login(self.owner)
+        owner.post(f'/finance/agents/{self.agent.pk}/checker-phone/', {'customer_phone': '+220 999 2222<script>'})
+        self.agent.refresh_from_db(); self.assertEqual(self.agent.customer_phone, '+220 999 2222')
+        self.assertContains(self.check('BUSY1234'), 'tel:+220 999 2222')            # the number you entered for this agent
+        owner.post(f'/finance/agents/{self.agent.pk}/checker-phone/', {'customer_phone': ''})
+        self.assertContains(self.check('BUSY1234'), 'tel:+220 300 1111')            # empty again: back to the help line

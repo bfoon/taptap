@@ -633,9 +633,14 @@ class Agent(models.Model):
     commission_percent=models.DecimalField(max_digits=7,decimal_places=4,default=10,help_text='Up to 4 decimals, e.g. 9.09 or 9.0909')
     active=models.BooleanField(default=True)
     portal_token=models.CharField(max_length=40,blank=True,db_index=True,help_text='Secret in the agent\'s QR code (voucher checker)')
+    customer_phone=models.CharField(max_length=60,blank=True,help_text='Number the voucher checker tells customers to call (empty = the customer help line in Settings)')
     created_at=models.DateTimeField(auto_now_add=True)
     class Meta: ordering=['name']
     def __str__(self): return self.name
+    def help_number(self):
+        """Number customers are told to call: this agent's own, else the customer help line, else the business phone."""
+        b=self.business
+        return (self.customer_phone or b.support_phone or b.phone or '').strip()
     def ensure_portal_token(self,rotate=False):
         if rotate or not self.portal_token:
             import secrets

@@ -23,7 +23,7 @@ def _ctx(agent, v=None, code='', **extra):
     colour, key, words = ap.verdict(v) if (v is not None or code) else ('', '', '')
     from .voucher_history import ends_at
     return {'agent': agent, 'business': agent.business, 'code': code, 'v': v, 'colour': colour, 'key': key, 'words': words,
-            'phone': agent.business.phone, 'ends': ends_at(v) if v is not None and v.used_at else None, **extra}
+            'phone': agent.help_number(), 'ends': ends_at(v) if v is not None and v.used_at else None, **extra}
 
 
 def agent_portal(request, token):

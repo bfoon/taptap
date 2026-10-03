@@ -90,7 +90,7 @@ URL_PERMS = {
     'router_profiles': ('plans.manage', 'network.manage'), 'router_profile_import': 'plans.manage', 'profile_check_fix': 'plans.manage',
     'reports': 'reports.view', 'reports_data': 'reports.view', 'reports_export': 'reports.view',
     'finance': ('finance.view', 'finance.agents'), 'finance_export': ('finance.view', 'finance.agents'),
-    'agent_detail': ('agents.view', 'finance.view'), 'agent_portal_rotate': ('agents.manage', 'finance.agents'), 'agent_statement': ('agents.view', 'finance.view', 'finance.agents'),
+    'agent_detail': ('agents.view', 'finance.view'), 'agent_portal_rotate': ('agents.manage', 'finance.agents'), 'agent_portal_phone': ('agents.manage', 'finance.agents'), 'agent_statement': ('agents.view', 'finance.view', 'finance.agents'),
     'batch_receipt': ('vouchers.view', 'vouchers.create'),
     # Members: seeing them = vouchers.view, creating = vouchers.create (checked in the view for POST),
     # password changes = voucher support, renewals take a payment = vouchers.create

@@ -41,7 +41,14 @@
   <div class="col-12"><div class="panel"><div class="d-flex flex-wrap gap-3 align-items-center">
     <div id="agentQr" class="p-2 bg-white border rounded-3" style="width:150px;height:150px" aria-label="QR code of the voucher checker"></div>
     <div class="flex-grow-1" style="min-width:240px"><h3 class="h6 fw-bold mb-1"><i class="bi bi-qr-code-scan"></i> Voucher checker for {{ agent.name }}</h3>
-      <p class="small text-secondary mb-2">{{ agent.name }} scans this with the phone camera (no app, no login) and types or scans a voucher. They see a big colour answer: 🟢 not used · 🟡 in use — do not take back, customer calls {{ current_business.phone|default:"you" }} · 🔴 finished. The 🤝 button sends your team an alert with the voucher.</p>
+      <p class="small text-secondary mb-2">{{ agent.name }} scans this with the phone camera (no app, no login) and types or scans a voucher. They see a big colour answer: 🟢 not used · 🟡 in use — do not take back, customer must call <b>{{ agent.help_number|default:"(no number yet)" }}</b> · 🔴 finished. The 🤝 button sends your team an alert with the voucher.</p>
+      <form method="post" action="{% url 'agent_portal_phone' agent.id %}" class="d-flex flex-wrap gap-2 align-items-center mb-2">{% csrf_token %}
+        <label class="small fw-bold" for="custPhone">📞 Customers must call</label>
+        <input class="form-control form-control-sm" style="max-width:200px" id="custPhone" name="customer_phone" value="{{ agent.customer_phone }}" inputmode="tel"
+               placeholder="{{ current_business.support_phone|default:current_business.phone|default:'+220 …' }}">
+        <button class="btn btn-sm btn-outline-primary">Save</button>
+        <small class="text-secondary">Empty = your customer help line{% if current_business.support_phone %} ({{ current_business.support_phone }}){% endif %} from <a href="{% url 'settings' %}">Settings</a>.</small>
+      </form>
       <div class="d-flex flex-wrap gap-2"><button class="btn btn-sm btn-primary" type="button" onclick="printAgentQr()"><i class="bi bi-printer"></i> Print card</button>
         <a class="btn btn-sm btn-outline-secondary" href="{{ portal_url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open</a>
         <button class="btn btn-sm btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText('{{ portal_url }}');this.textContent='Copied ✓'"><i class="bi bi-clipboard"></i> Copy link</button>

@@ -273,3 +273,15 @@ def agent_portal_rotate(request, pk):
     log(business, 'Agent QR Renewed', f'{agent.name}: new voucher-checker link; the old QR no longer works')
     messages.success(request, f'New QR code for {agent.name}. The old one no longer works — print and give them the new one.')
     return redirect('agent_detail', pk=pk)
+
+
+
+@login_required
+@require_POST
+def agent_portal_phone(request, pk):
+    """The number the voucher checker tells customers to call for this agent (empty = customer help line)."""
+    business = _b(request); agent = get_object_or_404(business.agents, pk=pk)
+    agent.customer_phone = re.sub(r'[^0-9+ ()-]', '', request.POST.get('customer_phone', ''))[:60].strip()
+    agent.save(update_fields=['customer_phone'])
+    messages.success(request, f'Customers checked by {agent.name} are told to call {agent.help_number() or "— (no number set)"}.')
+    return redirect('agent_detail', pk=pk)
