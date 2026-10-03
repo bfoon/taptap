@@ -29,8 +29,14 @@
     <div class="plans">{% for p in plans %}<label class="plan"><input type="radio" name="plan" value="{{ p.id }}" {% if plans|length == 1 %}checked{% endif %} required>
       <b>{{ p.name }}</b><span class="price">{% if p.is_free %}Free{% else %}{{ business.currency }}{{ p.price|floatformat:'-2' }}</span>{% endif %}<small>{{ p.duration_text }}</small></label>{% empty %}<p>No vouchers to order yet.</p>{% endfor %}</div></div>
   <div class="box"><div class="lbl"><span style="font-size:1.6rem">🔢</span> How many?</div>
-    <div class="qty"><button type="button" data-d="-1" aria-label="One less">−</button><input name="quantity" id="qty" type="number" inputmode="numeric" min="1" max="500" value="10" aria-label="How many"><button type="button" data-d="1" aria-label="One more">+</button></div>
+    {% if agent.order_quantity_fixed %}
+      <input type="hidden" name="quantity" value="{{ agent.order_quantity }}">
+      <div class="qty"><span style="flex:1;text-align:center;font-size:2.6rem;font-weight:900;background:#eef3f9;border-radius:16px;padding:8px">{{ agent.order_quantity }}</span></div>
+      <div style="text-align:center;color:#64748b;margin-top:6px">🔒 Your order is always {{ agent.order_quantity }} vouchers</div>
+    {% else %}
+    <div class="qty"><button type="button" data-d="-1" aria-label="One less">−</button><input name="quantity" id="qty" type="number" inputmode="numeric" min="1" max="500" value="{{ agent.order_quantity|default:10 }}" aria-label="How many"><button type="button" data-d="1" aria-label="One more">+</button></div>
     <div class="quick"><button type="button" data-n="5">5</button><button type="button" data-n="10">10</button><button type="button" data-n="20">20</button><button type="button" data-n="50">50</button><button type="button" data-n="100">100</button></div>
+    {% endif %}
     <input class="note" name="note" maxlength="200" placeholder="✏️ Note (optional)"></div>
   <button class="btn send" type="submit"><span style="font-size:1.8rem">🛒</span> Send order</button>
 </form>
@@ -42,8 +48,10 @@
 <script>
 (function(){
   var q=document.getElementById('qty');
+  if(q){
   document.querySelectorAll('[data-d]').forEach(function(b){b.onclick=function(){q.value=Math.max(1,Math.min(500,(+q.value||0)+(+b.dataset.d)));};});
   document.querySelectorAll('[data-n]').forEach(function(b){b.onclick=function(){q.value=b.dataset.n;};});
+  }
   var c=document.querySelector('.card[data-say]');
   if(c&&'speechSynthesis' in window){setTimeout(function(){var u=new SpeechSynthesisUtterance(c.dataset.say);u.rate=.9;speechSynthesis.speak(u);},350);}
 })();

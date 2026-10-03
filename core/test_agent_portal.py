@@ -134,3 +134,19 @@ class OrderPlanLimitTests(AgentPortalTests):
         self.c.post(f'/ag/{self.tok}/order/', {'plan': day.pk, 'quantity': 5})
         self.assertEqual(AgentOrder.objects.get().plan, day)
         self.assertContains(owner.get(f'/finance/agents/{self.agent.pk}/'), 'Plans Awa Shop can order')
+
+
+class OrderAmountTests(AgentPortalTests):
+    def test_default_and_fixed_amount(self):
+        from .models import AgentOrder, VoucherPlan
+        day = VoucherPlan.objects.create(business=self.b, name='1 Day', price=25, duration_minutes=1440)
+        owner = Client(); owner.force_login(self.owner)
+        owner.post(f'/finance/agents/{self.agent.pk}/order-plans/', {'order_quantity': '50'})
+        self.assertContains(self.c.get(f'/ag/{self.tok}/order/'), 'value="50"')                 # starts at 50, can change
+        self.c.post(f'/ag/{self.tok}/order/', {'plan': day.pk, 'quantity': 30})
+        self.assertEqual(AgentOrder.objects.get().quantity, 30)
+        owner.post(f'/finance/agents/{self.agent.pk}/order-plans/', {'order_quantity': '40', 'order_quantity_fixed': 'on'})
+        page = self.c.get(f'/ag/{self.tok}/order/')
+        self.assertContains(page, 'Your order is always 40'); self.assertNotContains(page, 'data-d="1"')
+        self.c.post(f'/ag/{self.tok}/order/', {'plan': day.pk, 'quantity': 999})                 # tries another number
+        self.assertEqual(AgentOrder.objects.order_by('-pk').first().quantity, 40)

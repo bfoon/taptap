@@ -69,6 +69,8 @@ def agent_portal_order(request, token):
             qty = max(1, min(500, int(request.POST.get('quantity') or 0)))
         except ValueError:
             qty = 0
+        if agent.order_quantity_fixed:
+            qty = max(1, agent.order_quantity)            # this agent always orders the fixed amount
         if not plan or not qty:
             return render(request, 'core/agent_order.html', {'agent': agent, 'business': business, 'plans': plans, 'error': True})
         if not cache.add(f'ap:order:{agent.pk}:{plan.pk}:{qty}', 1, 120):      # a double tap is one order

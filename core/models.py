@@ -635,6 +635,8 @@ class Agent(models.Model):
     portal_token=models.CharField(max_length=40,blank=True,db_index=True,help_text='Secret in the agent\'s QR code (voucher checker)')
     customer_phone=models.CharField(max_length=60,blank=True,help_text='Number the voucher checker tells customers to call (empty = the customer help line in Settings)')
     order_plans=models.ManyToManyField('VoucherPlan',blank=True,related_name='orderable_by',help_text='Plans this agent may order on the voucher checker (none ticked = every active plan)')
+    order_quantity=models.PositiveIntegerField(default=10,help_text='How many vouchers an order starts with on the voucher checker')
+    order_quantity_fixed=models.BooleanField(default=False,help_text='The agent always orders exactly this many (cannot change it)')
     created_at=models.DateTimeField(auto_now_add=True)
     class Meta: ordering=['name']
     def __str__(self): return self.name

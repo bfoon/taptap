@@ -52,6 +52,11 @@
       <form method="post" action="{% url 'agent_order_plans' agent.id %}" class="mb-2">{% csrf_token %}
         <div class="small fw-bold mb-1">🛒 Plans {{ agent.name }} can order <span class="fw-normal text-secondary">— none ticked = every active plan</span></div>
         <div class="d-flex flex-wrap gap-2 align-items-center">{% for p in all_plans %}<label class="border rounded-pill px-2 py-1 small m-0" style="cursor:pointer"><input class="form-check-input me-1" type="checkbox" name="plans" value="{{ p.id }}" {% if p.id in order_plan_ids %}checked{% endif %}>{{ p.name }} <span class="text-secondary">{{ c }}{{ p.price|floatformat:'-2' }}</span></label>{% empty %}<span class="small text-secondary">No active plans.</span>{% endfor %}
+          </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center mt-2 small">
+          <label class="fw-bold m-0" for="ordQty">🔢 Vouchers per order</label>
+          <input class="form-control form-control-sm" style="width:90px" type="number" min="1" max="500" id="ordQty" name="order_quantity" value="{{ agent.order_quantity }}">
+          <label class="form-check m-0"><input class="form-check-input" type="checkbox" name="order_quantity_fixed" {% if agent.order_quantity_fixed %}checked{% endif %}> Fixed — {{ agent.name }} cannot change it</label>
           <button class="btn btn-sm btn-outline-primary">Save</button></div>
       </form>
       <div class="d-flex flex-wrap gap-2"><button class="btn btn-sm btn-primary" type="button" onclick="printAgentQr()"><i class="bi bi-printer"></i> Print card</button>

@@ -319,6 +319,12 @@ def agent_order_plans(request, pk):
     business = _b(request); agent = get_object_or_404(business.agents, pk=pk)
     ids = [int(x) for x in request.POST.getlist('plans') if str(x).isdigit()]
     agent.order_plans.set(business.plans.filter(pk__in=ids))
+    q = request.POST.get('order_quantity', '')
+    if q.isdigit():
+        agent.order_quantity = max(1, min(500, int(q)))
+    agent.order_quantity_fixed = request.POST.get('order_quantity_fixed') == 'on'
+    agent.save(update_fields=['order_quantity', 'order_quantity_fixed'])
     names = list(agent.order_plans.values_list('name', flat=True))
-    messages.success(request, f'{agent.name} can order: ' + (', '.join(names) if names else 'every active plan') + '.')
+    messages.success(request, f'{agent.name} can order: ' + (', '.join(names) if names else 'every active plan')
+                     + f' — {agent.order_quantity} voucher(s) per order' + (' (fixed).' if agent.order_quantity_fixed else ' to start with.'))
     return redirect('agent_detail', pk=pk)
