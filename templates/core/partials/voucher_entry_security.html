@@ -1,4 +1,4 @@
-<section class="panel mb-3" id="voucher-entry-security">
+{% load taptap_extras %}<section class="panel mb-3" id="voucher-entry-security">
   <div class="panel-head">
     <div>
       <h3><i class="bi bi-shield-lock-fill"></i> Voucher entry protection</h3>
@@ -262,5 +262,12 @@
         </table>
       </div>
     </details>
+  {% endif %}
+  {% if voucher_entry_log %}
+  <details class="mt-3"><summary class="small fw-bold">What customers got on the login page (last {{ voucher_entry_log|length }} checks)</summary>
+    <div class="table-responsive mt-2"><table class="table table-sm small align-middle mb-0"><thead><tr><th>When</th><th>Page</th><th>Device</th><th>Code</th><th>Answer</th></tr></thead><tbody>
+    {% for e in voucher_entry_log %}<tr><td class="text-nowrap">{{ e.at|timesince }} ago</td><td>{{ e.mode }}</td><td>{% if e.mac %}{% device_link e.mac %}{% else %}<code>{{ e.device }}</code>{% endif %}</td><td><code>{{ e.code }}</code></td>
+      <td>{% if e.result == 'locked' or e.result == 'still locked' %}<span class="badge text-bg-danger">{{ e.result }}</span>{% elif e.result == 'warning' %}<span class="badge text-bg-warning">warning · {{ e.left }} left</span>{% elif e.result == 'wrong code' %}<span class="badge text-bg-light border">wrong code · {{ e.left }} left</span>{% else %}<span class="badge text-bg-success">{{ e.result }}</span>{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div></details>
   {% endif %}
 </section>

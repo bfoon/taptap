@@ -149,3 +149,38 @@ class ProtectionTests(TestCase):
         with mock.patch('core.protection.apply') as ap:
             self.client.post(reverse('security_protection', args=[self.r.pk]), {'feature': 'ddos', 'action': 'enable'})
         ap.assert_not_called()
+
+
+class HotspotSafeProtectionTests(TestCase):
+    """Phones on the login page must never be caught by DDoS / scan checks (they lost the login page for an hour)."""
+    def test_rules_leave_hotspot_customers_alone(self):
+        from .protection import rules
+        ddos_jump = rules('ddos')[0][1]
+        self.assertEqual(ddos_jump['hotspot'], '!from-client')
+        jumps = [f for _, f, top in rules('ips') if top]
+        self.assertEqual({j['chain'] for j in jumps}, {'input', 'forward'})
+        for j in jumps:
+            # either not a hotspot client, a logged-in customer, or only the management ports
+            self.assertTrue(j['hotspot'] in ('!from-client', 'auth') or j.get('dst-port') == '21,22,23,8291,8728,8729', j)
+        self.assertFalse(any(j['hotspot'] == 'from-client' and 'dst-port' not in j for j in jumps))
+
+    def test_link_script_has_the_new_matchers(self):
+        from .protection import link_script
+        s = link_script('ips', 'enable')
+        self.assertIn('hotspot=!from-client', s); self.assertIn('hotspot=auth', s)
+        self.assertIn('(v2)', s)
+
+
+class ProtectionUpgradeTests(TestCase):
+    def test_old_rules_are_reapplied_once(self):
+        from django.core.cache import cache
+        cache.clear()
+        u = User.objects.create_user('pu', 'pu@x.com', 'pw12345678')
+        b = Business.objects.create(user=u, business_name='K', owner_name='A', phone='1', trial_ends_at=timezone.now() + timedelta(days=9), is_unlimited=True)
+        r = Router.objects.create(business=b, name='R', ip_address='1.1.1.1', username='a', password='b')
+        RouterConfigSnapshot.objects.create(router=r, sections={'Firewall filter': {'rows': [
+            {'chain': 'input', 'comment': 'TapTap IPS: inspect new connections to the router'}]}})
+        self.assertEqual(pr.status(r)['outdated'], ['ips'])
+        with mock.patch('core.protection.apply', return_value='ok') as ap:
+            self.assertEqual(pr.upgrade(r), ['ips']); self.assertEqual(pr.upgrade(r), [])
+        self.assertEqual(ap.call_args.args[1:], ('ips', 'enable'))

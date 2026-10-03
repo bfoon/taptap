@@ -513,7 +513,9 @@
           var left = Math.max(1, +st.block_remaining_seconds || 60), fields = form.querySelectorAll('input,button');
           fields.forEach(function (f) { f.disabled = true; });
           var fmt = function (n) { var h = Math.floor(n / 3600), m = Math.floor(n % 3600 / 60), x = n % 60; return (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (x < 10 ? '0' : '') + x; };
-          say('err', '<b>⛔ Locked</b> ' + esc(st.message || 'Too many wrong codes.') + '<br><b class="tp-left" style="font-size:1.4em">' + fmt(left) + '</b>');
+          say('err', '<b>⛔ Locked</b> ' + esc(st.message || 'Too many wrong codes.') + '<br><b class="tp-left" style="font-size:1.4em">' + fmt(left) + '</b>' +
+            '<br><small>Stay connected to this Wi-Fi — this page opens again when the time is up.</small>' +
+            (st.support_phone ? '<br><a href="tel:' + esc(st.support_phone) + '" style="font-weight:700">📞 ' + esc(st.support_phone) + '</a>' : ''));
           var tm = setInterval(function () { left--; var n = out.querySelector('.tp-left'); if (n) n.textContent = fmt(Math.max(0, left));
             if (left <= 0) { clearInterval(tm); fields.forEach(function (f) { f.disabled = false; }); say('ok', 'You can try again now. Type the code carefully.'); } }, 1000);
           return true;

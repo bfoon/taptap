@@ -519,6 +519,14 @@ def watch_all():
             sweep(watched=watched)
         except Exception:
             logger.exception('expiry sweep')
+        # Protection rules from before v2 blocked hotspot customers on the login page: update them once.
+        try:
+            from .protection import upgrade as _protect_upgrade
+            from .models import Router as _R
+            for r in _R.objects.filter(business__live_sync=True):
+                _protect_upgrade(r)
+        except Exception:
+            logger.exception('protection upgrade')
         # Remove the old per-MAC router lock from TapTap vouchers, once per router.
         try:
             from .device_lock import unlock_router

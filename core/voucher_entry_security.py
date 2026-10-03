@@ -127,6 +127,27 @@ def _related_blocked(business, row):
             .filter(q).exclude(pk=row.pk).order_by('-blocked_until').first())
 
 
+def _note(business, mode, row, code, result, left=None):
+    """Keep the last 50 portal checks per business (shown on the Security page) — to see exactly what customers got."""
+    from django.core.cache import cache
+    key = f'tt:portal:log:{business.pk}'
+    log = cache.get(key) or []
+    c = str(code or '').upper()
+    log.insert(0, {'at': timezone.now().isoformat(), 'mode': mode, 'mac': getattr(row, 'mac_address', '') or '',
+                   'device': (getattr(row, 'device_key', '') or '')[:12], 'code': (c[:2] + '•' * max(0, len(c) - 4) + c[-2:]) if len(c) > 4 else c,
+                   'result': result, 'left': left})
+    cache.set(key, log[:50], 86400 * 7)
+
+
+def portal_log(business):
+    from django.core.cache import cache
+    from django.utils.dateparse import parse_datetime
+    out = []
+    for e in cache.get(f'tt:portal:log:{business.pk}') or []:
+        e = dict(e); e['at'] = parse_datetime(e['at']); out.append(e)
+    return out
+
+
 def _portal_seen(business):
     """When a router-served login page last reached TapTap (None = never seen)."""
     from django.core.cache import cache
@@ -932,6 +953,8 @@ def install():
                 router_mode=False,
             )
 
+            _note(page.business, 'hosted', row, data.get('code'), 'locked' if payload.get('security_block') else ('warning' if payload.get('security_warning') else 'wrong code'),
+                  payload.get('attempts_remaining'))
             return _public_json(
                 payload,
             )
@@ -992,6 +1015,7 @@ def install():
             and row
             and row.is_blocked
         ):
+            _note(page.business, 'router', row, data.get('code'), 'still locked')
             return views_ads._cors(
                 _public_json(
                     _blocked_payload(
@@ -1049,6 +1073,8 @@ def install():
             # Unknown to TapTap and to the router: it is wrong. Count it and answer on the page itself
             # ("not recognised — N tries left") instead of sending it to the router's own error page.
             payload = _record_failure(page.business, row, policy, member=False, router_mode=True)
+            _note(page.business, 'router', row, code, 'locked' if payload.get('security_block') else ('warning' if payload.get('security_warning') else 'wrong code'),
+                  payload.get('attempts_remaining'))
             return views_ads._cors(_public_json(payload))
 
         # A known voucher code is NOT guessing. Reset the wrong-code counter
@@ -1061,6 +1087,7 @@ def install():
             _reset_on_valid_voucher(
                 row,
             )
+        _note(page.business, 'router', row, code, 'known code → router')
 
         return original_portal_state(
             request,
@@ -1157,6 +1184,8 @@ def install():
                         now,
                     'voucher_entry_portal_seen':
                         _portal_seen(business),
+                    'voucher_entry_log':
+                        portal_log(business)[:20],
                     'voucher_entry_router_pages':
                         business.portal_pages.filter(is_published=True).exists() if hasattr(business, 'portal_pages') else False,
                     'current_business':

@@ -34,6 +34,7 @@ from django.utils import timezone
 
 logger = logging.getLogger('taptap.protection')
 MGMT_PORTS = '21,22,23,8291,8728,8729'
+RULES_VERSION = 'v2'   # v2: hotspot customers are never caught by the DDoS / scan checks (see rules())
 FEATURES = {
     'ddos': {'label': 'DDoS protection', 'tag': 'TapTap DDoS', 'lists': ['taptap-ddos-blocked']},
     'ips': {'label': 'Intrusion prevention (IDS/IPS)', 'tag': 'TapTap IPS',
@@ -72,9 +73,12 @@ def rules(feature):
     """[(menu, {field: value}, top_of_chain)] — the RouterOS rows of one feature, in order."""
     t = FEATURES[feature]['tag']
     if feature == 'ddos':
+        # Hotspot customers are left out: before they log in, EVERY web connection of every app on their phone
+        # is redirected to the router, so a normal phone looked like a flood and got blocked for an hour —
+        # the login page vanished and the phone "could not connect".
         return [
             ('/ip/firewall/filter', {'chain': 'input', 'action': 'jump', 'jump-target': 'taptap-ddos', 'connection-state': 'new,invalid',
-                                     'comment': f'{t}: check new connections to the router'}, True),
+                                     'hotspot': '!from-client', 'comment': f'{t}: check new connections to the router ({RULES_VERSION})'}, True),
             ('/ip/firewall/filter', {'chain': 'taptap-ddos', 'action': 'return', 'src-address-list': 'taptap-trusted', 'comment': f'{t}: TapTap itself'}, False),
             ('/ip/firewall/filter', {'chain': 'taptap-ddos', 'action': 'drop', 'connection-state': 'invalid', 'comment': f'{t}: invalid packets'}, False),
             ('/ip/firewall/filter', {'chain': 'taptap-ddos', 'action': 'drop', 'src-address-list': 'taptap-ddos-blocked', 'comment': f'{t}: blocked sources'}, False),
@@ -83,10 +87,17 @@ def rules(feature):
                                      'log': 'yes', 'log-prefix': 'TapTap DDoS', 'comment': f'{t}: connection flood - block 1h'}, False),
         ]
     return [
+        # Hotspot customers: only password guessing on the management ports is checked — their apps opening
+        # many ports while logging in is normal and must not look like a port scan.
         ('/ip/firewall/filter', {'chain': 'input', 'action': 'jump', 'jump-target': 'taptap-ips', 'connection-state': 'new',
-                                 'comment': f'{t}: inspect new connections to the router'}, True),
+                                 'hotspot': '!from-client', 'comment': f'{t}: inspect new connections to the router ({RULES_VERSION})'}, True),
+        ('/ip/firewall/filter', {'chain': 'input', 'action': 'jump', 'jump-target': 'taptap-ips', 'connection-state': 'new', 'protocol': 'tcp',
+                                 'dst-port': MGMT_PORTS, 'hotspot': 'from-client', 'comment': f'{t}: hotspot customers - management ports only'}, True),
+        # Clients: logged-in hotspot customers and other LAN devices; never phones still on the login page
         ('/ip/firewall/filter', {'chain': 'forward', 'action': 'jump', 'jump-target': 'taptap-ips-fwd', 'connection-state': 'new',
-                                 'comment': f'{t}: inspect new connections of clients'}, True),
+                                 'hotspot': 'auth', 'comment': f'{t}: inspect new connections of logged-in customers'}, True),
+        ('/ip/firewall/filter', {'chain': 'forward', 'action': 'jump', 'jump-target': 'taptap-ips-fwd', 'connection-state': 'new',
+                                 'hotspot': '!from-client', 'comment': f'{t}: inspect new connections of other clients'}, True),
         # to the router
         ('/ip/firewall/filter', {'chain': 'taptap-ips', 'action': 'return', 'src-address-list': 'taptap-trusted', 'comment': f'{t}: TapTap itself'}, False),
         ('/ip/firewall/filter', {'chain': 'taptap-ips', 'action': 'drop', 'src-address-list': 'taptap-ips-blocked', 'comment': f'{t}: blocked sources'}, False),
@@ -133,7 +144,32 @@ def status(router):
         out[key] = {'key': key, 'on': n > 0, 'rules': n, 'blocked': blocked, 'label': f['label'],
                     'pending': cache.get(f'tt:protect:{router.pk}:{key}')}
     out['features'] = [out[k] for k in FEATURES]
+    # rules from before v2 can block hotspot customers on the login page: they are updated automatically
+    out['outdated'] = [k for k, f in FEATURES.items() if out[k]['on'] and not any(
+        str(g(r, 'comment') or '').startswith(f['tag']) and RULES_VERSION in str(g(r, 'comment') or '') for r in filt)]
     return out
+
+
+def upgrade(router):
+    """Re-apply protection that is on with old rules (once per router; clears their block lists too)."""
+    from django.core.cache import cache
+    key = f'tt:protect:upgraded:{router.pk}:{RULES_VERSION}'
+    if cache.get(key):
+        return []
+    done = []
+    try:
+        st = status(router)
+    except Exception:
+        return []
+    for feature in st.get('outdated', []):
+        try:
+            apply(router, feature, 'enable')
+            done.append(feature)
+        except Exception as exc:
+            logger.info('protection upgrade %s %s: %s', router, feature, exc)
+            return done
+    cache.set(key, 1, 86400 * 30)
+    return done
 
 
 # ─────────────────────────── apply ───────────────────────────
