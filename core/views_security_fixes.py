@@ -91,3 +91,18 @@ def security_admin_account(request, pk):
     except Exception as exc:
         return _err(f'Could not reach the router: {exc}')
     return JsonResponse({'success': True, 'message': msg})
+
+
+@login_required
+@require_POST
+def security_protection(request, pk):
+    """Security → Protection: enable / disable DDoS or IDS/IPS on one router, or unblock everyone (core/protection.py)."""
+    from django.contrib import messages
+    from django.shortcuts import redirect
+    from . import protection
+    router = get_object_or_404(_b(request).routers, pk=pk)
+    try:
+        messages.success(request, protection.apply(router, request.POST.get('feature', ''), request.POST.get('action', ''), request.user))
+    except ValueError as exc:
+        messages.error(request, str(exc))
+    return redirect('/security/#protection')

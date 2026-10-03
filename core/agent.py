@@ -42,7 +42,7 @@ SAFE_KINDS = {
     'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
-    'hotspot_users_limit', 'admin_password',
+    'hotspot_users_limit', 'admin_password', 'protection',
 }
 # Delivery order for queued commands: anything about vouchers first (a customer is waiting), then the rest,
 # and the pieces of a full inventory sync last — 61 of them must never hold up a voucher.
@@ -218,10 +218,14 @@ def enrollment_script(router, token, request=None):
     secs = max(10, int(agent.poll_seconds if agent else 10))
     body = agent_script(url, token, check)
     name = re.sub(r'[^\x20-\x7e]', '?', router.name)
+    from .link_trust import trust_block, tunnel_block, update_block
     return f'''# --- TapTap Link for "{name}" ---
-# Paste the whole block into WinBox > New Terminal.
+# Paste the whole block into WinBox > New Terminal. It runs 4 steps:
+#   1) clock + certificates  2) TapTap Link  3) TapTap Tunnel (RouterOS 7)  4) RouterOS update (reboots, last)
 # The router connects OUT to {url}; no port-forwarding or public IP is required.
 # Keep the token private. Rotate it from TapTap if it is ever exposed.
+''' + trust_block(url, check) + f'''
+# === 2) TapTap Link ===
 /system scheduler disable [find where name="taptap-link"]
 /system script job remove [find where trace~"scheduler:taptap-link"]
 :do {{ /system script job remove [find where script="taptap-link"] }} on-error={{}}
@@ -231,7 +235,8 @@ def enrollment_script(router, token, request=None):
 /system scheduler add name="taptap-link" interval={secs}s start-time=startup policy={POLICY} on-event=taptap-link comment="TapTap Link"
 /system script run taptap-link
 :log info "TapTap Link installed"
-''' + _tunnel_trigger(token)
+:put "Step 2 OK: TapTap Link installed - the TapTap Link page turns green after the first check-in"
+''' + (tunnel_block(token) or _tunnel_trigger(token)) + update_block()
 
 
 def _tunnel_trigger(token):
@@ -363,6 +368,10 @@ def command_body(cmd):
                          f'profile={rs(u["prof"])} comment={rs(u.get("c", "TapTap voucher"))}{extra} }} else={{ /ip hotspot user set [find name={rs(u["n"])}] '
                          f'profile={rs(u["prof"])}{pw_set}{extra} }} }} on-error={{ :log warning ("TapTap: could not save " . {rs(u["n"])} . " with profile " . {rs(u["prof"])}) }}')
         return '; '.join(lines) or ':nothing'
+    if k == 'protection':
+        # Security → Protection: DDoS / IDS-IPS rules (core/protection.py)
+        from .protection import link_script
+        return link_script(p['feature'], p['action'])
     if k == 'hotspot_users_limit':
         # Fix with plan (core/plan_limits.py): the plan's time, and — when a plan was chosen — the plan's profile
         # (created if missing). Never creates a user.
@@ -532,6 +541,10 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
             raise ValueError(f'Invalid {key}.')
     if params and 'mac' in params and not MAC_RE.match(str(params['mac'])):
         raise ValueError('Invalid MAC address.')
+    if kind == 'protection':
+        from .protection import FEATURES
+        if (params or {}).get('feature') not in FEATURES or (params or {}).get('action') not in ('enable', 'disable', 'unblock'):
+            raise ValueError('Invalid protection.')
     if kind == 'hotspot_users_limit':
         from .plan_limits import LIM_RE
         users = (params or {}).get('users') or []

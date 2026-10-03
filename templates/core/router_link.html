@@ -57,7 +57,9 @@
 <section class="panel mb-3" id="setup">
   <div class="panel-head"><div><h3>Quick install — WinBox / New Terminal</h3><p>This block contains the private router token and is shown only now. Copy the whole block.</p></div>
     <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" id="lkCopy"><i class="bi bi-clipboard"></i> Copy quick install</button><button class="btn btn-outline-primary btn-sm" id="lkDownload"><i class="bi bi-download"></i> Download .rsc</button></div></div>
-  <ol class="lk-steps"><li>Open WinBox on {{ router.name }} and choose <b>New Terminal</b>.</li><li>Paste the complete quick-install block below and press Enter.</li><li>The page should turn green after the router checks in. A full inventory sync can then be run from Routers.</li></ol>
+  <ol class="lk-steps"><li>Open WinBox on {{ router.name }} and choose <b>New Terminal</b>.</li><li>Paste the complete quick-install block below and press Enter. It runs four steps by itself:
+    <b>1</b> clock and certificates (installs them when the router has none), <b>2</b> TapTap Link, <b>3</b> TapTap Tunnel (RouterOS 7), <b>4</b> RouterOS update — last, because it reboots the router.</li>
+  <li>Each step prints <code>Step … OK</code>. The page turns green after the router checks in; after an update it comes back by itself once the router has rebooted.</li></ol>
   {% if not https %}<div class="alert alert-warning small"><i class="bi bi-exclamation-triangle"></i> TapTap is not on HTTPS ({{ site|default:'SITE_URL not set' }}). Put TapTap behind HTTPS and set <code>SITE_URL=https://…</code> before using Link.</div>{% endif %}
   <pre class="lk-script" id="lkScript">{{ script }}</pre>
 

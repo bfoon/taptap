@@ -965,7 +965,9 @@ def security(request):
     incidents=list(business.session_incidents.select_related('router','voucher').filter(status__in=['open','ignored']).order_by('status','fix_due_at'))
     recent_fixed=list(business.session_incidents.select_related('router').filter(status__in=['fixed','ended']).order_by('-fixed_at')[:12])
     from .views_fup import security_context
-    return render(request,'core/security.html',{'incidents':incidents,'recent_fixed':recent_fixed,'summary':summary,'routers':routers,
+    from .protection import status as protection_status
+    protection=[(r,protection_status(r)) for r in routers]
+    return render(request,'core/security.html',{'incidents':incidents,'recent_fixed':recent_fixed,'summary':summary,'routers':routers,'protection':protection,
         'fix_labels':{k:v[3] for k,v in MikroTikService.SECURITY_FIXES.items()},**security_context(business)})
 
 
