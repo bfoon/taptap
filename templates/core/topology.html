@@ -96,7 +96,7 @@
 
   <div class="row g-3">
     <div class="col-xxl-8"><div class="panel h-100"><div class="panel-head"><div><h3>Routers</h3><p>Grouped by the MikroTik and port they are plugged into.</p></div></div>
-      <div id="tdList"></div></div></div>
+      <div id="tdLinks"></div><div id="tdList"></div></div></div>
     <div class="col-xxl-4"><div class="panel h-100"><div class="panel-head"><div><h3>Add routers by IP</h3><p>Type an address, a list or a range. Each device found is its own router — several TP-Links can all answer on 192.168.0.1.</p></div></div>
       <form id="tdFind" class="d-flex gap-2"><input class="form-control" name="ip" id="tdIp" placeholder="192.168.0.1 or 192.168.0.1-20" aria-label="IP address, list or range" autocomplete="off"><button class="btn btn-primary">Find</button></form>
       <div class="td-quick" id="tdQuick" aria-label="Common router addresses"></div>
@@ -124,6 +124,18 @@
   </div><div id="teProbeOut" class="mt-2" aria-live="polite"></div><div class="alert alert-danger small py-2 mt-3 mb-0" id="teErr" hidden></div></div>
   <div class="modal-footer"><button type="button" class="btn btn-outline-danger me-auto" id="teRemove">Remove from list</button><button type="button" class="btn btn-outline-primary" id="teProbe"><i class="bi bi-activity"></i> Probe</button><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save</button></div>
 </form></div></div>
+<div class="modal fade" id="tdUplink" tabindex="-1" aria-labelledby="tuTitle"><div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title" id="tuTitle">Where is it connected?</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body"><div class="alert alert-info small py-2" id="tuHint" hidden></div>
+    <label class="form-label small fw-bold" for="tuTarget">Connected to</label><select class="form-select" id="tuTarget"></select>
+    <div id="tuPortBox" class="mt-2" hidden><label class="form-label small fw-bold" for="tuPort">On its port</label><select class="form-select" id="tuPort"></select></div>
+    <small class="text-secondary d-block mt-2">Tip: you can also drag a router onto another router, one of its ports, or the Internet in the diagram.</small></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" id="tuSave">Save</button></div>
+</div></div></div>
+<div class="modal fade" id="tdPortAsk" tabindex="-1" aria-labelledby="tpaText"><div class="modal-dialog modal-dialog-centered modal-sm"><div class="modal-content">
+  <div class="modal-body"><p class="fw-bold" id="tpaText">Which port?</p><select class="form-select" id="tpaPort" aria-label="Port"></select></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" id="tpaOk">Continue</button></div>
+</div></div></div>
 {{ detail|json_script:"topology-detail" }}
 {% endblock %}
 {% block scripts %}

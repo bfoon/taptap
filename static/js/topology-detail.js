@@ -52,15 +52,19 @@
     const showSuggest = $('#tdSuggest').checked;
     const list = entries().filter(e => e.status === 'confirmed' || (showSuggest && e.confidence === 'likely'));
     const kids = k => list.filter(e => e.parent_key === k);
+    const siteIndex = {};
     const siteNode = e => {
       const n = { type: 'site', e, rid: e.router_id, port: e.port, children: [] };
+      siteIndex[e.key] = n;
       kids(e.key).forEach(c => n.children.push(siteNode(c)));
       if (e.clients) n.children.push({ type: 'clients', count: e.clients, rid: e.router_id, port: e.port, online: e.online, children: [] });
       return n;
     };
     const root = { type: 'internet', children: [] };
+    const mts = {};
     (P.routers || []).forEach(r => {
       const mt = { type: 'mt', r, children: [] };
+      mts[r.id] = mt;
       const ports = {};
       list.filter(e => !e.parent_key && e.router_id === r.id).forEach(e => (ports[e.port || '?'] = ports[e.port || '?'] || []).push(e));
       Object.keys(ports).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).forEach(port => {
@@ -72,7 +76,21 @@
         } else p.children.push(siteNode(group[0]));
         mt.children.push(p);
       });
-      root.children.push(mt);
+    });
+    // MikroTiks placed by the owner hang from their parent: another MikroTik's port, or a router TapTap does not manage.
+    const within = (node, target) => node === target || node.children.some(c => within(c, target));
+    const portNode = (mt, name) => {
+      let p = mt.children.find(c => c.type === 'port' && c.name === name);
+      if (!p) { p = { type: 'port', name, rid: mt.r.id, children: [] }; mt.children.push(p); }
+      return p;
+    };
+    (P.routers || []).forEach(r => {
+      const mt = mts[r.id], up = r.uplink || {};
+      let host = null;
+      if (up.kind === 'router' && mts[up.id]) host = up.port ? portNode(mts[up.id], up.port) : mts[up.id];
+      else if (up.kind === 'site' && siteIndex['sr:' + up.id]) host = siteIndex['sr:' + up.id];
+      if (host && !within(mt, host)) { mt.placed = true; host.children.push(mt); }
+      else root.children.push(mt);          // the Internet (or a placement that would loop: never draw it inside itself)
     });
     const loose = list.filter(e => !e.parent_key && (!e.router_id || !routerById(e.router_id)));
     if (loose.length) root.children.push({ type: 'group', label: 'Not linked yet', children: loose.map(siteNode) });
@@ -159,7 +177,13 @@
 
   // drag to move (a click on a router still opens it), two fingers to pinch, wheel to zoom when big
   const pts = new Map(); let drag = null, pinch = null, dragged = false;
+  let nodeDrag = null, ghost = null, hover = null;
   box0.addEventListener('pointerdown', e => {
+    const src = e.target.closest('[data-drag]');
+    if (src && (e.pointerType !== 'touch' || isBig()) && !(e.pointerType === 'mouse' && e.button !== 0)) {
+      nodeDrag = { el: src, id: src.dataset.drag, x: e.clientX, y: e.clientY, on: false, pid: e.pointerId };
+      return;                                   // not a pan: a click opens it, a drag moves it
+    }
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pts.size === 1) { drag = { x: e.clientX, y: e.clientY, vx: V.x, vy: V.y, on: false }; dragged = false; }
@@ -177,6 +201,27 @@
     if (!drag.on && Math.hypot(dx, dy) > 5) { drag.on = true; dragged = true; box0.setPointerCapture(e.pointerId); box0.classList.add('grabbing'); }
     if (drag.on) { V.x = drag.vx + dx; V.y = drag.vy + dy; V.moved = true; apply(); }
   });
+  const setHover = el => { if (hover) hover.classList.remove('td-drop-ok'); hover = el; if (hover) hover.classList.add('td-drop-ok'); };
+  window.addEventListener('pointermove', e => {
+    if (!nodeDrag || e.pointerId !== nodeDrag.pid) return;
+    if (!nodeDrag.on && Math.hypot(e.clientX - nodeDrag.x, e.clientY - nodeDrag.y) > 6) {
+      nodeDrag.on = true; dragged = true; nodeDrag.el.classList.add('td-dragging');
+      ghost = document.createElement('div'); ghost.className = 'td-ghost'; ghost.textContent = (nodeDrag.el.querySelector('b') || nodeDrag.el).textContent;
+      (isBig() ? panel : document.body).appendChild(ghost);
+    }
+    if (!nodeDrag.on) return;
+    ghost.style.left = (e.clientX + 12) + 'px'; ghost.style.top = (e.clientY + 12) + 'px';
+    const t = document.elementFromPoint(e.clientX, e.clientY), drop = t && t.closest('[data-drop]');
+    setHover(drop && drop !== nodeDrag.el && drop.dataset.drop !== nodeDrag.id ? drop : null);
+  });
+  const endNodeDrag = e => {
+    if (!nodeDrag || (e && e.pointerId !== nodeDrag.pid)) return;
+    const d = nodeDrag, target = hover; nodeDrag = null;
+    d.el.classList.remove('td-dragging'); if (ghost) { ghost.remove(); ghost = null; } setHover(null);
+    if (d.on) setTimeout(() => { dragged = false; }, 60);     // the click that may follow a drag is swallowed once, never later ones
+    if (d.on && target && e.type === 'pointerup') moveTo(d.id, target.dataset.drop);
+  };
+  window.addEventListener('pointerup', endNodeDrag); window.addEventListener('pointercancel', endNodeDrag);
   const endPtr = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (!pts.size) { drag = null; box0.classList.remove('grabbing'); } };
   box0.addEventListener('pointerup', endPtr); box0.addEventListener('pointercancel', endPtr);
   box0.addEventListener('click', e => { if (dragged) { e.stopPropagation(); e.preventDefault(); dragged = false; } }, true);
@@ -246,6 +291,19 @@
       d.style.cssText = `left:${n.x + off}px;top:${n.y + 10}px;width:${n.w}px;height:${n.h}px`;
       d.innerHTML = nodeHtml(n);
       if (n.type === 'site') { d.type = 'button'; d.dataset.key = n.e.key; d.setAttribute('aria-label', `Edit ${n.e.name}`); d.addEventListener('click', () => openEdit(n.e.key)); }
+      // Edit the topology by dragging: routers are dragged, everything they can hang from is a drop target.
+      if (n.type === 'site') { d.dataset.drag = 'site:' + n.e.key; d.dataset.drop = 'site:' + n.e.key; }
+      if (n.type === 'mt') {
+        d.dataset.drag = 'router:' + n.r.id; d.dataset.drop = 'router:' + n.r.id;
+        d.tabIndex = 0; d.setAttribute('role', 'button'); d.setAttribute('aria-label', `Where is ${n.r.name} connected?`);
+        d.addEventListener('click', () => openUplink(n.r.id));
+        d.addEventListener('keydown', ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openUplink(n.r.id); } });
+        const hint = (P.links || []).find(l => l.child_id === n.r.id);
+        if (hint) { const q = document.createElement('span'); q.className = 'td-q'; q.textContent = '?'; q.title = `Looks connected to ${hint.parent}${hint.port ? ' on ' + hint.port : ''}`; d.appendChild(q); }
+      }
+      if (n.type === 'internet') d.dataset.drop = 'internet';
+      if (n.type === 'port') d.dataset.drop = `port:${n.rid}:${n.name}`;
+      if (n.type === 'shared') d.dataset.drop = `port:${n.rid}:${n.port}`;
       stage.appendChild(d);
       n.children.forEach(c => {
         const x1 = n.x + off + n.w / 2, y1 = n.y + 10 + n.h, x2 = c.x + off + c.w / 2, y2 = c.y + 10, my = (y1 + y2) / 2;
@@ -307,6 +365,88 @@
   $('#tdSuggest').addEventListener('change', drawDiagram);
   let rz = null; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(drawDiagram, 200); });
   $('#tdAnim').addEventListener('change', () => paintTraffic(true));
+
+  // ------------------------------------------------------------------ editing the topology (core/topology_links.py)
+  const routerName = id => (routerById(+id) || {}).name || 'MikroTik';
+  const nameOf = id => id.startsWith('router:') ? routerName(id.slice(7)) : ((byKey(id.slice(5)) || {}).name || 'this router');
+  function siteBody(key, fields) {
+    const e = byKey(key);
+    return e.status === 'confirmed' ? { action: 'update', id: e.id, ...fields } : { action: 'confirm', mac: e.mac, name: e.name, ...fields };
+  }
+  function askPort(rid, what) {
+    return new Promise(resolve => {
+      const m = $('#tdPortAsk'), sel = $('#tpaPort'), r = routerById(+rid) || { ports: [] };
+      $('#tpaText').textContent = `Which port of ${r.name} is ${what} plugged into?`;
+      sel.innerHTML = '<option value="">Not sure which port</option>' + (r.ports || []).map(p => `<option>${esc(p)}</option>`).join('');
+      let answered = false;
+      const ok = () => { answered = true; bootstrap.Modal.getOrCreateInstance(m).hide(); resolve(sel.value); };
+      $('#tpaOk').onclick = ok;
+      m.addEventListener('hidden.bs.modal', () => { if (!answered) resolve(null); }, { once: true });
+      if (isBig() && m.parentNode !== panel) panel.appendChild(m);
+      bootstrap.Modal.getOrCreateInstance(m).show();
+    });
+  }
+  async function moveTo(src, dst) {
+    const kind = src.startsWith('router:') ? 'router' : 'site', sid = src.slice(kind === 'router' ? 7 : 5), label = nameOf(src);
+    let body, where;
+    if (dst === 'internet') {
+      if (kind === 'site') { toast('A router TapTap does not manage hangs from a MikroTik — drop it on a MikroTik or one of its ports.', true); return; }
+      body = { action: 'place_router', router_id: +sid, target: 'internet' }; where = 'the Internet';
+    } else if (dst.startsWith('port:') || dst.startsWith('router:')) {
+      let rid, port;
+      if (dst.startsWith('port:')) { const parts = dst.split(':'); rid = parts[1]; port = parts.slice(2).join(':'); if (port === '?') port = ''; }
+      else { rid = dst.slice(7); port = await askPort(rid, label); if (port === null) return; }
+      body = kind === 'site' ? siteBody(sid, { router_id: +rid, port, parent_id: '' }) : { action: 'place_router', router_id: +sid, target: 'router:' + rid, port };
+      where = routerName(rid) + (port ? ' › ' + port : '');
+    } else if (dst.startsWith('site:')) {
+      const key = dst.slice(5);
+      if (!key.startsWith('sr:')) { toast('Confirm that router first (Found by TapTap → Confirm), then drop on it.', true); return; }
+      body = kind === 'site' ? siteBody(sid, { parent_id: +key.slice(3), router_id: '', port: '' }) : { action: 'place_router', router_id: +sid, target: 'site:' + key.slice(3) };
+      where = (byKey(key) || {}).name || 'that router';
+    } else return;
+    if (!confirm(`Move ${label} under ${where}?`)) return;
+    try { await act(body); toast(`${label} is now under ${where}.`); } catch (err) { toast(err.message, true); }
+  }
+  function openUplink(rid) {
+    const r = routerById(rid), m = $('#tdUplink'), up = r.uplink || {};
+    $('#tuTitle').textContent = `Where is ${r.name} connected?`;
+    const others = (P.routers || []).filter(x => x.id !== rid), sites = entries().filter(e => e.status === 'confirmed');
+    $('#tuTarget').innerHTML = '<option value="auto">Found automatically</option><option value="internet">Straight to the Internet (its own line)</option>' +
+      (others.length ? '<optgroup label="Behind another MikroTik">' + others.map(x => `<option value="router:${x.id}">${esc(x.name)}</option>`).join('') + '</optgroup>' : '') +
+      (sites.length ? '<optgroup label="Behind a router TapTap does not manage">' + sites.map(e => `<option value="site:${e.id}">${esc(e.name)}</option>`).join('') + '</optgroup>' : '');
+    $('#tuTarget').value = up.kind === 'router' ? 'router:' + up.id : up.kind === 'site' ? 'site:' + up.id : up.kind === 'internet' ? 'internet' : 'auto';
+    const fillPort = () => {
+      const v = $('#tuTarget').value, box = $('#tuPortBox');
+      box.hidden = !v.startsWith('router:');
+      if (!box.hidden) { const pr = routerById(+v.slice(7)); $('#tuPort').innerHTML = '<option value="">Not sure which port</option>' + (pr.ports || []).map(p => `<option>${esc(p)}</option>`).join(''); $('#tuPort').value = up.kind === 'router' && String(up.id) === v.slice(7) ? (up.port || '') : ''; }
+    };
+    $('#tuTarget').onchange = fillPort; fillPort();
+    const hint = (P.links || []).find(l => l.child_id === rid);
+    $('#tuHint').innerHTML = hint ? `<i class="bi bi-lightbulb"></i> Looks connected to <b>${esc(hint.parent)}</b>${hint.port ? ' on <b>' + esc(hint.port) + '</b>' : ''}: ${esc(hint.reasons.join('; '))}.` : '';
+    $('#tuHint').hidden = !hint;
+    $('#tuSave').onclick = async () => {
+      try { await act({ action: 'place_router', router_id: rid, target: $('#tuTarget').value, port: $('#tuPort').value || '' }); bootstrap.Modal.getOrCreateInstance(m).hide(); toast('Saved.'); }
+      catch (err) { toast(err.message, true); }
+    };
+    if (isBig() && m.parentNode !== panel) panel.appendChild(m);
+    bootstrap.Modal.getOrCreateInstance(m).show();
+  }
+  function drawLinks() {
+    const box = $('#tdLinks'); if (!box) return;
+    const links = P.links || [];
+    box.innerHTML = links.length ? '<h4 class="td-gh">Routers that look connected</h4>' + links.map(l => `<div class="td-link-sug">
+        <div><b>${esc(l.child)}</b> looks connected to <b>${esc(l.parent)}</b>${l.port ? ' on <b>' + esc(l.port) + '</b>' : ''}
+        <small class="d-block text-secondary">${esc(l.reasons.join(' · '))}</small></div>
+        <div class="td-acts"><button type="button" class="btn btn-sm btn-success" data-accept="${l.child_id}" data-parent="${l.parent_id}" data-port="${esc(l.port || '')}">Accept</button>
+        <button type="button" class="btn btn-sm btn-link text-secondary" data-ignore-link="${l.child_id}" data-parent="${l.parent_id}">Ignore</button></div></div>`).join('') : '';
+  }
+  $('#tdLinks') && $('#tdLinks').addEventListener('click', async e => {
+    const b = e.target.closest('button'); if (!b) return;
+    try {
+      if (b.dataset.accept) { await act({ action: 'accept_link', router_id: +b.dataset.accept, parent_id: +b.dataset.parent, port: b.dataset.port }); toast('Placed on the topology.'); }
+      else if (b.dataset.ignoreLink) { await act({ action: 'ignore_link', router_id: +b.dataset.ignoreLink, parent_id: +b.dataset.parent }); toast('TapTap will not suggest it again.'); }
+    } catch (err) { toast(err.message, true); }
+  });
 
   // ------------------------------------------------------------------ router list
   function pathOf(e) {
@@ -523,7 +663,7 @@
     try { const r = await fetch(URLS.list, { credentials: 'same-origin', cache: 'no-store' }); const d = await r.json(); if (d.success) { P = { ...P, ...d }; renderAll(); } } catch (err) { /* keep */ }
   }, 400); });
 
-  function renderAll() { updateCount(); drawList(); drawIgnored(); drawDiagram(); }
+  function renderAll() { updateCount(); drawLinks(); drawList(); drawIgnored(); drawDiagram(); }
   renderAll();
   if (location.hash === '#detail') show('detail');
 })();

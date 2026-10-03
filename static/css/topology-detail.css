@@ -110,3 +110,10 @@ html[data-theme="dark"] .td-sugrow{background:transparent}html[data-theme="dark"
 .td-probe-row .td-probe{margin:0}.td-probe summary{display:flex;flex-wrap:wrap;gap:.35rem;align-items:center}
 .td-probe ul{columns:2 360px;column-gap:2rem}
 .td-probe li{break-inside:avoid}
+
+/* Editing the topology: drag routers onto routers, ports or the Internet */
+.td-n[data-drag]{cursor:grab}.td-n.td-dragging{opacity:.45}
+.td-n.td-drop-ok{outline:3px dashed #7fe0ea;outline-offset:3px;box-shadow:0 0 0 6px #7fe0ea22}
+.td-ghost{position:fixed;z-index:1200;pointer-events:none;background:#14a3b3;color:#fff;font-weight:700;font-size:.8rem;border-radius:99px;padding:.3rem .7rem;box-shadow:0 8px 20px #0005}
+.td-mt{cursor:pointer}.td-mt:focus-visible{outline:3px solid #7fe0ea;outline-offset:2px}
+.td-link-sug{display:flex;gap:.8rem;justify-content:space-between;align-items:center;border:1px solid #cdeef2;background:#f3fbfc;border-radius:10px;padding:.55rem .75rem;margin-bottom:.4rem;font-size:.86rem}

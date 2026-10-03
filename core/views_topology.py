@@ -28,11 +28,17 @@ def detail_payload(business):
         ports = sorted({i.name for i in r.interfaces.filter(is_present=True)
                         if i.name.lower().startswith(('ether', 'sfp', 'combo', 'wlan', 'wifi', 'cap'))},
                        key=lambda n: (re.sub(r'\d+', '', n), int(re.sub(r'\D', '', n) or 0)))
+        from .topology_links import parent_of
+        kind, pk, port = parent_of(r)
         routers.append({'id': r.id, 'name': r.name, 'ip': r.ip_address, 'online': r.status == 'Online', 'ports': ports,
-                        'devices': r.devices.filter(is_online=True).count()})
+                        'devices': r.devices.filter(is_online=True).count(),
+                        'uplink': {'kind': kind, 'id': pk, 'port': port}})
     ignored = [{'id': s.pk, 'mac': s.mac_address, 'ip': s.ip_address, 'name': s.name or s.mac_address or s.ip_address}
                for s in business.site_routers.filter(status='ignored')]
-    return {'routers': routers, 'entries': collect(business), 'ignored': ignored,
+    from .topology_links import suggestions
+    links = [{'child_id': s['child'].pk, 'child': s['child'].name, 'parent_id': s['parent'].pk, 'parent': s['parent'].name,
+              'port': s['port'], 'reasons': s['reasons'], 'score': s['score']} for s in suggestions(business)]
+    return {'routers': routers, 'entries': collect(business), 'ignored': ignored, 'links': links,
             'brands': sorted(ROUTER_BRANDS | MIXED_BRANDS) + ['Other'],
             'roles': SiteRouter.ROLES, 'modes': SiteRouter.MODES, 'quick_ips': QUICK_IPS}
 
@@ -130,6 +136,19 @@ def topology_router_action(request):
     action = data.get('action')
     user = request.user if request.user.is_authenticated else None
     try:
+        if action in ('place_router', 'accept_link', 'ignore_link'):
+            # MikroTiks on the topology (core/topology_links.py)
+            from .topology_links import ignore as ignore_link, place
+            r = business.routers.filter(pk=data.get('router_id') or 0).first()
+            if not r:
+                return _err('That router is not one of yours.', 404)
+            if action == 'ignore_link':
+                ignore_link(r, int(data.get('parent_id') or 0))
+            elif action == 'accept_link':
+                place(r, f'router:{int(data.get("parent_id") or 0)}', data.get('port', ''), user)
+            else:
+                place(r, str(data.get('target') or ''), data.get('port', ''), user)
+            return JsonResponse({'success': True, **detail_payload(business)})
         if action in ('confirm', 'ignore') and data.get('mac'):
             mac = mac_norm(data['mac'])
             if not MAC_RE.match(mac):
@@ -176,7 +195,11 @@ def topology_router_action(request):
                     return _err('That MAC address is not valid.')
                 s.mac_address = mac; s.brand = s.brand or brand_of(mac); s.save()
             else:
-                for k, v in _clean_fields(business, data, s).items():
+                fields = _clean_fields(business, data, s)
+                if fields.get('router') is not None:          # MikroTiks can hang from site routers: no loops
+                    from .topology_links import site_place_check
+                    site_place_check(business, s, ('router', fields['router'].pk))
+                for k, v in fields.items():
                     setattr(s, k, v)
                 s.save()
         else:

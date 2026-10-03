@@ -133,10 +133,21 @@ def build_graph(business, include_clients=True, client_sample=40):
 
     # -------- WAN / Internet --------
     nodes['internet'] = {'id': 'internet', 'type': 'internet', 'label': 'Internet', 'sub': 'Public network', 'status': 'online'}
+    # MikroTiks placed by the owner (Topology → Detail): their placement wins over what was found.
+    from .topology_links import parent_of
+    manual = {r.id: parent_of(r) for r in routers if parent_of(r)[0]}
+    for rid_, (kind_, _pk, _port) in manual.items():
+        for k in [k for k, e in edges.items() if e['kind'] == 'peer' and e['target'] == f'router:{rid_}']:
+            edges.pop(k, None)                                  # automatic upstream links of a router placed by hand
     for r in routers:
         m = meta[r.id]
         rid = f'router:{r.id}'
+        if manual.get(r.id, ('',))[0] in ('router', 'site'):
+            continue                                            # hangs from its parent (added below), not from the Internet
         links = m['lb'].get('wan_links', [])
+        if manual.get(r.id, ('',))[0] == 'internet' and not links:
+            add_edge('internet', rid, 'internet', r.id, '', 'Internet', r.status == 'Online')
+            continue
         isp_by_iface = {e['iface']: e['source'] for e in edges.values() if e['kind'] == 'wan' and e['target'] == rid}
         if not links and r.id not in has_upstream:
             add_edge('internet', rid, 'internet', r.id, '', 'path unknown', r.status == 'Online')
@@ -209,6 +220,19 @@ def build_graph(business, include_clients=True, client_sample=40):
             while root['parent_key'] in site_by_key and root['parent_key'] != e['key']:
                 root = site_by_key[root['parent_key']]
             add_edge(f'site:{parent["key"]}', f'site:{e["key"]}', 'lan', root['router_id'], root['port'], '', e['online'])
+
+    # -------- MikroTiks placed under another MikroTik's port or under a router TapTap does not manage --------
+    for child_id, (kind_, pk_, port_) in manual.items():
+        cid = f'router:{child_id}'
+        if cid not in nodes:
+            continue
+        if kind_ == 'router' and f'router:{pk_}' in nodes:
+            add_edge(f'router:{pk_}', cid, 'peer', pk_, port_, port_ or 'placed by hand', nodes[cid].get('status') != 'offline')
+        elif kind_ == 'site' and f'site:sr:{pk_}' in nodes:
+            sn = nodes[f'site:sr:{pk_}']
+            add_edge(f'site:sr:{pk_}', cid, 'lan', sn.get('router_id'), sn.get('port') or '', 'placed by hand', nodes[cid].get('status') != 'offline')
+        elif kind_ in ('router', 'site'):
+            add_edge('internet', cid, 'internet', child_id, '', 'path unknown', nodes[cid].get('status') != 'offline')
 
     # -------- client clusters --------
     if include_clients:

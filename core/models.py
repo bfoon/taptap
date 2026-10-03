@@ -163,6 +163,13 @@ class Router(models.Model):
     ip_address=models.CharField(max_length=120)
     username=models.CharField(max_length=120)
     password=models.CharField(max_length=255)
+    # Where this MikroTik is connected, as placed by the owner on the topology (core/topology_links.py).
+    # Empty = found automatically (neighbour discovery / WAN links). 'SiteRouter' is a string: defined further down.
+    uplink_router=models.ForeignKey('self',on_delete=models.SET_NULL,null=True,blank=True,related_name='downlinks')
+    uplink_port=models.CharField(max_length=120,blank=True)
+    uplink_site=models.ForeignKey('SiteRouter',on_delete=models.SET_NULL,null=True,blank=True,related_name='downlinks')
+    uplink_internet=models.BooleanField(default=False,help_text='Placed straight on the Internet by the owner')
+    uplink_ignored=models.JSONField(default=list,blank=True,help_text='Router ids whose "looks connected" suggestion was dismissed')
     api_port=models.PositiveIntegerField(default=8728)
     use_ssl=models.BooleanField(default=False)
     status=models.CharField(max_length=40,default='Not connected')
