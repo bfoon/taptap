@@ -51,6 +51,24 @@
 </section>
 {% endif %}
 
+<section class="panel mb-3" id="sticky">
+  <div class="panel-head"><div><h3><i class="bi bi-phone-vibrate"></i> Sticky vouchers</h3>
+    <p>Keep each voucher on the devices that first used it, and let customers reconnect by themselves. {% include "core/partials/help_link.html" with slug="sticky-vouchers" label="How it works" %}</p></div>
+    <span class="badge rounded-pill {% if current_business.device_lock %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if current_business.device_lock %}On{% else %}Off{% endif %}</span></div>
+  <form method="post" action="{% url 'security_sticky' %}" class="row g-3 align-items-end">{% csrf_token %}
+    <div class="col-md-5"><div class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" role="switch" id="stLock" name="device_lock" {% if current_business.device_lock %}checked{% endif %}>
+      <label class="form-check-label" for="stLock"><b>Lock each voucher to its devices</b><small class="d-block text-secondary">Other devices are refused; only the owner, an admin or voucher support can reset. Now: {{ sticky.locked }} device{{ sticky.locked|pluralize }} locked on {{ sticky.vouchers }} voucher{{ sticky.vouchers|pluralize }}.</small></label></div></div>
+    <div class="col-md-4"><div class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" role="switch" id="stSess" name="sticky_sessions" {% if current_business.sticky_sessions %}checked{% endif %}>
+      <label class="form-check-label" for="stSess"><b>Sticky sessions</b><small class="d-block text-secondary">Devices log back in by themselves (MAC cookie); idle devices are not logged out.</small></label></div></div>
+    <div class="col-md-3"><label class="small">Keep a dropped-off device for</label>
+      <select class="form-select form-select-sm" name="sticky_keepalive">{% for k,l in sticky.keepalive_choices %}<option value="{{ k }}" {% if current_business.sticky_keepalive == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-12 d-flex flex-wrap gap-2"><button class="btn btn-primary btn-sm">Save</button>
+      <button class="btn btn-outline-secondary btn-sm" name="apply" value="1" title="Send the session settings to every router now">Save &amp; send to routers</button>
+      <small class="text-secondary align-self-center">Turning the lock off keeps the devices already locked; they count again if you turn it back on.</small></div>
+  </form>
+</section>
 <section class="panel mb-3" id="fair-usage">
   <div class="panel-head"><div><h3><i class="bi bi-speedometer2"></i> Fair usage — slow down heavy data users {% include "core/partials/help_link.html" with slug="fair-usage" label="How to set it up" %}</h3>
     <p>Speed steps down as a voucher uses more data: per day, per week or over the whole voucher. Everyone is back to full speed when the period resets. Caps are set on your routers at each live sync.</p></div>

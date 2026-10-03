@@ -967,7 +967,11 @@ def security(request):
     from .views_fup import security_context
     from .protection import status as protection_status
     protection=[(r,protection_status(r)) for r in routers]
-    return render(request,'core/security.html',{'incidents':incidents,'recent_fixed':recent_fixed,'summary':summary,'routers':routers,'protection':protection,
+    from .models import VoucherDeviceBinding
+    sticky={'locked':VoucherDeviceBinding.objects.filter(business=business,voucher__status='active').count(),
+            'vouchers':VoucherDeviceBinding.objects.filter(business=business,voucher__status='active').values('voucher').distinct().count(),
+            'keepalive_choices':business._meta.get_field('sticky_keepalive').choices}
+    return render(request,'core/security.html',{'sticky':sticky,'incidents':incidents,'recent_fixed':recent_fixed,'summary':summary,'routers':routers,'protection':protection,
         'fix_labels':{k:v[3] for k,v in MikroTikService.SECURITY_FIXES.items()},**security_context(business)})
 
 
@@ -1169,3 +1173,26 @@ def plan_fix_profile(request):
     except ValueError as exc:
         messages.error(request, str(exc))
     return redirect('/plans/#fix')
+
+
+
+@require_POST
+def security_sticky(request):
+    """Security › Sticky vouchers: turn device lock / sticky sessions on or off (and send it to the routers)."""
+    business=b(request)
+    lock=request.POST.get('device_lock')=='on'
+    sessions=request.POST.get('sticky_sessions')=='on'
+    ka=request.POST.get('sticky_keepalive') if request.POST.get('sticky_keepalive') in ('none','30m','2h','12h') else business.sticky_keepalive
+    router_changed=(sessions,ka)!=(business.sticky_sessions,business.sticky_keepalive)
+    before='lock '+('on' if business.device_lock else 'off')+', sessions '+('on' if business.sticky_sessions else 'off')
+    business.device_lock,business.sticky_sessions,business.sticky_keepalive=lock,sessions,ka
+    business.save(update_fields=['device_lock','sticky_sessions','sticky_keepalive'])
+    log(business,'Sticky Vouchers',f'{before} → lock {"on" if lock else "off"}, sessions {"on" if sessions else "off"} (keep-alive {ka})')
+    msg=f'Device lock {"on" if lock else "off"} · sticky sessions {"on" if sessions else "off"}.'
+    if router_changed or request.POST.get('apply')=='1':
+        from .sticky import apply_all
+        res=apply_all(business,request.user)
+        if res: msg+=' '+' · '.join(m for _,m in res)
+    messages.success(request,msg)
+    from django.urls import reverse
+    return redirect(reverse('security')+'#sticky')
