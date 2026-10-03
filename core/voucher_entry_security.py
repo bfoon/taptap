@@ -6,6 +6,7 @@ import math
 import re
 from datetime import timedelta
 
+from django.db.models import Q
 from django.http import JsonResponse
 from django.template.loader import render_to_string
 from django.utils import timezone
@@ -91,19 +92,39 @@ def _identity(request, data):
             ip,
         )
 
-    digest = hashlib.sha256(
-        ip.encode(
-            'utf-8',
-            'ignore',
-        ),
-    ).hexdigest()
+    # Only a hotspot (private) address the router reported identifies one device. The address the
+    # request came from is the router's public IP — shared by EVERY customer — and counting on it
+    # blocked everybody for one person's typos.
+    hotspot_ip = str(data.get('ip') or '').strip()
+    if hotspot_ip and _private_ip(hotspot_ip):
+        digest = hashlib.sha256(hotspot_ip.encode('utf-8', 'ignore')).hexdigest()
+        return (f'ip:{digest}', '', '', hotspot_ip)
+    return ('', '', '', ip)
 
-    return (
-        f'ip:{digest}',
-        '',
-        '',
-        ip,
-    )
+
+def _private_ip(value):
+    import ipaddress
+    try:
+        a = ipaddress.ip_address(str(value).strip())
+        return a.is_private or str(a).startswith('100.')
+    except ValueError:
+        return False
+
+
+def _related_blocked(business, row):
+    """A block on the same phone under another key (same device ID or same MAC) counts too —
+    clearing the browser or switching to another browser must not get around it."""
+    if row is None:
+        return None
+    q = Q()
+    if row.fingerprint_hash:
+        q |= Q(fingerprint_hash=row.fingerprint_hash)
+    if row.mac_address:
+        q |= Q(mac_address=row.mac_address)
+    if not q:
+        return None
+    return (VoucherEntryDevice.objects.filter(business=business, blocked_until__gt=timezone.now())
+            .filter(q).exclude(pk=row.pk).order_by('-blocked_until').first())
 
 
 def _policy(business):
@@ -310,6 +331,9 @@ def _get_row(
         data,
     )
 
+    if not device_key:
+        return None                    # cannot tell this device apart: do not count (never block everyone)
+
     row, _created = (
         VoucherEntryDevice.objects
         .get_or_create(
@@ -447,6 +471,8 @@ def _prepare(
         request,
         data,
     )
+    if row is None:
+        return None, policy
 
     _clear_expired_block(
         row,
@@ -460,6 +486,11 @@ def _prepare(
     )
 
     row.refresh_from_db()
+    other = _related_blocked(business, row)
+    if other is not None and not row.is_blocked:
+        # same phone, blocked under another key: carry the block over
+        row.blocked_at, row.blocked_until, row.attempts = other.blocked_at, other.blocked_until, other.attempts
+        row.save(update_fields=['blocked_at', 'blocked_until', 'attempts', 'last_seen_at'])
 
     return (
         row,
@@ -516,14 +547,8 @@ def _blocked_payload(
         ),
     }
 
-    if router_mode:
-        # The existing router portal renderer displays the message and counts
-        # down this many seconds before allowing another login attempt.
-        payload['wait'] = max(
-            1,
-            seconds,
-        )
-
+    # The portal shows this as a red box with a live countdown and keeps the code box locked until
+    # it ends (security_block). It must not use `wait`: that one logs in when the countdown ends.
     return payload
 
 
@@ -552,17 +577,12 @@ def _warning_payload(
     payload = {
         'ok': False,
         'success': False,
+        'invalid': True,
         'security_warning': True,
         'security_block': False,
         'attempts_remaining': remaining,
         'message': message,
     }
-
-    if router_mode:
-        # Give the customer enough time to actually read the warning before
-        # RouterOS performs the login attempt and returns its own invalid-login
-        # page. After 3 seconds the existing renderer continues normally.
-        payload['wait'] = 3
 
     return payload
 
@@ -665,6 +685,7 @@ def _record_failure(
     return {
         'ok': False,
         'success': False,
+        'invalid': True,
         'security_warning': False,
         'security_block': False,
         'attempts_used': row.attempts,
@@ -1006,39 +1027,19 @@ def install():
             )
             .first()
         )
-
         if not voucher:
-            payload = _record_failure(
-                page.business,
-                row,
-                policy,
-                member=False,
-                router_mode=True,
-            )
-
-            if (
-                payload.get(
-                    'security_warning',
-                )
-                or payload.get(
-                    'security_block',
-                )
-            ):
-                return views_ads._cors(
-                    _public_json(
-                        payload,
-                    ),
-                )
-
-            # The attempt is counted but there is no warning yet. Let RouterOS
-            # perform its normal login attempt and show the normal wrong-code
-            # response.
-            return original_portal_state(
-                request,
-                slug,
-                *args,
-                **kwargs,
-            )
+            from .models import RouterHotspotUser
+            known_on_router = RouterHotspotUser.objects.filter(business=page.business, username__iexact=code, is_present=True).exists()
+            if known_on_router or row is None:
+                # a user the router has (made in WinBox/Mikhmon, not in TapTap yet), or a device we cannot
+                # tell apart: let the router decide, do not count it as guessing
+                if row is not None and known_on_router:
+                    _reset_on_valid_voucher(row)
+                return original_portal_state(request, slug, *args, **kwargs)
+            # Unknown to TapTap and to the router: it is wrong. Count it and answer on the page itself
+            # ("not recognised — N tries left") instead of sending it to the router's own error page.
+            payload = _record_failure(page.business, row, policy, member=False, router_mode=True)
+            return views_ads._cors(_public_json(payload))
 
         # A known voucher code is NOT guessing. Reset the wrong-code counter
         # before normal expired/disabled/frozen/sticky checks run.
