@@ -188,6 +188,12 @@ def generate_vouchers(request):
             except Exception as e:
                 messages.warning(request,f'Vouchers were created in TapTap; sending them to {router.name} failed for now ({e}). They go with the next sync.')
         messages.success(request,f'{qty} voucher(s) created successfully.')
+        oid=request.POST.get('order','')
+        if oid.isdigit():
+            # an agent's order from the voucher checker: done — and the agent sees "Ready" on their phone
+            from .models import AgentOrder
+            AgentOrder.objects.filter(pk=int(oid),business=business,status='new').update(status='done',batch=batch,done_at=timezone.now(),done_by=request.user)
+            business.event_alerts.filter(kind='agent_order',link__contains=f'order={oid}',read_at__isnull=True).update(read_at=timezone.now())
         if fmt['length']!=portal_len and 'login' in default_pages(business):
             messages.warning(request,f'These codes have {fmt["length"]} characters but your default customer portal shows {portal_len} letter boxes. '
                                      f'Customers can still log in, but set the boxes to {fmt["length"]} in Portal Studio if you want them to match.')

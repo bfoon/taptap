@@ -16,7 +16,7 @@ from . import views_topology as vtopo
 from . import views_security_fixes as vsecfix
 
 urlpatterns = [
-    path('ag/<str:token>/',vap.agent_portal,name='agent_portal'), path('ag/<str:token>/help/',vap.agent_portal_help,name='agent_portal_help'),
+    path('ag/<str:token>/',vap.agent_portal,name='agent_portal'), path('ag/<str:token>/help/',vap.agent_portal_help,name='agent_portal_help'), path('ag/<str:token>/order/',vap.agent_portal_order,name='agent_portal_order'),
     path('go/voucher/<str:code>/',vgo.go_voucher,name='go_voucher'), path('go/device/<str:mac>/',vgo.go_device,name='go_device'),
     path('traffic/apps/',vapps.app_control,name='app_control'), path('traffic/apps/save/',vapps.app_rule_save,name='app_rule_save'),
     path('traffic/apps/do/',vapps.app_rule_action,name='app_rule_global'), path('traffic/apps/<int:pk>/',vapps.app_rule_action,name='app_rule_action'),
@@ -52,7 +52,7 @@ urlpatterns = [
     path('routers/<int:pk>/internet/status/',vw.wan_status,name='wan_status'), path('routers/<int:pk>/internet/script/',vw.wan_script,name='wan_script'),
     # Agents, agent batches and one-off vouchers
     path('vouchers/single/',va.single_voucher,name='single_voucher'), path('vouchers/<int:pk>/card/',va.voucher_card,name='voucher_card'),
-    path('batches/<int:pk>/assign/',va.batch_assign,name='batch_assign'), path('finance/agents/<int:pk>/',va.agent_detail,name='agent_detail'), path('finance/agents/<int:pk>/qr/',va.agent_portal_rotate,name='agent_portal_rotate'), path('finance/agents/<int:pk>/checker-phone/',va.agent_portal_phone,name='agent_portal_phone'),
+    path('batches/<int:pk>/assign/',va.batch_assign,name='batch_assign'), path('finance/agents/<int:pk>/',va.agent_detail,name='agent_detail'), path('finance/agents/<int:pk>/qr/',va.agent_portal_rotate,name='agent_portal_rotate'), path('finance/agents/<int:pk>/log/',va.agent_log_action,name='agent_log_action'), path('finance/agents/<int:pk>/order-plans/',va.agent_order_plans,name='agent_order_plans'), path('finance/agents/<int:pk>/checker-phone/',va.agent_portal_phone,name='agent_portal_phone'),
     # Finance
     path('finance/',vb.finance,name='finance'), path('finance/sale/',vb.finance_sale_add,name='finance_sale_add'), path('finance/sale/<int:pk>/void/',vb.finance_sale_delete,name='finance_sale_delete'),
     path('finance/expense/',vb.finance_expense_add,name='finance_expense_add'), path('finance/expense/<int:pk>/delete/',vb.finance_expense_delete,name='finance_expense_delete'),

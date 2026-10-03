@@ -634,9 +634,15 @@ class Agent(models.Model):
     active=models.BooleanField(default=True)
     portal_token=models.CharField(max_length=40,blank=True,db_index=True,help_text='Secret in the agent\'s QR code (voucher checker)')
     customer_phone=models.CharField(max_length=60,blank=True,help_text='Number the voucher checker tells customers to call (empty = the customer help line in Settings)')
+    order_plans=models.ManyToManyField('VoucherPlan',blank=True,related_name='orderable_by',help_text='Plans this agent may order on the voucher checker (none ticked = every active plan)')
     created_at=models.DateTimeField(auto_now_add=True)
     class Meta: ordering=['name']
     def __str__(self): return self.name
+    def orderable_plans(self):
+        """Active plans this agent may order: the ones ticked for them, or every active plan when none are ticked."""
+        qs=self.business.plans.filter(active=True).exclude(name__startswith='*')
+        chosen=self.order_plans.filter(active=True,deleted_at__isnull=True) if self.pk else None
+        return (chosen if chosen is not None and chosen.exists() else qs).order_by('price','name')
     def help_number(self):
         """Number customers are told to call: this agent's own, else the customer help line, else the business phone."""
         b=self.business
@@ -1243,3 +1249,4 @@ from .models_chat import SupportAgent, ChatThread, ChatMessage, ChatRead, ChatPr
 from .models_events import EventRule, EventAlert  # noqa: E402,F401
 
 from .models_apps import AppRule, AppControlState  # noqa: E402,F401
+from .models_agentlog import AgentCheck, AgentHelp, AgentOrder  # noqa: E402,F401

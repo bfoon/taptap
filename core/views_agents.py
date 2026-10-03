@@ -88,6 +88,12 @@ def agent_detail(request, pk):
     portal_url = request.build_absolute_uri(f'/ag/{agent.portal_token}/')
     return render(request, 'core/agent_detail.html', {
         'portal_url': portal_url,
+        'all_plans': business.plans.filter(active=True).exclude(name__startswith='*').order_by('price', 'name'),
+        'order_plan_ids': set(agent.order_plans.values_list('pk', flat=True)),
+        'orders': agent.orders.select_related('plan', 'batch', 'done_by')[:30],
+        'helps': agent.help_requests.select_related('voucher', 'handled_by')[:30],
+        'checks': agent.checks.select_related('voucher')[:60],
+        'open_orders': agent.orders.filter(status='new').count(), 'open_helps': agent.help_requests.filter(handled_at__isnull=True).count(),
         'agent': agent, 'bal': bal, 'batches': batches, 'holding': holding,
         'sales': agent.sales.select_related('router')[:40], 'collections': agent.collections.all()[:30],
         'shop_batches': business.batches.filter(agent__isnull=True).select_related('plan').annotate(
@@ -284,4 +290,35 @@ def agent_portal_phone(request, pk):
     agent.customer_phone = re.sub(r'[^0-9+ ()-]', '', request.POST.get('customer_phone', ''))[:60].strip()
     agent.save(update_fields=['customer_phone'])
     messages.success(request, f'Customers checked by {agent.name} are told to call {agent.help_number() or "— (no number set)"}.')
+    return redirect('agent_detail', pk=pk)
+
+
+
+@login_required
+@require_POST
+def agent_log_action(request, pk):
+    """Decline an agent's order, or mark a help request as handled."""
+    business = _b(request); agent = get_object_or_404(business.agents, pk=pk)
+    act, oid = request.POST.get('action'), request.POST.get('id', '')
+    if act == 'order_decline' and oid.isdigit():
+        agent.orders.filter(pk=int(oid), status='new').update(status='rejected', done_at=timezone.now(), done_by=request.user)
+        messages.info(request, 'Order declined — the agent sees it on their phone.')
+    elif act == 'help_done' and oid.isdigit():
+        agent.help_requests.filter(pk=int(oid), handled_at__isnull=True).update(handled_at=timezone.now(), handled_by=request.user,
+                                                                               note=request.POST.get('note', '')[:255])
+        messages.success(request, 'Help request marked as handled.')
+    from django.urls import reverse
+    return redirect(f"{reverse('agent_detail', args=[pk])}#agent-logs")
+
+
+
+@login_required
+@require_POST
+def agent_order_plans(request, pk):
+    """Which plans this agent may order on the voucher checker (none ticked = every active plan)."""
+    business = _b(request); agent = get_object_or_404(business.agents, pk=pk)
+    ids = [int(x) for x in request.POST.getlist('plans') if str(x).isdigit()]
+    agent.order_plans.set(business.plans.filter(pk__in=ids))
+    names = list(agent.order_plans.values_list('name', flat=True))
+    messages.success(request, f'{agent.name} can order: ' + (', '.join(names) if names else 'every active plan') + '.')
     return redirect('agent_detail', pk=pk)

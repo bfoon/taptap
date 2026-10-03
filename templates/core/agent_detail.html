@@ -49,11 +49,43 @@
         <button class="btn btn-sm btn-outline-primary">Save</button>
         <small class="text-secondary">Empty = your customer help line{% if current_business.support_phone %} ({{ current_business.support_phone }}){% endif %} from <a href="{% url 'settings' %}">Settings</a>.</small>
       </form>
+      <form method="post" action="{% url 'agent_order_plans' agent.id %}" class="mb-2">{% csrf_token %}
+        <div class="small fw-bold mb-1">🛒 Plans {{ agent.name }} can order <span class="fw-normal text-secondary">— none ticked = every active plan</span></div>
+        <div class="d-flex flex-wrap gap-2 align-items-center">{% for p in all_plans %}<label class="border rounded-pill px-2 py-1 small m-0" style="cursor:pointer"><input class="form-check-input me-1" type="checkbox" name="plans" value="{{ p.id }}" {% if p.id in order_plan_ids %}checked{% endif %}>{{ p.name }} <span class="text-secondary">{{ c }}{{ p.price|floatformat:'-2' }}</span></label>{% empty %}<span class="small text-secondary">No active plans.</span>{% endfor %}
+          <button class="btn btn-sm btn-outline-primary">Save</button></div>
+      </form>
       <div class="d-flex flex-wrap gap-2"><button class="btn btn-sm btn-primary" type="button" onclick="printAgentQr()"><i class="bi bi-printer"></i> Print card</button>
         <a class="btn btn-sm btn-outline-secondary" href="{{ portal_url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open</a>
         <button class="btn btn-sm btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText('{{ portal_url }}');this.textContent='Copied ✓'"><i class="bi bi-clipboard"></i> Copy link</button>
         <form method="post" action="{% url 'agent_portal_rotate' agent.id %}" onsubmit="return confirm('Make a new QR? The old one stops working.')">{% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-arrow-repeat"></i> New QR</button></form></div></div>
   </div></div></div>
+  <div class="col-12" id="agent-logs"><div class="panel">
+    <ul class="nav nav-pills mb-3 gap-1" role="tablist">
+      <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#lgOrders" type="button" role="tab">🛒 Orders{% if open_orders %} <span class="badge text-bg-danger">{{ open_orders }}</span>{% endif %}</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#lgHelp" type="button" role="tab">🤝 Help requests{% if open_helps %} <span class="badge text-bg-warning">{{ open_helps }}</span>{% endif %}</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#lgChecks" type="button" role="tab">🔍 Voucher checks</button></li>
+    </ul>
+    <div class="tab-content">
+      <div class="tab-pane fade show active" id="lgOrders" role="tabpanel"><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>When</th><th>Order</th><th>Note</th><th>Status</th><th></th></tr></thead><tbody>
+        {% for o in orders %}<tr><td class="text-nowrap">{{ o.created_at|date:'d M H:i' }}</td><td><b>{{ o.quantity }} × {{ o.plan_name }}</b></td><td class="small">{{ o.note|default:'—' }}</td>
+          <td>{% if o.status == 'done' %}<span class="badge text-bg-success">Vouchers made</span>{% if o.batch %} <a class="small" href="{% url 'batch_detail' o.batch_id %}">{{ o.batch.name }}</a>{% endif %}{% elif o.status == 'rejected' %}<span class="badge text-bg-secondary">Declined</span>{% else %}<span class="badge text-bg-warning">New</span>{% endif %}</td>
+          <td class="text-end text-nowrap">{% if o.status == 'new' %}<a class="btn btn-sm btn-primary" href="{% url 'generate_vouchers' %}?agent={{ agent.id }}&plan={{ o.plan_id|default:'' }}&quantity={{ o.quantity }}&order={{ o.id }}"><i class="bi bi-stars"></i> Make vouchers</a>
+            <form method="post" action="{% url 'agent_log_action' agent.id %}" class="d-inline">{% csrf_token %}<input type="hidden" name="id" value="{{ o.id }}"><button class="btn btn-sm btn-outline-secondary" name="action" value="order_decline" onclick="return confirm('Decline this order?')">Decline</button></form>{% endif %}</td></tr>
+        {% empty %}<tr><td colspan="5" class="text-secondary small">No orders yet — {{ agent.name }} orders with the 🛒 button on the voucher checker.</td></tr>{% endfor %}
+      </tbody></table></div></div>
+      <div class="tab-pane fade" id="lgHelp" role="tabpanel"><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>When</th><th>Voucher</th><th>Status</th><th></th></tr></thead><tbody>
+        {% for h in helps %}<tr><td class="text-nowrap">{{ h.created_at|date:'d M H:i' }}</td><td>{% if h.voucher %}{% voucher_link h.voucher.code %}{% else %}—{% endif %}</td>
+          <td>{% if h.handled_at %}<span class="badge text-bg-success">Handled</span> <small class="text-secondary">{{ h.handled_at|date:'d M H:i' }}{% if h.handled_by %} · {% firstof h.handled_by.get_full_name h.handled_by.username %}{% endif %}{% if h.note %} · {{ h.note }}{% endif %}</small>{% else %}<span class="badge text-bg-warning">Waiting</span>{% endif %}</td>
+          <td class="text-end">{% if not h.handled_at %}<form method="post" action="{% url 'agent_log_action' agent.id %}" class="d-flex gap-1 justify-content-end">{% csrf_token %}<input type="hidden" name="id" value="{{ h.id }}"><input class="form-control form-control-sm" style="max-width:180px" name="note" placeholder="What you did (optional)"><button class="btn btn-sm btn-success" name="action" value="help_done">Handled</button></form>{% endif %}</td></tr>
+        {% empty %}<tr><td colspan="4" class="text-secondary small">No help requests yet.</td></tr>{% endfor %}
+      </tbody></table></div></div>
+      <div class="tab-pane fade" id="lgChecks" role="tabpanel"><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>When</th><th>Voucher</th><th>Answer</th></tr></thead><tbody>
+        {% for c in checks %}<tr><td class="text-nowrap">{{ c.created_at|date:'d M H:i' }}</td><td>{% if c.voucher %}{% voucher_link c.voucher.code %}{% else %}<code>{{ c.entered }}</code>{% endif %}</td>
+          <td>{% if c.result == 'unused' %}🟢 Not used{% elif c.result == 'in_use' %}🟡 In use — told not to take back{% elif c.result == 'finished' %}🔴 Finished{% else %}⚪ Unknown code{% endif %}</td></tr>
+        {% empty %}<tr><td colspan="3" class="text-secondary small">No checks yet.</td></tr>{% endfor %}
+      </tbody></table></div></div>
+    </div>
+  </div></div>
   <div class="col-xl-7"><div class="panel h-100"><div class="panel-head"><div><h3>Recent sales</h3><p>Credited to {{ agent.name }}</p></div></div><div class="table-responsive"><table class="table table-money"><thead><tr><th>When</th><th>Voucher</th><th>Plan</th><th>How</th><th class="num">Commission</th><th class="num">Amount</th></tr></thead><tbody>
     {% for s in sales %}<tr><td>{{ s.sold_at|date:'d M H:i' }}</td><td><code class="voucher-code">{% voucher_link s.voucher_code %}</code></td><td>{{ s.plan_name }}</td><td><span class="method-pill {{ s.payment_method }}">{{ s.get_payment_method_display }}</span></td><td class="num">{{ s.commission|money:c }}</td><td class="num"><b>{{ s.amount|money:c }}</b></td></tr>
     {% empty %}<tr><td colspan="6" class="empty-table">No sales yet. Sales appear when {{ agent.name }}’s vouchers are sold or first used.</td></tr>{% endfor %}</tbody></table></div></div></div>

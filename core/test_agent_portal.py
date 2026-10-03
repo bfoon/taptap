@@ -71,3 +71,66 @@ class HelpLineTests(AgentPortalTests):
         self.assertContains(self.check('BUSY1234'), 'tel:+220 999 2222')            # the number you entered for this agent
         owner.post(f'/finance/agents/{self.agent.pk}/checker-phone/', {'customer_phone': ''})
         self.assertContains(self.check('BUSY1234'), 'tel:+220 300 1111')            # empty again: back to the help line
+
+
+class AgentLogsAndOrdersTests(AgentPortalTests):
+    def test_checks_and_help_are_logged_and_shown(self):
+        from .models import AgentCheck, AgentHelp
+        self.check('GOOD1234'); self.check('BUSY1234'); self.check('ZZZZ9999')
+        self.assertEqual(sorted(AgentCheck.objects.values_list('result', flat=True)), ['in_use', 'unknown', 'unused'])
+        self.c.get(f'/ag/{self.tok}/')
+        self.c.post(f'/ag/{self.tok}/help/', {'code': 'GOOD1234'})
+        h = AgentHelp.objects.get()
+        owner = Client(); owner.force_login(self.owner)
+        page = owner.get(f'/finance/agents/{self.agent.pk}/')
+        self.assertContains(page, 'Voucher checks'); self.assertContains(page, 'In use — told not to take back'); self.assertContains(page, 'ZZZZ9999')
+        owner.post(f'/finance/agents/{self.agent.pk}/log/', {'action': 'help_done', 'id': h.pk, 'note': 'called her'})
+        h.refresh_from_db(); self.assertEqual((h.handled_by, h.note), (self.owner, 'called her'))
+
+    def test_order_to_vouchers(self):
+        from .models import AgentOrder, VoucherPlan
+        from .models_events import EventAlert
+        plan = VoucherPlan.objects.create(business=self.b, name='1 Day', price=25, duration_minutes=1440)
+        self.assertContains(self.c.get(f'/ag/{self.tok}/order/'), 'Send order')
+        r = self.c.post(f'/ag/{self.tok}/order/', {'plan': plan.pk, 'quantity': '20', 'note': 'for market day'})
+        self.assertContains(r, 'Order sent')
+        self.c.post(f'/ag/{self.tok}/order/', {'plan': plan.pk, 'quantity': '20'})        # double tap
+        o = AgentOrder.objects.get()
+        self.assertEqual((o.quantity, o.plan_name, o.note, o.status), (20, '1 Day', 'for market day', 'new'))
+        a = EventAlert.objects.get(kind='agent_order')
+        self.assertIn(f'order={o.pk}', a.link); self.assertIn('Awa Shop', a.title)
+        owner = Client(); owner.force_login(self.owner)
+        page = owner.get(a.link)
+        self.assertContains(page, 'Making an agent'); self.assertContains(page, 'value="20"')
+        owner.post('/vouchers/generate/', {'plan': plan.pk, 'quantity': 20, 'agent': self.agent.pk, 'settlement': 'credit', 'order': o.pk})
+        o.refresh_from_db()
+        self.assertEqual(o.status, 'done'); self.assertIsNotNone(o.batch)
+        self.assertContains(self.c.get(f'/ag/{self.tok}/order/'), '✅ Ready')                # the agent sees it
+
+    def test_decline(self):
+        from .models import AgentOrder, VoucherPlan
+        plan = VoucherPlan.objects.create(business=self.b, name='1 Day', price=25, duration_minutes=1440)
+        self.c.post(f'/ag/{self.tok}/order/', {'plan': plan.pk, 'quantity': '5'})
+        o = AgentOrder.objects.get()
+        owner = Client(); owner.force_login(self.owner)
+        owner.post(f'/finance/agents/{self.agent.pk}/log/', {'action': 'order_decline', 'id': o.pk})
+        o.refresh_from_db(); self.assertEqual(o.status, 'rejected')
+        self.assertContains(self.c.get(f'/ag/{self.tok}/order/'), '❌ Declined')
+
+
+class OrderPlanLimitTests(AgentPortalTests):
+    def test_agent_only_sees_and_orders_allowed_plans(self):
+        from .models import AgentOrder, VoucherPlan
+        day = VoucherPlan.objects.create(business=self.b, name='1 Day', price=25, duration_minutes=1440)
+        month = VoucherPlan.objects.create(business=self.b, name='1 Month', price=400, duration_minutes=43200)
+        page = self.c.get(f'/ag/{self.tok}/order/')
+        self.assertContains(page, '1 Month'); self.assertContains(page, '1 Day')          # none ticked: every plan
+        owner = Client(); owner.force_login(self.owner)
+        owner.post(f'/finance/agents/{self.agent.pk}/order-plans/', {'plans': [day.pk]})
+        page = self.c.get(f'/ag/{self.tok}/order/')
+        self.assertContains(page, '1 Day'); self.assertNotContains(page, '1 Month')
+        self.c.post(f'/ag/{self.tok}/order/', {'plan': month.pk, 'quantity': 5})          # not allowed: refused
+        self.assertFalse(AgentOrder.objects.exists())
+        self.c.post(f'/ag/{self.tok}/order/', {'plan': day.pk, 'quantity': 5})
+        self.assertEqual(AgentOrder.objects.get().plan, day)
+        self.assertContains(owner.get(f'/finance/agents/{self.agent.pk}/'), 'Plans Awa Shop can order')

@@ -1,0 +1,51 @@
+{% extends 'core/agent_portal_base.html' %}
+{% block title %}Order vouchers{% endblock %}{% block nav_order %}on{% endblock %}
+{% block style %}
+.plans{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.plan{position:relative;display:block;background:#fff;border:3px solid #dbe4ef;border-radius:18px;padding:14px 10px;text-align:center;cursor:pointer}
+.plan input{position:absolute;opacity:0}.plan b{display:block;font-size:1.15rem}.plan .price{display:block;font-size:1.5rem;font-weight:900;color:#1769e0}.plan small{display:block;color:#64748b}
+.plan:has(input:checked){border-color:#16a34a;background:#dcfce7}.plan:has(input:checked)::after{content:"✓";position:absolute;top:6px;right:10px;font-size:1.4rem;color:#16a34a;font-weight:900}
+.qty{display:flex;align-items:center;gap:10px;margin-top:8px}.qty button{width:64px;height:64px;border-radius:50%;border:0;font-size:2rem;font-weight:900;background:#eef3f9;color:#102033;cursor:pointer}
+.qty input{flex:1;min-width:0;text-align:center;font-size:2.2rem;font-weight:900;border:3px solid #c9d6e6;border-radius:16px;padding:8px}
+.quick{display:flex;gap:8px;margin-top:10px}.quick button{flex:1;border:0;border-radius:12px;padding:10px;font-weight:800;background:#eef3f9;cursor:pointer}
+.box{background:#fff;border-radius:22px;padding:16px;box-shadow:0 8px 26px rgba(10,20,35,.08);margin-top:14px}
+.send{background:#16a34a;color:#fff;margin-top:14px;font-size:1.35rem;width:100%}
+.note{width:100%;border:2px solid #dbe4ef;border-radius:12px;padding:10px;font-size:1rem;margin-top:8px}
+.st{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #eef1f5;font-weight:700}
+{% endblock %}
+{% block content %}
+{% if order %}
+<section class="card green" role="status" data-say="Order sent. {{ order.quantity }} {{ order.plan_name }}. We will call you.">
+  <div class="big" aria-hidden="true">✅</div>
+  <div class="words">Order sent</div>
+  <div class="vcode">{{ order.quantity }} × {{ order.plan_name }}</div>
+  <div class="small" style="margin-top:10px">📞 We will call you{% if agent.phone %} on {{ agent.phone }}{% endif %} when your vouchers are ready.</div>
+  <a class="btn go" style="margin-top:14px" href="{% url 'agent_portal' agent.portal_token %}">🔍 Check a voucher</a>
+</section>
+{% else %}
+<form method="post">{% csrf_token %}
+  <div class="box"><div class="lbl"><span style="font-size:1.6rem">🎟️</span> Which voucher?</div>
+    {% if error %}<p style="color:#b91c1c;font-weight:800">👆 Choose a voucher and how many.</p>{% endif %}
+    <div class="plans">{% for p in plans %}<label class="plan"><input type="radio" name="plan" value="{{ p.id }}" {% if plans|length == 1 %}checked{% endif %} required>
+      <b>{{ p.name }}</b><span class="price">{% if p.is_free %}Free{% else %}{{ business.currency }}{{ p.price|floatformat:'-2' }}</span>{% endif %}<small>{{ p.duration_text }}</small></label>{% empty %}<p>No vouchers to order yet.</p>{% endfor %}</div></div>
+  <div class="box"><div class="lbl"><span style="font-size:1.6rem">🔢</span> How many?</div>
+    <div class="qty"><button type="button" data-d="-1" aria-label="One less">−</button><input name="quantity" id="qty" type="number" inputmode="numeric" min="1" max="500" value="10" aria-label="How many"><button type="button" data-d="1" aria-label="One more">+</button></div>
+    <div class="quick"><button type="button" data-n="5">5</button><button type="button" data-n="10">10</button><button type="button" data-n="20">20</button><button type="button" data-n="50">50</button><button type="button" data-n="100">100</button></div>
+    <input class="note" name="note" maxlength="200" placeholder="✏️ Note (optional)"></div>
+  <button class="btn send" type="submit"><span style="font-size:1.8rem">🛒</span> Send order</button>
+</form>
+{% if recent %}<div class="box"><div class="lbl">🧾 My orders</div>{% for o in recent %}<div class="st"><span>{{ o.quantity }} × {{ o.plan_name }}<br><small style="color:#64748b;font-weight:500">{{ o.created_at|date:'d M H:i' }}</small></span>
+  <span>{% if o.status == 'done' %}✅ Ready{% elif o.status == 'rejected' %}❌ Declined{% else %}⏳ Waiting{% endif %}</span></div>{% endfor %}</div>{% endif %}
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var q=document.getElementById('qty');
+  document.querySelectorAll('[data-d]').forEach(function(b){b.onclick=function(){q.value=Math.max(1,Math.min(500,(+q.value||0)+(+b.dataset.d)));};});
+  document.querySelectorAll('[data-n]').forEach(function(b){b.onclick=function(){q.value=b.dataset.n;};});
+  var c=document.querySelector('.card[data-say]');
+  if(c&&'speechSynthesis' in window){setTimeout(function(){var u=new SpeechSynthesisUtterance(c.dataset.say);u.rate=.9;speechSynthesis.speak(u);},350);}
+})();
+</script>
+{% endblock %}

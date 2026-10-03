@@ -88,3 +88,25 @@ def ask_for_help(agent, voucher, request=None):
         notify(business, 'rule_alert', title, body, link=link, key=f'agenthelp:{agent.pk}:{voucher.pk}')
     except Exception:
         pass
+
+
+
+def order_placed(agent, order):
+    """Tell the team: bell (sound + pop-up) and the team chat, with a link that opens Generate ready to fill it."""
+    from .models_events import EventAlert
+    business = agent.business
+    link = f'/vouchers/generate/?agent={agent.pk}&plan={order.plan_id or ""}&quantity={order.quantity}&order={order.pk}'
+    title = f'🛒 Order from {agent.name}: {order.quantity} × {order.plan_name}'
+    body = (f'{agent.name}' + (f' ({agent.phone})' if agent.phone else '') + f' ordered {order.quantity} {order.plan_name} voucher(s).'
+            + (f' Note: {order.note}' if order.note else '') + ' Open it to make the batch for them.')
+    EventAlert.objects.create(business=business, kind='agent_order', level='warning', title=title[:160], body=body[:400], link=link, sound=True, desktop=True)
+    try:
+        from . import chat
+        chat.post(chat.team_thread(business), business.user, f'{title}. Make it here: {link}', page_url=link, page_title='Make the order', system=True)
+    except Exception:
+        pass
+    try:
+        from .notify import notify
+        notify(business, 'rule_alert', title, body, link=link, key=f'agentorder:{order.pk}')
+    except Exception:
+        pass
