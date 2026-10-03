@@ -131,7 +131,7 @@
       {% if f.cli %}<pre class="sec-cli"><button type="button" class="sec-copy" title="Copy command" aria-label="Copy command"><i class="bi bi-clipboard"></i></button>{{ f.cli }}</pre>{% endif %}
       <div class="sec-ops">
         {% if f.fix and f.router_id %}<button type="button" class="btn btn-sm btn-danger" data-fix="{{ f.fix }}" data-fix-url="{% url 'security_fix' f.router_id %}"><i class="bi bi-magic"></i> Fix on router</button>{% endif %}
-        {% if f.action == 'plan-limits' and f.router_id %}<button type="button" class="btn btn-sm btn-danger" data-sec-action="plan-limits" data-url="{% url 'security_plan_limits' f.router_id %}"><i class="bi bi-hourglass-split"></i> Fix with plan time</button>{% endif %}
+        {% if f.action == 'plan-limits' and f.router_id %}<button type="button" class="btn btn-sm btn-danger" data-sec-action="plan-limits" data-url="{% url 'security_plan_limits' f.router_id %}"><i class="bi bi-hourglass-split"></i> Fix with plan</button>{% endif %}
         {% if f.action == 'sharing' %}<button type="button" class="btn btn-sm btn-danger" data-sec-action="sharing" data-url="{% url 'security_sharing' %}"><i class="bi bi-lock"></i> Stop it now</button>{% endif %}
         {% if f.action == 'admin-account' and f.router_id %}<button type="button" class="btn btn-sm btn-danger" data-sec-action="admin-account" data-url="{% url 'security_admin_account' f.router_id %}"><i class="bi bi-person-lock"></i> Fix…</button>{% endif %}
         {% if f.link %}<a class="btn btn-sm btn-outline-secondary" href="{% if f.link == 'router_control' and f.router_id %}{% url 'router_control' f.router_id %}{% else %}{% url f.link %}{% endif %}">Open</a>{% endif %}
@@ -156,11 +156,11 @@
 {% endif %}
 
 <div class="modal fade" id="planModal" tabindex="-1" aria-labelledby="planTitle"><div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
-  <div class="modal-header"><div><h5 class="modal-title fw-bold" id="planTitle">Give router users their plan time</h5><p class="small text-secondary m-0">Each user gets the time of the plan its profile belongs to — a 24 h plan gets <code>limit-uptime=1d</code>.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-header"><div><h5 class="modal-title fw-bold" id="planTitle">Fix with plan</h5><p class="small text-secondary m-0">Choose the plan these users belong to. They get its time (a 24 h plan gives <code>limit-uptime=1d</code>), its profile on the router, and the plan in TapTap.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
   <div class="modal-body"><div id="planBody" aria-live="polite"><p class="text-secondary">Loading…</p></div>
-    <div class="form-check form-switch mt-3 p-3 border rounded-3 ps-5"><input class="form-check-input" type="checkbox" id="planAuto"><label class="form-check-label" for="planAuto"><b>Do this automatically</b><small class="d-block text-secondary">Every new router user without a time limit gets its plan time as soon as TapTap sees it.</small></label></div>
+    <div class="form-check form-switch mt-3 p-3 border rounded-3 ps-5"><input class="form-check-input" type="checkbox" id="planAuto"><label class="form-check-label" for="planAuto"><b>Do this automatically</b><small class="d-block text-secondary">Every new router user without a time limit gets the time of the plan its profile belongs to, as soon as TapTap sees it.</small></label></div>
     <div class="alert alert-danger small mt-3 mb-0" id="planErr" hidden></div></div>
-  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" id="planApply">Apply plan time</button></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" id="planApply">Apply plans</button></div>
 </div></div></div>
 
 <div class="modal fade" id="adminModal" tabindex="-1" aria-labelledby="adminTitle"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" id="adminForm" novalidate>
@@ -205,7 +205,6 @@
   document.querySelectorAll('[data-show]').forEach(b=>b.addEventListener('click',()=>{const i=document.getElementById(b.dataset.show);const h=i.type==='password';i.type=h?'text':'password';b.textContent=h?'Hide':'Show';}));
   document.querySelectorAll('[data-gen]').forEach(b=>b.addEventListener('click',()=>{const v=gen();b.dataset.gen.split(',').forEach(id=>{const i=document.getElementById(id);i.value=v;i.type='text';});}));
   const modal=id=>bootstrap.Modal.getOrCreateInstance(document.getElementById(id));
-  const TIMES=[['','Leave unlimited'],[60,'1 hour'],[180,'3 hours'],[720,'12 hours'],[1440,'1 day'],[4320,'3 days'],[10080,'7 days'],[43200,'30 days']];
   let planUrl='';
   document.querySelectorAll('[data-sec-action]').forEach(b=>b.addEventListener('click',async()=>{
     const kind=b.dataset.secAction;
@@ -219,10 +218,19 @@
       const r=await fetch(planUrl,{credentials:'same-origin'});const d=await r.json();
       document.getElementById('planAuto').checked=!!d.auto;
       if(!d.groups||!d.groups.length){body.innerHTML='<p>Every router user already has a time limit. Nothing to fix.</p>';return;}
-      body.innerHTML='<div class="table-responsive"><table class="table align-middle small"><thead><tr><th>Profile</th><th>Plan</th><th>Time each user gets</th><th class="text-end">Users</th></tr></thead><tbody>'+d.groups.map((g,i)=>
-        '<tr><td><b>'+esc(g.profile)+'</b></td><td>'+(g.plan?esc(g.plan):'<span class="text-secondary">none</span>')+'</td><td>'+(g.minutes?esc(g.label)+' <code>'+esc(g.limit)+'</code>':
-        '<select class="form-select form-select-sm" data-prof="'+esc(g.profile)+'" aria-label="Time for '+esc(g.profile)+'">'+TIMES.map(([v,l])=>'<option value="'+v+'">'+l+'</option>').join('')+'</select><small class="text-secondary d-block">'+esc(g.why)+'</small>')+
-        (g.over?'<small class="text-warning d-block">'+g.over+' already used more than this — they will be switched off</small>':'')+'</td><td class="text-end">'+g.users.length+'<small class="d-block text-secondary">'+esc(g.users.slice(0,3).join(', '))+(g.users.length>3?'…':'')+'</small></td></tr>').join('')+'</tbody></table></div>';
+      const plans=d.plans||[];
+      if(!plans.length){body.innerHTML='<p>There is no plan with a time yet. Create one under <a href="/plans/">Plans</a> (e.g. 24 Hours), then come back.</p>';return;}
+      const opts=sel=>'<option value="">Leave as it is</option>'+plans.map(p=>'<option value="'+p.id+'"'+(String(sel)===String(p.id)?' selected':'')+'>'+esc(p.name)+' · '+esc(p.label)+(Number(p.price)?' · '+esc(p.price):'')+'</option>').join('');
+      body.innerHTML='<div class="table-responsive"><table class="table align-middle small"><thead><tr><th>Router profile</th><th class="text-end">Users</th><th style="min-width:260px">Give them this plan</th></tr></thead><tbody>'+d.groups.map(g=>
+        '<tr><td><b>'+esc(g.profile)+'</b>'+(g.plan?'<small class="d-block text-secondary">belongs to '+esc(g.plan)+'</small>':'<small class="d-block text-secondary">'+esc(g.why)+'</small>')+'</td>'+
+        '<td class="text-end">'+g.users.length+'<small class="d-block text-secondary">'+esc(g.users.slice(0,3).join(', '))+(g.users.length>3?'…':'')+'</small></td>'+
+        '<td><select class="form-select form-select-sm" data-prof="'+esc(g.profile)+'" data-used="'+esc((g.used_minutes||[]).join(','))+'" aria-label=""Plan for '+esc(g.profile)+'">'+opts(g.plan_id)+'</select>'+
+        '<small class="d-block text-secondary mt-1" data-note></small></td></tr>').join('')+'</tbody></table></div>';
+      body.querySelectorAll('[data-prof]').forEach(s=>{const note=s.parentNode.querySelector('[data-note]');const upd=()=>{const p=plans.find(x=>String(x.id)===s.value);
+        const over=p?(s.dataset.used||'').split(',').filter(x=>x!==''&&Number(x)>=p.minutes).length:0;
+        note.textContent=p?('Each user gets '+p.label+', '+p.devices+' device'+(p.devices>1?'s':'')+(over?' — '+over+' already used more than that and will be switched off':'')):'Stays unlimited';
+        note.classList.toggle('text-warning',!!over);note.classList.toggle('text-secondary',!over);};
+        s.addEventListener('change',upd);upd();});
       return;
     }
     if(kind==='admin-account'){
@@ -241,9 +249,9 @@
   }));
   document.querySelectorAll('#adminForm [name=act]').forEach(r=>r.addEventListener('change',()=>{document.querySelectorAll('#adminForm [data-pane]').forEach(p=>p.hidden=p.dataset.pane!==r.value);}));
   document.getElementById('planApply')?.addEventListener('click',async e=>{
-    const btn=e.currentTarget,overrides={};document.querySelectorAll('#planBody [data-prof]').forEach(s=>{if(s.value)overrides[s.dataset.prof]=Number(s.value);});
+    const btn=e.currentTarget,plans={};document.querySelectorAll('#planBody [data-prof]').forEach(s=>{if(s.value)plans[s.dataset.prof]=Number(s.value);});
     btn.disabled=true;btn.innerHTML='<span class="spinner-border spinner-border-sm"></span> Applying…';
-    const d=await post(planUrl,{overrides,auto:document.getElementById('planAuto').checked});btn.disabled=false;btn.textContent='Apply plan time';
+    const d=await post(planUrl,{plans,auto:document.getElementById('planAuto').checked});btn.disabled=false;btn.textContent='Apply plans';
     if(d.success){alert(d.message);location.reload();}else{const er=document.getElementById('planErr');er.textContent=d.message||'The router refused.';er.hidden=false;}
   });
   document.getElementById('adminForm')?.addEventListener('submit',async e=>{

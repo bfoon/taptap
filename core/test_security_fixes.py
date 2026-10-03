@@ -120,6 +120,65 @@ class PlanLimitTests(Base):
         self.assertTrue(Business.objects.get(pk=self.biz.pk).auto_plan_limits)
 
 
+    # ── Fix with plan: choose the plan, not a time ──
+    def weekly(self):
+        return VoucherPlan.objects.create(business=self.biz, name='Weekly', mikrotik_profile_name='weekly', price=150, duration_minutes=10080, max_devices=2)
+
+    def test_preview_offers_plans_with_a_time(self):
+        g = {x['profile']: x for x in plan_limits.preview(self.r)}
+        daily = VoucherPlan.objects.get(name='24 Hours')
+        self.assertEqual(g['daily']['plan_id'], daily.pk)                     # pre-selected: its profile belongs to it
+        self.assertIsNone(g['staff']['plan_id'])                              # unlimited plan cannot fix it
+        self.assertEqual(sorted(g['daily']['used_minutes']), [120, 1620])
+        names = [p['name'] for p in plan_limits.plan_choices(self.biz)]
+        self.assertIn('24 Hours', names); self.assertNotIn('Staff', names)
+
+    def test_choosing_a_plan_gives_time_profile_and_plan(self):
+        weekly = self.weekly()
+        x1 = Voucher.objects.create(business=self.biz, router=self.r, code='X1', plan_name='mystery', source='mikrotik', duration_minutes=1440, price=0)
+        with self.mt(), mock.patch('core.linkops.uses_link', return_value=False):
+            res = plan_limits.apply(self.r, user=self.owner, plans={'mystery': weekly.pk, 'staff': weekly.pk})
+        users = {u['name']: u for u in self.store['/ip/hotspot/user']}
+        self.assertEqual((users['X1']['limit-uptime'], users['X1']['profile']), ('7d', 'weekly'))      # plan's time AND profile
+        self.assertEqual((users['S1']['limit-uptime'], users['S1']['profile']), ('7d', 'weekly'))      # staff too: the owner chose it
+        self.assertEqual((users['K1']['limit-uptime'], users['K1']['profile']), ('1d', 'daily'))       # matched plan: time only
+        self.assertIn('weekly', [p.get('name') for p in self.store.get('/ip/hotspot/user/profile', [])])   # profile created
+        x1.refresh_from_db()
+        self.assertEqual((x1.plan_name, x1.duration_minutes, x1.max_devices, x1.price), ('Weekly', 10080, 2, 150))
+        self.assertEqual(RouterHotspotUser.objects.get(username='X1').profile, 'weekly')
+        self.assertEqual(res['set'], 4)
+
+    def test_an_unlimited_plan_cannot_be_chosen(self):
+        staff = VoucherPlan.objects.get(name='Staff')
+        with self.mt(), mock.patch('core.linkops.uses_link', return_value=False):
+            res = plan_limits.apply(self.r, plans={'mystery': staff.pk})
+        users = {u['name']: u for u in self.store['/ip/hotspot/user']}
+        self.assertNotIn('limit-uptime', users['X1'])
+        self.assertEqual(res['skipped'], 2)                                     # mystery + staff left as they are
+
+    def test_link_carries_the_plan_profile(self):
+        from .agent import command_body, queue
+        weekly = self.weekly()
+        with mock.patch('core.linkops.uses_link', return_value=True), mock.patch('core.linkops.ensure_online'):
+            plan_limits.apply(self.r, plans={'mystery': weekly.pk})
+        body = command_body(AgentCommand.objects.get(kind='hotspot_users_limit'))
+        self.assertIn('/ip hotspot user profile add name="weekly" shared-users=2', body)
+        self.assertIn('/ip hotspot user set [find name="X1"] limit-uptime="7d" profile="weekly"', body)
+        self.assertIn('/ip hotspot user set [find name="K1"] limit-uptime="1d"', body)
+        self.assertNotIn(' add name="X1"', body)                                # never creates a user
+        with self.assertRaises(ValueError):
+            queue(self.r, 'hotspot_users_limit', {'users': [{'n': 'X1', 'lim': '1d', 'prof': 'x"; /system reset'}]})
+
+    def test_dialog_endpoint_with_plans(self):
+        weekly = self.weekly()
+        url = reverse('security_plan_limits', args=[self.r.pk])
+        d = self.client.get(url).json()
+        self.assertIn('Weekly', [p['name'] for p in d['plans']])
+        with self.mt(), mock.patch('core.linkops.uses_link', return_value=False):
+            d = self.client.post(url, json.dumps({'plans': {'mystery': weekly.pk}}), content_type='application/json').json()
+        self.assertTrue(d['success']); self.assertIn('now have their plan', d['message'])
+
+
 class SharingTests(Base):
     def setUp(self):
         super().setUp()

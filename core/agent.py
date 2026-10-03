@@ -364,8 +364,14 @@ def command_body(cmd):
                          f'profile={rs(u["prof"])}{pw_set}{extra} }} }} on-error={{ :log warning ("TapTap: could not save " . {rs(u["n"])} . " with profile " . {rs(u["prof"])}) }}')
         return '; '.join(lines) or ':nothing'
     if k == 'hotspot_users_limit':
-        # Plan time for router-made users (core/plan_limits.py): sets limit-uptime only, never creates a user.
-        return '; '.join(f'/ip hotspot user set [find name={rs(u["n"])}] limit-uptime={rs(u["lim"])}' for u in p.get('users', [])) or ':nothing'
+        # Fix with plan (core/plan_limits.py): the plan's time, and — when a plan was chosen — the plan's profile
+        # (created if missing). Never creates a user.
+        lines = [f':if ([:len [/ip hotspot user profile find name={rs(pr["name"])}]] = 0) do={{ /ip hotspot user profile add '
+                 f'name={rs(pr["name"])} shared-users={int(pr.get("shared") or 1)}' + (f' rate-limit={rs(pr["rate"])}' if pr.get('rate') else '') + ' }'
+                 for pr in p.get('profiles', [])]
+        lines += [f'/ip hotspot user set [find name={rs(u["n"])}] limit-uptime={rs(u["lim"])}' + (f' profile={rs(u["prof"])}' if u.get('prof') else '')
+                  for u in p.get('users', [])]
+        return '; '.join(lines) or ':nothing'
     if k == 'admin_password':
         # New password for the default admin account (Security). The password is wiped from TapTap once acknowledged.
         return f'/user set [find name="admin"] password={rs(p["password"])}'
@@ -529,9 +535,16 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
     if kind == 'hotspot_users_limit':
         from .plan_limits import LIM_RE
         users = (params or {}).get('users') or []
+        profs = (params or {}).get('profiles') or []
+        prof_ok = lambda x: bool(re.match(r'^[\w .@:+/-]{1,120}$', str(x or '')))
         if not isinstance(users, list) or not 1 <= len(users) <= 100 or not all(
-                NAME_RE.match(str(u.get('n', ''))) and LIM_RE.match(str(u.get('lim', ''))) and u.get('lim') for u in users):
+                NAME_RE.match(str(u.get('n', ''))) and LIM_RE.match(str(u.get('lim', ''))) and u.get('lim')
+                and (not u.get('prof') or prof_ok(u['prof'])) for u in users):
             raise ValueError('Invalid user list.')
+        if not isinstance(profs, list) or len(profs) > 20 or not all(
+                prof_ok(x.get('name')) and 1 <= int(x.get('shared') or 1) <= 100
+                and (not x.get('rate') or re.match(r'^[0-9kKmMgG/ ]{1,60}$', str(x['rate']))) for x in profs):
+            raise ValueError('Invalid profile list.')
     if kind == 'admin_password':
         pw = str((params or {}).get('password') or '')
         if not 12 <= len(pw) <= 64 or any(ord(c) < 32 for c in pw):

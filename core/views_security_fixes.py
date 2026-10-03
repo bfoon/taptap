@@ -29,7 +29,7 @@ def security_plan_limits(request, pk):
     router = get_object_or_404(business.routers, pk=pk)
     if request.method == 'GET':
         return JsonResponse({'success': True, 'router': router.name, 'groups': plan_limits.preview(router),
-                             'auto': business.auto_plan_limits})
+                             'plans': plan_limits.plan_choices(business), 'auto': business.auto_plan_limits})
     try:
         data = json.loads(request.body or '{}')
     except ValueError:
@@ -39,7 +39,7 @@ def security_plan_limits(request, pk):
         business.auto_plan_limits = bool(data['auto'])
         log(business, 'Security', f'Automatic plan time for router users {"on" if business.auto_plan_limits else "off"}')
     try:
-        res = plan_limits.apply(router, user=request.user, overrides=data.get('overrides') or {})
+        res = plan_limits.apply(router, user=request.user, overrides=data.get('overrides') or {}, plans=data.get('plans') or {})
     except ValueError as exc:            # TapTap Link not reachable
         return _err(str(exc))
     except Exception as exc:
