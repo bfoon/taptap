@@ -124,23 +124,39 @@ def mark_expired(vouchers, now, why, via, detail=''):
     return changed
 
 
+def voucher_macs(voucher, macs=()):
+    """Every MAC the voucher's devices were seen with — so their phones can be freed even when the router
+    already dropped the session itself (uptime limit reached) and no cookie is left. Sources: the device
+    lock, the last live reading, and the per-device traffic of the last 3 days."""
+    import re
+    from datetime import timedelta
+    from .models import DeviceAppUsage, VoucherDeviceBinding
+    ok = re.compile(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$')
+    known = set()
+
+    def add(m):
+        h = ''.join(c for c in str(m or '').upper() if c in '0123456789ABCDEF')
+        m = ':'.join(h[i:i + 2] for i in range(0, 12, 2)) if len(h) == 12 else ''
+        if ok.match(m):
+            known.add(m)
+    for m in macs or ():
+        add(m)
+    for current, previous in VoucherDeviceBinding.objects.filter(voucher=voucher).values_list('current_mac', 'previous_mac'):
+        add(current); add(previous)
+    if voucher.router_id:
+        snap = cache.get(f'tt:tr:users:{voucher.router_id}') or {}
+        for row in (snap.get('users') or {}).get(voucher.code.upper(), []):
+            add(row.get('mac'))
+    for m in (DeviceAppUsage.objects.filter(business_id=voucher.business_id, username__iexact=voucher.code,
+                                            hour__gte=timezone.now() - timedelta(days=3))
+              .values_list('mac', flat=True).distinct()[:10]):
+        add(m)
+    return sorted(known)[:10]
+
+
 def _free_devices(svc, voucher, macs=()):
     """Drop sessions/cookies/hosts so customers get the login page again."""
-    from .models import VoucherDeviceBinding
-
-    known = set(macs)
-
-    for current, previous in VoucherDeviceBinding.objects.filter(
-        voucher=voucher
-    ).values_list(
-        'current_mac',
-        'previous_mac',
-    ):
-        known.update(
-            mac
-            for mac in (current, previous)
-            if mac
-        )
+    known = set(voucher_macs(voucher, macs))
 
     release = getattr(svc, 'release_devices', None)
     if release:
@@ -250,6 +266,13 @@ def enforce_on_router(router, svc, users, active, now):
         )
 
         if not enabled and key not in online:
+            # already off on the router — free its phones once more if that never happened with a MAC
+            if cache.add(f'tt:exp:freed:{router.pk}:{key}', 1, 86400 * 3):
+                try:
+                    _free_devices(svc, voucher, [])
+                    switched.add(key)
+                except Exception:
+                    pass
             continue
 
         try:
@@ -574,6 +597,8 @@ def _queue_link(router, vouchers):
                     'names': part,
                     'disabled': True,
                     'reason': 'expired',
+                    # phones to free even when the router already dropped the session (no active / cookie left)
+                    'macs': sorted({m for v in vouchers if v.code in part for m in voucher_macs(v)})[:300],
                 },
                 label=(
                     f'Switch off {len(part)} voucher'

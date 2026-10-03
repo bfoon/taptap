@@ -405,7 +405,9 @@ def command_body(cmd):
             # Time ran out (core/expiry.py): also free the devices so phones — iPhones above all — see the login
             # page again (see MikroTikService.release_devices). Wi-Fi tables are reached through :parse so the
             # script still runs on routers without that package (an unknown menu would stop the whole script).
-            return DROP_DEVICE + f':foreach n in={{{names}}} do={{ /ip hotspot user set [find name=$n] disabled=yes; {free_login("$n")} }}'
+            extra = ''.join(f' $drop m="{m}";' for m in (p.get('macs') or []) if MAC_RE.match(str(m)))
+            return (DROP_DEVICE + f':foreach n in={{{names}}} do={{ /ip hotspot user set [find name=$n] disabled=yes; {free_login("$n")} }};'
+                    + extra)
         if p.get('disabled'):
             return (f':foreach n in={{{names}}} do={{ /ip hotspot user set [find name=$n] disabled=yes; '
                     f':do {{ /ip hotspot active remove [find user=$n] }} on-error={{}} }}')
@@ -586,6 +588,9 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
         names = (params or {}).get('names') or []
         if not isinstance(names, list) or not 1 <= len(names) <= 100 or not all(NAME_RE.match(str(n)) for n in names):
             raise ValueError('Invalid voucher list.')
+        macs = (params or {}).get('macs') or []
+        if not isinstance(macs, list) or len(macs) > 300 or not all(MAC_RE.match(str(m)) for m in macs):
+            raise ValueError('Invalid MAC list.')
     if kind == 'fup_queues':
         from .fair_usage import validate_link_params
         validate_link_params(params or {})

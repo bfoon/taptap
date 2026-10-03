@@ -1061,6 +1061,10 @@ def settings_view(request):
         business.wifi_ssid=f.get('wifi_ssid','').strip()[:80]
         business.hotspot_url=f.get('hotspot_url','').strip()[:200]
         business.support_phone=f.get('support_phone','').strip()[:60]
+        if 'hotspot_dns_name' in f:
+            import re as _re
+            n=f.get('hotspot_dns_name','').strip().lower()
+            business.hotspot_dns_name=n if (not n or _re.match(r'^[a-z0-9-]+(\.[a-z0-9-]+)+$',n)) else business.hotspot_dns_name
         pending_email=None
         if 'business_email' in f:
             em=f.get('business_email','').strip().lower()

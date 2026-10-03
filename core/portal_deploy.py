@@ -83,7 +83,7 @@ def _rs(v):
     return rs(v)
 
 
-def install_script(base, token, files, host, check):
+def install_script(base, token, files, host, check, dns_name=''):
     """RouterOS script: download each page into every hotspot HTML folder; allow TapTap in the walled garden."""
     lines = [':local n 0']
     fetches = ' '.join(
@@ -95,6 +95,11 @@ def install_script(base, token, files, host, check):
     if host and HOST_RE.match(host):
         lines.append(f':if ([:len [/ip hotspot walled-garden find dst-host={_rs(host)}]] = 0) do={{ '
                      f'/ip hotspot walled-garden add dst-host={_rs(host)} comment="TapTap portal (device id, adverts)" }}')
+        # An easy address for the login page (e.g. login.wifi) — only where the hotspot has no name yet and does
+        # not use HTTPS login (its certificate is tied to the name), so nothing that works is changed.
+        if dns_name:
+            lines.append(f':do {{ :foreach p in=[/ip hotspot profile find where dns-name="" and !(login-by~"https")] do={{ '
+                         f'/ip hotspot profile set $p dns-name={_rs(dns_name)} }} }} on-error={{}}')
         # HTTPS calls (voucher check, wrong-code count, warnings, device id) are not covered by the HTTP walled
         # garden: without this the login page cannot reach TapTap before login and logs in blind.
         lines.append(f':do {{ :if ([:len [/ip hotspot walled-garden ip find dst-host={_rs(host)}]] = 0) do={{ '
@@ -130,7 +135,7 @@ def deploy(router, base=None, user=None):
         return False, dep.error
     files = list(pages)
     token = make_token(router)
-    script = install_script(base, token, files, _host(base), check_flag(router, base))
+    script = install_script(base, token, files, _host(base), check_flag(router, base), _dns_name(business))
     dep.files, dep.version, dep.requested_at, dep.error = files, version_for(business), timezone.now(), ''
     if router.connection_mode == 'agent':
         from . import agent as link
@@ -209,6 +214,11 @@ def schedule_redeploy(business):
         logger.info('portal redeploy not queued: %s', exc)
 
 
+def _dns_name(business):
+    name = str(getattr(business, 'hotspot_dns_name', '') or '').strip().lower()
+    return name if re.match(r'^[a-z0-9-]+(\.[a-z0-9-]+)+$', name) and len(name) <= 60 else ''
+
+
 def link_command_body(cmd, check):
     p = cmd.params or {}
     if cmd.kind == 'portal_reset':
@@ -217,7 +227,7 @@ def link_command_body(cmd, check):
     token, base = str(p.get('token', '')), str(p.get('base', '')).rstrip('/')
     if not files or not read_token(token) or not base.startswith(('http://', 'https://')):
         raise ValueError('Portal install link expired — press "Put on routers" again.')
-    return install_script(base, token, files, _host(base), check)
+    return install_script(base, token, files, _host(base), check, _dns_name(cmd.router.business))
 
 
 def link_ack(cmd, ok):

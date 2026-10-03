@@ -4,7 +4,9 @@
   <div class="row g-3"><div class="col-md-6"><label>Business name</label><input class="form-control" name="business_name" value="{{ current_business.business_name }}" required></div>
   <div class="col-md-6"><label>Owner</label><input class="form-control" name="owner_name" value="{{ current_business.owner_name }}" required></div>
   <div class="col-md-6"><label>Phone</label><input class="form-control" name="phone" value="{{ current_business.phone }}"></div>
-  <div class="col-md-6"><label>Customer help line</label><input class="form-control" name="support_phone" value="{{ current_business.support_phone }}" placeholder="Shown to customers"></div></div>
+  <div class="col-md-6"><label>Customer help line</label><input class="form-control" name="support_phone" value="{{ current_business.support_phone }}" placeholder="Shown to customers"></div>
+  <div class="col-md-6"><label>Login page address</label><input class="form-control" name="hotspot_dns_name" value="{{ current_business.hotspot_dns_name }}" placeholder="login.wifi">
+    <small class="text-secondary">Customers can type <b>{{ current_business.hotspot_dns_name|default:"login.wifi" }}</b> in the browser to open the login page (instead of the router's IP). Set on routers whose hotspot has no name yet, when you press <i>Put on all routers</i>. Print it on your voucher cards.</small></div></div>
   <div class="row g-3 mt-0"><div class="col-md-6"><label>Business email <small class="text-secondary">(for notifications)</small></label><input class="form-control" type="email" name="business_email" value="{{ current_business.email }}" placeholder="{{ request.user.email }}"><small class="text-secondary">Changing it sends a code to the new address; it is saved once you enter the code.</small></div>
   <div class="col-md-6 d-flex align-items-end"><a href="{% url 'notifications' %}" class="btn btn-outline-primary"><i class="bi bi-envelope"></i> Email notifications</a> <a href="{% url 'trusted_devices' %}" class="btn btn-outline-secondary"><i class="bi bi-shield-lock"></i> Trusted devices</a></div></div>
   <h3 class="mt-4">Hotspot</h3><p>Used for the “Join our Wi-Fi” text and scan-to-login QR codes.</p>

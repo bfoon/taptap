@@ -18,6 +18,7 @@ class Business(models.Model):
     wifi_ssid=models.CharField(max_length=80,blank=True)
     hotspot_url=models.CharField(max_length=200,blank=True,help_text='e.g. http://wifi.local/login')
     support_phone=models.CharField(max_length=60,blank=True)
+    hotspot_dns_name=models.CharField(max_length=60,blank=True,default='login.wifi',help_text='Easy address customers can type to open the login page (http://login.wifi). Set on routers whose hotspot has none.')
     email=models.EmailField(blank=True,help_text='Business email for notifications (blank = your login email)')
     email_verified_at=models.DateTimeField(null=True,blank=True,help_text='When the owner proved the login email with a code')
     brand_color=models.CharField(max_length=20,default='#1769e0')
