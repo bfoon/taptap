@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from datetime import timedelta
 
@@ -11,14 +12,25 @@ from django.utils import timezone
 
 from .models_voucher_entry import VoucherEntryDevice, VoucherEntryPolicy
 
+
 MAC_RE = re.compile(r'^[0-9A-F]{2}(?::[0-9A-F]{2}){5}$')
 
 
 def _norm_mac(value):
-    raw = ''.join(c for c in str(value or '').upper() if c in '0123456789ABCDEF')
+    raw = ''.join(
+        c
+        for c in str(value or '').upper()
+        if c in '0123456789ABCDEF'
+    )
+
     if len(raw) != 12:
         return ''
-    mac = ':'.join(raw[i:i + 2] for i in range(0, 12, 2))
+
+    mac = ':'.join(
+        raw[i:i + 2]
+        for i in range(0, 12, 2)
+    )
+
     return mac if MAC_RE.match(mac) else ''
 
 
@@ -35,131 +47,335 @@ def _body(request):
         raw = request.body or b''
         return json.loads(raw.decode('utf-8')) if raw else {}
     except Exception:
-        return request.POST.dict() if hasattr(request, 'POST') else {}
+        try:
+            return request.POST.dict()
+        except Exception:
+            return {}
 
 
 def _identity(request, data):
+    """
+    Prefer the browser/device fingerprint.
+
+    Phones can rotate their private Wi-Fi MAC. The portal fingerprint is more
+    stable for the same phone/browser, while the current MAC remains stored for
+    staff visibility.
+    """
     mac = _norm_mac(data.get('mac', ''))
     fp = str(data.get('fp') or '').strip()
-    ip = str(data.get('ip') or _client_ip(request)).strip()[:64]
+    ip = str(
+        data.get('ip')
+        or _client_ip(request)
+    ).strip()[:64]
 
-    # Prefer the browser/device fingerprint when the portal sends one. This
-    # keeps the counter attached to the same phone even if Android/iOS rotates
-    # its private Wi-Fi MAC after reconnecting. Keep the current MAC on the row
-    # for staff visibility.
     if fp:
-        digest = hashlib.sha256(fp.encode('utf-8', 'ignore')).hexdigest()
-        return f'fp:{digest}', mac, digest, ip
+        digest = hashlib.sha256(
+            fp.encode(
+                'utf-8',
+                'ignore',
+            ),
+        ).hexdigest()
+
+        return (
+            f'fp:{digest}',
+            mac,
+            digest,
+            ip,
+        )
 
     if mac:
-        return f'mac:{mac}', mac, '', ip
+        return (
+            f'mac:{mac}',
+            mac,
+            '',
+            ip,
+        )
 
-    digest = hashlib.sha256(ip.encode('utf-8', 'ignore')).hexdigest()
-    return f'ip:{digest}', '', '', ip
+    digest = hashlib.sha256(
+        ip.encode(
+            'utf-8',
+            'ignore',
+        ),
+    ).hexdigest()
+
+    return (
+        f'ip:{digest}',
+        '',
+        '',
+        ip,
+    )
 
 
 def _policy(business):
-    obj, _ = VoucherEntryPolicy.objects.get_or_create(
-        business=business,
-        defaults={
-            'enabled': False,
-            'max_attempts': 5,
-            'warning_remaining': 2,
-            'window_minutes': 10,
-            'block_minutes': 30,
-        },
+    obj, _created = (
+        VoucherEntryPolicy.objects
+        .get_or_create(
+            business=business,
+            defaults={
+                'enabled': False,
+                'max_attempts': 5,
+                'warning_remaining': 2,
+                'window_minutes': 10,
+                'block_minutes': 30,
+            },
+        )
     )
+
     return obj
 
 
 def _support_number(business):
-    return (business.support_phone or business.phone or '').strip()
+    return (
+        business.support_phone
+        or business.phone
+        or ''
+    ).strip()
 
 
-def _blocked_message(policy, business, row):
-    support = _support_number(business)
-    until = timezone.localtime(row.blocked_until) if row.blocked_until else None
-    when = until.strftime('%H:%M') if until else ''
-
-    base = (
-        policy.blocked_text.strip()
-        if policy.blocked_text.strip()
-        else (
-            f'This device is temporarily blocked from entering voucher codes '
-            f'because too many incorrect entries were made. '
-            f'Try again after {when}.'
-        )
+def _duration_text(seconds):
+    seconds = max(
+        0,
+        int(
+            math.ceil(
+                float(seconds or 0)
+            ),
+        ),
     )
 
-    if support:
-        base += f' If you need access sooner, call {support} and ask staff to unblock your device.'
+    minutes, seconds = divmod(
+        seconds,
+        60,
+    )
+
+    hours, minutes = divmod(
+        minutes,
+        60,
+    )
+
+    parts = []
+
+    if hours:
+        parts.append(
+            f'{hours} hour'
+            f'{"s" if hours != 1 else ""}',
+        )
+
+    if minutes:
+        parts.append(
+            f'{minutes} minute'
+            f'{"s" if minutes != 1 else ""}',
+        )
+
+    if seconds or not parts:
+        parts.append(
+            f'{seconds} second'
+            f'{"s" if seconds != 1 else ""}',
+        )
+
+    return ' '.join(parts[:2])
+
+
+def _remaining_seconds(row, now=None):
+    now = now or timezone.now()
+
+    if not row.blocked_until:
+        return 0
+
+    return max(
+        0,
+        int(
+            math.ceil(
+                (
+                    row.blocked_until
+                    - now
+                ).total_seconds(),
+            ),
+        ),
+    )
+
+
+def _blocked_message(
+    policy,
+    business,
+    row,
+    now=None,
+):
+    now = now or timezone.now()
+    seconds = _remaining_seconds(
+        row,
+        now,
+    )
+
+    support = _support_number(
+        business,
+    )
+
+    until = (
+        timezone.localtime(
+            row.blocked_until,
+        )
+        if row.blocked_until
+        else None
+    )
+
+    until_text = (
+        until.strftime('%H:%M:%S')
+        if until
+        else ''
+    )
+
+    custom = (
+        policy.blocked_text
+        or ''
+    ).strip()
+
+    if custom:
+        base = custom
     else:
-        base += ' If you need access sooner, contact staff and ask them to unblock your device.'
+        base = (
+            'This device has been temporarily blocked '
+            'from entering voucher codes because too '
+            'many incorrect attempts were made.'
+        )
+
+    if seconds:
+        base += (
+            f' Try again in '
+            f'{_duration_text(seconds)}'
+        )
+
+        if until_text:
+            base += (
+                f' (at {until_text}).'
+            )
+        else:
+            base += '.'
+
+    if support:
+        base += (
+            f' If you need access sooner, '
+            f'call {support} and ask us to '
+            f'unblock your device.'
+        )
+    else:
+        base += (
+            ' If you need access sooner, '
+            'contact staff and ask them to '
+            'unblock your device.'
+        )
 
     return base
 
 
-def _warning_message(policy, remaining):
-    custom = policy.warning_text.strip()
+def _warning_message(
+    policy,
+    remaining,
+):
+    custom = (
+        policy.warning_text
+        or ''
+    ).strip()
+
+    attempts = (
+        f'{remaining} attempt'
+        f'{"s" if remaining != 1 else ""} '
+        'remaining.'
+    )
+
     if custom:
-        return f'{custom} {remaining} attempt{"s" if remaining != 1 else ""} remaining.'
+        return (
+            f'{custom} {attempts}'
+        )
 
     return (
-        f'Warning: {remaining} incorrect voucher entr'
-        f'{"ies" if remaining != 1 else "y"} remaining before this device is temporarily blocked.'
+        'Warning: the voucher code or login '
+        'details entered are incorrect. '
+        'Please check carefully before trying '
+        f'again. {attempts}'
     )
 
 
-def _get_row(business, request, data):
-    device_key, mac, fp_hash, ip = _identity(request, data)
+def _get_row(
+    business,
+    request,
+    data,
+):
+    (
+        device_key,
+        mac,
+        fp_hash,
+        ip,
+    ) = _identity(
+        request,
+        data,
+    )
 
-    row, _ = VoucherEntryDevice.objects.get_or_create(
-        business=business,
-        device_key=device_key,
-        defaults={
-            'mac_address': mac,
-            'fingerprint_hash': fp_hash,
-            'ip_address': ip,
-        },
+    row, _created = (
+        VoucherEntryDevice.objects
+        .get_or_create(
+            business=business,
+            device_key=device_key,
+            defaults={
+                'mac_address': mac,
+                'fingerprint_hash': fp_hash,
+                'ip_address': ip,
+            },
+        )
     )
 
     changed = []
 
-    if mac and row.mac_address != mac:
+    if (
+        mac
+        and row.mac_address != mac
+    ):
         row.mac_address = mac
-        changed.append('mac_address')
+        changed.append(
+            'mac_address',
+        )
 
-    if fp_hash and row.fingerprint_hash != fp_hash:
+    if (
+        fp_hash
+        and row.fingerprint_hash != fp_hash
+    ):
         row.fingerprint_hash = fp_hash
-        changed.append('fingerprint_hash')
+        changed.append(
+            'fingerprint_hash',
+        )
 
-    if ip and row.ip_address != ip:
+    if (
+        ip
+        and row.ip_address != ip
+    ):
         row.ip_address = ip
-        changed.append('ip_address')
+        changed.append(
+            'ip_address',
+        )
 
     if changed:
-        row.save(update_fields=changed + ['last_seen_at'])
+        row.save(
+            update_fields=(
+                changed
+                + ['last_seen_at']
+            ),
+        )
 
     return row
 
 
-def _reset_if_window_expired(row, policy, now):
+def _clear_expired_block(
+    row,
+    now,
+):
     if (
-        row.window_started_at
-        and now - row.window_started_at > timedelta(minutes=max(1, int(policy.window_minutes or 10)))
-        and not row.is_blocked
+        row.blocked_until
+        and row.blocked_until <= now
     ):
-        row.attempts = 0
-        row.window_started_at = None
-        row.save(update_fields=['attempts', 'window_started_at', 'last_seen_at'])
-
-
-def _clear_expired_block(row, now):
-    if row.blocked_until and row.blocked_until <= now:
         row.attempts = 0
         row.window_started_at = None
         row.blocked_at = None
         row.blocked_until = None
+
         row.save(
             update_fields=[
                 'attempts',
@@ -171,85 +387,241 @@ def _clear_expired_block(row, now):
         )
 
 
-def _before_check(page, request, data):
-    policy = _policy(page.business)
+def _reset_if_window_expired(
+    row,
+    policy,
+    now,
+):
+    if row.is_blocked:
+        return
+
+    if not row.window_started_at:
+        return
+
+    minutes = max(
+        1,
+        int(
+            policy.window_minutes
+            or 10
+        ),
+    )
+
+    if (
+        now
+        - row.window_started_at
+        > timedelta(
+            minutes=minutes,
+        )
+    ):
+        row.attempts = 0
+        row.window_started_at = None
+
+        row.save(
+            update_fields=[
+                'attempts',
+                'window_started_at',
+                'last_seen_at',
+            ],
+        )
+
+
+def _prepare(
+    business,
+    request,
+    data,
+):
+    policy = _policy(
+        business,
+    )
 
     if not policy.enabled:
-        return None, None, policy
+        return (
+            None,
+            policy,
+        )
 
     now = timezone.now()
-    row = _get_row(page.business, request, data)
 
-    _clear_expired_block(row, now)
-    _reset_if_window_expired(row, policy, now)
+    row = _get_row(
+        business,
+        request,
+        data,
+    )
+
+    _clear_expired_block(
+        row,
+        now,
+    )
+
+    _reset_if_window_expired(
+        row,
+        policy,
+        now,
+    )
+
     row.refresh_from_db()
 
-    if row.is_blocked:
-        return row, JsonResponse(
-            {
-                'success': False,
-                'blocked': True,
-                'security_block': True,
-                'attempts_remaining': 0,
-                'blocked_until': row.blocked_until.isoformat(),
-                'support_phone': _support_number(page.business),
-                'message': _blocked_message(policy, page.business, row),
-            },
-            status=403,
-        ), policy
-
-    return row, None, policy
-
-
-def _invalid_login_response(response):
-    if getattr(response, 'status_code', 200) != 404:
-        return False
-
-    try:
-        data = json.loads(response.content.decode('utf-8'))
-    except Exception:
-        return False
-
-    if data.get('success') is not False:
-        return False
-
-    message = str(data.get('message') or '').lower()
-
     return (
-        'not recognised' in message
-        or 'not recognized' in message
-        or 'username or password is wrong' in message
+        row,
+        policy,
     )
 
 
-def _success_response(response):
-    if getattr(response, 'status_code', 500) >= 400:
-        return False
+def _blocked_payload(
+    policy,
+    business,
+    row,
+    *,
+    router_mode=False,
+):
+    """
+    IMPORTANT:
 
-    try:
-        data = json.loads(response.content.decode('utf-8'))
-    except Exception:
-        return False
+    Do NOT return blocked=true here.
 
-    return data.get('success') is True
+    portal-render.js already uses blocked=true for TapTap's voucher-freeze
+    warning/paused screen. Feeding this security lockout into that path caused
+    the wrong/error page reported by customers.
 
-
-def _record_failure(page, row, policy, member=False):
+    For the MikroTik router-served portal we use its existing `wait` countdown.
+    For hosted portal pages we return a normal success=false message.
+    """
     now = timezone.now()
-    max_attempts = policy.safe_max_attempts
+
+    seconds = _remaining_seconds(
+        row,
+        now,
+    )
+
+    payload = {
+        'ok': False,
+        'success': False,
+        'security_block': True,
+        'security_warning': False,
+        'attempts_remaining': 0,
+        'blocked_until': (
+            row.blocked_until.isoformat()
+            if row.blocked_until
+            else ''
+        ),
+        'block_remaining_seconds': seconds,
+        'support_phone': _support_number(
+            business,
+        ),
+        'message': _blocked_message(
+            policy,
+            business,
+            row,
+            now,
+        ),
+    }
+
+    if router_mode:
+        # The existing router portal renderer displays the message and counts
+        # down this many seconds before allowing another login attempt.
+        payload['wait'] = max(
+            1,
+            seconds,
+        )
+
+    return payload
+
+
+def _warning_payload(
+    policy,
+    remaining,
+    *,
+    member=False,
+    router_mode=False,
+):
+    prefix = (
+        'Username or password is wrong. '
+        'Check them and try again.'
+        if member
+        else (
+            'That code was not recognised. '
+            'Check the letters and try again.'
+        )
+    )
+
+    message = (
+        f'{prefix} '
+        f'{_warning_message(policy, remaining)}'
+    )
+
+    payload = {
+        'ok': False,
+        'success': False,
+        'security_warning': True,
+        'security_block': False,
+        'attempts_remaining': remaining,
+        'message': message,
+    }
+
+    if router_mode:
+        # Give the customer enough time to actually read the warning before
+        # RouterOS performs the login attempt and returns its own invalid-login
+        # page. After 3 seconds the existing renderer continues normally.
+        payload['wait'] = 3
+
+    return payload
+
+
+def _record_failure(
+    business,
+    row,
+    policy,
+    *,
+    member=False,
+    router_mode=False,
+):
+    now = timezone.now()
 
     if not row.window_started_at:
         row.window_started_at = now
         row.attempts = 0
 
-    row.attempts = min(65535, int(row.attempts or 0) + 1)
+    row.attempts = min(
+        65535,
+        int(
+            row.attempts
+            or 0
+        )
+        + 1,
+    )
+
     row.last_attempt_at = now
 
-    remaining = max(0, max_attempts - row.attempts)
+    max_attempts = (
+        policy.safe_max_attempts
+    )
 
-    if row.attempts >= max_attempts:
+    remaining = max(
+        0,
+        max_attempts
+        - row.attempts,
+    )
+
+    if (
+        row.attempts
+        >= max_attempts
+    ):
+        block_minutes = max(
+            1,
+            int(
+                policy.block_minutes
+                or 30
+            ),
+        )
+
         row.blocked_at = now
-        row.blocked_until = now + timedelta(minutes=max(1, int(policy.block_minutes or 30)))
+        row.blocked_until = (
+            now
+            + timedelta(
+                minutes=block_minutes,
+            )
+        )
+
         row.save(
             update_fields=[
                 'attempts',
@@ -261,17 +633,11 @@ def _record_failure(page, row, policy, member=False):
             ],
         )
 
-        return JsonResponse(
-            {
-                'success': False,
-                'blocked': True,
-                'security_block': True,
-                'attempts_remaining': 0,
-                'blocked_until': row.blocked_until.isoformat(),
-                'support_phone': _support_number(page.business),
-                'message': _blocked_message(policy, page.business, row),
-            },
-            status=403,
+        return _blocked_payload(
+            policy,
+            business,
+            row,
+            router_mode=router_mode,
         )
 
     row.save(
@@ -283,37 +649,51 @@ def _record_failure(page, row, policy, member=False):
         ],
     )
 
-    warn = remaining <= policy.safe_warning_remaining
-
-    message = (
-        'Username or password is wrong. Check them and try again.'
-        if member
-        else 'That code was not recognised. Check the letters and try again.'
+    warn = (
+        remaining
+        <= policy.safe_warning_remaining
     )
 
     if warn:
-        message += ' ' + _warning_message(policy, remaining)
+        return _warning_payload(
+            policy,
+            remaining,
+            member=member,
+            router_mode=router_mode,
+        )
 
-    return JsonResponse(
-        {
-            'success': False,
-            'warning': warn,
-            'security_warning': warn,
-            'attempts_used': row.attempts,
-            'attempts_remaining': remaining,
-            'message': message,
-        },
-        status=404,
-    )
+    return {
+        'ok': False,
+        'success': False,
+        'security_warning': False,
+        'security_block': False,
+        'attempts_used': row.attempts,
+        'attempts_remaining': remaining,
+        'message': (
+            'Username or password is wrong. '
+            'Check them and try again.'
+            if member
+            else (
+                'That code was not recognised. '
+                'Check the letters and try again.'
+            )
+        ),
+    }
 
 
-def _reset_on_success(row):
+def _reset_on_valid_voucher(
+    row,
+):
     if not row:
         return
 
-    if row.attempts or row.window_started_at:
+    if (
+        row.attempts
+        or row.window_started_at
+    ):
         row.attempts = 0
         row.window_started_at = None
+
         row.save(
             update_fields=[
                 'attempts',
@@ -323,74 +703,406 @@ def _reset_on_success(row):
         )
 
 
+def _response_json(
+    response,
+):
+    try:
+        return json.loads(
+            response.content.decode(
+                'utf-8',
+            ),
+        )
+    except Exception:
+        return {}
+
+
+def _invalid_hosted_login(
+    response,
+):
+    data = _response_json(
+        response,
+    )
+
+    if data.get('success') is not False:
+        return False
+
+    message = str(
+        data.get('message')
+        or '',
+    ).lower()
+
+    return (
+        'not recognised'
+        in message
+        or 'not recognized'
+        in message
+        or (
+            'username or password'
+            in message
+            and 'wrong'
+            in message
+        )
+    )
+
+
+def _successful_hosted_login(
+    response,
+):
+    data = _response_json(
+        response,
+    )
+
+    return (
+        getattr(
+            response,
+            'status_code',
+            500,
+        )
+        < 400
+        and data.get('success')
+        is True
+    )
+
+
+def _public_json(
+    payload,
+):
+    """
+    Always return HTTP 200 for security warning/lockout messages.
+
+    The captive portal is an application UI. 403/404/429 responses can be
+    replaced/intercepted by hotspot/web-proxy infrastructure and become an
+    HTML error page. The payload itself carries success=false/security_block.
+    """
+    return JsonResponse(
+        payload,
+        status=200,
+    )
+
+
 def install():
     """
-    Wrap the existing customer portal checker and Security view.
+    Protect BOTH portal paths:
 
-    This is deliberately installed before core.urls is imported, so the URLs
-    bind to the wrapped functions without replacing the very large views files.
+    1. views_studio.portal_check
+       Used by hosted TapTap portal pages.
+
+    2. views_ads.portal_state
+       Used by login.html served directly by MikroTik.
+
+    The previous version only wrapped portal_check, which is why customers on
+    the actual MikroTik captive portal did not see the warning/countdown.
     """
     from . import views
+    from . import views_ads
     from . import views_studio
 
-    if getattr(views_studio, '_voucher_entry_security_installed', False):
+    if getattr(
+        views_studio,
+        '_voucher_entry_security_v2_installed',
+        False,
+    ):
         return
 
-    original_portal_check = views_studio.portal_check
-    original_security = views.security
+    original_portal_check = (
+        views_studio.portal_check
+    )
 
-    def protected_portal_check(request, slug, *args, **kwargs):
+    original_portal_state = (
+        views_ads.portal_state
+    )
+
+    original_security = (
+        views.security
+    )
+
+    def protected_portal_check(
+        request,
+        slug,
+        *args,
+        **kwargs,
+    ):
         page = (
             views_studio.PortalPage.objects
-            .select_related('business')
-            .filter(slug=slug)
+            .select_related(
+                'business',
+            )
+            .filter(
+                slug=slug,
+            )
             .first()
         )
 
         if not page:
-            return original_portal_check(request, slug, *args, **kwargs)
-
-        data = _body(request)
-        row, blocked_response, policy = _before_check(page, request, data)
-
-        if blocked_response is not None:
-            return blocked_response
-
-        response = original_portal_check(request, slug, *args, **kwargs)
-
-        if not policy.enabled:
-            return response
-
-        if _success_response(response):
-            _reset_on_success(row)
-            return response
-
-        if _invalid_login_response(response):
-            return _record_failure(
-                page,
-                row,
-                policy,
-                member=bool(data.get('member')),
+            return original_portal_check(
+                request,
+                slug,
+                *args,
+                **kwargs,
             )
 
+        data = _body(
+            request,
+        )
+
+        row, policy = _prepare(
+            page.business,
+            request,
+            data,
+        )
+
+        if (
+            policy.enabled
+            and row
+            and row.is_blocked
+        ):
+            return _public_json(
+                _blocked_payload(
+                    policy,
+                    page.business,
+                    row,
+                    router_mode=False,
+                ),
+            )
+
+        response = (
+            original_portal_check(
+                request,
+                slug,
+                *args,
+                **kwargs,
+            )
+        )
+
+        if (
+            not policy.enabled
+            or not row
+        ):
+            return response
+
+        if _successful_hosted_login(
+            response,
+        ):
+            _reset_on_valid_voucher(
+                row,
+            )
+            return response
+
+        if _invalid_hosted_login(
+            response,
+        ):
+            payload = _record_failure(
+                page.business,
+                row,
+                policy,
+                member=bool(
+                    data.get(
+                        'member',
+                    ),
+                ),
+                router_mode=False,
+            )
+
+            return _public_json(
+                payload,
+            )
+
+        # Expired, disabled, frozen, sticky-device refusals, etc. are returned
+        # exactly as TapTap already handles them and do not count as guessing.
         return response
 
-    def security_with_voucher_entry(request, *args, **kwargs):
-        response = original_security(request, *args, **kwargs)
+    def protected_portal_state(
+        request,
+        slug,
+        *args,
+        **kwargs,
+    ):
+        """
+        MikroTik router-served login page.
+
+        This endpoint runs BEFORE RouterOS receives the username/password, so it
+        is the only place where TapTap can show the configured countdown on the
+        actual customer portal.
+        """
+        page = (
+            views_ads.PortalPage.objects
+            .select_related(
+                'business',
+            )
+            .filter(
+                slug=slug,
+            )
+            .first()
+        )
+
+        if not page:
+            return original_portal_state(
+                request,
+                slug,
+                *args,
+                **kwargs,
+            )
+
+        data = (
+            views_ads._portal_json(
+                request,
+            )
+            or {}
+        )
+
+        row, policy = _prepare(
+            page.business,
+            request,
+            data,
+        )
+
+        if (
+            policy.enabled
+            and row
+            and row.is_blocked
+        ):
+            return views_ads._cors(
+                _public_json(
+                    _blocked_payload(
+                        policy,
+                        page.business,
+                        row,
+                        router_mode=True,
+                    ),
+                ),
+            )
+
+        if not policy.enabled:
+            return original_portal_state(
+                request,
+                slug,
+                *args,
+                **kwargs,
+            )
+
+        code = str(
+            data.get(
+                'code',
+            )
+            or '',
+        ).replace(
+            ' ',
+            '',
+        ).strip()
+
+        # Empty submissions are handled by portal-render.js and do not count.
+        if not code:
+            return original_portal_state(
+                request,
+                slug,
+                *args,
+                **kwargs,
+            )
+
+        voucher = (
+            page.business.vouchers
+            .filter(
+                code__iexact=code,
+            )
+            .first()
+        )
+
+        if not voucher:
+            payload = _record_failure(
+                page.business,
+                row,
+                policy,
+                member=False,
+                router_mode=True,
+            )
+
+            if (
+                payload.get(
+                    'security_warning',
+                )
+                or payload.get(
+                    'security_block',
+                )
+            ):
+                return views_ads._cors(
+                    _public_json(
+                        payload,
+                    ),
+                )
+
+            # The attempt is counted but there is no warning yet. Let RouterOS
+            # perform its normal login attempt and show the normal wrong-code
+            # response.
+            return original_portal_state(
+                request,
+                slug,
+                *args,
+                **kwargs,
+            )
+
+        # A known voucher code is NOT guessing. Reset the wrong-code counter
+        # before normal expired/disabled/frozen/sticky checks run.
+        #
+        # Member usernames are deliberately not reset here because this state
+        # request does not contain the member password; hosted portal_check can
+        # validate both fields.
+        if not voucher.is_member:
+            _reset_on_valid_voucher(
+                row,
+            )
+
+        return original_portal_state(
+            request,
+            slug,
+            *args,
+            **kwargs,
+        )
+
+    def security_with_voucher_entry(
+        request,
+        *args,
+        **kwargs,
+    ):
+        response = original_security(
+            request,
+            *args,
+            **kwargs,
+        )
 
         try:
-            if getattr(response, 'status_code', 200) != 200:
+            if (
+                getattr(
+                    response,
+                    'status_code',
+                    200,
+                )
+                != 200
+            ):
                 return response
 
-            business = request.user.business
-            policy = _policy(business)
+            business = (
+                request.user.business
+            )
+
+            policy = _policy(
+                business,
+            )
+
             now = timezone.now()
 
-            VoucherEntryDevice.objects.filter(
-                business=business,
-                blocked_until__isnull=False,
-                blocked_until__lte=now,
-            ).update(
+            # Clean only blocks whose configured blocked_until has actually
+            # elapsed. This is what makes "Block device for 10 minutes" mean
+            # exactly 10 minutes rather than depending on a page refresh/cache.
+            expired = (
+                VoucherEntryDevice.objects
+                .filter(
+                    business=business,
+                    blocked_until__isnull=False,
+                    blocked_until__lte=now,
+                )
+            )
+
+            expired.update(
                 attempts=0,
                 window_started_at=None,
                 blocked_at=None,
@@ -403,7 +1115,9 @@ def install():
                     business=business,
                     blocked_until__gt=now,
                 )
-                .order_by('blocked_until')[:200]
+                .order_by(
+                    'blocked_until',
+                )[:200]
             )
 
             recent = list(
@@ -413,41 +1127,119 @@ def install():
                     attempts__gt=0,
                     blocked_until__isnull=True,
                 )
-                .order_by('-last_attempt_at')[:20]
+                .order_by(
+                    '-last_attempt_at',
+                )[:20]
             )
 
             card = render_to_string(
-                'core/partials/voucher_entry_security.html',
+                'core/partials/'
+                'voucher_entry_security.html',
                 {
-                    'voucher_entry_policy': policy,
-                    'voucher_entry_blocked': blocked,
-                    'voucher_entry_recent': recent,
-                    'voucher_entry_now': now,
-                    'current_business': business,
+                    'voucher_entry_policy':
+                        policy,
+                    'voucher_entry_blocked':
+                        blocked,
+                    'voucher_entry_recent':
+                        recent,
+                    'voucher_entry_now':
+                        now,
+                    'current_business':
+                        business,
                 },
                 request=request,
             )
 
-            text = response.content.decode(response.charset or 'utf-8')
-            marker = '<section class="panel mb-3" id="fair-usage">'
+            text = (
+                response.content.decode(
+                    response.charset
+                    or 'utf-8',
+                )
+            )
+
+            marker = (
+                '<section class="panel mb-3" '
+                'id="fair-usage">'
+            )
 
             if marker in text:
-                text = text.replace(marker, card + '\n' + marker, 1)
+                text = text.replace(
+                    marker,
+                    card
+                    + '\n'
+                    + marker,
+                    1,
+                )
             else:
-                text = text.replace('{% block content %}', '{% block content %}' + card, 1)
+                # Security template structure changed: put the protection card
+                # immediately after the main content container if possible.
+                for fallback in (
+                    '<div class="security-page">',
+                    '<main',
+                ):
+                    pos = text.find(
+                        fallback,
+                    )
 
-            response.content = text.encode(response.charset or 'utf-8')
-            if response.has_header('Content-Length'):
-                del response['Content-Length']
+                    if pos >= 0:
+                        if fallback == '<main':
+                            end = text.find(
+                                '>',
+                                pos,
+                            )
+
+                            if end >= 0:
+                                text = (
+                                    text[:end + 1]
+                                    + card
+                                    + text[end + 1:]
+                                )
+                                break
+                        else:
+                            end = (
+                                pos
+                                + len(
+                                    fallback,
+                                )
+                            )
+
+                            text = (
+                                text[:end]
+                                + card
+                                + text[end:]
+                            )
+                            break
+
+            response.content = (
+                text.encode(
+                    response.charset
+                    or 'utf-8',
+                )
+            )
+
+            if response.has_header(
+                'Content-Length',
+            ):
+                del response[
+                    'Content-Length'
+                ]
 
         except Exception:
-            # Security Center must remain available even if this card has a
-            # temporary database/schema problem during deployment.
+            # Never make Security Center unavailable because this panel failed.
             pass
 
         return response
 
-    views_studio.portal_check = protected_portal_check
-    views.security = security_with_voucher_entry
+    views_studio.portal_check = (
+        protected_portal_check
+    )
 
-    views_studio._voucher_entry_security_installed = True
+    views_ads.portal_state = (
+        protected_portal_state
+    )
+
+    views.security = (
+        security_with_voucher_entry
+    )
+
+    views_studio._voucher_entry_security_v2_installed = True
