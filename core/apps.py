@@ -29,10 +29,20 @@ class CoreConfig(AppConfig):
         from .link_system_health import install as install_link_system_health
         install_link_system_health()
 
-        # Voucher/member entry brute-force protection:
-        # configurable countdown, warning, temporary device lockout and manual unblock.
-        from .voucher_entry_security import install as install_voucher_entry_security
-        install_voucher_entry_security()
+        # If the Voucher Entry Security package is installed locally, preserve it.
+        # This optional import keeps this full apps.py safe on servers that have
+        # not installed that feature yet.
+        try:
+            from .voucher_entry_security import install as install_voucher_entry_security
+        except ModuleNotFoundError:
+            install_voucher_entry_security = None
+        if install_voucher_entry_security:
+            install_voucher_entry_security()
+
+        # Make TapTap Link sync/bypass delivery reliable:
+        # ACK reconciliation, queue coalescing, bounded self-heal and fast retry.
+        from .link_sync_reliability import install as install_link_sync_reliability
+        install_link_sync_reliability()
 
         # Traffic base-speed rules run immediately before Fair Usage.
         # Device > agent > plan > all plans; Fair Usage may still reduce more.
