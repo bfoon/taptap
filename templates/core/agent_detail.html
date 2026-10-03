@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}{% load taptap_extras %}
+{% extends 'core/base.html' %}{% load static taptap_extras %}
 {% block title %}{{ agent.name }} — Agent{% endblock %}{% block heading %}{{ agent.name }}{% endblock %}
 {% block content %}{% with c=current_business.currency %}
 <div class="d-flex flex-wrap gap-2 align-items-center mb-3 no-print">
@@ -38,6 +38,15 @@
 </div>
 
 <div class="row g-3 mt-1">
+  <div class="col-12"><div class="panel"><div class="d-flex flex-wrap gap-3 align-items-center">
+    <div id="agentQr" class="p-2 bg-white border rounded-3" style="width:150px;height:150px" aria-label="QR code of the voucher checker"></div>
+    <div class="flex-grow-1" style="min-width:240px"><h3 class="h6 fw-bold mb-1"><i class="bi bi-qr-code-scan"></i> Voucher checker for {{ agent.name }}</h3>
+      <p class="small text-secondary mb-2">{{ agent.name }} scans this with the phone camera (no app, no login) and types or scans a voucher. They see a big colour answer: 🟢 not used · 🟡 in use — do not take back, customer calls {{ current_business.phone|default:"you" }} · 🔴 finished. The 🤝 button sends your team an alert with the voucher.</p>
+      <div class="d-flex flex-wrap gap-2"><button class="btn btn-sm btn-primary" type="button" onclick="printAgentQr()"><i class="bi bi-printer"></i> Print card</button>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ portal_url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open</a>
+        <button class="btn btn-sm btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText('{{ portal_url }}');this.textContent='Copied ✓'"><i class="bi bi-clipboard"></i> Copy link</button>
+        <form method="post" action="{% url 'agent_portal_rotate' agent.id %}" onsubmit="return confirm('Make a new QR? The old one stops working.')">{% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-arrow-repeat"></i> New QR</button></form></div></div>
+  </div></div></div>
   <div class="col-xl-7"><div class="panel h-100"><div class="panel-head"><div><h3>Recent sales</h3><p>Credited to {{ agent.name }}</p></div></div><div class="table-responsive"><table class="table table-money"><thead><tr><th>When</th><th>Voucher</th><th>Plan</th><th>How</th><th class="num">Commission</th><th class="num">Amount</th></tr></thead><tbody>
     {% for s in sales %}<tr><td>{{ s.sold_at|date:'d M H:i' }}</td><td><code class="voucher-code">{% voucher_link s.voucher_code %}</code></td><td>{{ s.plan_name }}</td><td><span class="method-pill {{ s.payment_method }}">{{ s.get_payment_method_display }}</span></td><td class="num">{{ s.commission|money:c }}</td><td class="num"><b>{{ s.amount|money:c }}</b></td></tr>
     {% empty %}<tr><td colspan="6" class="empty-table">No sales yet. Sales appear when {{ agent.name }}’s vouchers are sold or first used.</td></tr>{% endfor %}</tbody></table></div></div></div>
@@ -54,9 +63,22 @@
     <div class="col-6"><label class="form-label small fw-bold">Reference</label><input class="form-control" name="reference"></div><div class="col-6"><label class="form-label small fw-bold">Date</label><input class="form-control" type="date" name="collected_at" value="{{ today }}"></div>
     <div class="col-12"><label class="form-label small fw-bold">Note</label><input class="form-control" name="note"></div></div></div>
   <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success">Record hand-in</button></div></form></div></div>
-{% endwith %}{% endblock %}
+{% endwith %}
+<script src="{% static 'vendor/qrcode.js' %}"></script>
+<script>
+(function(){var q=qrcode(0,'M');q.addData('{{ portal_url|escapejs }}');q.make();document.getElementById('agentQr').innerHTML=q.createSvgTag({cellSize:4,margin:0,scalable:true});})();
+function printAgentQr(){var w=window.open('','_blank');var svg=document.getElementById('agentQr').innerHTML;
+w.document.write('<html><head><title>{{ agent.name|escapejs }} voucher checker</title><style>body{font-family:sans-serif;text-align:center;padding:30px}.c{border:3px dashed #1769e0;border-radius:22px;display:inline-block;padding:24px 30px}svg{width:260px;height:260px}h1{margin:.2em 0;font-size:26px}p{font-size:20px;margin:.4em 0}</style></head><body><div class="c"><h1>{{ current_business.business_name|escapejs }}</h1><p>📷 Scan to check a voucher</p>'+svg+'<p>🟢 OK &nbsp; 🟡 STOP &nbsp; 🔴 END</p><p style="font-size:16px">{{ agent.name|escapejs }}</p></div><script>window.onload=function(){window.print()}<\/script></body></html>');w.document.close();}
+</script>
+{% endblock %}
 {% block scripts %}{% if agent.phone %}<script>
 (function(){const d=String('{{ agent.phone|escapejs }}').replace(/\D/g,''),n=d.length===7?'220'+d:d;
 const t=`Hello {{ agent.name|escapejs }}, here is your {{ current_business.business_name|escapejs }} voucher statement:\nHolding: {{ bal.holding }} vouchers ({{ bal.holding_value|money:current_business.currency|escapejs }})\nSold: {{ bal.sold }} ({{ bal.gross|money:current_business.currency|escapejs }})\nYour commission: {{ bal.commission|money:current_business.currency|escapejs }}\nHanded in: {{ bal.collected|money:current_business.currency|escapejs }}\nStill to hand in: {{ bal.outstanding|money:current_business.currency|escapejs }}\nThank you!`;
 document.getElementById('waStatement').href='https://wa.me/'+n+'?text='+encodeURIComponent(t);})();
-</script>{% endif %}{% endblock %}
+</script>{% endif %}<script src="{% static 'vendor/qrcode.js' %}"></script>
+<script>
+(function(){var el=document.getElementById('agentQr');if(!el)return;var q=qrcode(0,'M');q.addData('{{ portal_url|escapejs }}');q.make();el.innerHTML=q.createSvgTag({cellSize:4,margin:0,scalable:true});})();
+function printAgentQr(){var w=window.open('','_blank');var svg=document.getElementById('agentQr').innerHTML;
+w.document.write('<html><head><title>Voucher checker</title><style>body{font-family:sans-serif;text-align:center;padding:30px}.c{border:3px dashed #1769e0;border-radius:22px;display:inline-block;padding:24px 30px}svg{width:260px;height:260px}h1{margin:.2em 0;font-size:26px}p{font-size:20px;margin:.4em 0}</style></head><body><div class="c"><h1>{{ current_business.business_name|escapejs }}</h1><p>📷 Scan to check a voucher</p>'+svg+'<p>🟢 OK &nbsp; 🟡 STOP &nbsp; 🔴 END</p><p style="font-size:16px">{{ agent.name|escapejs }}</p></div><script>window.onload=function(){window.print()}<\/script></body></html>');w.document.close();}
+</script>
+{% endblock %}

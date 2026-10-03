@@ -1,0 +1,107 @@
+{% load static %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow"><meta name="theme-color" content="#0f2a4d">
+<title>Check voucher — {{ business.business_name }}</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#eef3f9;color:#102033}
+.top{background:linear-gradient(135deg,#0f2a4d,#1769e0);color:#fff;padding:14px 18px;display:flex;align-items:center;gap:12px}
+.top .logo{width:42px;height:42px;border-radius:12px;background:#fff;display:grid;place-items:center;overflow:hidden;flex:none}
+.top .logo img{max-width:100%;max-height:100%}.top b{font-size:1.1rem;display:block}.top small{opacity:.85}
+.wrap{max-width:520px;margin:0 auto;padding:16px}
+form.ask{background:#fff;border-radius:22px;padding:16px;box-shadow:0 8px 26px rgba(10,20,35,.08)}
+.lbl{display:flex;align-items:center;gap:10px;font-weight:800;font-size:1.05rem;margin-bottom:10px}
+.code{width:100%;font-size:1.8rem;letter-spacing:.18em;text-transform:uppercase;text-align:center;font-weight:800;border:3px solid #c9d6e6;border-radius:16px;padding:14px 8px;font-family:ui-monospace,Menlo,monospace}
+.code:focus{outline:none;border-color:#1769e0}
+.row{display:flex;gap:10px;margin-top:12px}
+.btn{flex:1;border:0;border-radius:16px;padding:16px;font-size:1.25rem;font-weight:800;display:flex;align-items:center;justify-content:center;gap:10px;cursor:pointer;text-decoration:none}
+.go{background:#1769e0;color:#fff}.scan{background:#eef3f9;color:#102033;flex:0 0 33%}
+.card{margin-top:16px;border-radius:26px;padding:22px 18px;text-align:center;box-shadow:0 12px 34px rgba(10,20,35,.12);animation:pop .25s ease-out}
+@keyframes pop{from{transform:scale(.94);opacity:0}}
+.card .big{font-size:5.5rem;line-height:1;margin:10px 0 6px;display:block}.card .hand{position:relative;display:inline-block}.card .btn{width:100%}
+.card .x{position:absolute;right:-18px;bottom:-6px;font-size:3.2rem}
+.card .vcode{font-family:ui-monospace,Menlo,monospace;font-size:1.6rem;font-weight:800;letter-spacing:.12em;background:rgba(255,255,255,.55);border-radius:12px;padding:4px 12px;display:inline-block}
+.card .words{font-size:1.35rem;font-weight:800;margin:12px 0 6px}.card .small{font-size:1rem;opacity:.85}
+.green{background:#dcfce7;color:#14532d;border:4px solid #16a34a}.yellow{background:#fef9c3;color:#713f12;border:4px solid #eab308}
+.red{background:#fee2e2;color:#7f1d1d;border:4px solid #dc2626}.grey{background:#f1f5f9;color:#334155;border:4px solid #94a3b8}
+.tick{display:inline-grid;place-items:center;width:46px;height:46px;border-radius:50%;background:#16a34a;color:#fff;font-size:1.8rem;vertical-align:middle;margin-left:8px}
+.end{display:inline-block;background:#dc2626;color:#fff;font-weight:900;font-size:1.6rem;border-radius:10px;padding:2px 14px;letter-spacing:.1em;margin-top:6px}
+.call{background:#eab308;color:#422006;margin-top:12px}.help{background:#16a34a;color:#fff;margin-top:14px}
+.say{background:rgba(255,255,255,.7);color:inherit;margin-top:10px;font-size:1rem;padding:10px}
+.ok{background:#fff;border-radius:16px;padding:12px;margin-top:12px;font-weight:700}
+.foot{text-align:center;color:#64748b;font-size:.85rem;margin-top:18px}
+video{width:100%;border-radius:16px;margin-top:10px;background:#000}
+</style></head>
+<body>
+<header class="top"><span class="logo">{% if business.logo_data %}<img src="{{ business.logo_data }}" alt="">{% else %}<b style="color:#1769e0">{{ business.business_name|slice:":1" }}</b>{% endif %}</span>
+  <div><b>{{ business.business_name }}</b><small>👤 {{ agent.name }}</small></div></header>
+<main class="wrap">
+  <form class="ask" method="get" action="">
+    <label class="lbl" for="code"><span style="font-size:1.6rem">🎟️</span> Voucher code</label>
+    <input class="code" id="code" name="code" value="{{ code }}" autocomplete="off" autocapitalize="characters" spellcheck="false" inputmode="text" placeholder="ABCD1234" required>
+    <div class="row"><button class="btn go" type="submit"><span style="font-size:1.5rem">🔍</span> Check</button>
+      <button class="btn scan" type="button" id="scanBtn" aria-label="Scan the voucher with the camera">📷</button></div>
+    <video id="cam" playsinline hidden></video>
+  </form>
+
+  {% if limited %}<div class="card grey"><div class="big">⏳</div><div class="words">Too many checks. Wait a little and try again.</div></div>{% endif %}
+
+  {% if colour %}
+  <section class="card {{ colour }}" role="status" aria-live="polite" data-say="{{ words }}{% if key == 'in_use' and phone %} Tell the customer to call {{ phone }}.{% endif %}">
+    {% if key == 'unused' %}
+      <div class="vcode">{{ v.code }}</div><span class="tick" aria-hidden="true">✓</span>
+      <div class="big" aria-hidden="true">🟢</div>
+      <div class="words">✓ Not used yet</div>
+      <div class="small">{{ v.plan_name }}</div>
+      {% if help_sent %}<div class="ok">🤝 Help is on the way. The team will call you{% if agent.phone %} on {{ agent.phone }}{% endif %}.</div>
+      {% else %}<form method="post" action="{% url 'agent_portal_help' agent.portal_token %}">{% csrf_token %}<input type="hidden" name="code" value="{{ v.code }}">
+        <button class="btn help" type="submit"><span style="font-size:2rem">🤝</span> Ask for help</button></form>{% endif %}
+    {% elif key == 'in_use' %}
+      <div class="vcode">{{ v.code }}</div>
+      <div class="big" aria-hidden="true"><span class="hand">✋<span class="x">❌</span></span></div>
+      <div class="words">STOP — this voucher is being used</div>
+      <div class="small"><b>Do not take it back.</b></div>
+      {% if phone %}<a class="btn call" href="tel:{{ phone }}"><span style="font-size:1.6rem">📞</span> Customer must call {{ phone }}</a>{% endif %}
+      {% if ends %}<div class="small" style="margin-top:8px">⏱️ Ends {{ ends|date:'d M, H:i' }}</div>{% endif %}
+    {% elif key == 'finished' %}
+      <div class="vcode">{{ v.code }}</div>
+      <div class="big" aria-hidden="true">✋</div><div><span class="end">END</span></div>
+      <div class="words">This voucher is finished</div>
+      <div class="small">It cannot be used again.</div>
+    {% else %}
+      <div class="big" aria-hidden="true">❓</div>
+      <div class="words">We do not know this code</div>
+      <div class="small">Check the letters and numbers, or scan it with 📷.</div>
+    {% endif %}
+    <button class="btn say" type="button" id="sayBtn"><span style="font-size:1.4rem">🔊</span> Listen</button>
+  </section>
+  {% endif %}
+  <p class="foot">🟢 not used · 🟡 in use — do not take back · 🔴 finished{% if phone %}<br>Help: <a href="tel:{{ phone }}">{{ phone }}</a>{% endif %}</p>
+</main>
+<script src="{% static 'vendor/jsqr.js' %}" defer></script>
+<script>
+(function(){
+  // speak the answer (helps agents who do not read); auto-speaks once after a check
+  var card=document.querySelector('.card[data-say]');
+  function say(){ if(!card||!('speechSynthesis' in window))return; speechSynthesis.cancel(); var u=new SpeechSynthesisUtterance(card.dataset.say); u.rate=.9; speechSynthesis.speak(u); }
+  var sb=document.getElementById('sayBtn'); if(sb) sb.onclick=say;
+  if(card){ try{ if(navigator.vibrate) navigator.vibrate(card.classList.contains('green')?[80]:[200,100,200]); }catch(e){} setTimeout(say,350); }
+  // scan the voucher's QR code with the camera
+  var btn=document.getElementById('scanBtn'),vid=document.getElementById('cam'),inp=document.getElementById('code'),stream=null;
+  btn.onclick=function(){
+    if(stream){stop();return;}
+    if(!navigator.mediaDevices||!window.jsQR){inp.focus();return;}
+    navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}}).then(function(s){stream=s;vid.srcObject=s;vid.hidden=false;vid.play();tick();})
+      .catch(function(){inp.focus();});
+  };
+  function stop(){ if(stream){stream.getTracks().forEach(function(t){t.stop();});} stream=null; vid.hidden=true; }
+  var cv=document.createElement('canvas'),cx=cv.getContext('2d');
+  function tick(){
+    if(!stream)return;
+    if(vid.readyState===vid.HAVE_ENOUGH_DATA){cv.width=vid.videoWidth;cv.height=vid.videoHeight;cx.drawImage(vid,0,0);
+      var img=cx.getImageData(0,0,cv.width,cv.height),q=window.jsQR(img.data,img.width,img.height);
+      if(q&&q.data){stop();inp.value=q.data;inp.form.submit();return;}}
+    requestAnimationFrame(tick);
+  }
+})();
+</script>
+</body></html>

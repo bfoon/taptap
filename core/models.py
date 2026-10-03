@@ -632,9 +632,16 @@ class Agent(models.Model):
     location=models.CharField(max_length=160,blank=True)
     commission_percent=models.DecimalField(max_digits=7,decimal_places=4,default=10,help_text='Up to 4 decimals, e.g. 9.09 or 9.0909')
     active=models.BooleanField(default=True)
+    portal_token=models.CharField(max_length=40,blank=True,db_index=True,help_text='Secret in the agent\'s QR code (voucher checker)')
     created_at=models.DateTimeField(auto_now_add=True)
     class Meta: ordering=['name']
     def __str__(self): return self.name
+    def ensure_portal_token(self,rotate=False):
+        if rotate or not self.portal_token:
+            import secrets
+            self.portal_token=secrets.token_urlsafe(18)
+            self.save(update_fields=['portal_token'])
+        return self.portal_token
 
 
 class VoucherSale(models.Model):

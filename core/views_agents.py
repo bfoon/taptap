@@ -84,7 +84,10 @@ def agent_detail(request, pk):
         .order_by('-issued_at', '-created_at'))
     holding = (business.vouchers.filter(agent=agent, status='active', sold_at__isnull=True, used_at__isnull=True)
                .values('plan_name').annotate(n=Count('id'), v=Sum('price')).order_by('plan_name'))
+    agent.ensure_portal_token()
+    portal_url = request.build_absolute_uri(f'/ag/{agent.portal_token}/')
     return render(request, 'core/agent_detail.html', {
+        'portal_url': portal_url,
         'agent': agent, 'bal': bal, 'batches': batches, 'holding': holding,
         'sales': agent.sales.select_related('router')[:40], 'collections': agent.collections.all()[:30],
         'shop_batches': business.batches.filter(agent__isnull=True).select_related('plan').annotate(
@@ -258,3 +261,15 @@ def batch_receipt(request, pk):
         'next_url': nxt if nxt.startswith('/') and not nxt.startswith('//') else '',
         'printed_by': request.user.get_full_name() or request.user.email or request.user.username,
     })
+
+
+
+@login_required
+@require_POST
+def agent_portal_rotate(request, pk):
+    """New secret link / QR for an agent (the old QR stops working)."""
+    business = _b(request); agent = get_object_or_404(business.agents, pk=pk)
+    agent.ensure_portal_token(rotate=True)
+    log(business, 'Agent QR Renewed', f'{agent.name}: new voucher-checker link; the old QR no longer works')
+    messages.success(request, f'New QR code for {agent.name}. The old one no longer works — print and give them the new one.')
+    return redirect('agent_detail', pk=pk)
