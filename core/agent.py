@@ -42,7 +42,7 @@ SAFE_KINDS = {
     'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'remote_nat', 'remote_close', 'hotspot_kick_mac', 'share_rules', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
-    'hotspot_users_limit', 'admin_password', 'protection',
+    'hotspot_users_limit', 'admin_password', 'protection', 'site_probe',
 }
 # Delivery order for queued commands: anything about vouchers first (a customer is waiting), then the rest,
 # and the pieces of a full inventory sync last — 61 of them must never hold up a voucher.
@@ -534,6 +534,9 @@ def wrap(cmd, url, check):
         body = link_command_body(cmd, check)
     elif cmd.kind == 'self_update':
         body = self_update_body(url, check)
+    elif cmd.kind == 'site_probe':
+        from .router_probe import link_probe_script
+        body = link_probe_script(cmd, url, check, nonce(cmd))
     else:
         body = command_body(cmd)
     result = f'{cmd.params.get("file")}.backup, {cmd.params.get("file")}.rsc' if cmd.kind == 'backup' else ''
@@ -560,6 +563,16 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
             raise ValueError(f'Invalid {key}.')
     if params and 'mac' in params and not MAC_RE.match(str(params['mac'])):
         raise ValueError('Invalid MAC address.')
+    if kind == 'site_probe':
+        import ipaddress as _ip
+        try:
+            addr = _ip.ip_address(str((params or {}).get('ip', '')))
+        except ValueError:
+            raise ValueError('Invalid address.')
+        if addr.version != 4 or not addr.is_private or addr.is_loopback or addr.is_link_local:
+            raise ValueError('Only routers on the local network can be checked.')
+        if not re.match(r'^(sr:\d+|auto:([0-9A-F]{2}:){5}[0-9A-F]{2})$', str((params or {}).get('key', ''))):
+            raise ValueError('Invalid router.')
     if kind == 'protection':
         from .protection import FEATURES
         if (params or {}).get('feature') not in FEATURES or (params or {}).get('action') not in ('enable', 'disable', 'unblock'):

@@ -38,7 +38,12 @@ def detail_payload(business):
     from .topology_links import suggestions
     links = [{'child_id': s['child'].pk, 'child': s['child'].name, 'parent_id': s['parent'].pk, 'parent': s['parent'].name,
               'port': s['port'], 'reasons': s['reasons'], 'score': s['score']} for s in suggestions(business)]
-    return {'routers': routers, 'entries': collect(business), 'ignored': ignored, 'links': links,
+    entries = collect(business)
+    from .router_probe import load as load_probe
+    for e in entries:                      # suggested routers keep their last probe for a day (cache)
+        if not e.get('probe') and e['key'].startswith('auto:'):
+            e['probe'] = load_probe(business, e['key'])
+    return {'routers': routers, 'entries': entries, 'ignored': ignored, 'links': links,
             'brands': sorted(ROUTER_BRANDS | MIXED_BRANDS) + ['Other'],
             'roles': SiteRouter.ROLES, 'modes': SiteRouter.MODES, 'quick_ips': QUICK_IPS}
 

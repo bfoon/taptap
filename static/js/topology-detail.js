@@ -469,6 +469,7 @@
     const pr = probeResults[e.key] || e.probe || {};
     if (!pr.at) return '';
     const bits = [];
+    if (pr.pending) bits.push(`<span class="td-pill info"><span class="spinner-border spinner-border-sm" style="width:.7rem;height:.7rem" aria-hidden="true"></span> Checking${pr.via ? ' via ' + esc(pr.via) : ''}…</span>`);
     if (pr.reachable === true) bits.push(`<span class="td-pill on">Ping ${pr.rtt_ms != null ? pr.rtt_ms + ' ms' : 'OK'}</span>`);
     else if (pr.reachable === false) bits.push('<span class="td-pill bad">No ping</span>');
     if (pr.web === 'ok') bits.push(`<span class="td-pill info">Web ${esc([pr.maker, pr.model].filter(Boolean).join(' ') || 'page')}</span>`);
@@ -479,6 +480,21 @@
       <ul>${(pr.notes || []).map(n => `<li>${esc(n)}</li>`).join('')}</ul>${(pr.ip_conflict || []).length ? `<div class="small">Also on ${esc(pr.ip)}: ${pr.ip_conflict.map(c =>
         `<a class="font-monospace tt-dlink" href="/go/device/${encodeURIComponent(c.mac || '')}/">${esc(c.mac)}</a>${c.hostname ? ' (' + esc(c.hostname) + ')' : ''} on ${esc(c.port || '?')}`).join(', ')}</div>` : ''}</details>`;
   }
+  // TapTap Link probes are answered by the router a few seconds later: refresh until the answer is in (max 2 minutes).
+  function waitForProbe(key, tries) {
+    tries = tries || 0;
+    if (tries > 40) return;
+    setTimeout(async () => {
+      try {
+        const res = await fetch(URLS.list, { credentials: 'same-origin' });
+        const d = await res.json();
+        P = { ...P, ...d };
+        const e = byKey(key), pr = (e && e.probe) || {};
+        if (pr.at && !pr.pending) { delete probeResults[key]; renderAll(); toast(`${e.name}: answer received from the router.`); return; }
+      } catch (err) { /* try again */ }
+      waitForProbe(key, tries + 1);
+    }, 3000);
+  }
   async function runProbe(key, btn, out) {
     const label = btn ? btn.innerHTML : '';
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm" aria-hidden="true"></span> Probing…'; }
@@ -486,7 +502,8 @@
       const res = await fetch(URLS.probe, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() }, body: JSON.stringify({ key }) });
       const d = await res.json().catch(() => ({ success: false, message: 'Could not reach TapTap.' }));
       if (!d.success) throw new Error(d.message || 'Probe failed.');
-      probeResults[key] = d.result; openProbes.add(key); P = { ...P, ...d }; renderAll(); if (window.taptapNetMap) window.taptapNetMap.reloadGraph();
+      probeResults[key] = d.result; openProbes.add(key); P = { ...P, ...d }; renderAll();
+      if (d.result && d.result.pending) waitForProbe(key);       // TapTap Link: the router answers at its next check-in if (window.taptapNetMap) window.taptapNetMap.reloadGraph();
       const e = byKey(key);
       if (out && e) out.innerHTML = probeHtml(e, true);
       const det = document.querySelector(`#tdList tr[data-probe-for="${CSS.escape(key)}"] .td-probe`); if (det) det.open = true;

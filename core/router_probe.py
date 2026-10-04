@@ -17,8 +17,10 @@ and adds what TapTap already knows from the MikroTik tables:
   192.168.0.1). In access point mode that breaks their web pages and must be fixed on site;
 * **no route** — the MikroTik has no address in the router's network, so nothing can reach it.
 
-Routers connected through TapTap Link get the table checks only: Link commands cannot bring a
-web page back to TapTap.
+Routers on the TapTap Tunnel are probed over the API like direct ones (the tunnel carries it).
+Routers on TapTap Link get a probe command: the MikroTik pings the router and reads its web page on its
+own LAN, then uploads the answer to TapTap (signed with the command's one-time code). The result shows
+as "checking…" and is filled in when the answer arrives, normally within a check-in.
 """
 from __future__ import annotations
 
@@ -110,8 +112,6 @@ def probe(business, key, user=None):
         notes.append('No IP address known yet, so it cannot be checked live. Run “Discover all now” or add its IP.')
     elif not router:
         notes.append('Not linked to a MikroTik yet, so it cannot be checked live.')
-    elif channel(router) == 'TapTap Link':
-        notes.append(f'{router.name} is connected through TapTap Link, which cannot bring a web page back — only the table checks ran.')
     else:
         nets = router_networks(router)
         try:
@@ -121,16 +121,99 @@ def probe(business, key, user=None):
         if nets is not None and addr is not None and not any(addr in n for n in nets):
             notes.append(f'{router.name} has no address in {e["ip"]}’s network, so it cannot reach it. Either give the TP-Link an '
                          f'address in the MikroTik’s LAN (best: DHCP) or add an address in that network to the MikroTik.')
-        _live(router, e['ip'], res)
-    saved = business.site_routers.filter(pk=e['id']).first() if e['id'] else None
-    if saved:
-        fields = ['probe', 'probed_at']
-        saved.probe, saved.probed_at = res, timezone.now()
-        if res['model'] and not saved.model:
-            saved.model = res['model'][:80]; fields.append('model')
-        if res['maker'] and not saved.brand:
-            saved.brand = res['maker'][:40]; fields.append('brand')
-        SiteRouter.objects.filter(pk=saved.pk).update(**{f: getattr(saved, f) for f in fields})
+        via = channel(router)
+        res['via'] = via
+        if via == 'TapTap Link':
+            _link(router, e, key, res, user)
+        else:
+            _live(router, e['ip'], res)
+            if via == 'TapTap Tunnel':
+                notes.append(f'Checked through the TapTap Tunnel to {router.name}.')
+    store(business, key, res)
+    return res
+
+
+def _cache_key(business_id, key):
+    return f'tt:probe:{business_id}:{key}'
+
+
+def store(business, key, res):
+    """Keep a probe result: on the confirmed router, or for a day for a router TapTap only suggests."""
+    from django.core.cache import cache
+    from .models import SiteRouter
+    if key.startswith('sr:') and key[3:].isdigit():
+        saved = business.site_routers.filter(pk=key[3:]).first()
+        if saved:
+            fields = {'probe': res, 'probed_at': timezone.now()}
+            if res.get('model') and not saved.model:
+                fields['model'] = res['model'][:80]
+            if res.get('maker') and not saved.brand:
+                fields['brand'] = res['maker'][:40]
+            SiteRouter.objects.filter(pk=saved.pk).update(**fields)
+            return
+    cache.set(_cache_key(business.pk, key), res, 86400)
+
+
+def load(business, key):
+    from django.core.cache import cache
+    if key.startswith('sr:') and key[3:].isdigit():
+        s = business.site_routers.filter(pk=key[3:]).first()
+        return (s.probe or {}) if s else {}
+    return cache.get(_cache_key(business.pk, key)) or {}
+
+
+def _link(router, e, key, res, user):
+    """TapTap Link: ask the MikroTik to ping the router and read its web page, and upload the answer."""
+    from .linkops import send
+    try:
+        cmd = send(router, 'site_probe', {'ip': e['ip'], 'key': key}, label=f'Check {e.get("name") or e["ip"]} ({e["ip"]})', user=user, minutes=10)
+    except ValueError as exc:
+        res['notes'].append(f'{router.name} uses TapTap Link and cannot take commands right now ({exc}). Try again when it is online.')
+        return
+    res.update(pending=True, cmd=getattr(cmd, 'pk', None))
+    res['notes'].append(f'Asked {router.name} over TapTap Link to ping it and read its web page — the answer appears here within a check-in.')
+
+
+def link_probe_script(cmd, url, check, nonce_value):
+    """RouterOS: ping the router, read the first part of its web page, upload both to TapTap."""
+    from .agent import rs
+    ip = rs(cmd.params['ip'])
+    upload = rs(f'{url}/api/agent/v1/probe?c={cmd.pk}&n={nonce_value}')
+    return ('{ :local recv 0; :local page ""; :local web "none"; '
+            f':do {{ :set recv [/ping {ip} count=3] }} on-error={{}}; '
+            f':do {{ :set page ([/tool fetch url=("http://" . {ip} . "/") output=user as-value duration=6s idle-timeout=4s]->"data"); :set web "ok" }} on-error={{ :set web "error" }}; '
+            ':if ([:len $page] > 6000) do={ :set page [:pick $page 0 6000] }; '
+            f'/tool fetch url={upload} http-method=post http-header-field="Content-Type: text/plain" '
+            f'http-data=("p=" . $recv . "\n" . "w=" . $web . "\n" . $page) output=none check-certificate={check} duration=15s idle-timeout=10s }}')
+
+
+def receive_link_probe(cmd, body):
+    """The MikroTik's answer to a Link probe: merge it into the stored result."""
+    text = (body or b'').decode('utf-8', 'replace')
+    head, _, rest = text.partition('\n')
+    head2, _, page = rest.partition('\n')
+    try:
+        received = int(head.split('=', 1)[1]) if head.startswith('p=') else 0
+    except ValueError:
+        received = 0
+    web = head2.split('=', 1)[1].strip() if head2.startswith('w=') else 'none'
+    business, key = cmd.router.business, str(cmd.params.get('key', ''))
+    res = dict(load(business, key) or {})
+    notes = [n for n in res.get('notes', []) if 'answer appears here' not in n]
+    res.update(at=timezone.now().isoformat(), live=True, pending=False, reachable=received > 0, rtt_ms=None, via='TapTap Link')
+    notes.append(f'Answers ping ({received} of 3 replies, checked by {cmd.router.name}).' if received else f'Does not answer ping from {cmd.router.name}.')
+    if web == 'ok' and page.strip():
+        res['title'], res['maker'], res['model'] = read_page(page)
+        res['web'] = 'ok'
+        seen = ' '.join(x for x in (res['maker'], res['model']) if x)
+        notes.append(f'Web page answers{": " + seen if seen else ""}' + (f' (title “{res["title"]}”).' if res['title'] else '.'))
+        if res['maker'] and not res['model']:
+            notes.append('The page does not show the model before login — set it by hand in Edit.')
+    else:
+        res['web'] = 'error' if web == 'error' else 'empty'
+        notes.append('Web page did not answer.' if web == 'error' else 'Web page answered but was empty.')
+    res['notes'] = notes
+    store(business, key, res)
     return res
 
 
