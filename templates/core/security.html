@@ -24,6 +24,68 @@
   </div>
 </section>
 
+<nav class="sec-tabbar" role="tablist" aria-label="Security sections">
+  <button class="sec-tab" role="tab" id="t-overview" aria-controls="tab-overview" data-tab="overview"><span class="ti">🛡️</span><span class="tl"><b>Router health</b><small>Findings · protection</small></span>{% if summary.counts.critical or summary.counts.high %}<span class="tb bad">{{ summary.counts.critical|add:summary.counts.high }}</span>{% endif %}</button>
+  <button class="sec-tab" role="tab" id="t-live" aria-controls="tab-live" data-tab="live"><span class="ti">🚨</span><span class="tl"><b>Live watch</b><small>Sessions to fix now</small></span>{% if incidents %}<span class="tb bad pulse">{{ incidents|length }}</span>{% endif %}</button>
+  <button class="sec-tab" role="tab" id="t-access" aria-controls="tab-access" data-tab="access"><span class="ti">🔐</span><span class="tl"><b>Access control</b><small>Codes · devices · sharing</small></span>{% with n=share.cases|length %}{% if n %}<span class="tb warn">{{ n }}</span>{% endif %}{% endwith %}</button>
+  <button class="sec-tab" role="tab" id="t-fair" aria-controls="tab-fair" data-tab="fair"><span class="ti">🐢</span><span class="tl"><b>Fair usage</b><small>Slow heavy users</small></span></button>
+</nav>
+<div class="sec-tabpanels">
+<div class="sec-pane" role="tabpanel" id="tab-overview" aria-labelledby="t-overview" data-tab="overview">
+{% if routers %}
+<div class="sec-routers">
+  {% for r in routers %}
+  <div class="sec-router {% if r.sec_scanned %}g-{{ r.sec_grade }}{% else %}g-none{% endif %}" data-router="{{ r.id }}" data-rescan-url="{% url 'security_rescan' r.id %}" data-name="{{ r.name }}">
+    <span class="rg" title="{% if r.sec_scanned %}Score {{ r.sec_score }} / 100{% else %}Not scanned — grade unknown{% endif %}">{% if r.sec_scanned %}{{ r.sec_grade }}{% else %}?{% endif %}</span>
+    <b>{{ r.name }}</b>
+    <small>{% if r.connection_mode == 'agent' %}TapTap Link{% else %}{{ r.ip_address }}{% endif %} · {% if r.status == 'Online' %}online{% else %}unreachable{% endif %}</small>
+    <span class="rs">{% if r.sec_scanned %}Scanned {{ r.sec_scanned|timesince }} ago{% else %}Not scanned yet{% endif %}</span>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="sec-filters" role="group" aria-label="Filter findings">
+  <button type="button" class="sec-filter on" data-filter="all">All ({{ summary.active|length }})</button>
+  {% for sev,count in summary.counts.items %}{% if count %}<button type="button" class="sec-filter" data-filter="sev:{{ sev }}">{{ sev|capfirst }} ({{ count }})</button>{% endif %}{% endfor %}
+  {% for cat in summary.categories %}<button type="button" class="sec-filter" data-filter="cat:{{ cat }}">{{ cat }}</button>{% endfor %}
+</div>
+
+<div class="sec-list scroll-list" id="secList">
+  {% for f in summary.active %}
+  <details class="sec-item sev-{{ f.severity }}" data-sev="{{ f.severity }}" data-cat="{{ f.category }}"{% if f.severity == 'critical' %} open{% endif %}>
+    <summary><span class="sec-sev">{{ f.severity }}</span><span class="sec-title"><b>{{ f.title }}</b><small>{{ f.router_name }} · {{ f.category }}</small></span><i class="bi bi-chevron-down"></i></summary>
+    <div class="sec-body">
+      <p>{{ f.impact }}</p>
+      {% if f.evidence %}<div class="sec-evidence">{% for e in f.evidence %}<code>{{ e }}</code>{% endfor %}{% if f.evidence_more %}<code>+{{ f.evidence_more }} more</code>{% endif %}</div>{% endif %}
+      {% if f.cli %}<pre class="sec-cli"><button type="button" class="sec-copy" title="Copy command" aria-label="Copy command"><i class="bi bi-clipboard"></i></button>{{ f.cli }}</pre>{% endif %}
+      <div class="sec-ops">
+        {% if f.fix and f.router_id %}<button type="button" class="btn btn-sm btn-danger" data-fix="{{ f.fix }}" data-fix-url="{% url 'security_fix' f.router_id %}"><i class="bi bi-magic"></i> Fix on router</button>{% endif %}
+        {% if f.action == 'plan-limits' and f.router_id %}<button type="button" class="btn btn-sm btn-danger" data-sec-action="plan-limits" data-url="{% url 'security_plan_limits' f.router_id %}"><i class="bi bi-hourglass-split"></i> Fix with plan</button>{% endif %}
+        {% if f.action == 'sharing' %}<button type="button" class="btn btn-sm btn-danger" data-sec-action="sharing" data-url="{% url 'security_sharing' %}"><i class="bi bi-lock"></i> Stop it now</button>{% endif %}
+        {% if f.action == 'admin-account' and f.router_id %}<button type="button" class="btn btn-sm btn-danger" data-sec-action="admin-account" data-url="{% url 'security_admin_account' f.router_id %}"><i class="bi bi-person-lock"></i> Fix…</button>{% endif %}
+        {% if f.link %}<a class="btn btn-sm btn-outline-secondary" href="{% if f.link == 'router_control' and f.router_id %}{% url 'router_control' f.router_id %}{% else %}{% url f.link %}{% endif %}">Open</a>{% endif %}
+        <form method="post" action="{% url 'security_ack' %}" class="d-flex gap-2 sec-ack-form">{% csrf_token %}<input type="hidden" name="finding_key" value="{{ f.key }}"><input class="form-control form-control-sm" name="note" placeholder="Why this is fine (optional)"><button class="btn btn-sm btn-outline-secondary">Mark as reviewed</button></form>
+      </div>
+    </div>
+  </details>
+  {% empty %}
+  <div class="sec-empty"><i class="bi bi-shield-check"></i><p class="mt-2 mb-0"><b>No open findings.</b> Rescan after changing router settings to keep this current.</p></div>
+  {% endfor %}
+</div>
+
+{% if summary.acked %}
+<details class="sec-acked"><summary>{{ summary.acked|length }} reviewed finding{{ summary.acked|length|pluralize }} (not counted in the score)</summary>
+  <div class="sec-list scroll-list">
+  {% for f in summary.acked %}
+  <div class="sec-item sev-{{ f.severity }}"><div class="sec-body pt-3"><p><b>{{ f.title }}</b> — {{ f.router_name }}{% if f.ack.note %}<br><small class="text-secondary">“{{ f.ack.note }}” · {{ f.ack.acknowledged_by.email|default:'' }} {{ f.ack.created_at|date:'d M Y' }}</small>{% endif %}</p>
+    <form method="post" action="{% url 'security_ack' %}">{% csrf_token %}<input type="hidden" name="finding_key" value="{{ f.key }}"><input type="hidden" name="action" value="unack"><button class="btn btn-sm btn-link p-0">Reopen</button></form></div></div>
+  {% endfor %}
+  </div>
+</details>
+{% endif %}
+
+
 {% if protection %}<section class="panel mb-3" id="protection">
   <div class="panel-head"><div><h3><i class="bi bi-shield-lock"></i> Protection — DDoS and intrusion prevention</h3>
     <p>Firewall defences on the MikroTik that spot attacks and block the attacker by themselves. TapTap’s own connection is always allowed.</p></div></div>
@@ -50,95 +112,8 @@
     </ul></details>
 </section>
 {% endif %}
-
-<section class="panel mb-3" id="sharing">
-  <div class="panel-head"><div><h3><i class="bi bi-diagram-3"></i> Internet sharing protection</h3>
-    <p>Spots a laptop, phone hotspot or small router that shares one voucher with other devices (they hide behind it, so normal device limits can’t see them). TapTap scores each customer and acts only on your rule.</p></div>
-    <span class="badge rounded-pill {% if share.p.enabled %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if share.p.enabled %}On{% else %}Off{% endif %}</span></div>
-  <form method="post" action="{% url 'sharing_save' %}" class="row g-3">{% csrf_token %}
-    <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" id="shOn" name="enabled" {% if share.p.enabled %}checked{% endif %}>
-      <label class="form-check-label fw-bold" for="shOn">Detect Internet sharing</label></div></div>
-    <div class="col-lg-6"><label class="form-label small fw-bold">When a customer reaches the threshold</label>
-      <div class="sh-acts">{% for k,l in share.p.ACTIONS %}<label class="sh-act"><input type="radio" name="action" value="{{ k }}" {% if share.p.action == k %}checked{% endif %}>
-        <span><b>{% if k == 'monitor' %}👁️{% elif k == 'warn' %}⚠️{% elif k == 'block' %}⛔{% else %}🪜{% endif %} {{ l }}</b>
-        <small>{% if k == 'monitor' %}Nothing happens to the customer — you are told.{% elif k == 'warn' %}The voucher pauses until they accept your message on the login page.{% elif k == 'block' %}Disconnected and refused on the login page for the time below, with your message.{% else %}First time a warning; again within 24 h a block.{% endif %}</small></span></label>{% endfor %}</div></div>
-    <div class="col-lg-6 row g-3 m-0 p-0">
-      <div class="col-12"><label class="form-label small fw-bold" for="shTh">Act at a score of <b id="shThV">{{ share.p.threshold }}</b>%</label>
-        <input type="range" class="form-range" min="40" max="100" step="5" id="shTh" name="threshold" value="{{ share.p.threshold }}" oninput="shThV.textContent=this.value">
-        <small class="text-secondary">80 needs two strong signals (e.g. TTL + router maker). One signal alone never reaches it.</small></div>
-      <div class="col-6"><label class="form-label small">List as suspected from</label><div class="input-group input-group-sm"><input class="form-control" type="number" min="20" max="95" name="suspect_at" value="{{ share.p.suspect_at }}"><span class="input-group-text">%</span></div></div>
-      <div class="col-6"><label class="form-label small">Block for</label><div class="input-group input-group-sm"><input class="form-control" type="number" min="1" max="1440" name="block_minutes" value="{{ share.p.block_minutes }}"><span class="input-group-text">min</span></div></div>
-      <div class="col-12"><label class="form-label small">Tell me</label><select class="form-select form-select-sm" name="notify">{% for k,l in share.p.NOTIFY %}<option value="{{ k }}" {% if share.p.notify == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
-    </div>
-    <div class="col-12"><label class="form-label small fw-bold">Message the customer sees</label><textarea class="form-control" name="message" rows="2" maxlength="600">{{ share.p.message }}</textarea></div>
-    <div class="col-lg-6"><div class="form-check"><input class="form-check-input" type="checkbox" id="shOne" name="single_device_only" {% if share.p.single_device_only %}checked{% endif %}>
-      <label class="form-check-label" for="shOne">Only check vouchers for <b>one device</b> (family / multi-device plans are left alone)</label></div></div>
-    <div class="col-lg-6"><label class="form-label small">Never check these plans</label><div class="d-flex flex-wrap gap-1">{% for pl in share.plans %}<label class="border rounded-pill px-2 py-1 small m-0"><input class="form-check-input me-1" type="checkbox" name="exempt_plans" value="{{ pl.id }}" {% if pl.id in share.exempt_ids %}checked{% endif %}>{{ pl.name }}</label>{% endfor %}</div></div>
-    <div class="col-12 d-flex flex-wrap gap-2 align-items-center"><button class="btn btn-primary btn-sm">Save</button><button class="btn btn-outline-secondary btn-sm" name="apply" value="1">Save &amp; send detection to routers</button>
-      <details class="small"><summary class="text-secondary">How the score works</summary><div class="mt-1">TTL 63/127 (traffic passed another router) <b>+40</b> · router or repeater maker / name <b>+40</b> · several systems behind it (Apple + Android + Windows) <b>+30</b> · many busy connections <b>+15</b> · many different apps at once <b>+15</b>. 0–39 normal · 40–59 suspected · 60–79 warning · your threshold → action.</div></details></div>
-  </form>
-  <h4 class="h6 fw-bold mt-4">Detected devices {% if share.recent_cleared %}<small class="text-secondary fw-normal">· {{ share.recent_cleared }} cleared</small>{% endif %}</h4>
-  <div class="table-responsive"><table class="table table-sm align-middle small"><thead><tr><th>Voucher</th><th>Device</th><th>Why</th><th style="min-width:120px">Score</th><th>Status</th><th></th></tr></thead><tbody>
-  {% for c in share.cases %}<tr>
-    <td>{% if c.code %}{% voucher_link c.code %}{% else %}—{% endif %}<small class="d-block text-secondary">{{ c.router.name|default:'' }}</small></td>
-    <td>{% device_link c.mac %}<small class="d-block text-secondary">{{ c.ip }}</small></td>
-    <td>{% for r in c.reasons %}<span class="badge text-bg-light border me-1 mb-1 fw-normal text-wrap text-start">{{ r }}</span>{% endfor %}</td>
-    <td><div class="progress" style="height:8px" role="progressbar" aria-label="Score" aria-valuenow="{{ c.score }}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar {% if c.score >= share.p.threshold %}bg-danger{% elif c.score >= 60 %}bg-warning{% else %}bg-info{% endif %}" style="width:{{ c.score }}%"></div></div>
-      <small><b>{{ c.score }}%</b>{% if c.peak > c.score %} · peak {{ c.peak }}%{% endif %} · seen {{ c.times }}×</small></td>
-    <td>{% if c.status == 'blocked' %}<span class="badge text-bg-danger">⛔ Blocked</span><small class="d-block text-secondary">until {{ c.blocked_until|date:'H:i' }}</small>{% elif c.status == 'warned' %}<span class="badge text-bg-warning">⚠️ Warned</span>{% elif c.status == 'trusted' %}<span class="badge text-bg-success">Trusted</span>{% else %}<span class="badge text-bg-info">👁️ Watching</span>{% endif %}
-      <small class="d-block text-secondary">{{ c.last_seen|timesince }} ago</small></td>
-    <td class="text-end text-nowrap"><form method="post" action="{% url 'sharing_case' c.id %}" class="d-inline-flex gap-1">{% csrf_token %}
-      {% if c.status != 'blocked' %}<button class="btn btn-sm btn-outline-danger" name="action" value="block" title="Disconnect and refuse for {{ share.p.block_minutes }} min">Block</button>{% else %}<button class="btn btn-sm btn-outline-secondary" name="action" value="unblock">Unblock</button>{% endif %}
-      {% if c.status == 'suspected' %}<button class="btn btn-sm btn-outline-warning" name="action" value="warn">Warn</button>{% endif %}
-      {% if c.status != 'trusted' %}<button class="btn btn-sm btn-outline-success" name="action" value="trust" title="Your own access point, the till PC… never flag this device">Trust</button>{% endif %}
-      <button class="btn btn-sm btn-outline-secondary" name="action" value="clear" title="Close this case">✕</button></form></td></tr>
-  {% empty %}<tr><td colspan="6" class="text-secondary">{% if share.p.enabled %}Nothing detected yet.{% else %}Turn the protection on to start detecting.{% endif %}</td></tr>{% endfor %}
-  </tbody></table></div>
-  {% if share.trusted %}<div class="small"><b>Trusted devices:</b> {% for t in share.trusted %}<span class="badge text-bg-light border fw-normal me-1">{% device_link t.mac %}{% if t.note %} · {{ t.note }}{% endif %}
-    <form method="post" action="{% url 'sharing_trust_remove' t.id %}" class="d-inline">{% csrf_token %}<button class="btn btn-link btn-sm p-0 ms-1 text-danger" aria-label="Remove">✕</button></form></span>{% endfor %}</div>{% endif %}
-  <p class="small text-secondary mt-2 mb-0"><i class="bi bi-info-circle"></i> No network can count devices hidden behind someone else’s router exactly — TapTap combines signals so one unusual phone (a VPN, a rare system) is not punished. Works with TapTap Link and Direct API.</p>
-</section>
-<style>.sh-acts{display:grid;grid-template-columns:1fr 1fr;gap:.45rem}@media(max-width:600px){.sh-acts{grid-template-columns:1fr}}
-.sh-act{position:relative;cursor:pointer}.sh-act input{position:absolute;opacity:0}.sh-act span{display:block;border:1px solid var(--border,#dbe4ef);border-radius:12px;padding:.55rem .7rem;height:100%}
-.sh-act small{display:block;color:var(--muted,#6c7c90);font-size:.76rem;margin-top:.15rem}.sh-act input:checked+span{border-color:#1769e0;background:#eef5ff;box-shadow:0 0 0 2px rgba(23,105,224,.15)}
-.sh-act input:focus-visible+span{outline:2px solid #1769e0}html[data-theme="dark"] .sh-act input:checked+span{background:#14243a}</style>
-<section class="panel mb-3" id="sticky">
-  <div class="panel-head"><div><h3><i class="bi bi-phone-vibrate"></i> Sticky vouchers</h3>
-    <p>Keep each voucher on the devices that first used it, and let customers reconnect by themselves. {% include "core/partials/help_link.html" with slug="sticky-vouchers" label="How it works" %}</p></div>
-    <span class="badge rounded-pill {% if current_business.device_lock %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if current_business.device_lock %}On{% else %}Off{% endif %}</span></div>
-  <form method="post" action="{% url 'security_sticky' %}" class="row g-3 align-items-end">{% csrf_token %}
-    <div class="col-md-5"><div class="form-check form-switch">
-      <input class="form-check-input" type="checkbox" role="switch" id="stLock" name="device_lock" {% if current_business.device_lock %}checked{% endif %}>
-      <label class="form-check-label" for="stLock"><b>Lock each voucher to its devices</b><small class="d-block text-secondary">Other devices are refused; only the owner, an admin or voucher support can reset. Now: {{ sticky.locked }} device{{ sticky.locked|pluralize }} locked on {{ sticky.vouchers }} voucher{{ sticky.vouchers|pluralize }}.</small></label></div></div>
-    <div class="col-md-4"><div class="form-check form-switch">
-      <input class="form-check-input" type="checkbox" role="switch" id="stSess" name="sticky_sessions" {% if current_business.sticky_sessions %}checked{% endif %}>
-      <label class="form-check-label" for="stSess"><b>Sticky sessions</b><small class="d-block text-secondary">Devices log back in by themselves (MAC cookie); idle devices are not logged out.</small></label></div></div>
-    <div class="col-md-3"><label class="small">Keep a dropped-off device for</label>
-      <select class="form-select form-select-sm" name="sticky_keepalive">{% for k,l in sticky.keepalive_choices %}<option value="{{ k }}" {% if current_business.sticky_keepalive == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
-    <div class="col-12 d-flex flex-wrap gap-2"><button class="btn btn-primary btn-sm">Save</button>
-      <button class="btn btn-outline-secondary btn-sm" name="apply" value="1" title="Send the session settings to every router now">Save &amp; send to routers</button>
-      <small class="text-secondary align-self-center">Turning the lock off keeps the devices already locked; they count again if you turn it back on.</small></div>
-  </form>
-</section>
-<section class="panel mb-3" id="fair-usage">
-  <div class="panel-head"><div><h3><i class="bi bi-speedometer2"></i> Fair usage — slow down heavy data users {% include "core/partials/help_link.html" with slug="fair-usage" label="How to set it up" %}</h3>
-    <p>Speed steps down as a voucher uses more data: per day, per week or over the whole voucher. Everyone is back to full speed when the period resets. Caps are set on your routers at each live sync.</p></div>
-    <div class="d-flex gap-2"><a class="btn btn-outline-warning btn-sm" href="{% url 'fup_slowed' %}"><i class="bi bi-speedometer"></i> Slowed now</a>
-    {% if 'network.manage' in tt_perms %}<a class="btn btn-primary btn-sm" href="{% url 'fup_new' %}"><i class="bi bi-plus-circle"></i> New policy</a>{% endif %}</div></div>
-  {% for p in fup_policies %}
-  <div class="d-flex flex-wrap align-items-center gap-3 py-2 border-top">
-    <div class="flex-grow-1" style="min-width:220px"><b>{{ p.name }}</b> {% if p.active %}<span class="badge text-bg-success">On</span>{% else %}<span class="badge text-bg-secondary">Off</span>{% endif %}
-      <small class="d-block text-secondary">{{ p.get_period_display }} · {{ p.get_counts_display|lower }} · {% for x in p.plans.all %}{{ x.name }}{% if not forloop.last %}, {% endif %}{% empty %}all other plans{% endfor %}{% if p.has_free_hours %} · {{ p.free_from }}:00–{{ p.free_to }}:00 free{% endif %}</small></div>
-    <div class="d-flex flex-wrap gap-1">{% for s in p.steps %}<span class="badge rounded-pill text-bg-light border">{{ s }}</span>{% endfor %}{% if p.bypass %}<span class="badge rounded-pill text-bg-info" title="IP-binding bypass devices are slowed by this policy too">+ bypass devices</span>{% endif %}</div>
-    <div class="small text-nowrap">{% if p.slowed %}<a href="{% url 'fup_slowed' %}?policy={{ p.id }}" class="text-warning-emphasis fw-bold">{{ p.slowed }} slowed now →</a>{% else %}<span class="text-secondary">nobody slowed</span>{% endif %}</div>
-    {% if 'network.manage' in tt_perms %}<div class="d-flex gap-1"><a class="btn btn-sm btn-light" href="{% url 'fup_edit' p.id %}">Edit</a>
-      <form method="post" action="{% url 'fup_action' p.id %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" name="action" value="toggle">{% if p.active %}Turn off{% else %}Turn on{% endif %}</button></form></div>{% endif %}
-  </div>
-  {% empty %}
-  <div class="text-center text-secondary py-3 border-top">No fair usage policy yet. Example: “after 2 GB a day → 5 Mb/s, after 5 GB → 1 Mb/s”.</div>
-  {% endfor %}
-</section>
-
+</div>
+<div class="sec-pane" role="tabpanel" id="tab-live" aria-labelledby="t-live" data-tab="live">
 <section class="panel mb-3" id="incidents">
   <div class="panel-head"><div><h3><i class="bi bi-broadcast-pin"></i> Sessions that should not be online</h3><p>Live sync watches every connected customer. When a voucher has run out or was disabled but the device is still online, it shows here{% if current_business.auto_enforce %} and is disconnected automatically after {{ current_business.enforce_grace_minutes }} minute{{ current_business.enforce_grace_minutes|pluralize }}{% endif %}.</p></div>
     {% if incidents %}<form method="post" action="{% url 'incident_fix_all' %}">{% csrf_token %}<button class="btn btn-danger btn-sm" onclick="return confirm('Disconnect every session listed here and disable their vouchers on the router?')"><i class="bi bi-lightning-charge"></i> Fix all now</button></form>{% endif %}</div>
@@ -197,59 +172,142 @@
   var has=document.querySelectorAll('.inc-row').length;window.addEventListener('taptap:live',function(e){if((e.detail.incidents||0)!==has)location.reload();});
 })();
 </script>
-
-{% if routers %}
-<div class="sec-routers">
-  {% for r in routers %}
-  <div class="sec-router {% if r.sec_scanned %}g-{{ r.sec_grade }}{% else %}g-none{% endif %}" data-router="{{ r.id }}" data-rescan-url="{% url 'security_rescan' r.id %}" data-name="{{ r.name }}">
-    <span class="rg" title="{% if r.sec_scanned %}Score {{ r.sec_score }} / 100{% else %}Not scanned — grade unknown{% endif %}">{% if r.sec_scanned %}{{ r.sec_grade }}{% else %}?{% endif %}</span>
-    <b>{{ r.name }}</b>
-    <small>{% if r.connection_mode == 'agent' %}TapTap Link{% else %}{{ r.ip_address }}{% endif %} · {% if r.status == 'Online' %}online{% else %}unreachable{% endif %}</small>
-    <span class="rs">{% if r.sec_scanned %}Scanned {{ r.sec_scanned|timesince }} ago{% else %}Not scanned yet{% endif %}</span>
-  </div>
-  {% endfor %}
 </div>
-{% endif %}
-
-<div class="sec-filters" role="group" aria-label="Filter findings">
-  <button type="button" class="sec-filter on" data-filter="all">All ({{ summary.active|length }})</button>
-  {% for sev,count in summary.counts.items %}{% if count %}<button type="button" class="sec-filter" data-filter="sev:{{ sev }}">{{ sev|capfirst }} ({{ count }})</button>{% endif %}{% endfor %}
-  {% for cat in summary.categories %}<button type="button" class="sec-filter" data-filter="cat:{{ cat }}">{{ cat }}</button>{% endfor %}
-</div>
-
-<div class="sec-list scroll-list" id="secList">
-  {% for f in summary.active %}
-  <details class="sec-item sev-{{ f.severity }}" data-sev="{{ f.severity }}" data-cat="{{ f.category }}"{% if f.severity == 'critical' %} open{% endif %}>
-    <summary><span class="sec-sev">{{ f.severity }}</span><span class="sec-title"><b>{{ f.title }}</b><small>{{ f.router_name }} · {{ f.category }}</small></span><i class="bi bi-chevron-down"></i></summary>
-    <div class="sec-body">
-      <p>{{ f.impact }}</p>
-      {% if f.evidence %}<div class="sec-evidence">{% for e in f.evidence %}<code>{{ e }}</code>{% endfor %}{% if f.evidence_more %}<code>+{{ f.evidence_more }} more</code>{% endif %}</div>{% endif %}
-      {% if f.cli %}<pre class="sec-cli"><button type="button" class="sec-copy" title="Copy command" aria-label="Copy command"><i class="bi bi-clipboard"></i></button>{{ f.cli }}</pre>{% endif %}
-      <div class="sec-ops">
-        {% if f.fix and f.router_id %}<button type="button" class="btn btn-sm btn-danger" data-fix="{{ f.fix }}" data-fix-url="{% url 'security_fix' f.router_id %}"><i class="bi bi-magic"></i> Fix on router</button>{% endif %}
-        {% if f.action == 'plan-limits' and f.router_id %}<button type="button" class="btn btn-sm btn-danger" data-sec-action="plan-limits" data-url="{% url 'security_plan_limits' f.router_id %}"><i class="bi bi-hourglass-split"></i> Fix with plan</button>{% endif %}
-        {% if f.action == 'sharing' %}<button type="button" class="btn btn-sm btn-danger" data-sec-action="sharing" data-url="{% url 'security_sharing' %}"><i class="bi bi-lock"></i> Stop it now</button>{% endif %}
-        {% if f.action == 'admin-account' and f.router_id %}<button type="button" class="btn btn-sm btn-danger" data-sec-action="admin-account" data-url="{% url 'security_admin_account' f.router_id %}"><i class="bi bi-person-lock"></i> Fix…</button>{% endif %}
-        {% if f.link %}<a class="btn btn-sm btn-outline-secondary" href="{% if f.link == 'router_control' and f.router_id %}{% url 'router_control' f.router_id %}{% else %}{% url f.link %}{% endif %}">Open</a>{% endif %}
-        <form method="post" action="{% url 'security_ack' %}" class="d-flex gap-2 sec-ack-form">{% csrf_token %}<input type="hidden" name="finding_key" value="{{ f.key }}"><input class="form-control form-control-sm" name="note" placeholder="Why this is fine (optional)"><button class="btn btn-sm btn-outline-secondary">Mark as reviewed</button></form>
-      </div>
+<div class="sec-pane" role="tabpanel" id="tab-access" aria-labelledby="t-access" data-tab="access">
+<div class="sec-intro"><b>Who may get on, and with what.</b> Wrong-code protection on the login page, devices kept on their voucher, and one voucher shared through a hotspot or router. <a href="{% url 'devices' %}?view=blacklist">Blacklisted devices →</a></div>
+<div id="entry-protection-slot"></div>
+<section class="panel mb-3" id="sticky">
+  <div class="panel-head"><div><h3><i class="bi bi-phone-vibrate"></i> Sticky vouchers</h3>
+    <p>Keep each voucher on the devices that first used it, and let customers reconnect by themselves. {% include "core/partials/help_link.html" with slug="sticky-vouchers" label="How it works" %}</p></div>
+    <span class="badge rounded-pill {% if current_business.device_lock %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if current_business.device_lock %}On{% else %}Off{% endif %}</span></div>
+  <form method="post" action="{% url 'security_sticky' %}" class="row g-3 align-items-end">{% csrf_token %}
+    <div class="col-md-5"><div class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" role="switch" id="stLock" name="device_lock" {% if current_business.device_lock %}checked{% endif %}>
+      <label class="form-check-label" for="stLock"><b>Lock each voucher to its devices</b><small class="d-block text-secondary">Other devices are refused; only the owner, an admin or voucher support can reset. Now: {{ sticky.locked }} device{{ sticky.locked|pluralize }} locked on {{ sticky.vouchers }} voucher{{ sticky.vouchers|pluralize }}.</small></label></div></div>
+    <div class="col-md-4"><div class="form-check form-switch">
+      <input class="form-check-input" type="checkbox" role="switch" id="stSess" name="sticky_sessions" {% if current_business.sticky_sessions %}checked{% endif %}>
+      <label class="form-check-label" for="stSess"><b>Sticky sessions</b><small class="d-block text-secondary">Devices log back in by themselves (MAC cookie); idle devices are not logged out.</small></label></div></div>
+    <div class="col-md-3"><label class="small">Keep a dropped-off device for</label>
+      <select class="form-select form-select-sm" name="sticky_keepalive">{% for k,l in sticky.keepalive_choices %}<option value="{{ k }}" {% if current_business.sticky_keepalive == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-12 d-flex flex-wrap gap-2"><button class="btn btn-primary btn-sm">Save</button>
+      <button class="btn btn-outline-secondary btn-sm" name="apply" value="1" title="Send the session settings to every router now">Save &amp; send to routers</button>
+      <small class="text-secondary align-self-center">Turning the lock off keeps the devices already locked; they count again if you turn it back on.</small></div>
+  </form>
+</section>
+<section class="panel mb-3" id="sharing">
+  <div class="panel-head"><div><h3><i class="bi bi-diagram-3"></i> Internet sharing protection</h3>
+    <p>Spots a laptop, phone hotspot or small router that shares one voucher with other devices (they hide behind it, so normal device limits can’t see them). TapTap scores each customer and acts only on your rule.</p></div>
+    <span class="badge rounded-pill {% if share.p.enabled %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if share.p.enabled %}On{% else %}Off{% endif %}</span></div>
+  <form method="post" action="{% url 'sharing_save' %}" class="row g-3">{% csrf_token %}
+    <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" id="shOn" name="enabled" {% if share.p.enabled %}checked{% endif %}>
+      <label class="form-check-label fw-bold" for="shOn">Detect Internet sharing</label></div></div>
+    <div class="col-lg-6"><label class="form-label small fw-bold">When a customer reaches the threshold</label>
+      <div class="sh-acts">{% for k,l in share.p.ACTIONS %}<label class="sh-act"><input type="radio" name="action" value="{{ k }}" {% if share.p.action == k %}checked{% endif %}>
+        <span><b>{% if k == 'monitor' %}👁️{% elif k == 'warn' %}⚠️{% elif k == 'block' %}⛔{% else %}🪜{% endif %} {{ l }}</b>
+        <small>{% if k == 'monitor' %}Nothing happens to the customer — you are told.{% elif k == 'warn' %}The voucher pauses until they accept your message on the login page.{% elif k == 'block' %}Disconnected and refused on the login page for the time below, with your message.{% else %}First time a warning; again within 24 h a block.{% endif %}</small></span></label>{% endfor %}</div></div>
+    <div class="col-lg-6 row g-3 m-0 p-0">
+      <div class="col-12"><label class="form-label small fw-bold" for="shTh">Act at a score of <b id="shThV">{{ share.p.threshold }}</b>%</label>
+        <input type="range" class="form-range" min="40" max="100" step="5" id="shTh" name="threshold" value="{{ share.p.threshold }}" oninput="shThV.textContent=this.value">
+        <small class="text-secondary">80 needs two strong signals (e.g. TTL + router maker). One signal alone never reaches it.</small></div>
+      <div class="col-6"><label class="form-label small">List as suspected from</label><div class="input-group input-group-sm"><input class="form-control" type="number" min="20" max="95" name="suspect_at" value="{{ share.p.suspect_at }}"><span class="input-group-text">%</span></div></div>
+      <div class="col-6"><label class="form-label small">Block for</label><div class="input-group input-group-sm"><input class="form-control" type="number" min="1" max="1440" name="block_minutes" value="{{ share.p.block_minutes }}"><span class="input-group-text">min</span></div></div>
+      <div class="col-12"><label class="form-label small">Tell me</label><select class="form-select form-select-sm" name="notify">{% for k,l in share.p.NOTIFY %}<option value="{{ k }}" {% if share.p.notify == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
     </div>
-  </details>
-  {% empty %}
-  <div class="sec-empty"><i class="bi bi-shield-check"></i><p class="mt-2 mb-0"><b>No open findings.</b> Rescan after changing router settings to keep this current.</p></div>
-  {% endfor %}
+    <div class="col-12"><label class="form-label small fw-bold">Message the customer sees</label><textarea class="form-control" name="message" rows="2" maxlength="600">{{ share.p.message }}</textarea></div>
+    <div class="col-lg-6"><div class="form-check"><input class="form-check-input" type="checkbox" id="shOne" name="single_device_only" {% if share.p.single_device_only %}checked{% endif %}>
+      <label class="form-check-label" for="shOne">Only check vouchers for <b>one device</b> (family / multi-device plans are left alone)</label></div></div>
+    <div class="col-lg-6"><label class="form-label small">Never check these plans</label><div class="d-flex flex-wrap gap-1">{% for pl in share.plans %}<label class="border rounded-pill px-2 py-1 small m-0"><input class="form-check-input me-1" type="checkbox" name="exempt_plans" value="{{ pl.id }}" {% if pl.id in share.exempt_ids %}checked{% endif %}>{{ pl.name }}</label>{% endfor %}</div></div>
+    <div class="col-12 d-flex flex-wrap gap-2 align-items-center"><button class="btn btn-primary btn-sm">Save</button><button class="btn btn-outline-secondary btn-sm" name="apply" value="1">Save &amp; send detection to routers</button>
+      <details class="small"><summary class="text-secondary">How the score works</summary><div class="mt-1">TTL 63/127 (traffic passed another router) <b>+40</b> · router or repeater maker / name <b>+40</b> · several systems behind it (Apple + Android + Windows) <b>+30</b> · many busy connections <b>+15</b> · many different apps at once <b>+15</b>. 0–39 normal · 40–59 suspected · 60–79 warning · your threshold → action.</div></details></div>
+  </form>
+  <h4 class="h6 fw-bold mt-4">Detected devices {% if share.recent_cleared %}<small class="text-secondary fw-normal">· {{ share.recent_cleared }} cleared</small>{% endif %}</h4>
+  <div class="table-responsive"><table class="table table-sm align-middle small"><thead><tr><th>Voucher</th><th>Device</th><th>Why</th><th style="min-width:120px">Score</th><th>Status</th><th></th></tr></thead><tbody>
+  {% for c in share.cases %}<tr>
+    <td>{% if c.code %}{% voucher_link c.code %}{% else %}—{% endif %}<small class="d-block text-secondary">{{ c.router.name|default:'' }}</small></td>
+    <td>{% device_link c.mac %}<small class="d-block text-secondary">{{ c.ip }}</small></td>
+    <td>{% for r in c.reasons %}<span class="badge text-bg-light border me-1 mb-1 fw-normal text-wrap text-start">{{ r }}</span>{% endfor %}</td>
+    <td><div class="progress" style="height:8px" role="progressbar" aria-label="Score" aria-valuenow="{{ c.score }}" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar {% if c.score >= share.p.threshold %}bg-danger{% elif c.score >= 60 %}bg-warning{% else %}bg-info{% endif %}" style="width:{{ c.score }}%"></div></div>
+      <small><b>{{ c.score }}%</b>{% if c.peak > c.score %} · peak {{ c.peak }}%{% endif %} · seen {{ c.times }}×</small></td>
+    <td>{% if c.status == 'blocked' %}<span class="badge text-bg-danger">⛔ Blocked</span><small class="d-block text-secondary">until {{ c.blocked_until|date:'H:i' }}</small>{% elif c.status == 'warned' %}<span class="badge text-bg-warning">⚠️ Warned</span>{% elif c.status == 'trusted' %}<span class="badge text-bg-success">Trusted</span>{% else %}<span class="badge text-bg-info">👁️ Watching</span>{% endif %}
+      <small class="d-block text-secondary">{{ c.last_seen|timesince }} ago</small></td>
+    <td class="text-end text-nowrap"><form method="post" action="{% url 'sharing_case' c.id %}" class="d-inline-flex gap-1">{% csrf_token %}
+      {% if c.status != 'blocked' %}<button class="btn btn-sm btn-outline-danger" name="action" value="block" title="Disconnect and refuse for {{ share.p.block_minutes }} min">Block</button>{% else %}<button class="btn btn-sm btn-outline-secondary" name="action" value="unblock">Unblock</button>{% endif %}
+      {% if c.status == 'suspected' %}<button class="btn btn-sm btn-outline-warning" name="action" value="warn">Warn</button>{% endif %}
+      {% if c.status != 'trusted' %}<button class="btn btn-sm btn-outline-success" name="action" value="trust" title="Your own access point, the till PC… never flag this device">Trust</button>{% endif %}
+      <button class="btn btn-sm btn-outline-secondary" name="action" value="clear" title="Close this case">✕</button></form></td></tr>
+  {% empty %}<tr><td colspan="6" class="text-secondary">{% if share.p.enabled %}Nothing detected yet.{% else %}Turn the protection on to start detecting.{% endif %}</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% if share.trusted %}<div class="small"><b>Trusted devices:</b> {% for t in share.trusted %}<span class="badge text-bg-light border fw-normal me-1">{% device_link t.mac %}{% if t.note %} · {{ t.note }}{% endif %}
+    <form method="post" action="{% url 'sharing_trust_remove' t.id %}" class="d-inline">{% csrf_token %}<button class="btn btn-link btn-sm p-0 ms-1 text-danger" aria-label="Remove">✕</button></form></span>{% endfor %}</div>{% endif %}
+  <p class="small text-secondary mt-2 mb-0"><i class="bi bi-info-circle"></i> No network can count devices hidden behind someone else’s router exactly — TapTap combines signals so one unusual phone (a VPN, a rare system) is not punished. Works with TapTap Link and Direct API.</p>
+</section>
+<style>.sh-acts{display:grid;grid-template-columns:1fr 1fr;gap:.45rem}@media(max-width:600px){.sh-acts{grid-template-columns:1fr}}
+.sh-act{position:relative;cursor:pointer}.sh-act input{position:absolute;opacity:0}.sh-act span{display:block;border:1px solid var(--border,#dbe4ef);border-radius:12px;padding:.55rem .7rem;height:100%}
+.sh-act small{display:block;color:var(--muted,#6c7c90);font-size:.76rem;margin-top:.15rem}.sh-act input:checked+span{border-color:#1769e0;background:#eef5ff;box-shadow:0 0 0 2px rgba(23,105,224,.15)}
+.sh-act input:focus-visible+span{outline:2px solid #1769e0}html[data-theme="dark"] .sh-act input:checked+span{background:#14243a}</style>
 </div>
-
-{% if summary.acked %}
-<details class="sec-acked"><summary>{{ summary.acked|length }} reviewed finding{{ summary.acked|length|pluralize }} (not counted in the score)</summary>
-  <div class="sec-list scroll-list">
-  {% for f in summary.acked %}
-  <div class="sec-item sev-{{ f.severity }}"><div class="sec-body pt-3"><p><b>{{ f.title }}</b> — {{ f.router_name }}{% if f.ack.note %}<br><small class="text-secondary">“{{ f.ack.note }}” · {{ f.ack.acknowledged_by.email|default:'' }} {{ f.ack.created_at|date:'d M Y' }}</small>{% endif %}</p>
-    <form method="post" action="{% url 'security_ack' %}">{% csrf_token %}<input type="hidden" name="finding_key" value="{{ f.key }}"><input type="hidden" name="action" value="unack"><button class="btn btn-sm btn-link p-0">Reopen</button></form></div></div>
-  {% endfor %}
+<div class="sec-pane" role="tabpanel" id="tab-fair" aria-labelledby="t-fair" data-tab="fair">
+<section class="panel mb-3" id="fair-usage">
+  <div class="panel-head"><div><h3><i class="bi bi-speedometer2"></i> Fair usage — slow down heavy data users {% include "core/partials/help_link.html" with slug="fair-usage" label="How to set it up" %}</h3>
+    <p>Speed steps down as a voucher uses more data: per day, per week or over the whole voucher. Everyone is back to full speed when the period resets. Caps are set on your routers at each live sync.</p></div>
+    <div class="d-flex gap-2"><a class="btn btn-outline-warning btn-sm" href="{% url 'fup_slowed' %}"><i class="bi bi-speedometer"></i> Slowed now</a>
+    {% if 'network.manage' in tt_perms %}<a class="btn btn-primary btn-sm" href="{% url 'fup_new' %}"><i class="bi bi-plus-circle"></i> New policy</a>{% endif %}</div></div>
+  {% for p in fup_policies %}
+  <div class="d-flex flex-wrap align-items-center gap-3 py-2 border-top">
+    <div class="flex-grow-1" style="min-width:220px"><b>{{ p.name }}</b> {% if p.active %}<span class="badge text-bg-success">On</span>{% else %}<span class="badge text-bg-secondary">Off</span>{% endif %}
+      <small class="d-block text-secondary">{{ p.get_period_display }} · {{ p.get_counts_display|lower }} · {% for x in p.plans.all %}{{ x.name }}{% if not forloop.last %}, {% endif %}{% empty %}all other plans{% endfor %}{% if p.has_free_hours %} · {{ p.free_from }}:00–{{ p.free_to }}:00 free{% endif %}</small></div>
+    <div class="d-flex flex-wrap gap-1">{% for s in p.steps %}<span class="badge rounded-pill text-bg-light border">{{ s }}</span>{% endfor %}{% if p.bypass %}<span class="badge rounded-pill text-bg-info" title="IP-binding bypass devices are slowed by this policy too">+ bypass devices</span>{% endif %}</div>
+    <div class="small text-nowrap">{% if p.slowed %}<a href="{% url 'fup_slowed' %}?policy={{ p.id }}" class="text-warning-emphasis fw-bold">{{ p.slowed }} slowed now →</a>{% else %}<span class="text-secondary">nobody slowed</span>{% endif %}</div>
+    {% if 'network.manage' in tt_perms %}<div class="d-flex gap-1"><a class="btn btn-sm btn-light" href="{% url 'fup_edit' p.id %}">Edit</a>
+      <form method="post" action="{% url 'fup_action' p.id %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" name="action" value="toggle">{% if p.active %}Turn off{% else %}Turn on{% endif %}</button></form></div>{% endif %}
   </div>
-</details>
-{% endif %}
+  {% empty %}
+  <div class="text-center text-secondary py-3 border-top">No fair usage policy yet. Example: “after 2 GB a day → 5 Mb/s, after 5 GB → 1 Mb/s”.</div>
+  {% endfor %}
+</section>
+</div>
+</div>
+<style>
+.sec-tabbar{position:sticky;top:0;z-index:20;display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin:1rem 0;padding:.4rem;border-radius:18px;
+  background:color-mix(in srgb,var(--bs-body-bg,#f4f7fb) 88%,transparent);backdrop-filter:blur(8px)}
+@media(max-width:900px){.sec-tabbar{grid-template-columns:repeat(2,1fr)}}
+.sec-tab{position:relative;display:flex;align-items:center;gap:.6rem;text-align:left;border:1px solid var(--border,#e3e9f1);background:var(--panel,#fff);border-radius:14px;padding:.6rem .75rem;cursor:pointer;transition:transform .12s,box-shadow .12s,border-color .12s}
+.sec-tab:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(10,20,35,.07)}
+.sec-tab .ti{font-size:1.4rem;line-height:1}.sec-tab .tl b{display:block;font-size:.92rem}.sec-tab .tl small{display:block;color:var(--muted,#6c7c90);font-size:.72rem}
+.sec-tab[aria-selected=true]{border-color:#1769e0;box-shadow:0 0 0 3px rgba(23,105,224,.14);background:linear-gradient(180deg,#f2f7ff,var(--panel,#fff))}
+.sec-tab .tb{position:absolute;top:-7px;right:-6px;min-width:22px;height:22px;border-radius:11px;padding:0 6px;font-size:.72rem;font-weight:800;display:grid;place-items:center;color:#fff;background:#64748b}
+.sec-tab .tb.bad{background:#dc2626}.sec-tab .tb.warn{background:#d97706}.sec-tab .tb.pulse{animation:tbp 1.6s ease-in-out infinite}@keyframes tbp{50%{box-shadow:0 0 0 6px rgba(220,38,38,.18)}}
+.sec-pane{display:none;animation:secin .18s ease-out}.sec-pane.on{display:block}@keyframes secin{from{opacity:0;transform:translateY(4px)}}
+.sec-intro{font-size:.88rem;color:var(--muted,#56687a);margin:0 0 .8rem}
+html[data-theme="dark"] .sec-tab[aria-selected=true]{background:#14243a}
+</style>
+<script>
+(function(){
+  var tabs=[].slice.call(document.querySelectorAll('.sec-tab')),panes=[].slice.call(document.querySelectorAll('.sec-pane'));
+  function paneOf(el){var p=el&&el.closest?el.closest('.sec-pane'):null;return p?p.dataset.tab:null;}
+  function show(name,scrollTo){
+    if(!document.getElementById('tab-'+name))name='overview';
+    tabs.forEach(function(t){var on=t.dataset.tab===name;t.setAttribute('aria-selected',on);t.tabIndex=on?0:-1;});
+    panes.forEach(function(p){p.classList.toggle('on',p.dataset.tab===name);});
+    try{localStorage.setItem('tt-sec-tab',name);}catch(e){}
+    if(scrollTo){setTimeout(function(){scrollTo.scrollIntoView({behavior:'smooth',block:'start'});},60);}
+  }
+  tabs.forEach(function(t,i){
+    t.addEventListener('click',function(){show(t.dataset.tab);history.replaceState(null,'','#tab-'+t.dataset.tab);});
+    t.addEventListener('keydown',function(e){var k=e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0;if(!k)return;e.preventDefault();var n=tabs[(i+k+tabs.length)%tabs.length];n.focus();n.click();});
+  });
+  // open the right tab for links such as /security/#sharing, #fair-usage, #incidents or #tab-live
+  function fromHash(){
+    var h=(location.hash||'').slice(1);
+    if(h.indexOf('tab-')===0)return show(h.slice(4));
+    var el=h?document.getElementById(h):null;
+    if(el&&paneOf(el))return show(paneOf(el),el);
+    var saved=null;try{saved=localStorage.getItem('tt-sec-tab');}catch(e){}
+    show({% if incidents %}'live'{% else %}saved||'overview'{% endif %});
+  }
+  window.addEventListener('hashchange',fromHash);fromHash();
+})();
+</script>
 
 <div class="modal fade" id="planModal" tabindex="-1" aria-labelledby="planTitle"><div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
   <div class="modal-header"><div><h5 class="modal-title fw-bold" id="planTitle">Fix with plan</h5><p class="small text-secondary m-0">Choose the plan these users belong to. They get its time (a 24 h plan gives <code>limit-uptime=1d</code>), its profile on the router, and the plan in TapTap.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>

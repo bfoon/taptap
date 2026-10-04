@@ -1206,7 +1206,10 @@ def install():
                 'id="fair-usage">'
             )
 
-            if marker in text:
+            slot = '<div id="entry-protection-slot"></div>'   # Security › Access control tab
+            if slot in text:
+                text = text.replace(slot, slot + '\n' + card, 1)
+            elif marker in text:
                 text = text.replace(
                     marker,
                     card
