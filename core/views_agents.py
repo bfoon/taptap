@@ -1,13 +1,16 @@
-"""Agent-owned batches, agent statements, and one-off vouchers for individual customers."""
+"Agent-owned batches, agent statements, cash collection, and one-off vouchers."""
 import re
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Count, Q, Sum
+from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
@@ -39,6 +42,28 @@ def _dec(v, default='0'):
         return max(Decimal('0'), Decimal(str(v or default).replace(',', '').strip() or default))
     except (InvalidOperation, ValueError):
         return Decimal(default)
+
+
+def _when(value):
+    """Parse date/datetime-local values while keeping today's receipt at the real current time."""
+    if not value:
+        return timezone.now()
+    for fmt in ('%Y-%m-%dT%H:%M', '%Y-%m-%d'):
+        try:
+            dt = datetime.strptime(value, fmt)
+            if fmt == '%Y-%m-%d':
+                if dt.date() == timezone.localdate():
+                    return timezone.now()
+                dt = dt.replace(hour=12)
+            return timezone.make_aware(dt)
+        except ValueError:
+            continue
+    return timezone.now()
+
+
+def _safe_next(value, fallback):
+    value = str(value or '')
+    return value if value.startswith('/') and not value.startswith('//') else fallback
 
 
 def wa_number(phone):
@@ -75,17 +100,143 @@ def batch_assign(request, pk):
 
 @login_required
 def agent_detail(request, pk):
-    business = _b(request); agent = get_object_or_404(business.agents, pk=pk)
+    """Agent dashboard plus general/batch cash collection and printable collection receipts."""
+    business = _b(request)
+    agent = get_object_or_404(business.agents, pk=pk)
+    fallback = reverse('agent_detail', args=[agent.pk])
+
+    # Use the existing agent URL as the stable receipt URL, avoiding another
+    # permission/URL surface. Example: /finance/agents/4/?receipt=19
+    receipt_id = request.GET.get('receipt', '')
+    if request.method == 'GET' and receipt_id.isdigit():
+        collection = get_object_or_404(
+            business.collections.select_related('agent', 'recorded_by'),
+            pk=int(receipt_id),
+            agent=agent,
+        )
+        from .cash_collections import collection_receipt_context
+
+        rc = collection_receipt_context(collection)
+        nxt = _safe_next(request.GET.get('next'), fallback)
+        return render(request, 'core/cash_collection_receipt.html', {
+            'agent': agent,
+            'rc': rc,
+            'fmt': 'thermal' if request.GET.get('format') == 'thermal' else 'a4',
+            'autoprint': request.GET.get('autoprint') == '1',
+            'next_url': nxt,
+            'printed_by': request.user.get_full_name() or request.user.email or request.user.username,
+        })
+
+    # Cash collection is deliberately handled here as well as displayed here.
+    # The middleware already protects this URL for agent/finance viewers; POST
+    # requires the stronger finance.collect permission.
+    if request.method == 'POST' and request.POST.get('action') == 'collect_cash':
+        if 'finance.collect' not in getattr(request, 'tt_perms', ()):
+            return HttpResponseForbidden('You do not have permission to collect cash from agents.')
+
+        from .cash_collections import collect
+
+        batch = None
+        raw_batch = request.POST.get('batch', '')
+        if raw_batch:
+            batch = agent.batches.filter(pk=raw_batch).first()
+            if batch is None:
+                messages.error(request, 'That batch is no longer held by this agent.')
+                return redirect(_safe_next(request.POST.get('next'), fallback))
+
+        try:
+            result = collect(
+                agent=agent,
+                batch=batch,
+                amount=_dec(request.POST.get('amount')),
+                method=request.POST.get('method', 'cash'),
+                reference=request.POST.get('reference', '')[:120],
+                note=request.POST.get('note', '')[:255],
+                collected_at=_when(request.POST.get('collected_at')),
+                user=request.user,
+            )
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect(_safe_next(request.POST.get('next'), fallback))
+
+        collection = result['collection']
+        currency = business.currency
+
+        complete_bits = []
+        for allocation in result['completed']:
+            if allocation.result == 'complete':
+                complete_bits.append(f'{allocation.batch_name}: collection complete')
+            elif allocation.result == 'uptodate':
+                complete_bits.append(f'{allocation.batch_name}: up to date')
+            elif allocation.result == 'prepaid':
+                complete_bits.append(f'{allocation.batch_name}: paid upfront')
+
+        msg = f'Collected {currency}{collection.amount:,.2f} from {agent.name}.'
+        if complete_bits:
+            msg += ' ' + '; '.join(complete_bits) + '.'
+        messages.success(request, msg)
+        log(
+            business,
+            'Cash Collected',
+            f'{agent.name}: {currency}{collection.amount:,.2f}'
+            + (f' · {batch.name}' if batch else ' · general collection'),
+        )
+
+        nxt = _safe_next(request.POST.get('next'), fallback)
+        query = urlencode({
+            'receipt': collection.pk,
+            'next': nxt,
+        })
+        return redirect(f'{fallback}?{query}')
+
     bal = next((r for r in agent_balances(business) if r['agent'].id == agent.id), None)
-    batches = (agent.batches.select_related('plan').annotate(
-        total=Count('vouchers',filter=Q(vouchers__deleted_at__isnull=True)), sold=Count('vouchers',filter=Q(vouchers__sold_at__isnull=False,vouchers__deleted_at__isnull=True)),
-        used=Count('vouchers',filter=Q(vouchers__used_at__isnull=False,vouchers__deleted_at__isnull=True)),
-        left=Count('vouchers',filter=Q(vouchers__sold_at__isnull=True, vouchers__used_at__isnull=True, vouchers__status='active',vouchers__deleted_at__isnull=True)))
-        .order_by('-issued_at', '-created_at'))
-    holding = (business.vouchers.filter(agent=agent, status='active', sold_at__isnull=True, used_at__isnull=True)
-               .values('plan_name').annotate(n=Count('id'), v=Sum('price')).order_by('plan_name'))
+
+    batches = list(
+        agent.batches.select_related('plan').annotate(
+            total=Count('vouchers', filter=Q(vouchers__deleted_at__isnull=True)),
+            sold=Count('vouchers', filter=Q(vouchers__sold_at__isnull=False, vouchers__deleted_at__isnull=True)),
+            used=Count('vouchers', filter=Q(vouchers__used_at__isnull=False, vouchers__deleted_at__isnull=True)),
+            left=Count(
+                'vouchers',
+                filter=Q(
+                    vouchers__sold_at__isnull=True,
+                    vouchers__used_at__isnull=True,
+                    vouchers__status='active',
+                    vouchers__deleted_at__isnull=True,
+                ),
+            ),
+        ).order_by('-issued_at', '-created_at')
+    )
+
+    from .cash_collections import batch_progress, outstanding_batches
+
+    for batch in batches:
+        batch.cash = batch_progress(batch, agent)
+
+    cash_queue = outstanding_batches(agent)
+
+    holding = (
+        business.vouchers
+        .filter(
+            agent=agent,
+            status='active',
+            sold_at__isnull=True,
+            used_at__isnull=True,
+        )
+        .values('plan_name')
+        .annotate(n=Count('id'), v=Sum('price'))
+        .order_by('plan_name')
+    )
+
     agent.ensure_portal_token()
     portal_url = request.build_absolute_uri(f'/ag/{agent.portal_token}/')
+
+    collections = (
+        agent.collections
+        .select_related('cash_detail__requested_batch')
+        .order_by('-collected_at')[:30]
+    )
+
     return render(request, 'core/agent_detail.html', {
         'portal_url': portal_url,
         'all_plans': business.plans.filter(active=True).exclude(name__startswith='*').order_by('price', 'name'),
@@ -93,12 +244,29 @@ def agent_detail(request, pk):
         'orders': agent.orders.select_related('plan', 'batch', 'done_by')[:30],
         'helps': agent.help_requests.select_related('voucher', 'handled_by')[:30],
         'checks': agent.checks.select_related('voucher')[:60],
-        'open_orders': agent.orders.filter(status='new').count(), 'open_helps': agent.help_requests.filter(handled_at__isnull=True).count(),
-        'agent': agent, 'bal': bal, 'batches': batches, 'holding': holding,
-        'sales': agent.sales.select_related('router')[:40], 'collections': agent.collections.all()[:30],
+        'open_orders': agent.orders.filter(status='new').count(),
+        'open_helps': agent.help_requests.filter(handled_at__isnull=True).count(),
+        'agent': agent,
+        'bal': bal,
+        'batches': batches,
+        'cash_queue': cash_queue,
+        'holding': holding,
+        'sales': agent.sales.select_related('router')[:40],
+        'collections': collections,
         'shop_batches': business.batches.filter(agent__isnull=True).select_related('plan').annotate(
-            left=Count('vouchers',filter=Q(vouchers__sold_at__isnull=True, vouchers__used_at__isnull=True, vouchers__status='active',vouchers__deleted_at__isnull=True))).filter(left__gt=0).order_by('-created_at')[:30],
-        'methods': MANUAL_METHODS, 'today': timezone.localdate().isoformat(), 'now': timezone.now(),
+            left=Count(
+                'vouchers',
+                filter=Q(
+                    vouchers__sold_at__isnull=True,
+                    vouchers__used_at__isnull=True,
+                    vouchers__status='active',
+                    vouchers__deleted_at__isnull=True,
+                ),
+            ),
+        ).filter(left__gt=0).order_by('-created_at')[:30],
+        'methods': MANUAL_METHODS,
+        'today': timezone.localdate().isoformat(),
+        'now': timezone.now(),
     })
 
 
@@ -250,7 +418,6 @@ def agent_statement(request, pk):
 @login_required
 def batch_receipt(request, pk):
     """Printable receipt for a generated batch: A4 (office copy + agent stub) or 80 mm thermal."""
-    from django.urls import reverse
     from .finance import batch_receipt as build
     business = _b(request)
     batch = get_object_or_404(business.batches.select_related('plan', 'agent'), pk=pk)
@@ -269,7 +436,6 @@ def batch_receipt(request, pk):
     })
 
 
-
 @login_required
 @require_POST
 def agent_portal_rotate(request, pk):
@@ -281,7 +447,6 @@ def agent_portal_rotate(request, pk):
     return redirect('agent_detail', pk=pk)
 
 
-
 @login_required
 @require_POST
 def agent_portal_phone(request, pk):
@@ -291,7 +456,6 @@ def agent_portal_phone(request, pk):
     agent.save(update_fields=['customer_phone'])
     messages.success(request, f'Customers checked by {agent.name} are told to call {agent.help_number() or "— (no number set)"}.')
     return redirect('agent_detail', pk=pk)
-
 
 
 @login_required
@@ -307,9 +471,7 @@ def agent_log_action(request, pk):
         agent.help_requests.filter(pk=int(oid), handled_at__isnull=True).update(handled_at=timezone.now(), handled_by=request.user,
                                                                                note=request.POST.get('note', '')[:255])
         messages.success(request, 'Help request marked as handled.')
-    from django.urls import reverse
     return redirect(f"{reverse('agent_detail', args=[pk])}#agent-logs")
-
 
 
 @login_required

@@ -1,128 +1,588 @@
 {% extends 'core/base.html' %}{% load static taptap_extras %}
-{% block title %}{{ agent.name }} — Agent{% endblock %}{% block heading %}{{ agent.name }}{% endblock %}
+{% block title %}{{ agent.name }} — Agent{% endblock %}
+{% block heading %}{{ agent.name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+.cash-state{display:inline-flex;align-items:center;gap:.3rem;border-radius:999px;padding:.2rem .55rem;font-size:.72rem;font-weight:800;white-space:nowrap}
+.cash-state.due{background:#fff1f0;color:#b42318}.cash-state.partial{background:#fff7e6;color:#9a6700}
+.cash-state.uptodate,.cash-state.complete,.cash-state.prepaid{background:#e9f8ef;color:#087443}
+.cash-state.waiting{background:#f1f5f9;color:#52677c}
+.cash-grid{display:grid;grid-template-columns:repeat(3,minmax(80px,1fr));gap:.35rem;margin-top:.35rem}
+.cash-grid span{font-size:.68rem;color:#718096}.cash-grid b{display:block;color:var(--text,#102033);font-size:.83rem}
+.cash-progress{height:6px;border-radius:999px;background:#e8edf3;overflow:hidden;margin-top:.45rem}
+.cash-progress i{display:block;height:100%;background:#18a66a}
+.cash-queue{border:1px solid #dfe7ef;border-radius:12px;padding:.65rem .75rem;background:#f8fafc}
+.cash-queue-row{display:grid;grid-template-columns:1fr auto;gap:.6rem;padding:.28rem 0;border-bottom:1px dashed #dbe3eb}
+.cash-queue-row:last-child{border-bottom:0}
+.collection-scope{font-size:.75rem;font-weight:700;color:#52677c}
+</style>
+{% endblock %}
+
 {% block content %}{% with c=current_business.currency %}
 <div class="d-flex flex-wrap gap-2 align-items-center mb-3 no-print">
-{% if 'finance.view' in tt_perms or 'finance.agents' in tt_perms %}<a class="btn btn-light btn-sm" href="{% url 'finance' %}?tab=agents"><i class="bi bi-arrow-left"></i> All agents</a>{% endif %}
-  <span class="text-secondary small">{% if agent.location %}{{ agent.location }} · {% endif %}{% if agent.phone %}{{ agent.phone }} · {% endif %}{{ agent.commission_percent|pct }}% commission{% if not agent.active %} · <b>inactive</b>{% endif %}</span>
+  {% if 'finance.view' in tt_perms or 'finance.agents' in tt_perms %}
+    <a class="btn btn-light btn-sm" href="{% url 'finance' %}?tab=agents"><i class="bi bi-arrow-left"></i> All agents</a>
+  {% endif %}
+  <span class="text-secondary small">
+    {% if agent.location %}{{ agent.location }} · {% endif %}
+    {% if agent.phone %}{{ agent.phone }} · {% endif %}
+    {{ agent.commission_percent|pct }}% commission
+    {% if not agent.active %} · <b>inactive</b>{% endif %}
+  </span>
   <span class="flex-grow-1"></span>
-{% if 'vouchers.create' in tt_perms %}<a class="btn btn-primary btn-sm" href="{% url 'generate_vouchers' %}?agent={{ agent.id }}"><i class="bi bi-stars"></i> New batch for {{ agent.name }}</a>
-  {% if shop_batches %}<div class="dropdown"><button class="btn btn-outline-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-box-arrow-right"></i> Give a shop batch</button><div class="dropdown-menu dropdown-menu-end p-2" style="min-width:320px">
-    {% for x in shop_batches %}<form method="post" action="{% url 'batch_assign' x.id %}" class="d-flex gap-2 align-items-center mb-1">{% csrf_token %}<input type="hidden" name="agent" value="{{ agent.id }}"><input type="hidden" name="settlement" value="credit"><input type="hidden" name="next" value="{{ request.path }}">
-      <span class="small flex-grow-1">{{ x.name }}<small class="d-block text-secondary">{{ x.left }} unsold · {{ x.plan|default:'' }}</small></span><button class="btn btn-sm btn-outline-primary">Give on credit</button></form>{% endfor %}</div></div>{% endif %}{% endif %}
-{% if 'finance.collect' in tt_perms %}<button class="btn btn-success btn-sm" data-bs-toggle="modal" data-bs-target="#collectModal"><i class="bi bi-cash-coin"></i> Collect cash</button>{% endif %}
-  {% if 'vouchers.create' in tt_perms %}<a class="btn btn-outline-secondary btn-sm" href="{% url 'voucher_print' %}?agent={{ agent.id }}"><i class="bi bi-printer"></i> Print their stock</a>{% endif %}
-  <a class="btn btn-outline-secondary btn-sm" href="{% url 'agent_statement' agent.id %}"><i class="bi bi-file-earmark-text"></i> Cash flow statement</a>
-  {% if agent.phone %}<a class="btn btn-outline-success btn-sm" target="_blank" rel="noopener" id="waStatement" href="#"><i class="bi bi-whatsapp"></i> Send balance</a>{% endif %}
+
+  {% if 'vouchers.create' in tt_perms %}
+    <a class="btn btn-primary btn-sm" href="{% url 'generate_vouchers' %}?agent={{ agent.id }}">
+      <i class="bi bi-stars"></i> New batch for {{ agent.name }}
+    </a>
+    {% if shop_batches %}
+      <div class="dropdown">
+        <button class="btn btn-outline-primary btn-sm dropdown-toggle" data-bs-toggle="dropdown">
+          <i class="bi bi-box-arrow-right"></i> Give a shop batch
+        </button>
+        <div class="dropdown-menu dropdown-menu-end p-2" style="min-width:320px">
+          {% for x in shop_batches %}
+            <form method="post" action="{% url 'batch_assign' x.id %}" class="d-flex gap-2 align-items-center mb-1">
+              {% csrf_token %}
+              <input type="hidden" name="agent" value="{{ agent.id }}">
+              <input type="hidden" name="settlement" value="credit">
+              <input type="hidden" name="next" value="{{ request.path }}">
+              <span class="small flex-grow-1">
+                {{ x.name }}
+                <small class="d-block text-secondary">{{ x.left }} unsold · {{ x.plan|default:'' }}</small>
+              </span>
+              <button class="btn btn-sm btn-outline-primary">Give on credit</button>
+            </form>
+          {% endfor %}
+        </div>
+      </div>
+    {% endif %}
+  {% endif %}
+
+  {% if 'finance.collect' in tt_perms %}
+    <button
+      class="btn btn-success btn-sm"
+      data-bs-toggle="modal"
+      data-bs-target="#collectModal"
+      data-collect-batch=""
+      data-collect-name="General agent balance"
+      data-collect-amount="{% if bal.outstanding > 0 %}{{ bal.outstanding|floatformat:2 }}{% else %}0{% endif %}"
+      {% if bal.outstanding <= 0 %}disabled{% endif %}>
+      <i class="bi bi-cash-coin"></i> Collect cash
+    </button>
+  {% endif %}
+
+  {% if 'vouchers.create' in tt_perms %}
+    <a class="btn btn-outline-secondary btn-sm" href="{% url 'voucher_print' %}?agent={{ agent.id }}">
+      <i class="bi bi-printer"></i> Print their stock
+    </a>
+  {% endif %}
+  <a class="btn btn-outline-secondary btn-sm" href="{% url 'agent_statement' agent.id %}">
+    <i class="bi bi-file-earmark-text"></i> Cash flow statement
+  </a>
+  {% if agent.phone %}
+    <a class="btn btn-outline-success btn-sm" target="_blank" rel="noopener" id="waStatement" href="#">
+      <i class="bi bi-whatsapp"></i> Send balance
+    </a>
+  {% endif %}
 </div>
 
 <div class="kpi-row">
-  <div class="kpi hero"><small>Still to hand in</small><strong>{{ bal.outstanding|money:c }}</strong><em>{{ bal.collection_rate }}% of what they owe has been handed in</em></div>
-  <div class="kpi"><small>Holding now</small><strong>{{ bal.holding }}</strong><em>unsold vouchers worth {{ bal.holding_value|money:c }}</em></div>
-  <div class="kpi"><small>Sold</small><strong>{{ bal.sold }}</strong><em>{{ bal.gross|money:c }} in sales</em></div>
-  <div class="kpi"><small>Commission earned</small><strong>{{ bal.commission|money:c }}</strong><em>at {{ agent.commission_percent|pct }}%</em></div>
-  <div class="kpi"><small>Handed in</small><strong>{{ bal.collected|money:c }}</strong><em>{% if bal.last_collection %}last {{ bal.last_collection|timesince }} ago{% else %}nothing yet{% endif %}</em></div>
+  <div class="kpi hero">
+    <small>Still to hand in</small>
+    <strong>{{ bal.outstanding|money:c }}</strong>
+    <em>{{ bal.collection_rate }}% of what they owe has been handed in</em>
+  </div>
+  <div class="kpi">
+    <small>Holding now</small>
+    <strong>{{ bal.holding }}</strong>
+    <em>unsold vouchers worth {{ bal.holding_value|money:c }}</em>
+  </div>
+  <div class="kpi">
+    <small>Sold</small>
+    <strong>{{ bal.sold }}</strong>
+    <em>{{ bal.gross|money:c }} in sales</em>
+  </div>
+  <div class="kpi">
+    <small>Commission earned</small>
+    <strong>{{ bal.commission|money:c }}</strong>
+    <em>at {{ agent.commission_percent|pct }}%</em>
+  </div>
+  <div class="kpi">
+    <small>Handed in</small>
+    <strong>{{ bal.collected|money:c }}</strong>
+    <em>{% if bal.last_collection %}last {{ bal.last_collection|timesince }} ago{% else %}nothing yet{% endif %}</em>
+  </div>
 </div>
 
 <div class="row g-3 mt-1">
-  <div class="col-xl-8"><div class="panel h-100"><div class="panel-head"><div><h3>Batches</h3><p>Everything issued to {{ agent.name }}</p></div></div>
-    <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Batch</th><th>Terms</th><th>Progress</th><th class="text-end">Left</th><th></th></tr></thead><tbody>
-    {% for x in batches %}<tr><td><b>{{ x.name }}</b><small class="d-block text-secondary">{{ x.plan|default:'' }} · issued {% if x.issued_at %}{{ x.issued_at|date:'d M Y' }}{% else %}{{ x.created_at|date:'d M Y' }}{% endif %}</small></td>
-      <td><span class="badge {% if x.settlement == 'prepaid' %}text-bg-success{% else %}text-bg-light{% endif %}">{% if x.settlement == 'prepaid' %}Paid upfront{% else %}On credit{% endif %}</span></td>
-      <td style="min-width:180px"><div class="stock-bar" style="height:8px"><i style="width:{{ x.sold|pct_of:x.total }}%;background:var(--green)"></i></div><small class="text-secondary">{{ x.sold }} of {{ x.total }} sold · {{ x.used }} used</small></td>
-      <td class="text-end"><b>{{ x.left }}</b></td>
-      <td class="text-end text-nowrap no-print"><a class="btn btn-sm btn-outline-secondary" href="{% url 'batch_receipt' x.id %}" aria-label="Batch receipt" title="Batch receipt"><i class="bi bi-receipt"></i></a> <a class="btn btn-sm btn-outline-secondary" href="{% url 'voucher_print' %}?batch={{ x.id }}" aria-label="Print batch"><i class="bi bi-printer"></i></a>
-        {% if x.left and 'vouchers.create' in tt_perms %}<form method="post" action="{% url 'batch_assign' x.id %}" class="d-inline" onsubmit="return confirm('Take the {{ x.left }} unsold voucher(s) back to the shop?')">{% csrf_token %}<input type="hidden" name="agent" value=""><input type="hidden" name="next" value="{{ request.path }}"><button class="btn btn-sm btn-outline-danger">Take back</button></form>{% endif %}</td></tr>
-    {% empty %}<tr><td colspan="5" class="empty-table">No batches yet. <a href="{% url 'generate_vouchers' %}?agent={{ agent.id }}">Create one for {{ agent.name }}</a>.</td></tr>{% endfor %}</tbody></table></div></div></div>
-  <div class="col-xl-4"><div class="panel h-100"><div class="panel-head"><div><h3>Stock in hand</h3><p>Unsold vouchers by plan</p></div></div>
-    <div class="scroll-list scroll-short">{% for h in holding %}<div class="stock-row"><b>{{ h.plan_name }}</b><span class="text-secondary">{{ h.n }}</span><b>{{ h.v|money:c }}</b></div>{% empty %}<p class="text-secondary small">{{ agent.name }} holds no unsold vouchers.</p>{% endfor %}</div></div></div>
-</div>
-
-<div class="row g-3 mt-1">
-  <div class="col-12"><div class="panel"><div class="d-flex flex-wrap gap-3 align-items-center">
-    <div id="agentQr" class="p-2 bg-white border rounded-3" style="width:150px;height:150px" aria-label="QR code of the voucher checker"></div>
-    <div class="flex-grow-1" style="min-width:240px"><h3 class="h6 fw-bold mb-1"><i class="bi bi-qr-code-scan"></i> Voucher checker for {{ agent.name }}</h3>
-      <p class="small text-secondary mb-2">{{ agent.name }} scans this with the phone camera (no app, no login) and types or scans a voucher. They see a big colour answer: 🟢 not used · 🟡 in use — do not take back, customer must call <b>{{ agent.help_number|default:"(no number yet)" }}</b> · 🔴 finished. The 🤝 button sends your team an alert with the voucher.</p>
-      <form method="post" action="{% url 'agent_portal_phone' agent.id %}" class="d-flex flex-wrap gap-2 align-items-center mb-2">{% csrf_token %}
-        <label class="small fw-bold" for="custPhone">📞 Customers must call</label>
-        <input class="form-control form-control-sm" style="max-width:200px" id="custPhone" name="customer_phone" value="{{ agent.customer_phone }}" inputmode="tel"
-               placeholder="{{ current_business.support_phone|default:current_business.phone|default:'+220 …' }}">
-        <button class="btn btn-sm btn-outline-primary">Save</button>
-        <small class="text-secondary">Empty = your customer help line{% if current_business.support_phone %} ({{ current_business.support_phone }}){% endif %} from <a href="{% url 'settings' %}">Settings</a>.</small>
-      </form>
-      <form method="post" action="{% url 'agent_order_plans' agent.id %}" class="mb-2">{% csrf_token %}
-        <div class="small fw-bold mb-1">🛒 Plans {{ agent.name }} can order <span class="fw-normal text-secondary">— none ticked = every active plan</span></div>
-        <div class="d-flex flex-wrap gap-2 align-items-center">{% for p in all_plans %}<label class="border rounded-pill px-2 py-1 small m-0" style="cursor:pointer"><input class="form-check-input me-1" type="checkbox" name="plans" value="{{ p.id }}" {% if p.id in order_plan_ids %}checked{% endif %}>{{ p.name }} <span class="text-secondary">{{ c }}{{ p.price|floatformat:'-2' }}</span></label>{% empty %}<span class="small text-secondary">No active plans.</span>{% endfor %}
-          </div>
-        <div class="d-flex flex-wrap gap-2 align-items-center mt-2 small">
-          <label class="fw-bold m-0" for="ordQty">🔢 Vouchers per order</label>
-          <input class="form-control form-control-sm" style="width:90px" type="number" min="1" max="500" id="ordQty" name="order_quantity" value="{{ agent.order_quantity }}">
-          <label class="form-check m-0"><input class="form-check-input" type="checkbox" name="order_quantity_fixed" {% if agent.order_quantity_fixed %}checked{% endif %}> Fixed — {{ agent.name }} cannot change it</label>
-          <button class="btn btn-sm btn-outline-primary">Save</button></div>
-      </form>
-      <div class="d-flex flex-wrap gap-2"><button class="btn btn-sm btn-primary" type="button" onclick="printAgentQr()"><i class="bi bi-printer"></i> Print card</button>
-        <a class="btn btn-sm btn-outline-secondary" href="{{ portal_url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open</a>
-        <button class="btn btn-sm btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText('{{ portal_url }}');this.textContent='Copied ✓'"><i class="bi bi-clipboard"></i> Copy link</button>
-        <form method="post" action="{% url 'agent_portal_rotate' agent.id %}" onsubmit="return confirm('Make a new QR? The old one stops working.')">{% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="bi bi-arrow-repeat"></i> New QR</button></form></div></div>
-  </div></div></div>
-  <div class="col-12" id="agent-logs"><div class="panel">
-    <ul class="nav nav-pills mb-3 gap-1" role="tablist">
-      <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#lgOrders" type="button" role="tab">🛒 Orders{% if open_orders %} <span class="badge text-bg-danger">{{ open_orders }}</span>{% endif %}</button></li>
-      <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#lgHelp" type="button" role="tab">🤝 Help requests{% if open_helps %} <span class="badge text-bg-warning">{{ open_helps }}</span>{% endif %}</button></li>
-      <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#lgChecks" type="button" role="tab">🔍 Voucher checks</button></li>
-    </ul>
-    <div class="tab-content">
-      <div class="tab-pane fade show active" id="lgOrders" role="tabpanel"><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>When</th><th>Order</th><th>Note</th><th>Status</th><th></th></tr></thead><tbody>
-        {% for o in orders %}<tr><td class="text-nowrap">{{ o.created_at|date:'d M H:i' }}</td><td><b>{{ o.quantity }} × {{ o.plan_name }}</b></td><td class="small">{{ o.note|default:'—' }}</td>
-          <td>{% if o.status == 'done' %}<span class="badge text-bg-success">Vouchers made</span>{% if o.batch %} <a class="small" href="{% url 'batch_detail' o.batch_id %}">{{ o.batch.name }}</a>{% endif %}{% elif o.status == 'rejected' %}<span class="badge text-bg-secondary">Declined</span>{% else %}<span class="badge text-bg-warning">New</span>{% endif %}</td>
-          <td class="text-end text-nowrap">{% if o.status == 'new' %}<a class="btn btn-sm btn-primary" href="{% url 'generate_vouchers' %}?agent={{ agent.id }}&plan={{ o.plan_id|default:'' }}&quantity={{ o.quantity }}&order={{ o.id }}"><i class="bi bi-stars"></i> Make vouchers</a>
-            <form method="post" action="{% url 'agent_log_action' agent.id %}" class="d-inline">{% csrf_token %}<input type="hidden" name="id" value="{{ o.id }}"><button class="btn btn-sm btn-outline-secondary" name="action" value="order_decline" onclick="return confirm('Decline this order?')">Decline</button></form>{% endif %}</td></tr>
-        {% empty %}<tr><td colspan="5" class="text-secondary small">No orders yet — {{ agent.name }} orders with the 🛒 button on the voucher checker.</td></tr>{% endfor %}
-      </tbody></table></div></div>
-      <div class="tab-pane fade" id="lgHelp" role="tabpanel"><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>When</th><th>Voucher</th><th>Status</th><th></th></tr></thead><tbody>
-        {% for h in helps %}<tr><td class="text-nowrap">{{ h.created_at|date:'d M H:i' }}</td><td>{% if h.voucher %}{% voucher_link h.voucher.code %}{% else %}—{% endif %}</td>
-          <td>{% if h.handled_at %}<span class="badge text-bg-success">Handled</span> <small class="text-secondary">{{ h.handled_at|date:'d M H:i' }}{% if h.handled_by %} · {% firstof h.handled_by.get_full_name h.handled_by.username %}{% endif %}{% if h.note %} · {{ h.note }}{% endif %}</small>{% else %}<span class="badge text-bg-warning">Waiting</span>{% endif %}</td>
-          <td class="text-end">{% if not h.handled_at %}<form method="post" action="{% url 'agent_log_action' agent.id %}" class="d-flex gap-1 justify-content-end">{% csrf_token %}<input type="hidden" name="id" value="{{ h.id }}"><input class="form-control form-control-sm" style="max-width:180px" name="note" placeholder="What you did (optional)"><button class="btn btn-sm btn-success" name="action" value="help_done">Handled</button></form>{% endif %}</td></tr>
-        {% empty %}<tr><td colspan="4" class="text-secondary small">No help requests yet.</td></tr>{% endfor %}
-      </tbody></table></div></div>
-      <div class="tab-pane fade" id="lgChecks" role="tabpanel"><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>When</th><th>Voucher</th><th>Answer</th></tr></thead><tbody>
-        {% for c in checks %}<tr><td class="text-nowrap">{{ c.created_at|date:'d M H:i' }}</td><td>{% if c.voucher %}{% voucher_link c.voucher.code %}{% else %}<code>{{ c.entered }}</code>{% endif %}</td>
-          <td>{% if c.result == 'unused' %}🟢 Not used{% elif c.result == 'in_use' %}🟡 In use — told not to take back{% elif c.result == 'finished' %}🔴 Finished{% else %}⚪ Unknown code{% endif %}</td></tr>
-        {% empty %}<tr><td colspan="3" class="text-secondary small">No checks yet.</td></tr>{% endfor %}
-      </tbody></table></div></div>
+  <div class="col-xl-9">
+    <div class="panel h-100">
+      <div class="panel-head">
+        <div>
+          <h3>Batches</h3>
+          <p>Stock and cash accountability for everything issued to {{ agent.name }}</p>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead>
+            <tr>
+              <th>Batch</th>
+              <th>Stock progress</th>
+              <th style="min-width:250px">Cash collection</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for x in batches %}
+            <tr>
+              <td>
+                <b>{{ x.name }}</b>
+                <small class="d-block text-secondary">
+                  {{ x.plan|default:'' }} ·
+                  issued {% if x.issued_at %}{{ x.issued_at|date:'d M Y' }}{% else %}{{ x.created_at|date:'d M Y' }}{% endif %}
+                </small>
+                <span class="badge {% if x.settlement == 'prepaid' %}text-bg-success{% else %}text-bg-light{% endif %}">
+                  {% if x.settlement == 'prepaid' %}Paid upfront{% else %}On credit{% endif %}
+                </span>
+              </td>
+              <td style="min-width:180px">
+                <div class="stock-bar" style="height:8px">
+                  <i style="width:{{ x.sold|pct_of:x.total }}%;background:var(--green)"></i>
+                </div>
+                <small class="text-secondary">
+                  {{ x.sold }} of {{ x.total }} sold · {{ x.used }} used · {{ x.left }} unsold
+                </small>
+              </td>
+              <td>
+                <span class="cash-state {{ x.cash.status }}">{{ x.cash.label }}</span>
+                <div class="cash-grid">
+                  <div><span>Net due</span><b>{{ x.cash.due|money:c }}</b></div>
+                  <div><span>Collected</span><b>{{ x.cash.collected|money:c }}</b></div>
+                  <div><span>Remaining</span><b>{{ x.cash.remaining|money:c }}</b></div>
+                </div>
+                <div class="cash-progress"><i style="width:{{ x.cash.rate }}%"></i></div>
+                {% if x.cash.future > 0 %}
+                  <small class="text-secondary">
+                    Up to {{ x.cash.future|money:c }} more can become due as the remaining vouchers sell.
+                  </small>
+                {% endif %}
+              </td>
+              <td class="text-end text-nowrap no-print">
+                {% if 'finance.collect' in tt_perms and x.cash.can_collect %}
+                  <button
+                    class="btn btn-sm btn-success"
+                    data-bs-toggle="modal"
+                    data-bs-target="#collectModal"
+                    data-collect-batch="{{ x.id }}"
+                    data-collect-name="{{ x.name|escape }}"
+                    data-collect-amount="{{ x.cash.remaining|floatformat:2 }}">
+                    <i class="bi bi-cash"></i> Collect
+                  </button>
+                {% endif %}
+                <a class="btn btn-sm btn-outline-secondary" href="{% url 'batch_detail' x.id %}" title="Batch details">
+                  <i class="bi bi-box-seam"></i>
+                </a>
+                <a class="btn btn-sm btn-outline-secondary" href="{% url 'batch_receipt' x.id %}" title="Batch issue receipt">
+                  <i class="bi bi-receipt"></i>
+                </a>
+                <a class="btn btn-sm btn-outline-secondary" href="{% url 'voucher_print' %}?batch={{ x.id }}" aria-label="Print batch">
+                  <i class="bi bi-printer"></i>
+                </a>
+                {% if x.left and 'vouchers.create' in tt_perms %}
+                  <form method="post" action="{% url 'batch_assign' x.id %}" class="d-inline" onsubmit="return confirm('Take the {{ x.left }} unsold voucher(s) back to the shop?')">
+                    {% csrf_token %}
+                    <input type="hidden" name="agent" value="">
+                    <input type="hidden" name="next" value="{{ request.path }}">
+                    <button class="btn btn-sm btn-outline-danger">Take back</button>
+                  </form>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="4" class="empty-table">No batches yet. <a href="{% url 'generate_vouchers' %}?agent={{ agent.id }}">Create one for {{ agent.name }}</a>.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
-  </div></div>
-  <div class="col-xl-7"><div class="panel h-100"><div class="panel-head"><div><h3>Recent sales</h3><p>Credited to {{ agent.name }}</p></div></div><div class="table-responsive"><table class="table table-money"><thead><tr><th>When</th><th>Voucher</th><th>Plan</th><th>How</th><th class="num">Commission</th><th class="num">Amount</th></tr></thead><tbody>
-    {% for s in sales %}<tr><td>{{ s.sold_at|date:'d M H:i' }}</td><td><code class="voucher-code">{% voucher_link s.voucher_code %}</code></td><td>{{ s.plan_name }}</td><td><span class="method-pill {{ s.payment_method }}">{{ s.get_payment_method_display }}</span></td><td class="num">{{ s.commission|money:c }}</td><td class="num"><b>{{ s.amount|money:c }}</b></td></tr>
-    {% empty %}<tr><td colspan="6" class="empty-table">No sales yet. Sales appear when {{ agent.name }}’s vouchers are sold or first used.</td></tr>{% endfor %}</tbody></table></div></div></div>
-  <div class="col-xl-5"><div class="panel h-100"><div class="panel-head"><div><h3>Cash handed in</h3></div></div><div class="table-responsive"><table class="table table-money"><thead><tr><th>When</th><th>How</th><th class="num">Amount</th></tr></thead><tbody>
-    {% for x in collections %}<tr><td>{{ x.collected_at|date:'d M Y' }}{% if x.note %}<small class="d-block text-secondary">{{ x.note }}</small>{% endif %}</td><td><span class="method-pill {{ x.payment_method }}">{{ x.get_payment_method_display }}</span></td><td class="num"><b>{{ x.amount|money:c }}</b></td></tr>
-    {% empty %}<tr><td colspan="3" class="empty-table">Nothing handed in yet.</td></tr>{% endfor %}</tbody></table></div></div></div>
-</div>
-<p class="small text-secondary mt-3">Statement for {{ agent.name }} · {{ current_business.business_name }} · {{ now|date:'d M Y H:i' }}</p>
+  </div>
 
-<div class="modal fade" id="collectModal" tabindex="-1"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post" action="{% url 'finance_collection_add' %}">{% csrf_token %}<input type="hidden" name="agent" value="{{ agent.id }}"><input type="hidden" name="next" value="{{ request.path }}">
-  <div class="modal-header border-0"><h5 class="modal-title fw-bold">Collect cash from {{ agent.name }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
-  <div class="modal-body pt-0"><div class="row g-2"><div class="col-6"><label class="form-label small fw-bold">Amount ({{ c }})</label><input class="form-control" type="number" step="0.01" min="0" name="amount" value="{% if bal.outstanding > 0 %}{{ bal.outstanding|floatformat:2 }}{% endif %}" required><small class="text-secondary">Owes {{ bal.outstanding|money:c }}</small></div>
-    <div class="col-6"><label class="form-label small fw-bold">Received by</label><select class="form-select" name="method">{% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
-    <div class="col-6"><label class="form-label small fw-bold">Reference</label><input class="form-control" name="reference"></div><div class="col-6"><label class="form-label small fw-bold">Date</label><input class="form-control" type="date" name="collected_at" value="{{ today }}"></div>
-    <div class="col-12"><label class="form-label small fw-bold">Note</label><input class="form-control" name="note"></div></div></div>
-  <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success">Record hand-in</button></div></form></div></div>
+  <div class="col-xl-3">
+    <div class="panel h-100">
+      <div class="panel-head">
+        <div><h3>Stock in hand</h3><p>Unsold vouchers by plan</p></div>
+      </div>
+      <div class="scroll-list scroll-short">
+        {% for h in holding %}
+          <div class="stock-row"><b>{{ h.plan_name }}</b><span class="text-secondary">{{ h.n }}</span><b>{{ h.v|money:c }}</b></div>
+        {% empty %}
+          <p class="text-secondary small">{{ agent.name }} holds no unsold vouchers.</p>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-1">
+  <div class="col-12">
+    <div class="panel">
+      <div class="d-flex flex-wrap gap-3 align-items-center">
+        <div id="agentQr" class="p-2 bg-white border rounded-3" style="width:150px;height:150px" aria-label="QR code of the voucher checker"></div>
+        <div class="flex-grow-1" style="min-width:240px">
+          <h3 class="h6 fw-bold mb-1"><i class="bi bi-qr-code-scan"></i> Voucher checker for {{ agent.name }}</h3>
+          <p class="small text-secondary mb-2">
+            {{ agent.name }} scans this with the phone camera (no app, no login) and types or scans a voucher.
+            They see: 🟢 not used · 🟡 in use — do not take back · 🔴 finished.
+            The 🤝 button sends your team an alert with the voucher.
+          </p>
+          <form method="post" action="{% url 'agent_portal_phone' agent.id %}" class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            {% csrf_token %}
+            <label class="small fw-bold" for="custPhone">📞 Customers must call</label>
+            <input class="form-control form-control-sm" style="max-width:200px" id="custPhone" name="customer_phone" value="{{ agent.customer_phone }}" inputmode="tel"
+                   placeholder="{{ current_business.support_phone|default:current_business.phone|default:'+220 …' }}">
+            <button class="btn btn-sm btn-outline-primary">Save</button>
+            <small class="text-secondary">
+              Empty = your customer help line{% if current_business.support_phone %} ({{ current_business.support_phone }}){% endif %}
+              from <a href="{% url 'settings' %}">Settings</a>.
+            </small>
+          </form>
+
+          <form method="post" action="{% url 'agent_order_plans' agent.id %}" class="mb-2">
+            {% csrf_token %}
+            <div class="small fw-bold mb-1">
+              🛒 Plans {{ agent.name }} can order
+              <span class="fw-normal text-secondary">— none ticked = every active plan</span>
+            </div>
+            <div class="d-flex flex-wrap gap-2 align-items-center">
+              {% for p in all_plans %}
+                <label class="border rounded-pill px-2 py-1 small m-0" style="cursor:pointer">
+                  <input class="form-check-input me-1" type="checkbox" name="plans" value="{{ p.id }}" {% if p.id in order_plan_ids %}checked{% endif %}>
+                  {{ p.name }} <span class="text-secondary">{{ c }}{{ p.price|floatformat:'-2' }}</span>
+                </label>
+              {% empty %}
+                <span class="small text-secondary">No active plans.</span>
+              {% endfor %}
+            </div>
+            <div class="d-flex flex-wrap gap-2 align-items-center mt-2 small">
+              <label class="fw-bold m-0" for="ordQty">🔢 Vouchers per order</label>
+              <input class="form-control form-control-sm" style="width:90px" type="number" min="1" max="500" id="ordQty" name="order_quantity" value="{{ agent.order_quantity }}">
+              <label class="form-check m-0">
+                <input class="form-check-input" type="checkbox" name="order_quantity_fixed" {% if agent.order_quantity_fixed %}checked{% endif %}>
+                Fixed — {{ agent.name }} cannot change it
+              </label>
+              <button class="btn btn-sm btn-outline-primary">Save</button>
+            </div>
+          </form>
+
+          <div class="d-flex flex-wrap gap-2">
+            <button class="btn btn-sm btn-primary" type="button" onclick="printAgentQr()"><i class="bi bi-printer"></i> Print card</button>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ portal_url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open</a>
+            <button class="btn btn-sm btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText('{{ portal_url }}');this.textContent='Copied ✓'"><i class="bi bi-clipboard"></i> Copy link</button>
+            <form method="post" action="{% url 'agent_portal_rotate' agent.id %}" onsubmit="return confirm('Make a new QR? The old one stops working.')">
+              {% csrf_token %}
+              <button class="btn btn-sm btn-outline-danger"><i class="bi bi-arrow-repeat"></i> New QR</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12" id="agent-logs">
+    <div class="panel">
+      <ul class="nav nav-pills mb-3 gap-1" role="tablist">
+        <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#lgOrders" type="button" role="tab">🛒 Orders{% if open_orders %} <span class="badge text-bg-danger">{{ open_orders }}</span>{% endif %}</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#lgHelp" type="button" role="tab">🤝 Help requests{% if open_helps %} <span class="badge text-bg-warning">{{ open_helps }}</span>{% endif %}</button></li>
+        <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#lgChecks" type="button" role="tab">🔍 Voucher checks</button></li>
+      </ul>
+      <div class="tab-content">
+        <div class="tab-pane fade show active" id="lgOrders" role="tabpanel">
+          <div class="table-responsive"><table class="table table-sm align-middle">
+            <thead><tr><th>When</th><th>Order</th><th>Note</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+            {% for o in orders %}
+              <tr>
+                <td class="text-nowrap">{{ o.created_at|date:'d M H:i' }}</td>
+                <td><b>{{ o.quantity }} × {{ o.plan_name }}</b></td>
+                <td class="small">{{ o.note|default:'—' }}</td>
+                <td>
+                  {% if o.status == 'done' %}
+                    <span class="badge text-bg-success">Vouchers made</span>
+                    {% if o.batch %} <a class="small" href="{% url 'batch_detail' o.batch_id %}">{{ o.batch.name }}</a>{% endif %}
+                  {% elif o.status == 'rejected' %}
+                    <span class="badge text-bg-secondary">Declined</span>
+                  {% else %}
+                    <span class="badge text-bg-warning">New</span>
+                  {% endif %}
+                </td>
+                <td class="text-end text-nowrap">
+                  {% if o.status == 'new' %}
+                    <a class="btn btn-sm btn-primary" href="{% url 'generate_vouchers' %}?agent={{ agent.id }}&plan={{ o.plan_id|default:'' }}&quantity={{ o.quantity }}&order={{ o.id }}"><i class="bi bi-stars"></i> Make vouchers</a>
+                    <form method="post" action="{% url 'agent_log_action' agent.id %}" class="d-inline">
+                      {% csrf_token %}<input type="hidden" name="id" value="{{ o.id }}">
+                      <button class="btn btn-sm btn-outline-secondary" name="action" value="order_decline" onclick="return confirm('Decline this order?')">Decline</button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="5" class="text-secondary small">No orders yet — {{ agent.name }} orders with the 🛒 button on the voucher checker.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table></div>
+        </div>
+
+        <div class="tab-pane fade" id="lgHelp" role="tabpanel">
+          <div class="table-responsive"><table class="table table-sm align-middle">
+            <thead><tr><th>When</th><th>Voucher</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+            {% for h in helps %}
+              <tr>
+                <td class="text-nowrap">{{ h.created_at|date:'d M H:i' }}</td>
+                <td>{% if h.voucher %}{% voucher_link h.voucher.code %}{% else %}—{% endif %}</td>
+                <td>
+                  {% if h.handled_at %}
+                    <span class="badge text-bg-success">Handled</span>
+                    <small class="text-secondary">{{ h.handled_at|date:'d M H:i' }}{% if h.handled_by %} · {% firstof h.handled_by.get_full_name h.handled_by.username %}{% endif %}{% if h.note %} · {{ h.note }}{% endif %}</small>
+                  {% else %}
+                    <span class="badge text-bg-warning">Waiting</span>
+                  {% endif %}
+                </td>
+                <td class="text-end">
+                  {% if not h.handled_at %}
+                    <form method="post" action="{% url 'agent_log_action' agent.id %}" class="d-flex gap-1 justify-content-end">
+                      {% csrf_token %}<input type="hidden" name="id" value="{{ h.id }}">
+                      <input class="form-control form-control-sm" style="max-width:180px" name="note" placeholder="What you did (optional)">
+                      <button class="btn btn-sm btn-success" name="action" value="help_done">Handled</button>
+                    </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="4" class="text-secondary small">No help requests yet.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table></div>
+        </div>
+
+        <div class="tab-pane fade" id="lgChecks" role="tabpanel">
+          <div class="table-responsive"><table class="table table-sm align-middle">
+            <thead><tr><th>When</th><th>Voucher</th><th>Answer</th></tr></thead>
+            <tbody>
+            {% for check in checks %}
+              <tr>
+                <td class="text-nowrap">{{ check.created_at|date:'d M H:i' }}</td>
+                <td>{% if check.voucher %}{% voucher_link check.voucher.code %}{% else %}<code>{{ check.entered }}</code>{% endif %}</td>
+                <td>
+                  {% if check.result == 'unused' %}🟢 Not used
+                  {% elif check.result == 'in_use' %}🟡 In use — told not to take back
+                  {% elif check.result == 'finished' %}🔴 Finished
+                  {% else %}⚪ Unknown code{% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="3" class="text-secondary small">No checks yet.</td></tr>
+            {% endfor %}
+            </tbody>
+          </table></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-xl-7">
+    <div class="panel h-100">
+      <div class="panel-head"><div><h3>Recent sales</h3><p>Credited to {{ agent.name }}</p></div></div>
+      <div class="table-responsive"><table class="table table-money">
+        <thead><tr><th>When</th><th>Voucher</th><th>Plan</th><th>How</th><th class="num">Commission</th><th class="num">Amount</th></tr></thead>
+        <tbody>
+        {% for s in sales %}
+          <tr>
+            <td>{{ s.sold_at|date:'d M H:i' }}</td>
+            <td><code class="voucher-code">{% voucher_link s.voucher_code %}</code></td>
+            <td>{{ s.plan_name }}</td>
+            <td><span class="method-pill {{ s.payment_method }}">{{ s.get_payment_method_display }}</span></td>
+            <td class="num">{{ s.commission|money:c }}</td>
+            <td class="num"><b>{{ s.amount|money:c }}</b></td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6" class="empty-table">No sales yet. Sales appear when {{ agent.name }}’s vouchers are sold or first used.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <div class="col-xl-5">
+    <div class="panel h-100">
+      <div class="panel-head"><div><h3>Cash handed in</h3><p>Every collection has a printable cash receipt</p></div></div>
+      <div class="table-responsive"><table class="table table-money">
+        <thead><tr><th>When / scope</th><th>How</th><th class="num">Amount</th><th></th></tr></thead>
+        <tbody>
+        {% for x in collections %}
+          <tr>
+            <td>
+              {{ x.collected_at|date:'d M Y' }}
+              <small class="d-block collection-scope">
+                {% if x.cash_detail.requested_batch %}
+                  {{ x.cash_detail.requested_batch_name|default:x.cash_detail.requested_batch.name }}
+                {% elif x.cash_detail.scope == 'prepaid' %}
+                  Paid upfront
+                {% else %}
+                  General agent balance
+                {% endif %}
+              </small>
+              {% if x.note %}<small class="d-block text-secondary">{{ x.note }}</small>{% endif %}
+            </td>
+            <td><span class="method-pill {{ x.payment_method }}">{{ x.get_payment_method_display }}</span></td>
+            <td class="num"><b>{{ x.amount|money:c }}</b></td>
+            <td class="text-end no-print">
+              <a class="btn btn-sm btn-outline-secondary" href="?receipt={{ x.id }}&next={{ request.path|urlencode }}" title="Cash collection receipt">
+                <i class="bi bi-receipt-cutoff"></i>
+              </a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4" class="empty-table">Nothing handed in yet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+</div>
+
+<p class="small text-secondary mt-3">
+  Statement for {{ agent.name }} · {{ current_business.business_name }} · {{ now|date:'d M Y H:i' }}
+</p>
+
+{% if 'finance.collect' in tt_perms %}
+<div class="modal fade" id="collectModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="{% url 'agent_detail' agent.id %}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="collect_cash">
+      <input type="hidden" name="batch" id="collectBatch" value="">
+      <input type="hidden" name="next" value="{{ request.path }}">
+
+      <div class="modal-header border-0">
+        <div>
+          <h5 class="modal-title fw-bold mb-0">Collect cash from {{ agent.name }}</h5>
+          <small class="text-secondary" id="collectScope">General agent balance</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <div class="modal-body pt-0">
+        <div class="alert alert-light border small" id="generalAllocationInfo">
+          <b><i class="bi bi-diagram-3"></i> General collection allocation</b>
+          <div class="mt-1">
+            TapTap applies the cash to the <b>oldest outstanding batch first</b>.
+            If the payment finishes one batch, the receipt marks it complete/up to date and continues the balance to the next batch.
+          </div>
+          {% if cash_queue %}
+            <div class="cash-queue mt-2">
+              {% for q in cash_queue|slice:":5" %}
+                <div class="cash-queue-row">
+                  <span>{{ q.batch.name }}</span>
+                  <b>{{ q.remaining|money:c }}</b>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-success mt-2">No batch currently has cash outstanding; any agent balance is from general/individual sales.</div>
+          {% endif %}
+        </div>
+
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label small fw-bold">Amount ({{ c }})</label>
+            <input class="form-control" id="collectAmount" type="number" step="0.01" min="0.01" name="amount" required>
+            <small class="text-secondary">Agent owes {{ bal.outstanding|money:c }}</small>
+          </div>
+          <div class="col-6">
+            <label class="form-label small fw-bold">Received by</label>
+            <select class="form-select" name="method">
+              {% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label small fw-bold">Reference</label>
+            <input class="form-control" name="reference" placeholder="Optional transaction / receipt ref">
+          </div>
+          <div class="col-6">
+            <label class="form-label small fw-bold">Date</label>
+            <input class="form-control" type="date" name="collected_at" value="{{ today }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label small fw-bold">Note</label>
+            <input class="form-control" name="note" placeholder="Optional note">
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer border-0">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-success"><i class="bi bi-check2-circle"></i> Record &amp; print receipt</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
 {% endwith %}
+{% endblock %}
+
+{% block scripts %}
 <script src="{% static 'vendor/qrcode.js' %}"></script>
 <script>
-(function(){var q=qrcode(0,'M');q.addData('{{ portal_url|escapejs }}');q.make();document.getElementById('agentQr').innerHTML=q.createSvgTag({cellSize:4,margin:0,scalable:true});})();
-function printAgentQr(){var w=window.open('','_blank');var svg=document.getElementById('agentQr').innerHTML;
-w.document.write('<html><head><title>{{ agent.name|escapejs }} voucher checker</title><style>body{font-family:sans-serif;text-align:center;padding:30px}.c{border:3px dashed #1769e0;border-radius:22px;display:inline-block;padding:24px 30px}svg{width:260px;height:260px}h1{margin:.2em 0;font-size:26px}p{font-size:20px;margin:.4em 0}</style></head><body><div class="c"><h1>{{ current_business.business_name|escapejs }}</h1><p>📷 Scan to check a voucher</p>'+svg+'<p>🟢 OK &nbsp; 🟡 STOP &nbsp; 🔴 END</p><p style="font-size:16px">{{ agent.name|escapejs }}</p></div><script>window.onload=function(){window.print()}<\/script></body></html>');w.document.close();}
-</script>
-{% endblock %}
-{% block scripts %}{% if agent.phone %}<script>
-(function(){const d=String('{{ agent.phone|escapejs }}').replace(/\D/g,''),n=d.length===7?'220'+d:d;
-const t=`Hello {{ agent.name|escapejs }}, here is your {{ current_business.business_name|escapejs }} voucher statement:\nHolding: {{ bal.holding }} vouchers ({{ bal.holding_value|money:current_business.currency|escapejs }})\nSold: {{ bal.sold }} ({{ bal.gross|money:current_business.currency|escapejs }})\nYour commission: {{ bal.commission|money:current_business.currency|escapejs }}\nHanded in: {{ bal.collected|money:current_business.currency|escapejs }}\nStill to hand in: {{ bal.outstanding|money:current_business.currency|escapejs }}\nThank you!`;
-document.getElementById('waStatement').href='https://wa.me/'+n+'?text='+encodeURIComponent(t);})();
-</script>{% endif %}<script src="{% static 'vendor/qrcode.js' %}"></script>
-<script>
-(function(){var el=document.getElementById('agentQr');if(!el)return;var q=qrcode(0,'M');q.addData('{{ portal_url|escapejs }}');q.make();el.innerHTML=q.createSvgTag({cellSize:4,margin:0,scalable:true});})();
-function printAgentQr(){var w=window.open('','_blank');var svg=document.getElementById('agentQr').innerHTML;
-w.document.write('<html><head><title>Voucher checker</title><style>body{font-family:sans-serif;text-align:center;padding:30px}.c{border:3px dashed #1769e0;border-radius:22px;display:inline-block;padding:24px 30px}svg{width:260px;height:260px}h1{margin:.2em 0;font-size:26px}p{font-size:20px;margin:.4em 0}</style></head><body><div class="c"><h1>{{ current_business.business_name|escapejs }}</h1><p>📷 Scan to check a voucher</p>'+svg+'<p>🟢 OK &nbsp; 🟡 STOP &nbsp; 🔴 END</p><p style="font-size:16px">{{ agent.name|escapejs }}</p></div><script>window.onload=function(){window.print()}<\/script></body></html>');w.document.close();}
+(function(){
+  var el=document.getElementById('agentQr');
+  if(!el || !window.qrcode) return;
+  var q=qrcode(0,'M');
+  q.addData('{{ portal_url|escapejs }}');
+  q.make();
+  el.innerHTML=q.createSvgTag({cellSize:4,margin:0,scalable:true});
+})();
+
+function printAgentQr(){
+  var w=window.open('','_blank');
+  var svg=document.getElementById('agentQr').innerHTML;
+  w.document.write('<html><head><title>Voucher checker</title><style>body{font-family:sans-serif;text-align:center;padding:30px}.c{border:3px dashed #1769e0;border-radius:22px;display:inline-block;padding:24px 30px}svg{width:260px;height:260px}h1{margin:.2em 0;font-size:26px}p{font-size:20px;margin:.4em 0}</style></head><body><div class="c"><h1>{{ current_business.business_name|escapejs }}</h1><p>📷 Scan to check a voucher</p>'+svg+'<p>🟢 OK &nbsp; 🟡 STOP &nbsp; 🔴 END</p><p style="font-size:16px">{{ agent.name|escapejs }}</p></div><script>window.onload=function(){window.print()}<\\/script></body></html>');
+  w.document.close();
+}
+
+{% if agent.phone %}
+(function(){
+  const d=String('{{ agent.phone|escapejs }}').replace(/\D/g,'');
+  const n=d.length===7?'220'+d:d;
+  const t=`Hello {{ agent.name|escapejs }}, here is your {{ current_business.business_name|escapejs }} voucher statement:
+Holding: {{ bal.holding }} vouchers ({{ bal.holding_value|money:current_business.currency|escapejs }})
+Sold: {{ bal.sold }} ({{ bal.gross|money:current_business.currency|escapejs }})
+Your commission: {{ bal.commission|money:current_business.currency|escapejs }}
+Handed in: {{ bal.collected|money:current_business.currency|escapejs }}
+Still to hand in: {{ bal.outstanding|money:current_business.currency|escapejs }}
+Thank you!`;
+  var a=document.getElementById('waStatement');
+  if(a) a.href='https://wa.me/'+n+'?text='+encodeURIComponent(t);
+})();
+{% endif %}
+
+(function(){
+  var modal=document.getElementById('collectModal');
+  if(!modal) return;
+  modal.addEventListener('show.bs.modal', function(ev){
+    var b=ev.relatedTarget;
+    if(!b) return;
+    var batch=b.getAttribute('data-collect-batch')||'';
+    var name=b.getAttribute('data-collect-name')||'General agent balance';
+    var amount=b.getAttribute('data-collect-amount')||'';
+    document.getElementById('collectBatch').value=batch;
+    document.getElementById('collectAmount').value=amount;
+    document.getElementById('collectScope').textContent=batch ? ('Batch: '+name) : 'General agent balance';
+    document.getElementById('generalAllocationInfo').style.display=batch?'none':'block';
+  });
+})();
 </script>
 {% endblock %}

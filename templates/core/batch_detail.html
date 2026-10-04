@@ -1,25 +1,57 @@
-{% extends 'core/base.html' %}{% load taptap_extras %}{% block title %}{{ batch.name }} — TapTap{% endblock %}{% block heading %}Batch details{% endblock %}
-{% block extra_head %}<style>
+{% extends 'core/base.html' %}{% load taptap_extras %}
+{% block title %}{{ batch.name }} — TapTap{% endblock %}
+{% block heading %}Batch details{% endblock %}
+
+{% block extra_head %}
+<style>
 .dt-head{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;justify-content:space-between;margin-bottom:1rem}.dt-head h2{font-size:1.25rem;font-weight:800;margin:0}
 .dt-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.75rem}.dt-kpi{background:#fff;border:1px solid #e3e9f1;border-radius:14px;padding:.75rem .9rem}
 .dt-kpi small{display:block;font-size:.7rem;font-weight:700;color:#8a9aab;text-transform:uppercase;letter-spacing:.04em}.dt-kpi strong{display:block;font-size:1.35rem;color:#102033}.dt-kpi em{font-style:normal;font-size:.75rem;color:#6b7c8f}
 .dt-bar{display:flex;height:12px;border-radius:6px;overflow:hidden;background:#eef2f6;margin:.4rem 0}.dt-bar i{display:block}
 .dt-info{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.4rem 1.2rem;font-size:.88rem}.dt-info span{color:#6b7c8f;display:block;font-size:.75rem}
 .lg{display:inline-flex;align-items:center;gap:.3rem;font-size:.78rem;margin-right:.8rem}.lg i{width:10px;height:10px;border-radius:3px;display:inline-block}
-</style>{% endblock %}
+.cash-panel{border:1px solid #d9e5df;background:linear-gradient(135deg,#f7fcf9,#fff);border-radius:16px;padding:1rem}
+.cash-top{display:flex;gap:1rem;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.cash-state{display:inline-flex;align-items:center;border-radius:999px;padding:.25rem .65rem;font-size:.75rem;font-weight:800}
+.cash-state.due{background:#fff1f0;color:#b42318}.cash-state.partial{background:#fff7e6;color:#9a6700}.cash-state.uptodate,.cash-state.complete,.cash-state.prepaid{background:#e9f8ef;color:#087443}.cash-state.waiting{background:#eef2f6;color:#52677c}
+.cash-numbers{display:grid;grid-template-columns:repeat(4,minmax(130px,1fr));gap:.7rem;margin-top:.8rem}.cash-num{background:#fff;border:1px solid #e5ebe8;border-radius:12px;padding:.65rem .75rem}.cash-num small{display:block;color:#718096;font-size:.7rem;font-weight:700;text-transform:uppercase}.cash-num strong{font-size:1.12rem}
+.cash-progress{height:10px;border-radius:999px;background:#e8edf3;overflow:hidden;margin:.8rem 0 .35rem}.cash-progress i{display:block;height:100%;background:#18a66a}
+@media(max-width:700px){.cash-numbers{grid-template-columns:repeat(2,1fr)}}
+</style>
+{% endblock %}
+
 {% block content %}{% with c=current_business.currency %}
 <div class="dt-head">
-  <div><a class="small text-decoration-none" href="{% url 'batches' %}"><i class="bi bi-arrow-left"></i> All batches</a>
+  <div>
+    <a class="small text-decoration-none" href="{% url 'batches' %}"><i class="bi bi-arrow-left"></i> All batches</a>
     <h2>{{ batch.name }}</h2> {% track_button "batch" batch.id batch.name %}
-    <span class="text-secondary small">{{ batch.plan|default:'No plan' }} · created {{ batch.created_at|date:'d M Y H:i' }} by {% include 'core/partials/created_by.html' with obj=batch %}{% if batch.agent %} · held by {{ batch.agent.name }}{% else %} · shop stock{% endif %}</span></div>
+    <span class="text-secondary small">
+      {{ batch.plan|default:'No plan' }} · created {{ batch.created_at|date:'d M Y H:i' }}
+      by {% include 'core/partials/created_by.html' with obj=batch %}
+      {% if batch.agent %} · held by {{ batch.agent.name }}{% else %} · shop stock{% endif %}
+    </span>
+  </div>
   <div class="d-flex flex-wrap gap-2">
-    {% if 'vouchers.create' in tt_perms %}<a class="btn btn-sm btn-outline-primary" href="{% url 'voucher_print' %}?batch={{ batch.id }}"><i class="bi bi-printer"></i> Print</a>{% endif %}
-    <a class="btn btn-sm btn-outline-primary" href="{% url 'batch_receipt' batch.id %}"><i class="bi bi-receipt"></i> Receipt</a>
-    {% if batch.plan and 'vouchers.view' in tt_perms %}<a class="btn btn-sm btn-light" href="{% url 'plan_detail' batch.plan.id %}"><i class="bi bi-tag"></i> Plan details</a>{% endif %}
-    {% if batch.agent and 'agents.view' in tt_perms %}<a class="btn btn-sm btn-light" href="{% url 'agent_detail' batch.agent.id %}"><i class="bi bi-person"></i> {{ batch.agent.name }}</a>{% endif %}
+    {% if 'vouchers.create' in tt_perms %}
+      <a class="btn btn-sm btn-outline-primary" href="{% url 'voucher_print' %}?batch={{ batch.id }}"><i class="bi bi-printer"></i> Print</a>
+    {% endif %}
+    <a class="btn btn-sm btn-outline-primary" href="{% url 'batch_receipt' batch.id %}"><i class="bi bi-receipt"></i> Issue receipt</a>
+    {% if batch.plan and 'vouchers.view' in tt_perms %}
+      <a class="btn btn-sm btn-light" href="{% url 'plan_detail' batch.plan.id %}"><i class="bi bi-tag"></i> Plan details</a>
+    {% endif %}
+    {% if batch.agent and 'agents.view' in tt_perms %}
+      <a class="btn btn-sm btn-light" href="{% url 'agent_detail' batch.agent.id %}"><i class="bi bi-person"></i> {{ batch.agent.name }}</a>
+    {% endif %}
   </div>
 </div>
-{% if open_report %}<div class="alert alert-warning py-2 small"><i class="bi bi-exclamation-triangle"></i> {{ open_report.voucher_count }} voucher{{ open_report.voucher_count|pluralize }} from this batch reported missing{% if open_report.reported_at %} on {{ open_report.reported_at|date:'d M Y' }}{% endif %}.</div>{% endif %}
+
+{% if open_report %}
+<div class="alert alert-warning py-2 small">
+  <i class="bi bi-exclamation-triangle"></i>
+  {{ open_report.voucher_count }} voucher{{ open_report.voucher_count|pluralize }} from this batch reported missing
+  {% if open_report.reported_at %} on {{ open_report.reported_at|date:'d M Y' }}{% endif %}.
+</div>
+{% endif %}
 
 <div class="dt-kpis">
   <div class="dt-kpi"><small>Vouchers</small><strong>{{ counts.total }}</strong><em>{% if counts.total != batch.quantity %}{{ batch.quantity }} ordered{% else %}in this batch{% endif %}</em></div>
@@ -31,8 +63,18 @@
 </div>
 
 <div class="panel mt-4">
-  <div class="dt-bar" aria-hidden="true"><i style="width:{{ pct.remaining }}%;background:#18a66a"></i><i style="width:{{ pct.in_use }}%;background:#1769e0"></i><i style="width:{{ pct.expired }}%;background:#9aa8b6"></i><i style="width:{{ pct.other }}%;background:#d9534f"></i></div>
-  <div class="mb-3"><span class="lg"><i style="background:#18a66a"></i>Remaining {{ pct.remaining }}%</span><span class="lg"><i style="background:#1769e0"></i>In use {{ pct.in_use }}%</span><span class="lg"><i style="background:#9aa8b6"></i>Expired {{ pct.expired }}%</span>{% if counts.other %}<span class="lg"><i style="background:#d9534f"></i>Disabled / frozen {{ pct.other }}%</span>{% endif %}</div>
+  <div class="dt-bar" aria-hidden="true">
+    <i style="width:{{ pct.remaining }}%;background:#18a66a"></i>
+    <i style="width:{{ pct.in_use }}%;background:#1769e0"></i>
+    <i style="width:{{ pct.expired }}%;background:#9aa8b6"></i>
+    <i style="width:{{ pct.other }}%;background:#d9534f"></i>
+  </div>
+  <div class="mb-3">
+    <span class="lg"><i style="background:#18a66a"></i>Remaining {{ pct.remaining }}%</span>
+    <span class="lg"><i style="background:#1769e0"></i>In use {{ pct.in_use }}%</span>
+    <span class="lg"><i style="background:#9aa8b6"></i>Expired {{ pct.expired }}%</span>
+    {% if counts.other %}<span class="lg"><i style="background:#d9534f"></i>Disabled / frozen {{ pct.other }}%</span>{% endif %}
+  </div>
   <div class="dt-info">
     <div><span>Plan</span>{{ batch.plan|default:'—' }}{% if batch.plan %} · {{ batch.plan.duration_text }} · {{ batch.plan.price|money:c }}{% endif %}</div>
     <div><span>Holder</span>{% if batch.agent %}{{ batch.agent.name }} · {{ batch.get_settlement_display }}{% else %}Shop stock{% endif %}</div>
@@ -44,37 +86,217 @@
   </div>
 </div>
 
-{% if health.total %}<div class="panel mt-4" id="stock-health">
-  <div class="panel-head flex-wrap gap-2"><div><h3><i class="bi bi-heart-pulse"></i> Profile &amp; stock health</h3>
-    <p>{{ health.total }} voucher{{ health.total|pluralize }} not used yet{% if health.sold %} ({{ health.sold }} sold){% endif %} · profile on the router:
-      <code>{{ health.profile|default:'—' }}</code> · {% if health.source == 'live' %}<span class="text-success">read from the router just now</span>{% else %}from TapTap’s last copy of the router{% endif %}</p></div>
-    <a class="btn btn-sm btn-outline-secondary" href="?check=live#stock-health"><i class="bi bi-arrow-repeat"></i> Check the router now</a></div>
-  {% if health.ok == health.total %}<div class="alert alert-success d-flex gap-2 align-items-center mb-3"><i class="bi bi-check2-circle fs-5"></i>
-    <div>All {{ health.total }} work: right profile, enabled, not locked{% if health.source != 'live' %} (per the last copy — check the router to be sure){% endif %}.</div></div>
-  {% else %}<div class="alert alert-warning mb-3">
-    <b>{{ health.ok }} of {{ health.total }}</b> work fine. Problems found:
-    <ul class="mb-2 mt-1">{% for key, n in health.counts.items %}{% if n %}<li>{{ health.labels|get_item:key }}: <b>{{ n }}</b>{% if key == 'used_on_router' %} — these are really in use; left alone{% endif %}</li>{% endif %}{% endfor %}</ul>
-    {% if 'vouchers.support' in tt_perms %}<form method="post" action="{% url 'batch_health_action' batch.id %}" class="d-inline">{% csrf_token %}<input type="hidden" name="action" value="repair">
-      <button class="btn btn-sm btn-warning"><i class="bi bi-tools"></i> Fix them all</button></form>
-      <small class="text-secondary ms-2">Right profile (created on the router if missing), enabled, MAC lock and old sessions removed, plan time set. Passwords are never touched.</small>{% endif %}
+{% if batch.agent and cash %}
+<div class="cash-panel mt-4" id="cash-collection">
+  <div class="cash-top">
+    <div>
+      <h3 class="h5 fw-bold mb-1"><i class="bi bi-cash-stack"></i> Cash collection</h3>
+      <p class="small text-secondary mb-1">
+        {{ batch.agent.name }} pays the business the net amount from vouchers already sold, after commission.
+      </p>
+      <span class="cash-state {{ cash.status }}">{{ cash.label }}</span>
+    </div>
+    {% if 'finance.collect' in tt_perms and cash.can_collect %}
+      <button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#batchCollectModal">
+        <i class="bi bi-cash-coin"></i> Collect from this batch
+      </button>
+    {% endif %}
   </div>
-  <details class="mb-3"><summary class="small fw-bold">Vouchers with a problem</summary>
-    <div class="table-responsive mt-2"><table class="table table-sm small"><thead><tr><th>Code</th><th>On the router</th><th>Should be</th><th>Problems</th></tr></thead><tbody>
-    {% for x in health.vouchers %}{% if x.problems %}<tr><td><a class="font-monospace" href="{% url 'voucher_detail' x.v.id %}">{{ x.v.code }}</a></td>
-      <td><code>{{ x.have|default:'—' }}</code></td><td><code>{{ x.want }}</code></td>
-      <td>{% for p in x.problems %}<span class="badge text-bg-light border">{{ health.labels|get_item:p }}</span> {% endfor %}</td></tr>{% endif %}{% endfor %}
-    </tbody></table></div></details>{% endif %}
-  {% if 'vouchers.support' in tt_perms %}<form method="post" action="{% url 'batch_health_action' batch.id %}" class="row g-2 align-items-end border-top pt-3">{% csrf_token %}<input type="hidden" name="action" value="swap">
-    <div class="col-md-6"><label class="form-label small fw-bold" for="swapTarget">Swap the profile of all {{ health.total }} unused voucher{{ health.total|pluralize }} to</label>
-      <select class="form-select" id="swapTarget" name="target">
-        <option value="">The plan’s own profile{% if batch.plan %} ({{ batch.plan.mikrotik_profile_name|default:batch.plan.name }}){% endif %}</option>
-        {% if profile_choices %}<optgroup label="Profiles on the router">{% for n in profile_choices %}<option value="router:{{ n }}" {% if n == health.profile %}selected{% endif %}>{{ n }}</option>{% endfor %}</optgroup>{% endif %}
-        {% if other_plans %}<optgroup label="Another plan’s profile (vouchers keep this batch’s plan and price)">{% for p in other_plans %}<option value="plan:{{ p.id }}">{{ p.name }}</option>{% endfor %}</optgroup>{% endif %}
-      </select></div>
-    <div class="col-md-6"><button class="btn btn-primary" onclick="return confirm('Change the router profile of all {{ health.total }} unused vouchers of this batch? Used vouchers are not touched.')"><i class="bi bi-arrow-left-right"></i> Swap profile</button>
-      <small class="d-block text-secondary mt-1">Used vouchers keep theirs. The profile is created on the router if it is not there.</small></div>
-  </form>{% endif %}
-</div>{% endif %}
+
+  <div class="cash-numbers">
+    <div class="cash-num"><small>Net due from sold vouchers</small><strong>{{ cash.due|money:c }}</strong></div>
+    <div class="cash-num"><small>Cash collected</small><strong>{{ cash.collected|money:c }}</strong></div>
+    <div class="cash-num"><small>Remaining to collect now</small><strong>{{ cash.remaining|money:c }}</strong></div>
+    <div class="cash-num"><small>Expected if whole batch sells</small><strong>{{ cash.expected|money:c }}</strong></div>
+  </div>
+
+  <div class="cash-progress"><i style="width:{{ cash.rate }}%"></i></div>
+  <div class="d-flex flex-wrap justify-content-between gap-2 small text-secondary">
+    <span>{{ cash.rate }}% of the amount currently due has been collected.</span>
+    {% if cash.future > 0 %}
+      <span>{{ cash.future|money:c }} can still become due as remaining vouchers sell.</span>
+    {% elif cash.status == 'complete' %}
+      <span class="text-success fw-bold"><i class="bi bi-check-circle-fill"></i> All batch cash has been collected.</span>
+    {% endif %}
+  </div>
+
+  {% if cash_allocations %}
+    <hr>
+    <h4 class="h6 fw-bold">Collection history for this batch</h4>
+    <div class="table-responsive">
+      <table class="table table-sm align-middle mb-0">
+        <thead><tr><th>Date</th><th>Receipt</th><th>How</th><th class="text-end">Collected</th><th class="text-end">Balance after</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for a in cash_allocations %}
+          <tr>
+            <td>{{ a.detail.collection.collected_at|date:'d M Y H:i' }}</td>
+            <td>
+              <a href="{% url 'agent_detail' batch.agent.id %}?receipt={{ a.detail.collection.id }}&next={{ request.path|urlencode }}">
+                CRC-{{ a.detail.collection.collected_at|date:'Ymd' }}-{{ a.detail.collection.id|stringformat:'06d' }}
+              </a>
+            </td>
+            <td>{{ a.detail.collection.get_payment_method_display }}</td>
+            <td class="text-end"><b>{{ a.amount|money:c }}</b></td>
+            <td class="text-end">{{ a.balance_after|money:c }}</td>
+            <td><span class="cash-state {{ a.result }}">{{ a.get_result_display }}</span></td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if health.total %}
+<div class="panel mt-4" id="stock-health">
+  <div class="panel-head flex-wrap gap-2">
+    <div>
+      <h3><i class="bi bi-heart-pulse"></i> Profile &amp; stock health</h3>
+      <p>
+        {{ health.total }} voucher{{ health.total|pluralize }} not used yet{% if health.sold %} ({{ health.sold }} sold){% endif %} · profile on the router:
+        <code>{{ health.profile|default:'—' }}</code> ·
+        {% if health.source == 'live' %}<span class="text-success">read from the router just now</span>{% else %}from TapTap’s last copy of the router{% endif %}
+      </p>
+    </div>
+    <a class="btn btn-sm btn-outline-secondary" href="?check=live#stock-health"><i class="bi bi-arrow-repeat"></i> Check the router now</a>
+  </div>
+
+  {% if health.ok == health.total %}
+    <div class="alert alert-success d-flex gap-2 align-items-center mb-3">
+      <i class="bi bi-check2-circle fs-5"></i>
+      <div>All {{ health.total }} work: right profile, enabled, not locked{% if health.source != 'live' %} (per the last copy — check the router to be sure){% endif %}.</div>
+    </div>
+  {% else %}
+    <div class="alert alert-warning mb-3">
+      <b>{{ health.ok }} of {{ health.total }}</b> work fine. Problems found:
+      <ul class="mb-2 mt-1">
+        {% for key, n in health.counts.items %}
+          {% if n %}<li>{{ health.labels|get_item:key }}: <b>{{ n }}</b>{% if key == 'used_on_router' %} — these are really in use; left alone{% endif %}</li>{% endif %}
+        {% endfor %}
+      </ul>
+      {% if 'vouchers.support' in tt_perms %}
+        <form method="post" action="{% url 'batch_health_action' batch.id %}" class="d-inline">
+          {% csrf_token %}<input type="hidden" name="action" value="repair">
+          <button class="btn btn-sm btn-warning"><i class="bi bi-tools"></i> Fix them all</button>
+        </form>
+        <small class="text-secondary ms-2">Right profile, enabled, MAC lock and old sessions removed, plan time set. Passwords are never touched.</small>
+      {% endif %}
+    </div>
+
+    <details class="mb-3">
+      <summary class="small fw-bold">Vouchers with a problem</summary>
+      <div class="table-responsive mt-2">
+        <table class="table table-sm small">
+          <thead><tr><th>Code</th><th>On the router</th><th>Should be</th><th>Problems</th></tr></thead>
+          <tbody>
+          {% for x in health.vouchers %}
+            {% if x.problems %}
+              <tr>
+                <td><a class="font-monospace" href="{% url 'voucher_detail' x.v.id %}">{{ x.v.code }}</a></td>
+                <td><code>{{ x.have|default:'—' }}</code></td>
+                <td><code>{{ x.want }}</code></td>
+                <td>{% for p in x.problems %}<span class="badge text-bg-light border">{{ health.labels|get_item:p }}</span> {% endfor %}</td>
+              </tr>
+            {% endif %}
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  {% endif %}
+
+  {% if 'vouchers.support' in tt_perms %}
+    <form method="post" action="{% url 'batch_health_action' batch.id %}" class="row g-2 align-items-end border-top pt-3">
+      {% csrf_token %}<input type="hidden" name="action" value="swap">
+      <div class="col-md-6">
+        <label class="form-label small fw-bold" for="swapTarget">
+          Swap the profile of all {{ health.total }} unused voucher{{ health.total|pluralize }} to
+        </label>
+        <select class="form-select" id="swapTarget" name="target">
+          <option value="">The plan’s own profile{% if batch.plan %} ({{ batch.plan.mikrotik_profile_name|default:batch.plan.name }}){% endif %}</option>
+          {% if profile_choices %}
+            <optgroup label="Profiles on the router">
+              {% for n in profile_choices %}<option value="router:{{ n }}" {% if n == health.profile %}selected{% endif %}>{{ n }}</option>{% endfor %}
+            </optgroup>
+          {% endif %}
+          {% if other_plans %}
+            <optgroup label="Another plan’s profile (vouchers keep this batch’s plan and price)">
+              {% for p in other_plans %}<option value="plan:{{ p.id }}">{{ p.name }}</option>{% endfor %}
+            </optgroup>
+          {% endif %}
+        </select>
+      </div>
+      <div class="col-md-6">
+        <button class="btn btn-primary" onclick="return confirm('Change the router profile of all {{ health.total }} unused vouchers of this batch? Used vouchers are not touched.')">
+          <i class="bi bi-arrow-left-right"></i> Swap profile
+        </button>
+        <small class="d-block text-secondary mt-1">Used vouchers keep theirs. The profile is created on the router if it is not there.</small>
+      </div>
+    </form>
+  {% endif %}
+</div>
+{% endif %}
 
 {% include 'core/partials/voucher_lists.html' %}
+
+{% if batch.agent and cash and 'finance.collect' in tt_perms and cash.can_collect %}
+<div class="modal fade" id="batchCollectModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="{% url 'agent_detail' batch.agent.id %}">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="collect_cash">
+      <input type="hidden" name="batch" value="{{ batch.id }}">
+      <input type="hidden" name="next" value="{{ request.path }}">
+
+      <div class="modal-header border-0">
+        <div>
+          <h5 class="modal-title fw-bold mb-0">Collect from {{ batch.name }}</h5>
+          <small class="text-secondary">{{ batch.agent.name }} · batch-specific cash collection</small>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body pt-0">
+        <div class="alert alert-light border small">
+          Currently due from sold vouchers: <b>{{ cash.due|money:c }}</b><br>
+          Already collected for this batch: <b>{{ cash.collected|money:c }}</b><br>
+          Remaining now: <b class="text-danger">{{ cash.remaining|money:c }}</b>
+        </div>
+
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label small fw-bold">Amount ({{ c }})</label>
+            <input class="form-control" type="number" step="0.01" min="0.01" max="{{ cash.remaining|floatformat:2 }}" name="amount" value="{{ cash.remaining|floatformat:2 }}" required>
+          </div>
+          <div class="col-6">
+            <label class="form-label small fw-bold">Method</label>
+            <select class="form-select" name="method">
+              {% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-6">
+            <label class="form-label small fw-bold">Reference</label>
+            <input class="form-control" name="reference" placeholder="Optional">
+          </div>
+          <div class="col-6">
+            <label class="form-label small fw-bold">Date</label>
+            <input class="form-control" type="date" name="collected_at" value="{{ today }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label small fw-bold">Note</label>
+            <input class="form-control" name="note" placeholder="Optional note">
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer border-0">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-success"><i class="bi bi-check2-circle"></i> Record &amp; print receipt</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
 {% endwith %}{% endblock %}

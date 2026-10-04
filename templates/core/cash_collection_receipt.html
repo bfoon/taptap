@@ -1,0 +1,198 @@
+{% load static taptap_extras %}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ rc.number }} · {{ agent.name }} — Cash Collection Receipt</title>
+  <link rel="stylesheet" href="{% static 'css/statement.css' %}">
+  <style>
+    {% if fmt == 'thermal' %}@page{size:80mm auto;margin:0}{% else %}@page{size:A4;margin:10mm}{% endif %}
+    .cash-hero{border:2px solid #0f7a4f;border-radius:16px;padding:18px 20px;background:#f4fbf7;margin:20px 0}
+    .cash-hero .k{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#557466;font-weight:800}
+    .cash-hero .v{font-size:34px;line-height:1.1;font-weight:900;color:#0b6841;margin-top:4px}
+    .pill{display:inline-block;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:800;background:#e8f4ec;color:#0a7146}
+    .alloc-result{font-weight:800;font-size:11px}.alloc-result.complete,.alloc-result.uptodate,.alloc-result.prepaid{color:#087443}.alloc-result.partial{color:#9a6700}
+    .confirm{border-top:2px solid #102033;margin-top:24px;padding-top:12px;font-size:12px}
+    .thermal .cash-hero{padding:10px;margin:10px 0;border-radius:8px}.thermal .cash-hero .v{font-size:27px}
+    .thermal table.alloc{width:100%;font-size:10px;border-collapse:collapse}.thermal table.alloc td,.thermal table.alloc th{padding:4px 2px;border-bottom:1px dashed #bbb;text-align:left}.thermal table.alloc td.n,.thermal table.alloc th.n{text-align:right}
+  </style>
+</head>
+<body>
+{% with c=current_business.currency b=current_business %}
+<div class="st-bar no-print">
+  <div class="seg" role="group" aria-label="Paper">
+    <a href="?receipt={{ rc.collection.id }}&format=a4{% if next_url %}&next={{ next_url|urlencode }}{% endif %}" class="{% if fmt == 'a4' %}on{% endif %}">A4</a>
+    <a href="?receipt={{ rc.collection.id }}&format=thermal{% if next_url %}&next={{ next_url|urlencode }}{% endif %}" class="{% if fmt == 'thermal' %}on{% endif %}">Thermal 80 mm</a>
+  </div>
+  <a class="st-btn" href="{{ next_url|default:'#' }}">Back</a>
+  <button class="st-btn go" type="button" onclick="window.print()">Print receipt</button>
+</div>
+
+{% if fmt == 'a4' %}
+<article class="sheet" style="padding:44px">
+  <header class="st-head">
+    <div class="st-brand">
+      {% if b.logo_data %}<img src="{{ b.logo_data }}" alt="">{% endif %}
+      <div>
+        <h1>{{ b.business_name }}</h1>
+        <p>Cash Collection Receipt</p>
+      </div>
+    </div>
+    <div class="st-ref">
+      <div class="state">CASH RECEIVED</div>
+      <div class="no">{{ rc.number }}</div>
+      <small>Agent payment receipt</small>
+    </div>
+  </header>
+
+  <div class="cash-hero">
+    <div class="k">Amount received from {{ agent.name }}</div>
+    <div class="v">{{ rc.collection.amount|money2:c }}</div>
+    <div class="mt-2"><span class="pill">{{ rc.scope_label }}</span></div>
+  </div>
+
+  <h2>Collection Details</h2>
+  <div class="tiles">
+    <div class="tile"><div class="k">Agent</div><div class="v">{{ agent.name }}</div>{% if agent.location %}<div class="s">{{ agent.location }}</div>{% endif %}</div>
+    <div class="tile"><div class="k">Date received</div><div class="v" style="font-size:15px">{{ rc.collection.collected_at|date:'d M Y, H:i' }}</div></div>
+    <div class="tile"><div class="k">Method</div><div class="v" style="font-size:16px">{{ rc.collection.get_payment_method_display }}</div></div>
+    <div class="tile"><div class="k">Reference</div><div class="v" style="font-size:15px">{{ rc.collection.reference|default:'—' }}</div></div>
+    <div class="tile"><div class="k">Recorded by</div><div class="v" style="font-size:15px">{% firstof rc.collection.recorded_by.get_full_name rc.collection.recorded_by.email rc.collection.recorded_by.username 'TapTap' %}</div></div>
+    <div class="tile"><div class="k">Collection scope</div><div class="v" style="font-size:15px">{% if rc.detail.requested_batch_name %}{{ rc.detail.requested_batch_name }}{% else %}{{ rc.scope_label }}{% endif %}</div></div>
+  </div>
+
+  <h2>Agent Balance</h2>
+  <div class="tiles">
+    <div class="tile"><div class="k">Balance before</div><div class="v">{{ rc.detail.agent_balance_before|money2:c }}</div></div>
+    <div class="tile"><div class="k">This collection</div><div class="v" style="color:#087443">−{{ rc.collection.amount|money2:c }}</div></div>
+    <div class="tile"><div class="k">Balance after</div><div class="v">{{ rc.detail.agent_balance_after|money2:c }}</div></div>
+  </div>
+
+  <h2>Where This Cash Was Applied</h2>
+  {% if rc.allocations %}
+  <div class="tw">
+    <table>
+      <thead>
+        <tr><th>Batch</th><th class="n">Before</th><th class="n">Applied</th><th class="n">After</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+      {% for a in rc.allocations %}
+        <tr>
+          <td><b>{{ a.batch_name }}</b></td>
+          <td class="n">{{ a.balance_before|money2:c }}</td>
+          <td class="n"><b>{{ a.amount|money2:c }}</b></td>
+          <td class="n">{{ a.balance_after|money2:c }}</td>
+          <td><span class="alloc-result {{ a.result }}">{{ a.get_result_display }}</span></td>
+        </tr>
+      {% endfor %}
+      {% if rc.detail.unallocated_amount > 0 %}
+        <tr>
+          <td><b>General / individual agent balance</b></td>
+          <td class="n">—</td>
+          <td class="n"><b>{{ rc.detail.unallocated_amount|money2:c }}</b></td>
+          <td class="n">—</td>
+          <td><span class="alloc-result">Applied generally</span></td>
+        </tr>
+      {% endif %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <div class="tile">
+      <div class="k">General / individual agent balance</div>
+      <div class="v">{{ rc.collection.amount|money2:c }}</div>
+      <div class="s">No batch-specific balance was available for allocation.</div>
+    </div>
+  {% endif %}
+
+  {% if rc.completed %}
+  <div class="alert alert-success mt-3" style="border-radius:12px">
+    <b><i class="bi bi-check-circle-fill"></i> Collection milestone</b>
+    <ul class="mb-0 mt-1">
+      {% for a in rc.completed %}
+        <li><b>{{ a.batch_name }}</b> — {{ a.get_result_display }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  {% if rc.collection.note %}
+    <h2>Note</h2>
+    <p>{{ rc.collection.note }}</p>
+  {% endif %}
+
+  <p class="words">{{ rc.amount_words }}</p>
+
+  <div class="confirm">
+    This receipt confirms that <b>{{ b.business_name }}</b> received
+    <b>{{ rc.collection.amount|money2:c }}</b> from <b>{{ agent.name }}</b>
+    on {{ rc.collection.collected_at|date:'d M Y' }}.
+    Batch allocations above form part of the agent's cash-accountability record.
+  </div>
+
+  <div class="sign">
+    <div><strong>{{ agent.name }}</strong>Cash handed in — signature and date</div>
+    <div><strong>{{ printed_by }}</strong>Received for {{ b.business_name }} — signature and date</div>
+  </div>
+
+  <footer class="st-foot">
+    <span>TapTap Agent Cash Collection</span>
+    <span>{{ rc.number }}</span>
+  </footer>
+</article>
+{% else %}
+<article class="thermal">
+  <div class="c logo">{{ b.business_name }}</div>
+  <div class="c b">CASH COLLECTION RECEIPT</div>
+  <hr>
+  <div class="r"><span>Receipt</span><span class="b">{{ rc.number }}</span></div>
+  <div class="r"><span>Date</span><span>{{ rc.collection.collected_at|date:'d/m/Y H:i' }}</span></div>
+  <div class="r"><span>Agent</span><span>{{ agent.name }}</span></div>
+  <div class="r"><span>Method</span><span>{{ rc.collection.get_payment_method_display }}</span></div>
+  {% if rc.collection.reference %}<div class="r"><span>Reference</span><span>{{ rc.collection.reference }}</span></div>{% endif %}
+  <hr>
+
+  <div class="cash-hero">
+    <div class="k">CASH RECEIVED</div>
+    <div class="v">{{ rc.collection.amount|money2:c }}</div>
+    <div>{{ rc.scope_label }}</div>
+  </div>
+
+  <div class="r"><span>Balance before</span><span>{{ rc.detail.agent_balance_before|money2:c }}</span></div>
+  <div class="r"><span>Balance after</span><span>{{ rc.detail.agent_balance_after|money2:c }}</span></div>
+
+  {% if rc.allocations %}
+  <hr>
+  <div class="b">APPLIED TO</div>
+  <table class="alloc">
+    <thead><tr><th>Batch</th><th class="n">Cash</th><th class="n">Left</th></tr></thead>
+    <tbody>
+    {% for a in rc.allocations %}
+      <tr>
+        <td>{{ a.batch_name }}<br><small>{{ a.get_result_display }}</small></td>
+        <td class="n">{{ a.amount|money2:c }}</td>
+        <td class="n">{{ a.balance_after|money2:c }}</td>
+      </tr>
+    {% endfor %}
+    {% if rc.detail.unallocated_amount > 0 %}
+      <tr><td>General balance</td><td class="n">{{ rc.detail.unallocated_amount|money2:c }}</td><td class="n">—</td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if rc.collection.note %}<hr><div>Note: {{ rc.collection.note }}</div>{% endif %}
+  <hr>
+  <div class="c">Cash received and recorded.</div>
+  <div class="sig">Agent: ____________________</div>
+  <div class="sig">Received by: ______________</div>
+  <div class="c" style="margin-top:12px">TapTap Business Hotspot</div>
+</article>
+{% endif %}
+
+{% if autoprint %}
+<script>window.addEventListener('load',function(){setTimeout(function(){window.print()},250)});</script>
+{% endif %}
+{% endwith %}
+</body>
+</html>
