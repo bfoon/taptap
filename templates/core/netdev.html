@@ -86,7 +86,8 @@
     <div class="col-md-4"><label class="form-label small">Type</label><select class="form-select" name="kind">{% for k,l in kinds %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
     <div class="col-md-4"><label class="form-label small">Its address on your network</label><input class="form-control" name="ip" required placeholder="192.168.88.20"></div>
     <div class="col-md-4"><label class="form-label small">MAC (optional)</label><input class="form-control" name="mac" placeholder="AA:BB:CC:DD:EE:FF"></div>
-    <div class="col-md-6"><label class="form-label small">Behind which MikroTik</label><select class="form-select" name="router" required>{% for r in routers %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-6"><label class="form-label small">Behind which MikroTik</label><select class="form-select" name="router" required>{% for r in routers %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select>
+      <small class="text-primary d-block mt-1" id="ndAuto" hidden><i class="bi bi-magic"></i> <span></span></small></div>
     <div class="col-md-3"><label class="form-label small">Admin page port</label><input class="form-control" type="number" name="web_port" value="80" min="1" max="65535"></div>
     <div class="col-md-3 d-flex align-items-end"><label class="form-check"><input class="form-check-input" type="checkbox" name="web_https"> HTTPS</label></div>
     <div class="col-md-6"><label class="form-label small">Admin username</label><input class="form-control" name="username" maxlength="80" autocomplete="off" placeholder="admin"></div>
@@ -112,6 +113,32 @@
   document.querySelectorAll('[data-reveal]').forEach(function(b){b.onclick=function(){var fd=new FormData();fd.append('action','reveal');fd.append('csrfmiddlewaretoken',csrf);
     fetch(b.dataset.reveal,{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){document.getElementById('ndU').textContent=d.username||'—';document.getElementById('ndP').textContent=d.password||'—';bootstrap.Modal.getOrCreateInstance(document.getElementById('ndLogin')).show();});};});
   document.querySelectorAll('[data-copy]').forEach(function(b){b.onclick=function(){navigator.clipboard.writeText(document.getElementById(b.dataset.copy).textContent);b.textContent='Copied ✓';};});
+})();
+</script>
+{{ router_hints|json_script:"ndHints" }}
+<script>
+// Pick "Behind which MikroTik" by itself from what the MikroTiks report (the router that sees this MAC / IP, or whose
+// network the address is in). Choosing a router by hand stops the automatic choice for this form.
+(function(){
+  var H=JSON.parse(document.getElementById('ndHints').textContent),m=document.getElementById('ndModal');if(!m)return;
+  var f=m.querySelector('form'),sel=f.router,note=document.getElementById('ndAuto'),manual=false;
+  function normMac(v){var h=String(v||'').toUpperCase().replace(/[^0-9A-F]/g,'');return h.length===12?h.match(/../g).join(':'):'';}
+  function ipNum(ip){var p=String(ip).split('.');if(p.length!==4)return null;return p.reduce(function(a,x){return a*256+(+x);},0);}
+  function inNet(ip,cidr){var n=ipNum(ip),c=cidr.split('/'),b=ipNum(c[0]),k=+c[1];if(n===null||b===null)return false;var size=Math.pow(2,32-k);return Math.floor(n/size)===Math.floor(b/size);}
+  function name(id){var o=[].find.call(sel.options,function(x){return +x.value===+id;});return o?o.textContent:'';}
+  function pick(){
+    if(manual)return;
+    var mac=normMac(f.mac.value),ip=f.ip.value.trim(),id=null,why='';
+    if(mac&&H.mac[mac]){id=H.mac[mac];why='sees this MAC address';}
+    else if(ip&&H.ip[ip]){id=H.ip[ip];why='sees this address';}
+    else if(ip){for(var r in H.nets){if(H.nets[r].some(function(c){return inNet(ip,c);})){id=r;why='has this network ('+ip+')';break;}}}
+    else if(sel.options.length===1){id=sel.options[0].value;why='is your only MikroTik';}
+    if(id&&name(id)){sel.value=String(id);note.hidden=false;note.querySelector('span').textContent='Picked automatically — '+name(id)+' '+why+'. Change it if needed.';}
+    else{note.hidden=true;}
+  }
+  sel.addEventListener('change',function(){manual=true;note.hidden=true;});
+  f.ip.addEventListener('input',pick);f.mac.addEventListener('input',pick);
+  m.addEventListener('shown.bs.modal',function(){manual=!!f.id.value;pick();});   // editing keeps the saved router
 })();
 </script>
 {% endblock %}

@@ -27,9 +27,13 @@ def topology_field(request):
     else:
         items.sort(key=lambda t: (t['geo'] is not None, t['name'].lower()))
     chosen = request.GET.get('r', '')
+    chosen = chosen if geomap.KEY_RE.match(chosen) else ''
+    auto, why = '', ''
+    if not chosen:
+        auto, why = geomap.auto_pick(items, site)
     return render(request, 'core/topology_field.html', {
-        'site': site, 'chosen': chosen if geomap.KEY_RE.match(chosen) else '',
-        'field': {'items': items, 'chosen': chosen if geomap.KEY_RE.match(chosen) else '', 'site_id': site.pk if site else None,
+        'site': site, 'chosen': chosen or auto,
+        'field': {'items': items, 'chosen': chosen or auto, 'auto': bool(auto), 'auto_why': why, 'site_id': site.pk if site else None,
                   'save_url': reverse('topology_field_save')}})
 
 

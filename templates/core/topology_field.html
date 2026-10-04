@@ -27,7 +27,7 @@
 .fm-pin{width:28px;height:28px;border-radius:50% 50% 50% 0;background:#1d4ed8;transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 3px 10px #0006}
 .fm-pin::after{content:'';position:absolute;inset:7px;border-radius:50%;background:#fff}
 @media (max-width:640px){.fm-save{width:calc(100% - 68px)}}   /* room for the chat bubble at the bottom right */
-</style>
+.fm-auto{display:block;color:#1769e0;font-weight:700;margin-bottom:.15rem}</style>
 {% endblock %}
 {% block content %}
 <div class="fm">
@@ -68,6 +68,7 @@
   const $ = s => document.querySelector(s);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const csrf = () => (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || '';
+  let autoOn = !!D.auto;   // the router was picked automatically (from what the routers tell TapTap); "Change" to pick by hand
   let items = D.items, chosen = D.chosen || '', pos = null, map = null, pin = null, ring = null, watch = null, near = null;
 
   const item = k => items.find(t => t.key === k);
@@ -77,10 +78,10 @@
   function renderChoice() {
     const t = item(chosen);
     $('#fmPick').hidden = !!t;
-    $('#fmChosen').innerHTML = t ? `<div class="fm-chosen"><i class="bi ${icon(t)}"></i><div><b>${esc(t.name)}</b><small>${label(t)}</small>
+    $('#fmChosen').innerHTML = t ? `<div class="fm-chosen"><i class="bi ${icon(t)}"></i><div>${autoOn && D.auto_why ? `<small class="fm-auto"><i class="bi bi-magic"></i> Picked automatically — ${esc(D.auto_why)}</small>` : ''}<b>${esc(t.name)}</b><small>${label(t)}</small>
       ${t.geo ? `<small class="text-success"><i class="bi bi-check2-circle"></i> Already on the map — saving moves it.</small>` : ''}</div>
       <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" id="fmChange">Change</button></div>` : '';
-    if (t) $('#fmChange').onclick = () => { chosen = ''; renderChoice(); renderList(); $('#fmSearch').focus(); };
+    if (t) $('#fmChange').onclick = () => { chosen = ''; autoOn = false; renderChoice(); renderList(); $('#fmSearch').focus(); };
     $('#fmSave').disabled = !(t && pos);
     drawNear();
   }
@@ -97,7 +98,7 @@
     });
     $('#fmList').innerHTML = html || '<p class="p-3 m-0 text-secondary">No router matches.</p>';
   }
-  $('#fmList').addEventListener('click', e => { const b = e.target.closest('[data-key]'); if (!b) return; chosen = b.dataset.key; renderChoice(); });
+  $('#fmList').addEventListener('click', e => { const b = e.target.closest('[data-key]'); if (!b) return; chosen = b.dataset.key; autoOn = false; renderChoice(); });
   $('#fmSearch').addEventListener('input', renderList);
 
   // ---- map: drag the pin or tap the map to correct the position

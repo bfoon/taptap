@@ -60,6 +60,27 @@ def targets(business):
     return out
 
 
+def auto_pick(items, site):
+    """(key, why): the router to preselect on "Map a router" — from what the routers tell TapTap.
+
+    The phone's connection comes through the site's MikroTik (its internet address), so that MikroTik is
+    picked when it is not on the map yet; otherwise the first router behind it that is not mapped (the one
+    most likely next to you). Nothing is picked when the phone is not on one of your sites."""
+    if site is None:
+        return '', ''
+    on_site = [t for t in items if t.get('site_id') == site.pk]
+    mt = next((t for t in on_site if t['key'] == f'mt:{site.pk}'), None)
+    if mt and not mt['geo']:
+        return mt['key'], f'You are on {site.name}’s Wi-Fi — your phone’s connection comes through this MikroTik.'
+    rest = [t for t in on_site if t['kind'] != 'mikrotik' and not t['geo']]
+    rest.sort(key=lambda t: (not t.get('online'), t.get('suggested', False), t['name'].lower()))
+    if rest:
+        return rest[0]['key'], f'You are on {site.name}’s Wi-Fi and {site.name} is already mapped — this is the next router behind it that is not on the map.'
+    if mt:
+        return mt['key'], f'You are on {site.name}’s Wi-Fi (already mapped — saving moves it).'
+    return '', ''
+
+
 def site_from_ip(business, ip):
     """The MikroTik whose internet address the phone is coming from (it is on that site's Wi-Fi)."""
     from .models import RouterAgent

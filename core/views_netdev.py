@@ -61,6 +61,16 @@ def netdev_list(request):
         if brand and norm(rd.mac_address) not in known and rd.ip_address not in known:
             suggestions.append({'brand': brand, 'mac': norm(rd.mac_address), 'ip': rd.ip_address, 'name': rd.hostname, 'router': rd.router})
             known.add(norm(rd.mac_address))
+    # what the MikroTiks see — used by the form to pick "Behind which MikroTik" by itself
+    hints = {'mac': {}, 'ip': {}, 'nets': {}}
+    for rd in RouterDevice.objects.filter(router__business=business).only('mac_address', 'ip_address', 'router_id').order_by('last_seen_at'):
+        if rd.mac_address:
+            hints['mac'][norm(rd.mac_address)] = rd.router_id
+        if rd.ip_address:
+            hints['ip'][rd.ip_address] = rd.router_id
+    for r in business.routers.all():
+        nets = netdev.router_networks(r) or []
+        hints['nets'][r.pk] = [str(n) for n in nets if n.prefixlen < 32 and not n.is_loopback]
     omada = OmadaController.objects.filter(business=business).first()
     ap, cl, omada_err = [], [], ''
     if omada and omada.site_id:
@@ -74,7 +84,7 @@ def netdev_list(request):
         except om.OmadaError as exc:
             omada_err = str(exc)
     sessions = RemoteSession.objects.filter(device__business=business, closed_at__isnull=True, expires_at__gt=timezone.now()).select_related('device', 'user')
-    return render(request, 'core/netdev.html', {'items': items, 'blocked_routers': list(blocked_routers.values()), 'suggestions': suggestions[:30], 'routers': business.routers.order_by('name'),
+    return render(request, 'core/netdev.html', {'router_hints': hints, 'items': items, 'blocked_routers': list(blocked_routers.values()), 'suggestions': suggestions[:30], 'routers': business.routers.order_by('name'),
                                                 'kinds': NetDevice.KINDS, 'omada': omada, 'omada_aps': ap, 'omada_clients': cl[:300],
                                                 'omada_err': omada_err, 'sessions': sessions})
 
