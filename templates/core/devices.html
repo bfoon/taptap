@@ -73,6 +73,7 @@
   <a class="dv-kpi {% if view == 'today' %}on{% endif %}" href="?view=today"><span>Seen in 24 hours</span><strong>{{ stats.today }}</strong></a>
   <a class="dv-kpi {% if view == 'multimac' %}on{% endif %}" href="?view=multimac"><span>Changed MAC address</span><strong>{{ stats.multimac }}</strong></a>
   <a class="dv-kpi {% if stats.shared %}warn{% endif %} {% if view == 'shared' %}on{% endif %}" href="?view=shared"><span>Vouchers shared</span><strong>{{ stats.shared }}</strong></a>
+  <a class="dv-kpi {% if view == 'blacklist' %}on{% endif %}" href="?view=blacklist"><span>Blacklisted</span><strong>{{ stats.blacklisted }}</strong></a>
   <a class="dv-kpi {% if view == 'flagged' %}on{% endif %}" href="?view=flagged"><span>Flagged by you</span><strong>{{ stats.flagged }}</strong></a>
 </div>
 
@@ -141,7 +142,7 @@
   <div class="dv-row">
     <span class="dv-ic {{ d.os|lower }}"><i class="bi {% if d.device_type == 'phone' %}bi-phone{% elif d.device_type == 'tablet' %}bi-tablet{% else %}bi-laptop{% endif %}"></i></span>
     <div><b>{% firstof d.label d.model d.os 'Unknown device' %}</b><small>{{ d.os }} {{ d.os_version }}{% if d.browser %} · {{ d.browser }}{% endif %}{% if d.components.screen %} · {{ d.components.screen }}{% endif %}</small>{% if d.why %}<div class="dv-why">{% for w in d.why %}<span>{{ w }}</span>{% endfor %}</div>{% endif %}
-      <div class="dv-tags mt-1">{% if d.flagged %}<span class="flag">Flagged</span>{% endif %}{% if d.random_macs %}<span class="rand" title="The phone generates random MAC addresses">Random MAC</span>{% endif %}{% if d.macs|length > 1 %}<span>{{ d.macs|length }} MACs</span>{% endif %}<span class="dv-mono" title="Device signature">{{ d.fingerprint|slice:':10' }}</span></div></div>
+      <div class="dv-tags mt-1">{% if d.blacklisted_at %}<span class="flag" style="background:#7f1d1d;color:#fff">🚫 Blacklisted</span>{% endif %}{% if d.flagged %}<span class="flag">{% if d.flag_level == 'danger' %}🚩 Dangerous{% elif d.flag_level == 'suspect' %}⚠️ Suspicious{% else %}Flagged{% endif %}</span>{% endif %}{% if d.random_macs %}<span class="rand" title="The phone generates random MAC addresses">Random MAC</span>{% endif %}{% if d.macs|length > 1 %}<span>{{ d.macs|length }} MACs</span>{% endif %}<span class="dv-mono" title="Device signature">{{ d.fingerprint|slice:':10' }}</span></div></div>
     <div class="hide-sm"><small>Last MAC · IP</small><span class="dv-mono">{{ d.last_mac|default:'—' }}</span><small>{{ d.last_ip|default:'' }}{% if d.router %} · {{ d.router.name }}{% endif %}</small></div>
     <div class="hide-sm"><small>Vouchers</small><div class="dv-tags">{% for v in d.vouchers|slice:':4' %}<span class="dv-mono">{{ v }}</span>{% empty %}<span>none yet</span>{% endfor %}{% if d.vouchers|length > 4 %}<span>+{{ d.vouchers|length|add:'-4' }}</span>{% endif %}</div></div>
     <div class="hide-sm"><small>Seen</small><span class="small">{{ d.last_seen|timesince }} ago{% if d.used7 is not None %} · <b>{{ d.used7|data_size }}</b> in 7 days{% endif %}</span><small>{{ d.visits }} visit{{ d.visits|pluralize }} since {{ d.first_seen|date:'d M' }}</small></div>

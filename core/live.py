@@ -519,6 +519,14 @@ def watch_all():
             sweep(watched=watched)
         except Exception:
             logger.exception('expiry sweep')
+        # Blacklisted devices: drop them wherever they show up (a router that never had the block, a new MAC).
+        try:
+            from .blacklist import enforce as _blk_enforce
+            from .models import Router as _BR
+            for r in _BR.objects.filter(business__device_signatures__blacklisted_at__isnull=False).distinct().select_related('business'):
+                _blk_enforce(r)
+        except Exception:
+            logger.exception('blacklist enforce')
         # Internet sharing protection (NAT / tethering): score customers and enforce blocks.
         try:
             from .sharing import run as _share_run

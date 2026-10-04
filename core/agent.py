@@ -39,7 +39,7 @@ DEFAULT_EXPIRY = {'reboot': 5, 'port_restart': 5, 'interface_set': 15, 'port_off
 POLICY = 'ftp,read,write,test,reboot,sensitive'
 SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
-    'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'share_rules', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
+    'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'hotspot_kick_mac', 'share_rules', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
     'hotspot_users_limit', 'admin_password', 'protection',
@@ -416,6 +416,11 @@ def command_body(cmd):
         # Lock a one-device voucher to its device on the router (00:00:00:00:00:00 = any device).
         return (f':local id [/ip hotspot user find name={name()}]; :if ([:len $id] > 0) do={{ /ip hotspot user set $id mac-address={rs(p["mac"])} }}; '
                 + (f':do {{ /ip hotspot cookie remove [find user={name()}] }} on-error={{}}' if p.get('mac') == '00:00:00:00:00:00' else ':nothing'))
+    if k == 'hotspot_kick_mac':   # blacklisted device: drop every session / cookie / host of this MAC
+        m = rs(p['mac'])
+        return (f':do {{ /ip hotspot active remove [find mac-address={m}] }} on-error={{}}; '
+                f':do {{ /ip hotspot cookie remove [find mac-address={m}] }} on-error={{}}; '
+                f':do {{ /ip hotspot host remove [find mac-address={m}] }} on-error={{}}')
     if k == 'hotspot_kick':
         # Remove one foreign device from a locked voucher, keeping the locked devices online.
         return (f':do {{ /ip hotspot active remove [find user={rs(p["user"])} mac-address={rs(p["mac"])}] }} on-error={{}}; '
@@ -610,7 +615,7 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
         pr = str((params or {}).get('profile', ''))
         if not re.match(r'^[^"\\$;{}\[\]\r\n]{1,64}$', pr) or (kind == 'hotspot_user_profile' and not NAME_RE.match(str((params or {}).get('name', '')))):
             raise ValueError('Invalid profile or voucher name.')
-    if kind in ('hotspot_user_mac', 'hotspot_kick'):
+    if kind in ('hotspot_user_mac', 'hotspot_kick', 'hotspot_kick_mac'):
         mac = str((params or {}).get('mac', ''))
         if not re.match(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$', mac):
             raise ValueError('Invalid MAC address.')

@@ -29,9 +29,12 @@ def blocked_macs(business):
             .exclude(mac_address='').values_list('mac_address', flat=True)} - {''}
 
 
-def routers_for(voucher, macs):
-    """The voucher's router plus every router that has seen these MACs (a blocked phone cannot hop)."""
+def routers_for(voucher, macs, business=None):
+    """The voucher's router plus every router that has seen these MACs (a blocked phone cannot hop).
+    Without a voucher (blacklist): every router of the business."""
     from .models import Router, RouterDevice
+    if voucher is None:
+        return list(business.routers.all())
     ids = set(RouterDevice.objects.filter(router__business=voucher.business, mac_address__in=macs).values_list('router_id', flat=True))
     if voucher.router_id:
         ids.add(voucher.router_id)
@@ -45,32 +48,38 @@ def _on_link(router):
     return channel(router) == 'TapTap Link'
 
 
-def block(voucher, macs, label='', user=None):
-    """Block these MACs on the routers concerned. Returns a short result text."""
+def block(voucher, macs, label='', user=None, business=None, why='blocked'):
+    """Block these MACs on the routers concerned. Returns a short result text.
+    voucher=None (blacklist): every router of `business`."""
     from .models import SyncedIPBinding
     from .voucher_history import record
+    biz = voucher.business if voucher is not None else business
     macs = [m for m in {norm(x) for x in macs} if MAC_RE.match(m)]
     if not macs:
         raise ValueError('This device has no MAC address TapTap knows, so it cannot be blocked.')
-    comment = f'TapTap: blocked ({voucher.code}{" · " + label if label else ""})'[:255]
+    comment = f'TapTap: {why} ({voucher.code if voucher is not None else "blacklist"}{" · " + label if label else ""})'[:255]
     done, queued, failed = 0, 0, []
-    for router in routers_for(voucher, macs):
+    for router in routers_for(voucher, macs, biz):
         for mac in macs:
-            b = SyncedIPBinding.objects.filter(business=voucher.business, router=router, mac_address__iexact=mac).first()
+            b = SyncedIPBinding.objects.filter(business=biz, router=router, mac_address__iexact=mac).first()
             restore = {}
             if b and b.binding_type != 'blocked':
                 restore = {'restore_type': b.binding_type, 'restore_comment': b.comment, 'restore_disabled': b.disabled}
             if b is None:
-                b = SyncedIPBinding(business=voucher.business, router=router, mac_address=mac, server='all', source='taptap')
+                b = SyncedIPBinding(business=biz, router=router, mac_address=mac, server='all', source='taptap')
             b.binding_type, b.comment, b.disabled, b.sync_status = 'blocked', comment, False, 'Pending'
-            b.raw_data = {**(b.raw_data or {}), **restore, 'blocked_by_taptap': True, 'voucher': voucher.code}
+            b.raw_data = {**(b.raw_data or {}), **restore, 'blocked_by_taptap': True, 'voucher': voucher.code if voucher is not None else '',
+                          'blacklist': voucher is None}
             b.save()
             try:
                 if _on_link(router):
                     from .linkops import send
                     send(router, 'binding_upsert', {'mac': mac, 'type': 'blocked', 'server': 'all', 'comment': comment, 'disabled': False},
                          label=f'Block {label or mac}', user=user)
-                    send(router, 'hotspot_kick', {'user': voucher.code, 'mac': mac}, label=f'Disconnect {label or mac}', user=user, minutes=15)
+                    if voucher is not None:
+                        send(router, 'hotspot_kick', {'user': voucher.code, 'mac': mac}, label=f'Disconnect {label or mac}', user=user, minutes=15)
+                    else:
+                        send(router, 'hotspot_kick_mac', {'mac': mac}, label=f'Disconnect {label or mac}', user=user, minutes=15)
                     SyncedIPBinding.objects.filter(pk=b.pk).update(sync_status='Queued')
                     queued += 1
                 else:
@@ -85,21 +94,23 @@ def block(voucher, macs, label='', user=None):
             except Exception as exc:
                 SyncedIPBinding.objects.filter(pk=b.pk).update(sync_status='Error', sync_error=str(exc)[:500])
                 failed.append(f'{router.name}: {exc}')
-    record(voucher, 'enforced', user=user, reason='Device blocked', text=f'{label or ", ".join(macs)} blocked ({", ".join(macs)})')
+    if voucher is not None:
+        record(voucher, 'enforced', user=user, reason='Device blocked', text=f'{label or ", ".join(macs)} blocked ({", ".join(macs)})')
     from .live import push_event
-    push_event(voucher.business_id, f'Device {label or macs[0]} of {voucher.code} blocked', 'fix')
+    push_event(biz.pk, f'Device {label or macs[0]}' + (f' of {voucher.code}' if voucher is not None else '') + f' {why}', 'fix')
     if failed and not (done or queued):
         raise ValueError('The router did not accept the block: ' + '; '.join(failed))
     return ('Blocked on the router' if done else 'Queued for the router') + (f' (not on {"; ".join(failed)})' if failed else '')
 
 
-def unblock(voucher, macs, label='', user=None):
+def unblock(voucher, macs, label='', user=None, business=None):
     """Remove TapTap's block on these MACs; a binding the device had before is put back."""
     from .models import SyncedIPBinding
     from .voucher_history import record
+    biz = voucher.business if voucher is not None else business
     macs = {norm(x) for x in macs} - {''}
     n = 0
-    for b in SyncedIPBinding.objects.filter(business=voucher.business, binding_type='blocked', mac_address__in=list(macs)).select_related('router'):
+    for b in SyncedIPBinding.objects.filter(business=biz, binding_type='blocked', mac_address__in=list(macs)).select_related('router'):
         raw = b.raw_data or {}
         restore = raw.get('restore_type')
         try:
@@ -130,6 +141,6 @@ def unblock(voucher, macs, label='', user=None):
         else:
             b.delete()
         n += 1
-    if n:
+    if n and voucher is not None:
         record(voucher, 'note', user=user, reason='Device unblocked', text=f'{label or ", ".join(sorted(macs))} can use the Wi-Fi again')
     return n

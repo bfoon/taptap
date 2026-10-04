@@ -171,6 +171,14 @@ def claim(voucher, mac='', fp='', source='portal', label='', hints=None):
             return Outcome('denied', message=msg)
     except Exception:
         pass
+    if source == 'portal':
+        try:   # blacklisted device (core/blacklist.py): refused, the team is told; flagged ones reported
+            from .blacklist import check_login
+            msg = check_login(voucher, norm_mac(mac), (fp or '').strip()[:128])
+            if msg:
+                return Outcome('denied', message=msg)
+        except Exception:
+            pass
     if not enabled(voucher):
         return Outcome('off')
     mac, fp = norm_mac(mac), (fp or '').strip()[:128]

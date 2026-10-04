@@ -9,6 +9,9 @@
 .top-bar{height:6px;border-radius:3px;background:var(--surface-2,#eef2f6);margin-top:.25rem;overflow:hidden}.top-bar i{display:block;height:100%;border-radius:3px}
 .top-list{max-height:520px;overflow:auto}.cat-pill{display:inline-block;border-radius:999px;padding:0 .45rem;font-size:.68rem;font-weight:700;background:var(--surface-2,#eef2f6);color:#4e6479;margin-left:.3rem}
 .period a{border:1px solid var(--border,#e3e9f1);border-radius:999px;padding:.25rem .8rem;font-size:.82rem;font-weight:600;color:inherit;text-decoration:none}.period a.on{background:#1769e0;border-color:#1769e0;color:#fff}
+.dd-guard{border-left:4px solid var(--border,#e3e9f1)}.dd-guard.blk{border-left-color:#dc2626;background:#fef2f2}.dd-guard.flg-watch{border-left-color:#1769e0}.dd-guard.flg-suspect{border-left-color:#d97706}.dd-guard.flg-danger{border-left-color:#dc2626}
+html[data-theme="dark"] .dd-guard.blk{background:#2a1214}
+.dd-lvls{display:grid;grid-template-columns:1fr 1fr;gap:.4rem}.dd-lvls input{position:absolute;opacity:0}.dd-lvls span{display:block;border:1px solid var(--border,#dbe4ef);border-radius:10px;padding:.5rem;text-align:center;font-weight:700;cursor:pointer}.dd-lvls input:checked+span{background:#102033;color:#fff}
 </style>{% endblock %}
 {% block content %}
 <div class="dd-head">
@@ -17,6 +20,44 @@
     <small class="text-secondary">{{ d.os }} {{ d.os_version }}{% if d.browser %} · {{ d.browser }}{% endif %} · {% for m in macs|slice:':3' %}<span class="font-monospace">{{ m }}</span>{% if not forloop.last %}, {% endif %}{% empty %}no MAC known{% endfor %}{% if macs|length > 3 %} +{{ macs|length|add:'-3' }}{% endif %}{% if d.vouchers %} · vouchers {{ d.vouchers|slice:':3'|join:', ' }}{% endif %}</small></div>
   <nav class="period d-flex gap-1" aria-label="Period">{% for k,p in periods.items %}<a href="?period={{ k }}" class="{% if k == period %}on{% endif %}">{{ p.0 }}</a>{% endfor %}</nav>
 </div>
+<div class="panel mb-3 dd-guard {% if d.blacklisted_at %}blk{% elif d.flagged %}flg-{{ d.flag_level|default:'watch' }}{% endif %}">
+  <div class="d-flex flex-wrap gap-3 align-items-center justify-content-between">
+    <div>
+      {% if d.blacklisted_at %}<b class="text-danger"><i class="bi bi-slash-circle"></i> Blacklisted</b> <span class="small text-secondary">since {{ d.blacklisted_at|date:'d M Y H:i' }}{% if d.blacklisted_by %} by {% firstof d.blacklisted_by.get_full_name d.blacklisted_by.username %}{% endif %}</span>
+        <div class="small">{% if d.blacklist_reason %}“{{ d.blacklist_reason }}” · {% endif %}blocked on every router · tried to get on <b>{{ d.blacklist_hits }}</b>×{% if d.blacklist_last_hit %} (last {{ d.blacklist_last_hit|timesince }} ago){% endif %}</div>
+      {% elif d.flagged %}<b><i class="bi bi-flag-fill"></i> {% if d.flag_level == 'danger' %}🚩 Dangerous{% elif d.flag_level == 'suspect' %}⚠️ Suspicious{% else %}👁️ Watch{% endif %}</b>
+        <span class="small text-secondary">{% if d.flagged_at %}since {{ d.flagged_at|date:'d M Y' }}{% endif %}{% if d.flag_notify %} · you are told when it comes back{% endif %}</span>{% if d.note %}<div class="small">“{{ d.note }}”</div>{% endif %}
+      {% else %}<span class="text-secondary small"><i class="bi bi-shield-check"></i> Not flagged · not blacklisted</span>{% endif %}
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <button class="btn btn-sm btn-outline-warning" data-bs-toggle="modal" data-bs-target="#ddFlag"><i class="bi bi-flag"></i> {% if d.flagged %}Edit flag{% else %}Flag{% endif %}</button>
+      {% if d.blacklisted_at %}<form method="post" action="{% url 'device_action' d.id %}" onsubmit="return confirm('Let this device use the Wi-Fi again?')">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn btn-sm btn-success" name="action" value="unblacklist"><i class="bi bi-unlock"></i> Remove from blacklist</button></form>
+      {% else %}<button class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#ddBlk"><i class="bi bi-slash-circle"></i> Blacklist</button>{% endif %}
+    </div>
+  </div>
+</div>
+<div class="modal fade" id="ddFlag" tabindex="-1" aria-labelledby="ddFlagT" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'device_action' d.id %}">{% csrf_token %}
+  <input type="hidden" name="action" value="flag_set"><input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <div class="modal-header"><h5 class="modal-title" id="ddFlagT">Flag this device</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body"><div class="dd-lvls">
+    <label><input type="radio" name="level" value="watch" {% if d.flag_level == 'watch' or not d.flag_level and d.flagged %}checked{% endif %}><span>👁️ Watch</span></label>
+    <label><input type="radio" name="level" value="suspect" {% if d.flag_level == 'suspect' %}checked{% endif %}><span>⚠️ Suspicious</span></label>
+    <label><input type="radio" name="level" value="danger" {% if d.flag_level == 'danger' %}checked{% endif %}><span>🚩 Dangerous</span></label>
+    <label><input type="radio" name="level" value="" {% if not d.flagged %}checked{% endif %}><span>No flag</span></label></div>
+    <label class="form-label small mt-3">Note</label><input class="form-control" name="note" maxlength="255" value="{{ d.note }}" placeholder="e.g. shared a voucher with 6 phones on 3 Oct">
+    <label class="form-check mt-3"><input class="form-check-input" type="checkbox" name="notify" {% if d.flag_notify %}checked{% endif %}> Tell me when it enters a voucher or comes online</label></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-warning">Save</button></div>
+</form></div></div>
+<div class="modal fade" id="ddBlk" tabindex="-1" aria-labelledby="ddBlkT" aria-hidden="true"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'device_action' d.id %}">{% csrf_token %}
+  <input type="hidden" name="action" value="blacklist"><input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <div class="modal-header"><h5 class="modal-title text-danger" id="ddBlkT"><i class="bi bi-slash-circle"></i> Blacklist this device</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body"><ul class="small mb-3">
+    <li>Its {{ macs|length }} known MAC address{{ macs|length|pluralize:"es" }} {{ macs|length|pluralize:"is,are" }} blocked on <b>every router</b> and it is disconnected now.</li>
+    <li>If it comes back — new random MAC, another router, or a voucher on the login page — it is refused, the new MAC is blocked too, and you are told.</li>
+    <li>It stays blocked until you press <b>Remove from blacklist</b>.</li></ul>
+    <label class="form-label small">Reason (kept on the device and in the alerts)</label><input class="form-control" name="reason" maxlength="255" required placeholder="e.g. resold vouchers / abusive"></div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-danger">Blacklist</button></div>
+</form></div></div>
 
 {% if not total %}
 <div class="panel text-center py-5"><i class="bi bi-bar-chart fs-1 text-secondary"></i>

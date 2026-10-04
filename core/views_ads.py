@@ -272,6 +272,8 @@ def devices(request):
     view = request.GET.get('view', 'all')
     if view == 'flagged':
         qs = qs.filter(flagged=True)
+    elif view == 'blacklist':
+        qs = qs.filter(blacklisted_at__isnull=False)
     elif view == 'today':
         qs = qs.filter(last_seen__gte=timezone.now() - timedelta(hours=24))
     from . import device_search as ds
@@ -286,6 +288,7 @@ def devices(request):
     stats = {
         'total': all_sigs.count(), 'today': all_sigs.filter(last_seen__gte=timezone.now() - timedelta(hours=24)).count(),
         'flagged': all_sigs.filter(flagged=True).count(),
+        'blacklisted': all_sigs.filter(blacklisted_at__isnull=False).count(),
         'os': list(all_sigs.values('os').annotate(n=Count('id')).order_by('-n')[:6]),
     }
     multi = [d for d in all_sigs.only('id', 'macs')[:2000] if len(d.macs or []) > 1]
@@ -345,7 +348,20 @@ def device_action(request, pk):
         sig.label = request.POST.get('label', '').strip()[:120]; sig.note = request.POST.get('note', '').strip()[:255]
         sig.save(update_fields=['label', 'note'])
     elif action == 'flag':
-        sig.flagged = not sig.flagged; sig.save(update_fields=['flagged'])
+        from .blacklist import flag
+        flag(sig, '' if sig.flagged else 'watch', user=request.user)
+    elif action == 'flag_set':
+        from .blacklist import flag
+        flag(sig, request.POST.get('level', ''), request.POST.get('note', '').strip()[:255], request.POST.get('notify') == 'on', request.user)
+        messages.success(request, 'Flag saved.' if sig.flagged else 'Flag removed.')
+    elif action == 'blacklist':
+        from .blacklist import blacklist
+        res = blacklist(sig, request.user, request.POST.get('reason', ''))
+        messages.success(request, f'Device blacklisted — it cannot use your Wi-Fi until you remove it. {res}')
+    elif action == 'unblacklist':
+        from .blacklist import unblacklist
+        n = unblacklist(sig, request.user)
+        messages.success(request, f'Removed from the blacklist — it can connect again ({n} router block(s) removed).')
     elif action == 'delete':
         sig.delete(); messages.success(request, 'Device forgotten.')
     return redirect(request.POST.get('next') or 'devices')
