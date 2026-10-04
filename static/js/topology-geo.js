@@ -28,8 +28,7 @@
   function draw() {
     if (!map) {
       map = L.map('geoMap', { zoomControl: true, attributionControl: true });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, maxNativeZoom: 19,
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(map);
+      window.ttTiles(map);   // tile provider + referrer + fallback (static/js/tt-tiles.js)
       layer = L.layerGroup().addTo(map); cover = L.layerGroup();
       document.getElementById('geoCoverage').addEventListener('change', e => { e.target.checked ? cover.addTo(map) : map.removeLayer(cover); });
     }

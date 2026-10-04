@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}{% load static %}
+{% extends 'core/base.html' %}{% load static taptap_extras %}
 {% block title %}Map a router — TapTap{% endblock %}{% block heading %}Map a router{% endblock %}
 {% block extra_head %}
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
@@ -60,6 +60,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+{% map_tiles %}
 <script>
 (function () {
   'use strict';
@@ -103,7 +104,7 @@
   function ensureMap(lat, lng) {
     if (!map) {
       map = L.map('fmMap', { zoomControl: true });
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, maxNativeZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+      window.ttTiles(map);
       map.on('click', ev => setPos(ev.latlng.lat, ev.latlng.lng, null, 'Placed by hand on the map.'));
       near = L.layerGroup().addTo(map);
       drawNear();

@@ -83,16 +83,31 @@ def device_problem(device, others=()):
     return None
 
 
+def link_tunnel(router):
+    """The WireGuard tunnel TapTap Link set up for this router, if it is there and alive.
+
+    Remote admin only needs packets to flow (a recent WireGuard handshake) — not the RouterOS API login the
+    management view waits for — so a tunnel that TapTap Link created is used as soon as it answers."""
+    try:
+        from .tunnel import get_tunnel, handshake_timeout
+        t = get_tunnel(router)
+    except Exception:
+        return None
+    if not t or not t.tunnel_ip or not getattr(t, 'router_public_key', ''):
+        return None
+    hs = t.last_handshake_at
+    if t.status == 'online' or (hs and timezone.now() - hs <= timedelta(seconds=max(handshake_timeout(), 300))):
+        return t
+    return None
+
+
 def reach(router):
     """('proxy', tunnel_ip) / ('direct', public_ip) / (None, reason)."""
     if router is None:
         return None, 'Choose the MikroTik this device sits behind.'
-    try:
-        from .tunnel import get_tunnel, tunnel_ready
-        if tunnel_ready(router):
-            return 'proxy', str(get_tunnel(router).tunnel_ip)
-    except Exception:
-        pass
+    t = link_tunnel(router)
+    if t is not None:
+        return 'proxy', str(t.tunnel_ip)
     if router.connection_mode != 'agent' and router.ip_address:
         host = router.ip_address.split(':')[0]
     else:

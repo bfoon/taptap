@@ -187,3 +187,17 @@ def track_button(context, kind, object_id, label=''):
     return {'kind': kind, 'object_id': object_id, 'label': label, 'w': w, 'events': tracking.events_for(kind),
             'chosen': set((w.events or []) if w else []), 'request': request, 'csrf_token': context.get('csrf_token'),
             'has_email': bool(getattr(user, 'email', '')), 'item': {'plan': 'plan', 'batch': 'batch', 'voucher': 'voucher'}[kind]}
+
+
+@register.simple_tag
+def map_tiles():
+    """The map tile settings + loader (see static/js/tt-tiles.js). Use once on pages with a Leaflet map."""
+    import json
+    from django.conf import settings
+    from django.templatetags.static import static
+    from django.utils.html import format_html
+    from django.utils.safestring import mark_safe
+    data = {'url': settings.MAP_TILE_URL, 'attribution': settings.MAP_TILE_ATTRIBUTION, 'maxZoom': settings.MAP_TILE_MAX_ZOOM,
+            'fallbackUrl': settings.MAP_TILE_FALLBACK_URL, 'fallbackAttribution': settings.MAP_TILE_FALLBACK_ATTRIBUTION}
+    payload = json.dumps(data).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
+    return format_html('<script id="ttMapTiles" type="application/json">{}</script><script src="{}"></script>', mark_safe(payload), static('js/tt-tiles.js'))

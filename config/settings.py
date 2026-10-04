@@ -157,3 +157,12 @@ EMAIL_CHECK_DOMAIN = env_bool('EMAIL_CHECK_DOMAIN', True)
 
 CELERY_BEAT_SCHEDULE['taptap-chat-email'] = {'task': 'core.tasks.chat_email_missed', 'schedule': 60.0, 'options': {'expires': 120}}
 CELERY_TASK_ROUTES['core.tasks.chat_email_missed'] = {'queue': 'live'}
+
+# Map tiles (Topology › Geo map, field mapping). OpenStreetMap's own servers only serve sites that say who they
+# are (the Referer header) and are meant for light use; set your own provider here for heavy use.
+MAP_TILE_URL = os.getenv('MAP_TILE_URL', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png')
+MAP_TILE_ATTRIBUTION = os.getenv('MAP_TILE_ATTRIBUTION', '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors')
+MAP_TILE_MAX_ZOOM = int(os.getenv('MAP_TILE_MAX_ZOOM', '19'))
+# Used automatically when the main provider refuses the tiles (e.g. "403 Blocked"); empty = no fallback.
+MAP_TILE_FALLBACK_URL = os.getenv('MAP_TILE_FALLBACK_URL', 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png')
+MAP_TILE_FALLBACK_ATTRIBUTION = os.getenv('MAP_TILE_FALLBACK_ATTRIBUTION', '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>')

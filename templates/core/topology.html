@@ -160,6 +160,7 @@
 </div></div></div>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" defer></script>
+{% map_tiles %}
 <script src="{% static 'vendor/qrcode.js' %}" defer></script>
 <script src="{% static 'js/topology-geo.js' %}" defer></script>
 {{ detail|json_script:"topology-detail" }}

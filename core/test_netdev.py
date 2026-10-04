@@ -44,7 +44,7 @@ class ReachAndRulesTests(Base):
     def test_tunnel_router_uses_the_proxy_and_link_commands(self):
         self.d.router = self.link; self.d.save()
         self.assertIsNone(netdev.reach(self.link)[0])                         # no public IP, no tunnel
-        with mock.patch('core.tunnel.tunnel_ready', return_value=True), mock.patch('core.tunnel.get_tunnel', return_value=S(tunnel_ip='10.77.0.9')), \
+        with mock.patch('core.netdev.link_tunnel', return_value=S(tunnel_ip='10.77.0.9')), \
              mock.patch('core.netdev._channel', return_value='TapTap Link'), mock.patch('core.linkops.send', return_value=S(pk=77)) as send:
             s = netdev.open_session(self.d, self.owner, '')
         self.assertEqual((s.mode, s.target_host), ('proxy', '10.77.0.9'))
@@ -152,3 +152,13 @@ class CardHintsTests(Base):
         page = self.c.get('/network/devices/').content.decode()
         self.assertEqual(page.count('admin pages can’t be opened yet'), 1)                # once per router, not per card
         self.assertIn('TAPTAP_TUNNEL_ENABLED', page)
+
+
+class LinkTunnelTests(Base):
+    def test_tunnel_made_by_taptap_link_is_used(self):
+        from .tunnel import RouterTunnel
+        t = RouterTunnel.objects.create(router_id=self.link.pk, tunnel_ip='10.77.0.14', router_public_key='PUB', status='waiting', api_password='x',
+                                        last_handshake_at=timezone.now() - timedelta(seconds=40))
+        self.assertEqual(netdev.reach(self.link), ('proxy', '10.77.0.14'))           # handshake fresh: used even before the API check
+        RouterTunnel.objects.filter(pk=t.pk).update(last_handshake_at=timezone.now() - timedelta(hours=2), status='stale')
+        self.assertNotEqual(netdev.reach(self.link)[0], 'proxy')                      # dead tunnel: not used
