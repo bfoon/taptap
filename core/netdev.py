@@ -1,0 +1,172 @@
+"""Open the admin page of any router / access point behind your MikroTik — from anywhere, through TapTap.
+
+TapTap opens a short-lived path on the MikroTik (NAT rules tagged ``TT-REMOTE``) and closes it again:
+
+* **Through TapTap** — when the MikroTik has a TapTap Tunnel (RouterOS 7). The rule forwards a port on the
+  tunnel address to the device; TapTap shows the device's own admin page inside TapTap (a proxy). Works
+  behind NAT / CGNAT / 4G. Nothing is opened to the Internet.
+* **Direct** — when the MikroTik has a public address (Direct API, or TapTap Link without a tunnel). The
+  rule forwards a random port on the router's public address to the device, **only for your current IP
+  address**, and you open it straight from your browser.
+
+Every session expires after ``SESSION_MINUTES`` (or when you press Close) and its rules are removed.
+"""
+from __future__ import annotations
+
+import ipaddress
+import logging
+import re
+import secrets
+from datetime import timedelta
+
+from django.utils import timezone
+
+logger = logging.getLogger('taptap.netdev')
+
+SESSION_MINUTES = 30
+PORT_RANGE = (41000, 41999)
+TAG = 'TT-REMOTE'
+
+
+class RemoteError(ValueError):
+    pass
+
+
+def _channel(router):
+    from .voucher_history import channel
+    return channel(router)
+
+
+def reach(router):
+    """('proxy', tunnel_ip) / ('direct', public_ip) / (None, reason)."""
+    if router is None:
+        return None, 'Choose the MikroTik this device sits behind.'
+    try:
+        from .tunnel import get_tunnel, tunnel_ready
+        if tunnel_ready(router):
+            return 'proxy', str(get_tunnel(router).tunnel_ip)
+    except Exception:
+        pass
+    if router.connection_mode != 'agent' and router.ip_address:
+        host = router.ip_address.split(':')[0]
+    else:
+        host = getattr(getattr(router, 'agent', None), 'last_ip', '') or ''
+    try:
+        if host and ipaddress.ip_address(host).is_global:
+            return 'direct', host
+    except ValueError:
+        if host:
+            return 'direct', host     # a DNS name
+    return None, (f'{router.name} has no public address and no TapTap Tunnel yet. Turn on the TapTap Tunnel on its '
+                  f'TapTap Link page (RouterOS 7), or give the router a public IP.')
+
+
+def nat_rules(session, device):
+    """The NAT rules for one session (RouterOS field names)."""
+    c = session.comment
+    to = {'action': 'dst-nat', 'to-addresses': device.ip, 'to-ports': str(device.web_port), 'protocol': 'tcp', 'dst-port': str(session.port)}
+    if session.mode == 'proxy':
+        from .tunnel import wg_server_ip
+        dst = {'chain': 'dstnat', 'dst-address': session.target_host, **to, 'comment': c}
+        src = {'chain': 'srcnat', 'action': 'masquerade', 'protocol': 'tcp', 'dst-address': device.ip, 'dst-port': str(device.web_port),
+               'src-address': wg_server_ip(), 'comment': c}
+    else:
+        dst = {'chain': 'dstnat', 'dst-address-type': 'local', 'src-address': session.client_ip, **to, 'comment': c}
+        src = {'chain': 'srcnat', 'action': 'masquerade', 'protocol': 'tcp', 'dst-address': device.ip, 'dst-port': str(device.web_port),
+               'src-address': session.client_ip, 'comment': c}
+    return [dst, src]
+
+
+def _apply(router, rules, add=True, comment=''):
+    if _channel(router) == 'TapTap Link':
+        from .linkops import send
+        if add:
+            send(router, 'remote_nat', {'rules': rules}, label='Open a remote admin page', minutes=10)
+        else:
+            send(router, 'remote_close', {'comment': comment}, label='Close a remote admin page', minutes=60)
+        return
+    from .mikrotik import MikroTikService
+    with MikroTikService(router) as svc:
+        nat = svc.resource('/ip/firewall/nat')
+        if add:
+            first = next((r for r in nat.get() if r.get('id')), None)
+            for r in rules:
+                fields = {k.replace('-', '_'): v for k, v in r.items()}
+                nat.add(place_before=first['id'], **fields) if first else nat.add(**fields)
+        else:
+            for r in nat.get():
+                if str(r.get('comment', '')) == comment and r.get('id'):
+                    nat.remove(id=r['id'])
+
+
+def open_session(device, user, client_ip):
+    from .models_netdev import RemoteSession
+    mode, host = reach(device.router)
+    if mode is None:
+        raise RemoteError(host)
+    if mode == 'direct' and not client_ip:
+        raise RemoteError('Your own address could not be read, so a direct path cannot be limited to you.')
+    used = set(RemoteSession.objects.filter(device__router=device.router, closed_at__isnull=True,
+                                            expires_at__gt=timezone.now()).values_list('port', flat=True))
+    port = next(p for p in (secrets.randbelow(PORT_RANGE[1] - PORT_RANGE[0]) + PORT_RANGE[0] for _ in range(50)) if p not in used)
+    s = RemoteSession.objects.create(device=device, user=user, token=secrets.token_urlsafe(24), mode=mode, port=port,
+                                     target_host=host, client_ip=client_ip if mode == 'direct' else '',
+                                     expires_at=timezone.now() + timedelta(minutes=SESSION_MINUTES))
+    try:
+        _apply(device.router, nat_rules(s, device))
+    except Exception as exc:
+        s.closed_at = timezone.now(); s.save(update_fields=['closed_at'])
+        raise RemoteError(f'{device.router.name} did not accept it: {exc}')
+    from .utils import log
+    log(device.business, 'Remote Admin Opened', f'{device.name} ({device.ip}) by {user.get_full_name() or user.username} — {s.get_mode_display().lower()}, {SESSION_MINUTES} min')
+    return s
+
+
+def close_session(s):
+    if s.closed_at:
+        return
+    s.closed_at = timezone.now(); s.save(update_fields=['closed_at'])
+    try:
+        _apply(s.device.router, [], add=False, comment=s.comment)
+    except Exception as exc:
+        logger.info('remote close %s: %s', s.pk, exc)
+
+
+def close_expired():
+    from .models_netdev import RemoteSession
+    for s in RemoteSession.objects.filter(closed_at__isnull=True, expires_at__lte=timezone.now()).select_related('device__router'):
+        close_session(s)
+
+
+def direct_url(s):
+    scheme = 'https' if s.device.web_https else 'http'
+    return f'{scheme}://{s.target_host}:{s.port}/'
+
+
+# ─────────────────────────────── proxy rewriting ───────────────────────────────
+
+def shim(prefix):
+    """Keeps the device's own scripts working under /remote/<token>/: absolute paths in XHR / fetch / forms."""
+    return ('<script>(function(P){function fx(u){return (typeof u==="string"&&u.charAt(0)==="/"&&u.charAt(1)!=="/"&&u.indexOf(P)!==0)?P+u.slice(1):u}'
+            'var o=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){arguments[1]=fx(u);return o.apply(this,arguments)};'
+            'if(window.fetch){var f=window.fetch;window.fetch=function(u,i){return f.call(this,fx(u),i)}}'
+            'var a=window.open;window.open=function(u){arguments[0]=fx(u);return a.apply(this,arguments)};'
+            'document.addEventListener("submit",function(e){var t=e.target;if(t&&t.getAttribute){var x=t.getAttribute("action");if(x)t.setAttribute("action",fx(x))}},true);'
+            f'}})("{prefix}");</script>')
+
+
+ABS_ATTR = re.compile(r'''((?:href|src|action|data-src)\s*=\s*["'])/(?!/)''', re.I)
+CSS_URL = re.compile(r'''(url\(\s*["']?)/(?!/)''', re.I)
+JS_PATH = re.compile(r'''(["'])/(cgi-bin|webpages|js|css|images|img|userRpm|locale|data|api|login|admin|luci-static)/''')
+
+
+def rewrite(body, ctype, prefix):
+    text = body.decode('utf-8', 'replace')
+    text = ABS_ATTR.sub(lambda m: m.group(1) + prefix, text)
+    text = CSS_URL.sub(lambda m: m.group(1) + prefix, text)
+    if 'javascript' in ctype or 'html' in ctype:
+        text = JS_PATH.sub(lambda m: f'{m.group(1)}{prefix}{m.group(2)}/', text)
+    if 'html' in ctype:
+        s = shim(prefix)
+        text = re.sub(r'(<head[^>]*>)', r'\1' + s.replace('\\', '\\\\'), text, count=1, flags=re.I) if re.search(r'<head[^>]*>', text, re.I) else s + text
+    return text.encode('utf-8')

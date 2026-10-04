@@ -39,7 +39,7 @@ DEFAULT_EXPIRY = {'reboot': 5, 'port_restart': 5, 'interface_set': 15, 'port_off
 POLICY = 'ftp,read,write,test,reboot,sensitive'
 SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
-    'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'hotspot_kick_mac', 'share_rules', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
+    'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'remote_nat', 'remote_close', 'hotspot_kick_mac', 'share_rules', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
     'hotspot_users_limit', 'admin_password', 'protection',
@@ -439,6 +439,15 @@ def command_body(cmd):
     if k == 'share_rules':   # Internet sharing detection (core/sharing.py)
         from .sharing import link_script as _share_script
         return _share_script(bool(p.get('enable', True)))
+    if k == 'remote_nat':   # remote admin page of a device behind this router (core/netdev.py)
+        lines = []
+        for r in p.get('rules', []):
+            args = ' '.join(f'{key}={rs(str(val))}' for key, val in r.items())
+            lines.append(f':do {{ :local f [:pick [/ip firewall nat find] 0]; :if ([:len $f] > 0) do={{ /ip firewall nat add {args} place-before=$f }} '
+                         f'else={{ /ip firewall nat add {args} }} }} on-error={{ :log warning "TapTap remote admin: rule not added" }}')
+        return '; '.join(lines) or ':log info "TapTap remote admin: nothing to add"'
+    if k == 'remote_close':
+        return f':do {{ /ip firewall nat remove [find comment={rs(p["comment"])}] }} on-error={{}}'
     if k == 'hotspot_mac_unlock_all':   # older versions pinned TapTap vouchers to one MAC on the router
         return ':foreach u in=[/ip hotspot user find where comment~"^TapTap" and mac-address!=00:00:00:00:00:00] do={ /ip hotspot user set $u mac-address=00:00:00:00:00:00 }'
     if k == 'app_control':   # App & site control (core/app_control.py builds and escapes every value)
@@ -615,6 +624,8 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
         pr = str((params or {}).get('profile', ''))
         if not re.match(r'^[^"\\$;{}\[\]\r\n]{1,64}$', pr) or (kind == 'hotspot_user_profile' and not NAME_RE.match(str((params or {}).get('name', '')))):
             raise ValueError('Invalid profile or voucher name.')
+    if kind in ('remote_nat', 'remote_close'):
+        _validate_remote(kind, params or {})
     if kind in ('hotspot_user_mac', 'hotspot_kick', 'hotspot_kick_mac'):
         mac = str((params or {}).get('mac', ''))
         if not re.match(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$', mac):
@@ -1086,3 +1097,37 @@ def check_offline_agents():
             notify(agent.router.business, 'router_offline', f'{agent.router.name} is offline',
                    f'{agent.router.name} has not checked in through TapTap Link since {timezone.localtime(agent.last_seen_at):%H:%M}. Check its power and Internet connection.',
                    severity='critical', key=f'router:{agent.router_id}:offline')
+
+
+
+REMOTE_KEYS = {'chain': {'dstnat', 'srcnat'}, 'action': {'dst-nat', 'masquerade'}, 'protocol': {'tcp'}, 'dst-address-type': {'local'}}
+
+
+def _validate_remote(kind, p):
+    """Remote admin NAT rules: only these fields, only addresses / ports / TapTap comments."""
+    import ipaddress as _ip
+    if kind == 'remote_close':
+        if not re.match(r'^TT-REMOTE [A-Za-z0-9_-]{6,20}$', str(p.get('comment', ''))):
+            raise ValueError('Invalid remote admin comment.')
+        return
+    rules = p.get('rules')
+    if not isinstance(rules, list) or not 1 <= len(rules) <= 4:
+        raise ValueError('Invalid remote admin rules.')
+    for r in rules:
+        for key, val in r.items():
+            val = str(val)
+            if key in REMOTE_KEYS:
+                ok = val in REMOTE_KEYS[key]
+            elif key in ('dst-address', 'src-address', 'to-addresses'):
+                try:
+                    _ip.ip_address(val); ok = True
+                except ValueError:
+                    ok = False
+            elif key in ('dst-port', 'to-ports'):
+                ok = val.isdigit() and 1 <= int(val) <= 65535
+            elif key == 'comment':
+                ok = bool(re.match(r'^TT-REMOTE [A-Za-z0-9_-]{6,20}$', val))
+            else:
+                ok = False
+            if not ok:
+                raise ValueError(f'Invalid remote admin rule field: {key}')

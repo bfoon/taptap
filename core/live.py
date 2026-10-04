@@ -519,6 +519,12 @@ def watch_all():
             sweep(watched=watched)
         except Exception:
             logger.exception('expiry sweep')
+        # Remote admin pages of other routers: close expired sessions (their NAT rules go away).
+        try:
+            from .netdev import close_expired as _rm_close
+            _rm_close()
+        except Exception:
+            logger.exception('remote admin close')
         # Blacklisted devices: drop them wherever they show up (a router that never had the block, a new MAC).
         try:
             from .blacklist import enforce as _blk_enforce

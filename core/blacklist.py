@@ -73,6 +73,11 @@ def blacklist(sig, user=None, reason=''):
             result = block(None, macs_of(sig), label=label, user=user, business=sig.business, why='blacklisted')
         except ValueError as exc:
             result = str(exc)
+    try:   # also off the TP-Link Omada Wi-Fi, when a controller is connected
+        from .omada import blacklist_hook
+        blacklist_hook(sig.business, macs_of(sig), True)
+    except Exception:
+        pass
     log(sig.business, 'Device Blacklisted', f'{label} ({", ".join(macs_of(sig)) or "no MAC"}) — {reason or "no reason given"}. {result}')
     return result
 
@@ -90,6 +95,11 @@ def unblacklist(sig, user=None):
             n = unblock(None, macs, label=sig.label or sig.model or 'device', user=user, business=sig.business)
         except ValueError as exc:
             logger.info('unblacklist %s: %s', sig.pk, exc)
+    try:
+        from .omada import blacklist_hook
+        blacklist_hook(sig.business, macs, False)
+    except Exception:
+        pass
     log(sig.business, 'Device Removed From Blacklist', f'{sig.label or sig.model or "device"} can use the Wi-Fi again ({n} block(s) removed)')
     return n
 
