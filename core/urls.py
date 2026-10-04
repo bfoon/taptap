@@ -16,6 +16,7 @@ from . import views_profiles as vprof
 from . import views_chat as vchat
 from . import views_members as vmem
 from . import views_topology as vtopo
+from . import views_geo as vgeo
 from . import views_security_fixes as vsecfix
 
 urlpatterns = [
@@ -135,4 +136,9 @@ urlpatterns = [
     path('plans/fix-profile/',views.plan_fix_profile,name='plan_fix_profile'),
     path('batches/<int:pk>/health/',vdetail.batch_health_action,name='batch_health_action'),
     path('security/protection/<int:pk>/',vsecfix.security_protection,name='security_protection'),
+    # Field mapping: put routers on a real map (core/geomap.py)
+    path('topology/field/',vgeo.topology_field,name='topology_field'),
+    path('topology/field/save/',vgeo.topology_field_save,name='topology_field_save'),
+    path('topology/geo/',vgeo.topology_geo,name='topology_geo'),
+    path('topology/labels/',vgeo.topology_labels,name='topology_labels'),
 ]

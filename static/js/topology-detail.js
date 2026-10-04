@@ -27,9 +27,11 @@
   function show(view, focus) {
     tabs.forEach(t => { const on = t.dataset.view === view; t.setAttribute('aria-selected', on); t.tabIndex = on ? 0 : -1; if (on && focus) t.focus(); });
     $('#paneMap').hidden = view !== 'map'; $('#paneDetail').hidden = view !== 'detail';
+    if ($('#paneGeo')) $('#paneGeo').hidden = view !== 'geo';
     if (view === 'map' && window.taptapNetMap) requestAnimationFrame(() => window.taptapNetMap.fit());
     if (view === 'detail') drawDiagram();
-    history.replaceState(null, '', view === 'detail' ? '#detail' : location.pathname + location.search);
+    if (view === 'geo') window.dispatchEvent(new Event('taptap:geo'));          // core/topology-geo.js draws the street map
+    history.replaceState(null, '', view === 'detail' ? '#detail' : view === 'geo' ? '#geo' : location.pathname + location.search);
   }
   tabs.forEach((t, i) => {
     t.addEventListener('click', () => show(t.dataset.view));
@@ -683,4 +685,5 @@
   function renderAll() { updateCount(); drawLinks(); drawList(); drawIgnored(); drawDiagram(); }
   renderAll();
   if (location.hash === '#detail') show('detail');
+  if (location.hash === '#geo') show('geo');
 })();

@@ -62,7 +62,8 @@ topology_live topology_refresh security security_sticky sharing_save sharing_cas
 wan_apply wan_confirm wan_undo wan_status wan_script router_port port_action router_reboot router_backups
 router_backup_download live_now incident_fix incident_ignore incident_fix_all traffic traffic_now traffic_data
 traffic_cdn app_control app_rule_save app_rule_global app_rule_action netdev_list netdev_save netdev_action netdev_session remote_proxy_root remote_proxy omada_save omada_action node_devices device_detail device_alert_toggle alerts alert_rule_save alert_rule_action alerts_read event_rule_save event_rule_preset event_rule_action router_link router_link_action
-router_link_status devices device_action topology_routers topology_router_find topology_router_action topology_router_probe'''.split()
+router_link_status devices device_action topology_routers topology_router_find topology_router_action topology_router_probe
+topology_field topology_field_save topology_geo topology_labels'''.split()
 _STUDIO = '''portal_studio portal_editor portal_action portal_export portal_deploy portal_deploy_status voucher_designs
 voucher_design_editor voucher_design_action ads ad_save ad_action'''.split()
 

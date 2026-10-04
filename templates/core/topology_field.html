@@ -1,0 +1,183 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}Map a router — TapTap{% endblock %}{% block heading %}Map a router{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+.fm{max-width:640px;margin:0 auto}
+.fm-step{background:var(--surface,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:1rem;margin-bottom:1rem}
+.fm-step h3{font-size:1rem;font-weight:800;margin:0 0 .6rem;display:flex;gap:.5rem;align-items:center}
+.fm-step h3 .n{width:26px;height:26px;border-radius:50%;background:#1d4ed8;color:#fff;display:grid;place-items:center;font-size:.8rem}
+.fm-chosen{display:flex;gap:.8rem;align-items:center;border:2px solid #1d4ed8;border-radius:12px;padding:.7rem .85rem;background:#eff6ff}
+.fm-chosen i{font-size:1.6rem;color:#1d4ed8}.fm-chosen b{display:block}.fm-chosen small{color:#4e6479}
+.fm-list{max-height:46vh;overflow:auto;margin-top:.5rem;border:1px solid var(--border,#e3e9f1);border-radius:12px}
+.fm-item{display:flex;width:100%;gap:.7rem;align-items:center;text-align:left;border:0;border-bottom:1px solid var(--border,#eef2f6);background:none;padding:.65rem .8rem;color:inherit}
+.fm-item:last-child{border-bottom:0}.fm-item:hover,.fm-item:focus-visible{background:#f1f5f9}
+.fm-item i{font-size:1.2rem;color:#0891b2}.fm-item i.bi-router{color:#1d4ed8}.fm-item small{display:block;color:#64748b}
+.fm-item .ok{margin-left:auto;font-size:.72rem;font-weight:800;color:#127a4d;background:#e6f6ee;border-radius:99px;padding:.1rem .5rem;white-space:nowrap}
+.fm-group{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#64748b;padding:.5rem .8rem;background:var(--surface-2,#f8fafc)}
+.fm-gps{width:100%;padding:.9rem;font-size:1.05rem;font-weight:800;border-radius:12px}
+.fm-acc{display:flex;gap:.5rem;align-items:center;margin:.6rem 0;font-weight:700}
+.fm-acc .dot{width:12px;height:12px;border-radius:50%;background:#94a3b8}.fm-acc.good .dot{background:#16a34a}.fm-acc.ok .dot{background:#f59e0b}.fm-acc.poor .dot{background:#dc2626}
+.fm-map{height:280px;border-radius:12px;margin:.4rem 0 .8rem;z-index:0}
+.fm-save{position:sticky;bottom:.6rem;z-index:5;width:100%;padding:.85rem;font-size:1.05rem;font-weight:800;border-radius:12px;box-shadow:0 8px 24px #1d4ed844}
+.fm-done{background:#ecfdf5;border:1px solid #a7f3d0;border-radius:16px;padding:1rem;margin-bottom:1rem}
+.fm-tip{font-size:.85rem;color:#4e6479;margin:.4rem 0 0}
+.fm-near{width:10px;height:10px;border-radius:50%;background:#64748b;border:2px solid #fff;opacity:.75}
+/* the router pin is drawn with CSS: no marker image to download */
+.fm-pin{width:28px;height:28px;border-radius:50% 50% 50% 0;background:#1d4ed8;transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 3px 10px #0006}
+.fm-pin::after{content:'';position:absolute;inset:7px;border-radius:50%;background:#fff}
+@media (max-width:640px){.fm-save{width:calc(100% - 68px)}}   /* room for the chat bubble at the bottom right */
+</style>
+{% endblock %}
+{% block content %}
+<div class="fm">
+  <div class="fm-done" id="fmDone" hidden aria-live="polite"></div>
+
+  <section class="fm-step" aria-labelledby="fmS1">
+    <h3 id="fmS1"><span class="n">1</span> Which router are you next to?</h3>
+    <div id="fmChosen"></div>
+    <div id="fmPick">
+      <input class="form-control" type="search" id="fmSearch" placeholder="Search name, IP or MAC…" aria-label="Search routers" autocomplete="off">
+      <div class="fm-list" id="fmList" role="listbox" aria-label="Routers"></div>
+      <p class="fm-tip"><i class="bi bi-qr-code-scan"></i> Fastest: scan the <b>TapTap map label</b> on the router with your phone camera — it opens this page with the router chosen.
+        {% if site %}You are on <b>{{ site.name }}</b>’s network: its routers are listed first.{% endif %}</p>
+    </div>
+  </section>
+
+  <section class="fm-step" aria-labelledby="fmS2">
+    <h3 id="fmS2"><span class="n">2</span> Where is it?</h3>
+    <button type="button" class="btn btn-primary fm-gps" id="fmGps"><i class="bi bi-crosshair"></i> Use my location</button>
+    <div class="fm-acc" id="fmAcc" aria-live="polite"><span class="dot"></span><span id="fmAccText">Stand next to the router, then tap the button.</span></div>
+    <div class="fm-map" id="fmMap" role="application" aria-label="Location of the router — drag the pin or tap the map to correct it"></div>
+    <label class="form-label small fw-bold" for="fmNote">Note for the next technician <span class="text-secondary fw-normal">(optional)</span></label>
+    <input class="form-control" id="fmNote" maxlength="160" placeholder="e.g. pole behind the bakery, 6 m up">
+  </section>
+
+  <button type="button" class="btn btn-success fm-save" id="fmSave" disabled><i class="bi bi-geo-alt-fill"></i> Save on the map</button>
+  <p class="text-center mt-3"><a href="{% url 'topology' %}#geo">See all routers on the map</a></p>
+</div>
+{{ field|json_script:"field-data" }}
+{% endblock %}
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  const D = JSON.parse(document.getElementById('field-data').textContent);
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const csrf = () => (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || '';
+  let items = D.items, chosen = D.chosen || '', pos = null, map = null, pin = null, ring = null, watch = null, near = null;
+
+  const item = k => items.find(t => t.key === k);
+  const icon = t => t.kind === 'mikrotik' ? 'bi-router' : 'bi-wifi';
+  const label = t => `${esc(t.detail)}${t.ip ? ' · ' + esc(t.ip) : ''}${t.site && t.kind !== 'mikrotik' ? ' · behind ' + esc(t.site) : ''}`;
+
+  function renderChoice() {
+    const t = item(chosen);
+    $('#fmPick').hidden = !!t;
+    $('#fmChosen').innerHTML = t ? `<div class="fm-chosen"><i class="bi ${icon(t)}"></i><div><b>${esc(t.name)}</b><small>${label(t)}</small>
+      ${t.geo ? `<small class="text-success"><i class="bi bi-check2-circle"></i> Already on the map — saving moves it.</small>` : ''}</div>
+      <button type="button" class="btn btn-sm btn-outline-secondary ms-auto" id="fmChange">Change</button></div>` : '';
+    if (t) $('#fmChange').onclick = () => { chosen = ''; renderChoice(); renderList(); $('#fmSearch').focus(); };
+    $('#fmSave').disabled = !(t && pos);
+    drawNear();
+  }
+
+  function renderList() {
+    const q = $('#fmSearch').value.trim().toLowerCase();
+    const list = items.filter(t => !q || [t.name, t.ip, t.key, t.detail, t.site].join(' ').toLowerCase().includes(q));
+    let html = '', group = null;
+    list.forEach(t => {
+      const g = D.site_id && t.site_id === D.site_id ? 'On this site' : 'All routers';
+      if (g !== group) { html += `<div class="fm-group">${g}</div>`; group = g; }
+      html += `<button type="button" class="fm-item" role="option" data-key="${esc(t.key)}"><i class="bi ${icon(t)}"></i>
+        <span><b>${esc(t.name)}</b><small>${label(t)}</small></span>${t.geo ? '<span class="ok">✓ mapped</span>' : ''}</button>`;
+    });
+    $('#fmList').innerHTML = html || '<p class="p-3 m-0 text-secondary">No router matches.</p>';
+  }
+  $('#fmList').addEventListener('click', e => { const b = e.target.closest('[data-key]'); if (!b) return; chosen = b.dataset.key; renderChoice(); });
+  $('#fmSearch').addEventListener('input', renderList);
+
+  // ---- map: drag the pin or tap the map to correct the position
+  function ensureMap(lat, lng) {
+    if (!map) {
+      map = L.map('fmMap', { zoomControl: true });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 20, maxNativeZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(map);
+      map.on('click', ev => setPos(ev.latlng.lat, ev.latlng.lng, null, 'Placed by hand on the map.'));
+      near = L.layerGroup().addTo(map);
+      drawNear();
+    }
+    map.setView([lat, lng], Math.max(map.getZoom() || 0, 18));
+  }
+  function drawNear() {
+    if (!near) return;
+    near.clearLayers();
+    items.filter(t => t.geo && t.key !== chosen).forEach(t => L.marker([t.geo.lat, t.geo.lng], { icon: L.divIcon({ className: '', html: '<div class="fm-near"></div>', iconSize: [10, 10] }), title: t.name, interactive: true }).bindTooltip(esc(t.name)).addTo(near));
+  }
+  function setPos(lat, lng, acc, text) {
+    pos = { lat, lng, accuracy: acc };
+    ensureMap(lat, lng);
+    if (!pin) { pin = L.marker([lat, lng], { draggable: true, autoPan: true, title: 'Router location', keyboard: true,
+        icon: L.divIcon({ className: '', html: '<div class="fm-pin"></div>', iconSize: [28, 28], iconAnchor: [14, 30] }) }).addTo(map);
+      pin.on('dragend', () => { const p = pin.getLatLng(); pos = { lat: p.lat, lng: p.lng, accuracy: null }; showAcc(null, 'Pin moved by hand.'); }); }
+    else pin.setLatLng([lat, lng]);
+    if (ring) { map.removeLayer(ring); ring = null; }
+    if (acc) ring = L.circle([lat, lng], { radius: acc, color: '#1d4ed8', weight: 1, fillOpacity: .08 }).addTo(map);
+    showAcc(acc, text);
+    $('#fmSave').disabled = !item(chosen);
+  }
+  function showAcc(acc, text) {
+    const box = $('#fmAcc');
+    box.className = 'fm-acc ' + (acc == null ? '' : acc <= 10 ? 'good' : acc <= 30 ? 'ok' : 'poor');
+    $('#fmAccText').textContent = text || (acc == null ? '' : `±${Math.round(acc)} m — ` + (acc <= 10 ? 'good' : acc <= 30 ? 'fine, drag the pin if needed' : 'weak: step outside or wait a moment, or drag the pin'));
+  }
+
+  // ---- GPS: listen up to 20 s and keep the most accurate fix
+  $('#fmGps').addEventListener('click', () => {
+    if (!window.isSecureContext) { showAcc(null, 'Location needs the secure TapTap address (https://). Tap the map to place the router by hand.'); ensureMap(13.4549, -16.579); return; }
+    if (!navigator.geolocation) { showAcc(null, 'This phone cannot share its location. Tap the map to place the router.'); ensureMap(13.4549, -16.579); return; }
+    if (watch != null) navigator.geolocation.clearWatch(watch);
+    let best = null; const started = Date.now();
+    showAcc(null, 'Finding your location…');
+    $('#fmGps').disabled = true;
+    const stop = () => { if (watch != null) navigator.geolocation.clearWatch(watch); watch = null; $('#fmGps').disabled = false; $('#fmGps').innerHTML = '<i class="bi bi-crosshair"></i> Use my location again'; };
+    watch = navigator.geolocation.watchPosition(p => {
+      if (!best || p.coords.accuracy < best.coords.accuracy) { best = p; setPos(p.coords.latitude, p.coords.longitude, p.coords.accuracy); }
+      if (best.coords.accuracy <= 8 || Date.now() - started > 20000) stop();
+    }, err => {
+      stop();
+      showAcc(null, err.code === 1 ? 'Location is blocked for this site: allow it in the browser settings, or tap the map to place the router.' : 'No GPS fix yet. Step outside and try again, or tap the map.');
+      if (!map) ensureMap(13.4549, -16.579);
+    }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+    setTimeout(() => { if (watch != null) stop(); }, 21000);
+  });
+
+  // ---- save
+  $('#fmSave').addEventListener('click', async () => {
+    const t = item(chosen); if (!t || !pos) return;
+    const btn = $('#fmSave'); btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving…';
+    try {
+      const r = await fetch(D.save_url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf() },
+        body: JSON.stringify({ key: chosen, lat: pos.lat, lng: pos.lng, accuracy: pos.accuracy, note: $('#fmNote').value }) });
+      const d = await r.json();
+      if (!d.success) throw new Error(d.message || 'Could not save.');
+      items = d.items;
+      const next = items.filter(x => !x.geo && (!D.site_id || x.site_id === D.site_id || x.site_id === t.site_id)).slice(0, 6);
+      $('#fmDone').hidden = false;
+      $('#fmDone').innerHTML = `<b><i class="bi bi-check-circle-fill text-success"></i> ${esc(d.message)}</b>` +
+        (next.length ? `<p class="mb-1 mt-2 small">Next on this site:</p>` + next.map(x => `<button type="button" class="btn btn-sm btn-outline-primary me-1 mb-1" data-next="${esc(x.key)}">${esc(x.name)}</button>`).join('')
+                     : '<p class="mb-0 mt-1 small">Every router on this site is on the map. 🎉</p>');
+      $('#fmDone').scrollIntoView({ behavior: 'smooth' });
+      chosen = ''; pos = null; $('#fmNote').value = ''; if (pin) { map.removeLayer(pin); pin = null; } if (ring) { map.removeLayer(ring); ring = null; }
+      showAcc(null, 'Stand next to the next router, then tap the button.');
+      renderChoice(); renderList();
+    } catch (err) { alert(err.message); }
+    finally { btn.innerHTML = '<i class="bi bi-geo-alt-fill"></i> Save on the map'; btn.disabled = !(item(chosen) && pos); }
+  });
+  $('#fmDone').addEventListener('click', e => { const b = e.target.closest('[data-next]'); if (!b) return; chosen = b.dataset.next; renderChoice(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+
+  renderChoice(); renderList();
+})();
+</script>
+{% endblock %}

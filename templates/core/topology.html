@@ -16,6 +16,7 @@
 <div class="td-switch" role="tablist" aria-label="Topology view">
   <button type="button" role="tab" id="tabMap" aria-controls="paneMap" aria-selected="true" data-view="map"><i class="bi bi-diagram-3"></i> Map</button>
   <button type="button" role="tab" id="tabDetail" aria-controls="paneDetail" aria-selected="false" data-view="detail" tabindex="-1"><i class="bi bi-list-columns"></i> Detail <span class="td-count" id="tdCount">{{ graph.stats.site_routers }}</span></button>
+  <button type="button" role="tab" id="tabGeo" aria-controls="paneGeo" aria-selected="false" data-view="geo" tabindex="-1"><i class="bi bi-geo-alt"></i> Geo map</button>
 </div>
 
 <div id="paneMap" role="tabpanel" aria-labelledby="tabMap">
@@ -70,6 +71,27 @@
 <div class="panel"><div class="good-state"><i class="bi bi-router"></i><b>No routers yet</b><span>Add a MikroTik and TapTap will map everything behind it.</span><a class="btn btn-primary mt-3" href="{% url 'routers' %}">Add a router</a></div></div>
 {% endfor %}
 <div class="alert alert-info mt-3 small"><i class="bi bi-info-circle"></i> The map is built from Neighbor Discovery (MNDP/LLDP/CDP), bridge MAC learning, DHCP, ARP, HotSpot and Wi‑Fi tables. Devices that do not advertise themselves still appear under the port they were learned on. TapTap must reach each router’s API port from wherever it is hosted — a LAN address needs TapTap on the same network or a VPN.</div>
+</div>
+
+<div id="paneGeo" role="tabpanel" aria-labelledby="tabGeo" hidden data-geo-url="{% url 'topology_geo' %}" data-field-url="{{ request.scheme }}://{{ request.get_host }}{% url 'topology_field' %}">
+  <div class="panel geo-panel">
+    <div class="geo-bar">
+      <div><h3 class="m-0">Routers on the ground</h3><small class="text-secondary" id="geoCount">Loading…</small></div>
+      <div class="geo-tools">
+        <a class="btn btn-sm btn-primary" href="{% url 'topology_field' %}"><i class="bi bi-phone"></i> Map a router</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{% url 'topology_labels' %}" target="_blank"><i class="bi bi-qr-code"></i> Print map labels</a>
+        <label class="form-check form-switch m-0 small"><input class="form-check-input" type="checkbox" id="geoCoverage"> Wi-Fi coverage</label>
+      </div>
+    </div>
+    <div class="geo-wrap"><div id="geoMap" class="geo-map" role="application" aria-label="Map of your routers"></div>
+      <div id="geoEmpty" class="geo-empty" hidden>
+        <div id="geoQr" class="geo-qr" aria-hidden="true"></div>
+        <h4>No router on the map yet</h4>
+        <p>At the site, open <b>Map a router</b> on your phone — or scan this code with the phone — stand next to a router, tap <b>Use my location</b> and save. Print the map labels and stick one on each router: scanning a label picks that router for you.</p>
+      </div>
+    </div>
+    <div id="geoUnmapped" class="geo-unmapped"></div>
+  </div>
 </div>
 
 <div id="paneDetail" role="tabpanel" aria-labelledby="tabDetail" hidden>
@@ -136,6 +158,10 @@
   <div class="modal-body"><p class="fw-bold" id="tpaText">Which port?</p><select class="form-select" id="tpaPort" aria-label="Port"></select></div>
   <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button type="button" class="btn btn-primary" id="tpaOk">Continue</button></div>
 </div></div></div>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" defer></script>
+<script src="{% static 'vendor/qrcode.js' %}" defer></script>
+<script src="{% static 'js/topology-geo.js' %}" defer></script>
 {{ detail|json_script:"topology-detail" }}
 {% endblock %}
 {% block scripts %}
