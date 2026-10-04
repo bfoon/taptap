@@ -51,6 +51,7 @@ class RemoteSession(models.Model):
     port = models.PositiveIntegerField()
     target_host = models.CharField(max_length=120, help_text='Where TapTap / the browser connects (tunnel IP or public IP)')
     client_ip = models.CharField(max_length=64, blank=True)
+    command_id = models.PositiveIntegerField(null=True, blank=True, help_text='TapTap Link command that opens the path')
     expires_at = models.DateTimeField()
     closed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

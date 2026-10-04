@@ -6,8 +6,9 @@
   <h2 class="h5 fw-bold mb-1">{{ d.name }} <small class="text-secondary fw-normal">{{ d.brand }} {{ d.model }} · {{ d.ip }}</small></h2>
   {% if live %}
   <p class="small text-secondary">Path opened on <b>{{ d.router.name }}</b> — {% if s.mode == 'proxy' %}through the TapTap tunnel; nothing is open to the Internet{% else %}a port only <b>your address ({{ s.client_ip }})</b> can use{% endif %}. It closes by itself at <b>{{ s.expires_at|date:'H:i' }}</b> (<span id="rmLeft"></span>).</p>
-  {% if queued %}<div class="alert alert-warning small py-2">{{ d.router.name }} uses TapTap Link: the path is added at its next check-in (a few seconds). If the page does not load at once, wait and press it again.</div>{% endif %}
-  <div class="d-flex flex-wrap gap-2 mb-3"><a class="btn btn-primary" href="{{ url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open {{ d.name }}’s admin page</a>
+  <div class="alert small py-2" id="rmState" role="status" aria-live="polite">Checking…</div>
+  {% if s.mode == 'direct' %}<p class="small text-secondary" id="rmIp">Allowed address: <b id="rmIpV">{{ s.client_ip }}</b></p>{% endif %}
+  <div class="d-flex flex-wrap gap-2 mb-3"><a class="btn btn-primary disabled" id="rmOpen" aria-disabled="true" href="{{ url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open {{ d.name }}’s admin page</a>
     <form method="post">{% csrf_token %}<button class="btn btn-outline-danger" name="action" value="close">Close now</button></form></div>
   {% if d.username or d.password_enc %}<div class="border rounded-3 p-3 small"><b>Log in with</b>
     <div class="d-flex gap-2 align-items-center mt-1">Username <code id="u">{{ d.username }}</code><button class="btn btn-sm btn-light" onclick="navigator.clipboard.writeText(document.getElementById('u').textContent);this.textContent='Copied ✓'">Copy</button></div>
@@ -16,6 +17,24 @@
   {% else %}<div class="alert alert-secondary">This session has ended and the path on the router is closed. <a href="{% url 'netdev_list' %}">Open it again</a>.</div>{% endif %}
 </section>
 <script>
+(function(){
+  var box=document.getElementById('rmState'),btn=document.getElementById('rmOpen');if(!box)return;
+  var csrf=document.querySelector('[name=csrfmiddlewaretoken]').value,poll=null;
+  function paint(d){box.textContent=d.message;box.className='alert small py-2 '+(d.state==='ready'?'alert-success':d.state==='failed'?'alert-danger':d.state==='ended'?'alert-secondary':'alert-warning');
+    var ok=d.state==='ready';btn.classList.toggle('disabled',!ok);btn.setAttribute('aria-disabled',ok?'false':'true');
+    if(d.client_ip&&document.getElementById('rmIpV'))document.getElementById('rmIpV').textContent=d.client_ip;
+    if(d.state!=='waiting'&&poll){clearInterval(poll);poll=null;}}
+  function check(){fetch('?status=1',{credentials:'same-origin'}).then(function(r){return r.json();}).then(paint).catch(function(){});}
+  function start(){check();poll=setInterval(check,3000);}
+  {% if s.mode == 'direct' %}
+  // The router only lets one address in. Ask a neutral service for this browser's IPv4 address — it can differ from
+  // what TapTap saw (IPv6 to TapTap, mobile data, a proxy) — and move the path to it if needed.
+  fetch('https://api4.ipify.org?format=json').then(function(r){return r.json();}).then(function(j){
+    if(j&&j.ip&&j.ip!=='{{ s.client_ip }}'){var fd=new FormData();fd.append('action','ip');fd.append('ip',j.ip);fd.append('csrfmiddlewaretoken',csrf);
+      return fetch('',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){if(d.ok){paint(d);}});}
+  }).catch(function(){}).then(start);
+  {% else %}start();{% endif %}
+})();
 (function(){var end=new Date('{{ s.expires_at|date:"c" }}'),el=document.getElementById('rmLeft');if(el){var t=setInterval(function(){var s=Math.max(0,Math.round((end-Date.now())/1000));el.textContent=Math.floor(s/60)+' min '+(s%60)+' s left';if(!s){clearInterval(t);location.reload();}},1000);}
   var b=document.getElementById('pw');if(b)b.onclick=function(){var fd=new FormData();fd.append('action','reveal');fd.append('csrfmiddlewaretoken',document.querySelector('[name=csrfmiddlewaretoken]').value);
     fetch('{% url "netdev_action" d.id %}',{method:'POST',body:fd,credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){document.getElementById('p').textContent=d.password;navigator.clipboard.writeText(d.password);b.textContent='Copied ✓';});};})();

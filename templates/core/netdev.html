@@ -25,6 +25,7 @@
       <div class="flex-grow-1"><b>{{ d.name }}</b><div class="nd-meta"><span class="nd-dot {% if d.online %}on{% endif %}"></span>{% if d.online %}online{% elif d.seen %}seen {{ d.seen|timesince }} ago{% else %}not seen by the MikroTik yet{% endif %}</div></div></div>
     <div class="nd-meta">{{ d.brand }} {{ d.model }} · <span class="font-monospace">{{ d.ip }}</span>{% if d.mac %} · {% device_link d.mac %}{% endif %}</div>
     <div class="nd-meta">Behind <b>{{ d.router.name|default:'—' }}</b> · {% if d.reach_mode == 'proxy' %}<span class="nd-mode proxy">through TapTap tunnel</span>{% elif d.reach_mode == 'direct' %}<span class="nd-mode direct">direct, your IP only</span>{% else %}<span class="nd-mode none" title="{{ d.reach_note }}">not reachable yet</span>{% endif %}</div>
+    {% if not d.reach_mode %}<div class="nd-meta text-danger-emphasis">{{ d.reach_note }}</div>{% endif %}
     {% if d.notes %}<div class="nd-meta">“{{ d.notes }}”</div>{% endif %}
     <div class="nd-acts">
       <form method="post" action="{% url 'netdev_action' d.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary" name="action" value="open" {% if not d.reach_mode %}disabled title="{{ d.reach_note }}"{% endif %}><i class="bi bi-box-arrow-up-right"></i> Open admin page</button></form>

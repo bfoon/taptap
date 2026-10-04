@@ -45,7 +45,7 @@ class ReachAndRulesTests(Base):
         self.d.router = self.link; self.d.save()
         self.assertIsNone(netdev.reach(self.link)[0])                         # no public IP, no tunnel
         with mock.patch('core.tunnel.tunnel_ready', return_value=True), mock.patch('core.tunnel.get_tunnel', return_value=S(tunnel_ip='10.77.0.9')), \
-             mock.patch('core.netdev._channel', return_value='TapTap Link'), mock.patch('core.linkops.send') as send:
+             mock.patch('core.netdev._channel', return_value='TapTap Link'), mock.patch('core.linkops.send', return_value=S(pk=77)) as send:
             s = netdev.open_session(self.d, self.owner, '')
         self.assertEqual((s.mode, s.target_host), ('proxy', '10.77.0.9'))
         kind, params = send.call_args.args[1], send.call_args.args[2]
@@ -109,3 +109,30 @@ class PageAndOmadaTests(Base):
             self.c.post('/network/omada/do/', {'action': 'block', 'mac': '06:11:22:33:44:55'})
             self.assertIn(('POST', '/openapi/v1/OID/sites/S1/clients/06-11-22-33-44-55/block'), calls)
             self.assertEqual(om.blacklist_hook(self.b, ['AA:BB:CC:DD:EE:FF']), 1)
+
+
+class BehindNatAndStatusTests(Base):
+    def test_router_behind_isp_nat_is_not_offered_a_direct_path(self):
+        from .models import RouterConfigSnapshot
+        RouterConfigSnapshot.objects.create(router=self.api, sections={'IP addresses': {'rows': [{'address': '192.168.1.2/24'}, {'address': '192.168.88.1/24'}]}})
+        mode, why = netdev.reach(self.api)
+        self.assertIsNone(mode); self.assertIn('is not on the MikroTik', why); self.assertIn('TapTap Tunnel', why)
+        RouterConfigSnapshot.objects.filter(router=self.api).update(sections={'IP addresses': {'rows': [{'address': '41.223.10.10/30'}]}})
+        self.assertEqual(netdev.reach(self.api)[0], 'direct')
+
+    def test_waiting_ready_failed_and_moving_to_the_browser_address(self):
+        from .models import AgentCommand
+        self.d.router = self.link; self.d.save()
+        s = RemoteSession.objects.create(device=self.d, user=self.owner, token='zz' * 9, mode='direct', port=41005, target_host='179.64.95.8',
+                                         client_ip='2a02::1', expires_at=timezone.now() + timedelta(minutes=30))
+        cmd = AgentCommand.objects.create(router=self.link, kind='remote_nat', params={}, status='queued', expires_at=timezone.now() + timedelta(minutes=10))
+        s.command_id = cmd.pk; s.save()
+        self.assertEqual(netdev.state(s)[0], 'waiting')
+        AgentCommand.objects.filter(pk=cmd.pk).update(status='done'); self.assertEqual(netdev.state(s)[0], 'ready')
+        AgentCommand.objects.filter(pk=cmd.pk).update(status='failed', result='bad'); self.assertEqual(netdev.state(s)[0], 'failed')
+        applied = []
+        with mock.patch('core.netdev._apply', side_effect=lambda r, rules, add=True, comment='': applied.append((add, rules)) or None):
+            r = self.c.post(f'/network/remote/{s.token}/', {'action': 'ip', 'ip': '102.1.2.3'}).json()
+        self.assertTrue(r['moved']); self.assertEqual(r['client_ip'], '102.1.2.3')
+        self.assertEqual(applied[0], (False, [])); self.assertEqual(applied[1][1][0]['src-address'], '102.1.2.3')
+        self.assertEqual(self.c.get(f'/network/remote/{s.token}/?status=1').json()['client_ip'], '102.1.2.3')

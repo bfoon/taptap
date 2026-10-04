@@ -125,6 +125,19 @@ def netdev_session(request, token):
     if request.method == 'POST' and request.POST.get('action') == 'close':
         netdev.close_session(s); messages.info(request, 'Remote admin closed — the path on the router is removed.')
         return redirect('netdev_list')
+    if request.method == 'POST' and request.POST.get('action') == 'ip':
+        # the browser's own IPv4 address (it can differ from what TapTap saw: IPv6, mobile data, a proxy)
+        try:
+            moved = netdev.use_client_ip(s, request.POST.get('ip', '').strip())
+        except (ValueError, netdev.RemoteError) as exc:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+        except Exception as exc:
+            return JsonResponse({'ok': False, 'error': f'{s.device.router.name}: {exc}'}, status=502)
+        st, msg = netdev.state(s)
+        return JsonResponse({'ok': True, 'moved': moved, 'client_ip': s.client_ip, 'state': st, 'message': msg})
+    if request.GET.get('status') == '1':
+        st, msg = netdev.state(s)
+        return JsonResponse({'state': st, 'message': msg, 'client_ip': s.client_ip})
     live = not s.closed_at and s.expires_at > timezone.now()
     url = f'/remote/{s.token}/' if s.mode == 'proxy' else netdev.direct_url(s)
     return render(request, 'core/netdev_session.html', {'s': s, 'd': s.device, 'live': live, 'url': url,

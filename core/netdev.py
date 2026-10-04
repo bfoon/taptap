@@ -37,6 +37,16 @@ def _channel(router):
     return channel(router)
 
 
+def router_addresses(router):
+    """IPv4 addresses configured on the MikroTik (from its last sync), or None when not known yet."""
+    from .models import RouterConfigSnapshot
+    snap = RouterConfigSnapshot.objects.filter(router=router).first()
+    rows = (((snap.sections or {}).get('IP addresses') or {}).get('rows') if snap else None)
+    if not rows:
+        return None
+    return {str(r.get('address', '')).split('/')[0] for r in rows if r.get('address')}
+
+
 def reach(router):
     """('proxy', tunnel_ip) / ('direct', public_ip) / (None, reason)."""
     if router is None:
@@ -53,6 +63,13 @@ def reach(router):
         host = getattr(getattr(router, 'agent', None), 'last_ip', '') or ''
     try:
         if host and ipaddress.ip_address(host).is_global:
+            mine = router_addresses(router)
+            if mine is not None and host not in mine:
+                # The address TapTap sees belongs to the modem / ISP in front of the MikroTik (NAT): a port opened
+                # on the MikroTik is never reached from the Internet.
+                return None, (f'{router.name} is behind another router or the ISP (its Internet address {host} is not on the '
+                              f'MikroTik), so a direct path cannot reach it. Turn on the TapTap Tunnel on its TapTap Link page '
+                              f'(RouterOS 7) — then the admin page opens inside TapTap.')
             return 'direct', host
     except ValueError:
         if host:
@@ -81,10 +98,8 @@ def _apply(router, rules, add=True, comment=''):
     if _channel(router) == 'TapTap Link':
         from .linkops import send
         if add:
-            send(router, 'remote_nat', {'rules': rules}, label='Open a remote admin page', minutes=10)
-        else:
-            send(router, 'remote_close', {'comment': comment}, label='Close a remote admin page', minutes=60)
-        return
+            return send(router, 'remote_nat', {'rules': rules}, label='Open a remote admin page', minutes=10)
+        return send(router, 'remote_close', {'comment': comment}, label='Close a remote admin page', minutes=60)
     from .mikrotik import MikroTikService
     with MikroTikService(router) as svc:
         nat = svc.resource('/ip/firewall/nat')
@@ -113,7 +128,9 @@ def open_session(device, user, client_ip):
                                      target_host=host, client_ip=client_ip if mode == 'direct' else '',
                                      expires_at=timezone.now() + timedelta(minutes=SESSION_MINUTES))
     try:
-        _apply(device.router, nat_rules(s, device))
+        cmd = _apply(device.router, nat_rules(s, device))
+        if cmd is not None and getattr(cmd, 'pk', None):
+            s.command_id = cmd.pk; s.save(update_fields=['command_id'])
     except Exception as exc:
         s.closed_at = timezone.now(); s.save(update_fields=['closed_at'])
         raise RemoteError(f'{device.router.name} did not accept it: {exc}')
@@ -170,3 +187,35 @@ def rewrite(body, ctype, prefix):
         s = shim(prefix)
         text = re.sub(r'(<head[^>]*>)', r'\1' + s.replace('\\', '\\\\'), text, count=1, flags=re.I) if re.search(r'<head[^>]*>', text, re.I) else s + text
     return text.encode('utf-8')
+
+
+
+def state(s):
+    """(state, message) for the session page: 'ready' / 'waiting' / 'failed' / 'ended'."""
+    if s.closed_at or s.expires_at <= timezone.now():
+        return 'ended', 'This session has ended.'
+    if not s.command_id:
+        return 'ready', 'Ready.'
+    from .models import AgentCommand
+    cmd = AgentCommand.objects.filter(pk=s.command_id).first()
+    st = getattr(cmd, 'status', '')
+    if st == 'done':
+        return 'ready', 'Ready — the router opened the path.'
+    if st in ('failed', 'expired'):
+        return 'failed', f'{s.device.router.name} did not open the path: {getattr(cmd, "result", "") or st}.'
+    return 'waiting', f'Waiting for {s.device.router.name} to open the path (next check-in, a few seconds)…'
+
+
+def use_client_ip(s, ip):
+    """Your browser reaches the router from another address than TapTap saw (IPv6, mobile data, a proxy):
+    move the direct path to that address."""
+    ipaddress.ip_address(ip)          # raises ValueError
+    if s.mode != 'direct' or ip == s.client_ip or s.closed_at:
+        return False
+    _apply(s.device.router, [], add=False, comment=s.comment)
+    s.client_ip = ip
+    s.save(update_fields=['client_ip'])
+    cmd = _apply(s.device.router, nat_rules(s, s.device))
+    if cmd is not None and getattr(cmd, 'pk', None):
+        s.command_id = cmd.pk; s.save(update_fields=['command_id'])
+    return True
