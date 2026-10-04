@@ -136,3 +136,19 @@ class BehindNatAndStatusTests(Base):
         self.assertTrue(r['moved']); self.assertEqual(r['client_ip'], '102.1.2.3')
         self.assertEqual(applied[0], (False, [])); self.assertEqual(applied[1][1][0]['src-address'], '102.1.2.3')
         self.assertEqual(self.c.get(f'/network/remote/{s.token}/?status=1').json()['client_ip'], '102.1.2.3')
+
+
+class CardHintsTests(Base):
+    def test_address_problems_and_one_banner_per_router(self):
+        from .models import RouterConfigSnapshot
+        RouterConfigSnapshot.objects.create(router=self.api, sections={'IP addresses': {'rows': [{'address': '172.16.0.1/16'}, {'address': '192.168.1.2/24'}]}})
+        a = NetDevice.objects.create(business=self.b, router=self.api, name='TP A', ip='192.168.0.1')
+        NetDevice.objects.create(business=self.b, router=self.api, name='TP B', ip='192.168.0.1')
+        g = NetDevice.objects.create(business=self.b, router=self.api, name='Grandstream', ip='172.16.3.112')
+        items = list(NetDevice.objects.filter(business=self.b).select_related('router'))
+        self.assertIn('also uses 192.168.0.1', netdev.device_problem(a, items))
+        self.assertIsNone(netdev.device_problem(g, items))
+        self.assertIn('not in any network', netdev.device_problem(self.d, items))        # 192.168.88.20 is not on this MikroTik
+        page = self.c.get('/network/devices/').content.decode()
+        self.assertEqual(page.count('admin pages can’t be opened yet'), 1)                # once per router, not per card
+        self.assertIn('TAPTAP_TUNNEL_ENABLED', page)

@@ -47,6 +47,42 @@ def router_addresses(router):
     return {str(r.get('address', '')).split('/')[0] for r in rows if r.get('address')}
 
 
+def router_networks(router):
+    """IPv4 networks configured on the MikroTik (from its last sync), or None when not known yet."""
+    from .models import RouterConfigSnapshot
+    snap = RouterConfigSnapshot.objects.filter(router=router).first()
+    rows = (((snap.sections or {}).get('IP addresses') or {}).get('rows') if snap else None)
+    if not rows:
+        return None
+    nets = []
+    for r in rows:
+        try:
+            nets.append(ipaddress.ip_interface(str(r.get('address', ''))).network)
+        except ValueError:
+            pass
+    return nets
+
+
+def device_problem(device, others=()):
+    """Why the MikroTik itself cannot reach this device's admin page (None = fine)."""
+    if device.router is None:
+        return None
+    if any(o.pk != device.pk and o.router_id == device.router_id and o.ip == device.ip for o in others):
+        return (f'Another device behind {device.router.name} also uses {device.ip} — two devices cannot share one address. '
+                f'Give each its own address (in its LAN / management settings), then edit it here.')
+    nets = router_networks(device.router)
+    try:
+        ip = ipaddress.ip_address(device.ip)
+    except ValueError:
+        return None
+    if nets and not any(ip in n for n in nets):
+        shown = ', '.join(str(n) for n in nets if not n.is_loopback and n.prefixlen < 32)[:120]
+        return (f'{device.ip} is not in any network of {device.router.name} ({shown}), so the MikroTik cannot reach it. '
+                f'Use the address the device has on the MikroTik’s side (its WAN / management address), or set its '
+                f'management address inside one of those networks.')
+    return None
+
+
 def reach(router):
     """('proxy', tunnel_ip) / ('direct', public_ip) / (None, reason)."""
     if router is None:

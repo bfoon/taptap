@@ -41,6 +41,19 @@ def netdev_list(request):
         d.online = bool(rd and rd.is_online)
         d.seen = rd.last_seen_at if rd else None
         d.reach_mode, d.reach_note = netdev.reach(d.router)
+        d.problem = netdev.device_problem(d, items)
+    # one explanation per router instead of the same text on every card, with the fix next to it
+    blocked_routers = {}
+    for d in items:
+        if d.router and not d.reach_mode and d.router_id not in blocked_routers:
+            info = {'router': d.router, 'note': d.reach_note, 'tunnel': False, 'supported': True}
+            try:
+                from .tunnel import tunnel_summary
+                t = tunnel_summary(d.router)
+                info['tunnel'], info['supported'] = t.get('enabled'), t.get('supported', True)
+            except Exception:
+                pass
+            blocked_routers[d.router_id] = info
     known = {norm(d.mac) for d in items} | {d.ip for d in items}
     suggestions = []
     for rd in RouterDevice.objects.filter(router__business=business).select_related('router').order_by('-last_seen_at')[:2000]:
@@ -61,7 +74,7 @@ def netdev_list(request):
         except om.OmadaError as exc:
             omada_err = str(exc)
     sessions = RemoteSession.objects.filter(device__business=business, closed_at__isnull=True, expires_at__gt=timezone.now()).select_related('device', 'user')
-    return render(request, 'core/netdev.html', {'items': items, 'suggestions': suggestions[:30], 'routers': business.routers.order_by('name'),
+    return render(request, 'core/netdev.html', {'items': items, 'blocked_routers': list(blocked_routers.values()), 'suggestions': suggestions[:30], 'routers': business.routers.order_by('name'),
                                                 'kinds': NetDevice.KINDS, 'omada': omada, 'omada_aps': ap, 'omada_clients': cl[:300],
                                                 'omada_err': omada_err, 'sessions': sessions})
 

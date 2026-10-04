@@ -18,14 +18,22 @@
 
 {% if sessions %}<div class="alert alert-info small"><b>Open remote sessions:</b> {% for s in sessions %}<a href="{% url 'netdev_session' s.token %}">{{ s.device.name }}</a> ({{ s.user.username }}, until {{ s.expires_at|date:'H:i' }}){% if not forloop.last %} · {% endif %}{% endfor %}</div>{% endif %}
 
+{% for b in blocked_routers %}
+<div class="alert alert-warning d-flex flex-wrap gap-2 align-items-center justify-content-between">
+  <div><b><i class="bi bi-router"></i> {{ b.router.name }}: admin pages can’t be opened yet.</b><div class="small">{{ b.note }}</div>
+    {% if not b.tunnel %}<div class="small mt-1"><b>The TapTap Tunnel is switched off on this TapTap server.</b> Set <code>TAPTAP_TUNNEL_ENABLED=1</code> in <code>/opt/taptap/.env</code> and restart (<code>docker compose up -d</code>), then turn it on for the router.</div>{% endif %}
+    {% if not b.supported %}<div class="small mt-1">This router runs RouterOS 6 — the tunnel needs RouterOS 7 (System › Packages › Check for updates, then upgrade to 7). Or forward ports 41000–41999 on the ISP modem to the MikroTik.</div>{% endif %}</div>
+  {% if b.supported and b.tunnel %}<a class="btn btn-sm btn-warning" href="{% url 'router_link' b.router.id %}#tunnel"><i class="bi bi-shield-lock"></i> Turn on the TapTap Tunnel</a>{% endif %}
+</div>
+{% endfor %}
 <div class="nd-grid mb-4">
 {% for d in items %}
   <div class="nd-card">
     <div class="nd-top"><span class="nd-ic">{% if d.kind == 'ap' %}📶{% elif d.kind == 'switch' %}🔀{% else %}📡{% endif %}</span>
       <div class="flex-grow-1"><b>{{ d.name }}</b><div class="nd-meta"><span class="nd-dot {% if d.online %}on{% endif %}"></span>{% if d.online %}online{% elif d.seen %}seen {{ d.seen|timesince }} ago{% else %}not seen by the MikroTik yet{% endif %}</div></div></div>
     <div class="nd-meta">{{ d.brand }} {{ d.model }} · <span class="font-monospace">{{ d.ip }}</span>{% if d.mac %} · {% device_link d.mac %}{% endif %}</div>
-    <div class="nd-meta">Behind <b>{{ d.router.name|default:'—' }}</b> · {% if d.reach_mode == 'proxy' %}<span class="nd-mode proxy">through TapTap tunnel</span>{% elif d.reach_mode == 'direct' %}<span class="nd-mode direct">direct, your IP only</span>{% else %}<span class="nd-mode none" title="{{ d.reach_note }}">not reachable yet</span>{% endif %}</div>
-    {% if not d.reach_mode %}<div class="nd-meta text-danger-emphasis">{{ d.reach_note }}</div>{% endif %}
+    <div class="nd-meta">Behind <b>{{ d.router.name|default:'—' }}</b> · {% if d.reach_mode == 'proxy' %}<span class="nd-mode proxy">through TapTap tunnel</span>{% elif d.reach_mode == 'direct' %}<span class="nd-mode direct">direct, your IP only</span>{% else %}<span class="nd-mode none" title="{{ d.reach_note }}">needs the TapTap Tunnel — see above</span>{% endif %}</div>
+    {% if d.problem %}<div class="nd-meta text-danger-emphasis"><i class="bi bi-exclamation-triangle"></i> {{ d.problem }}</div>{% endif %}
     {% if d.notes %}<div class="nd-meta">“{{ d.notes }}”</div>{% endif %}
     <div class="nd-acts">
       <form method="post" action="{% url 'netdev_action' d.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary" name="action" value="open" {% if not d.reach_mode %}disabled title="{{ d.reach_note }}"{% endif %}><i class="bi bi-box-arrow-up-right"></i> Open admin page</button></form>
