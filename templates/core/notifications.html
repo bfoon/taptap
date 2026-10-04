@@ -2,77 +2,221 @@
 {% block title %}Email notifications — TapTap{% endblock %}
 {% block heading %}Email notifications{% endblock %}
 {% block extra_head %}<style>
-.nt-top{display:grid;grid-template-columns:1.3fr 1fr;gap:1rem;margin-bottom:1rem}
-.nt-card{background:#fff;border:1px solid var(--border);border-radius:18px;padding:1.1rem 1.2rem}
-.nt-master{display:flex;align-items:center;gap:1rem}
-.nt-master .form-switch .form-check-input{width:3rem;height:1.6rem}
-.nt-to{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.5rem}.nt-to span{background:#eef4ff;color:#1558b8;border-radius:999px;padding:.2rem .6rem;font-size:.76rem;font-weight:700}
-.nt-group{margin-bottom:1rem}.nt-group h4{font-size:.8rem;font-weight:800;color:#8a9aab;text-transform:uppercase;letter-spacing:.05em;margin:0 0 .4rem}
-.nt-ev{display:grid;grid-template-columns:1fr auto;gap:1rem;align-items:center;padding:.65rem 0;border-bottom:1px solid #eef2f6}
-.nt-ev b{font-size:.88rem;display:block}.nt-ev small{color:var(--muted);font-size:.76rem}
-.nt-sev{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:.35rem;vertical-align:middle}
-.nt-sev.critical{background:#d64545}.nt-sev.warning{background:#f59e0b}.nt-sev.info{background:#1769e0}
-.nt-seg{display:inline-flex;background:#f1f5f9;border-radius:10px;padding:.2rem}
-.nt-seg input{display:none}.nt-seg label{padding:.3rem .65rem;border-radius:8px;font-size:.74rem;font-weight:700;color:#51667b;cursor:pointer}
-.nt-seg input:checked+label{background:#fff;color:#102033;box-shadow:0 1px 3px #0001}
-.nt-seg input[value=off]:checked+label{color:#b42323}
-.nt-log td{font-size:.8rem}.nt-st{font-size:.68rem;font-weight:800;border-radius:999px;padding:.12rem .5rem}
-.nt-st.sent{background:#e4f7ee;color:#138453}.nt-st.failed{background:#fdeaea;color:#c02b2b}.nt-st.queued,.nt-st.digest{background:#fff4dc;color:#9a6200}.nt-st.skipped{background:#eef2f6;color:#6c7c90}
-.nt-off .nt-body{opacity:.45;pointer-events:none}
-.nt-save{position:sticky;bottom:.8rem;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:1rem;background:#102033;color:#dbe7f3;border-radius:14px;padding:.6rem .8rem .6rem 1rem;margin-bottom:1rem;box-shadow:0 10px 30px #0b223733;font-size:.84rem}
-@media(max-width:1000px){.nt-top{grid-template-columns:1fr}.nt-ev{grid-template-columns:1fr}}
+.nx-hero{display:grid;grid-template-columns:1.25fr 1fr;gap:1rem;margin-bottom:1rem}
+.nx-card{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:20px;padding:1.1rem 1.2rem}
+.nx-power{display:flex;gap:1rem;align-items:center}
+.nx-bell{width:64px;height:64px;border-radius:18px;display:grid;place-items:center;font-size:1.9rem;background:linear-gradient(135deg,#1769e0,#7c3aed);color:#fff;flex:none;box-shadow:0 10px 24px rgba(23,105,224,.25);transition:filter .2s}
+.nx-off .nx-bell{filter:grayscale(1) opacity(.55)}
+.nx-power h2{font-size:1.15rem;font-weight:800;margin:0}.nx-power p{margin:.1rem 0 0;color:var(--muted,#6c7c90);font-size:.86rem}
+.nx-switch .form-check-input{width:3.3rem;height:1.75rem;cursor:pointer}
+.nx-chips{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;border:1px solid var(--border,#dbe4ef);border-radius:14px;padding:.4rem .5rem;min-height:48px;background:var(--bs-body-bg,#fff)}
+.nx-chip{display:inline-flex;align-items:center;gap:.35rem;background:#eef4ff;color:#1558b8;border-radius:999px;padding:.25rem .3rem .25rem .65rem;font-size:.8rem;font-weight:700}
+.nx-chip.main{background:#e4f7ee;color:#11683f;padding-right:.65rem}
+.nx-chip button{border:0;background:rgba(0,0,0,.08);color:inherit;width:18px;height:18px;border-radius:50%;font-size:.7rem;line-height:1;display:grid;place-items:center;padding:0}
+.nx-chips input{border:0;outline:0;flex:1;min-width:170px;font-size:.86rem;background:transparent}
+.nx-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin:.9rem 0 .6rem}
+.nx-stat{border-radius:14px;padding:.55rem .6rem;background:#f6f9fc}.nx-stat b{display:block;font-size:1.25rem}.nx-stat small{color:var(--muted,#6c7c90);font-size:.72rem}
+.nx-stat.bad b{color:#c02b2b}.nx-stat.ok b{color:#138453}
+.nx-spark{display:flex;align-items:flex-end;gap:5px;height:46px}.nx-spark div{flex:1;background:#c7dbff;border-radius:5px 5px 2px 2px;min-height:3px;position:relative}
+.nx-spark div.today{background:#1769e0}.nx-spark-l{display:flex;gap:5px;font-size:.62rem;color:var(--muted,#8a9aab)}.nx-spark-l span{flex:1;text-align:center}
+.nx-when{display:flex;flex-direction:column;gap:.35rem;font-size:.84rem}.nx-when i{color:#1769e0;width:18px}
+.nx-day{position:relative;height:38px;border-radius:12px;background:linear-gradient(90deg,#0f2a4d 0%,#1e4b8a 22%,#fde68a 30%,#fff7d6 50%,#fde68a 72%,#1e4b8a 80%,#0f2a4d 100%);margin:.5rem 0 .2rem;overflow:hidden}
+.nx-quiet{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(135deg,rgba(15,23,42,.55) 0 6px,rgba(15,23,42,.38) 6px 12px)}
+.nx-sum{position:absolute;top:4px;width:30px;height:30px;margin-left:-15px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:.95rem;box-shadow:0 2px 8px #0003}
+.nx-hours{display:flex;justify-content:space-between;font-size:.62rem;color:var(--muted,#8a9aab)}
+.nx-presets{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem;margin-bottom:1rem}
+.nx-preset{border:1px solid var(--border,#e3e9f1);background:var(--panel,#fff);border-radius:16px;padding:.7rem .8rem;text-align:left;cursor:pointer;transition:transform .12s,box-shadow .12s}
+.nx-preset:hover{transform:translateY(-2px);box-shadow:0 10px 22px rgba(10,20,35,.08)}.nx-preset.on{border-color:#1769e0;box-shadow:0 0 0 3px rgba(23,105,224,.15)}
+.nx-preset b{display:block;font-size:.92rem}.nx-preset small{color:var(--muted,#6c7c90);font-size:.74rem}.nx-preset .e{font-size:1.3rem}
+.nx-tools{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin-bottom:.6rem}
+.nx-group{border:1px solid var(--border,#eef2f6);border-radius:16px;margin-bottom:.7rem;overflow:hidden}
+.nx-group>summary{list-style:none;display:flex;align-items:center;gap:.6rem;padding:.65rem .9rem;cursor:pointer;background:#f8fafc;font-weight:800}
+.nx-group>summary::-webkit-details-marker{display:none}.nx-group>summary .cnt{margin-left:auto;font-size:.72rem;font-weight:700;color:var(--muted,#6c7c90)}
+.nx-group>summary .gi{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:#e8f0ff;color:#1554b8}
+.nx-ev{display:grid;grid-template-columns:1fr auto;gap:1rem;align-items:center;padding:.65rem .9rem;border-top:1px solid #eef2f6}
+.nx-ev b{font-size:.88rem}.nx-ev small{display:block;color:var(--muted,#6c7c90);font-size:.76rem}
+.nx-ev.changed{background:#fffbeb}
+.nx-sev{font-size:.62rem;font-weight:800;border-radius:999px;padding:.1rem .45rem;margin-left:.35rem;vertical-align:middle;text-transform:uppercase;letter-spacing:.04em}
+.nx-sev.critical{background:#fdeaea;color:#c02b2b}.nx-sev.warning{background:#fff4dc;color:#9a6200}.nx-sev.info{background:#e8f0ff;color:#1554b8}
+.nx-seg{display:inline-flex;background:#f1f5f9;border-radius:12px;padding:.2rem}
+.nx-seg input{position:absolute;opacity:0;pointer-events:none}.nx-seg label{padding:.32rem .65rem;border-radius:9px;font-size:.76rem;font-weight:700;color:#51667b;cursor:pointer;white-space:nowrap}
+.nx-seg input:checked+label{background:#fff;color:#102033;box-shadow:0 1px 3px #0002}.nx-seg input[value=instant]:checked+label{color:#1554b8}
+.nx-seg input[value=off]:checked+label{color:#b42323}.nx-seg input:focus-visible+label{outline:2px solid #1769e0}
+.nx-preview{border:1px solid var(--border,#e3e9f1);border-radius:16px;overflow:hidden;font-size:.82rem}
+.nx-preview .bar{background:#0f2a4d;color:#fff;padding:.55rem .8rem;display:flex;justify-content:space-between}
+.nx-preview .it{padding:.5rem .8rem;border-top:1px solid #eef2f6;display:flex;gap:.5rem}.nx-preview .it i{font-style:normal}
+.nx-log{display:flex;flex-direction:column}.nx-log .row-i{display:grid;grid-template-columns:auto 1fr auto;gap:.7rem;align-items:center;padding:.5rem 0;border-bottom:1px solid #eef2f6;font-size:.84rem}
+.nx-dot{width:10px;height:10px;border-radius:50%}.nx-dot.critical{background:#d64545}.nx-dot.warning{background:#f59e0b}.nx-dot.info,.nx-dot.good{background:#1769e0}
+.nx-st{font-size:.68rem;font-weight:800;border-radius:999px;padding:.12rem .5rem;white-space:nowrap}
+.nx-st.sent{background:#e4f7ee;color:#138453}.nx-st.failed{background:#fdeaea;color:#c02b2b}.nx-st.queued,.nx-st.digest{background:#fff4dc;color:#9a6200}.nx-st.skipped{background:#eef2f6;color:#6c7c90}
+.nx-filter{display:flex;gap:.3rem;flex-wrap:wrap}.nx-filter button{border:1px solid var(--border,#dbe4ef);background:var(--panel,#fff);border-radius:999px;padding:.15rem .6rem;font-size:.74rem;font-weight:700}
+.nx-filter button.on{background:#102033;color:#fff;border-color:#102033}
+.nx-save{position:sticky;bottom:.8rem;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:1rem;background:#102033;color:#dbe7f3;border-radius:16px;padding:.6rem .8rem .6rem 1rem;margin:1rem 0;box-shadow:0 10px 30px #0b223733;font-size:.86rem;transform:translateY(0);transition:transform .2s,opacity .2s}
+.nx-save.idle{opacity:.85}.nx-save .pulse{display:inline-block;width:8px;height:8px;border-radius:50%;background:#facc15;margin-right:.4rem;animation:nxp 1.4s infinite}@keyframes nxp{50%{opacity:.3}}
+.nx-off .nx-body{opacity:.45;pointer-events:none;filter:saturate(.4)}
+.nx-layout{display:grid;grid-template-columns:1fr 340px;gap:1rem}@media(max-width:1100px){.nx-layout{grid-template-columns:1fr}.nx-hero{grid-template-columns:1fr}.nx-presets{grid-template-columns:1fr 1fr}.nx-ev{grid-template-columns:1fr}}
+html[data-theme="dark"] .nx-group>summary,html[data-theme="dark"] .nx-stat{background:#1d2229}html[data-theme="dark"] .nx-ev.changed{background:#2a2410}
 </style>{% endblock %}
 {% block content %}
-{% if not configured %}<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> <b>No email server is set up yet</b> — messages are only written to the server log. Add <code>EMAIL_HOST</code>, <code>EMAIL_HOST_USER</code>, <code>EMAIL_HOST_PASSWORD</code> (and <code>EMAIL_PORT</code>) to your <code>.env</code>, then restart. Gmail, Zoho, Outlook and your web host's SMTP all work.</div>{% endif %}
-<form method="post" id="ntForm" class="{% if not s.enabled %}nt-off{% endif %}">{% csrf_token %}
-<div class="nt-top">
-  <section class="nt-card">
-    <div class="nt-master"><div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" name="enabled" id="ntEnabled" {% if s.enabled %}checked{% endif %}></div>
-      <div><b>Email notifications are <span id="ntOnOff">{% if s.enabled %}on{% else %}off{% endif %}</span></b><br><small class="text-secondary">Turn everything off here, or choose per event below.</small></div></div>
-    <div class="nt-body mt-3">
-      <label class="form-label small fw-bold">Business email</label>
-      <input class="form-control" type="email" name="business_email" value="{{ current_business.email }}" placeholder="{{ request.user.email }}">
-      <label class="form-label small fw-bold mt-2">Also send to</label>
-      <input class="form-control" name="extra_recipients" value="{{ s.extra_recipients }}" placeholder="manager@example.com, tech@example.com">
-      <div class="nt-to">{% for e in to %}<span><i class="bi bi-envelope"></i> {{ e }}</span>{% empty %}<small class="text-danger">No address yet — add a business email.</small>{% endfor %}</div>
+{% if not configured %}<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> <b>No email server is set up yet</b> — messages are only written to the server log. Add <code>EMAIL_HOST</code>, <code>EMAIL_HOST_USER</code>, <code>EMAIL_HOST_PASSWORD</code> and <code>DEFAULT_FROM_EMAIL</code> to <code>/opt/taptap/.env</code>.</div>{% endif %}
+<form method="post" id="ntForm" class="{% if not s.enabled %}nx-off{% endif %}">{% csrf_token %}
+<div class="nx-hero">
+  <section class="nx-card">
+    <div class="nx-power">
+      <span class="nx-bell" aria-hidden="true">✉️</span>
+      <div class="flex-grow-1"><h2>Email notifications are <span id="ntOnOff">{% if s.enabled %}on{% else %}off{% endif %}</span></h2>
+        <p id="ntPowerNote">{% if s.enabled %}TapTap emails you what matters, the way you choose below.{% else %}Nothing is emailed — everything still shows in TapTap.{% endif %}</p></div>
+      <div class="form-check form-switch nx-switch m-0"><input class="form-check-input" type="checkbox" role="switch" name="enabled" id="ntEnabled" aria-label="Email notifications" {% if s.enabled %}checked{% endif %}></div>
+    </div>
+    <div class="nx-body mt-3">
+      <label class="form-label small fw-bold" for="ntMain">Business email</label>
+      <input class="form-control" type="email" id="ntMain" name="business_email" value="{{ current_business.email }}" placeholder="{{ request.user.email }}">
+      <label class="form-label small fw-bold mt-3" for="ntAdd">Who gets the emails</label>
+      <div class="nx-chips" id="ntChips">
+        {% if main_email %}<span class="nx-chip main" title="Business email"><i class="bi bi-star-fill"></i> {{ main_email }}</span>{% endif %}
+        <input id="ntAdd" type="email" placeholder="Add an address and press Enter" autocomplete="off" aria-label="Add another recipient">
+      </div>
+      <input type="hidden" name="extra_recipients" id="ntExtra" value="{{ s.extra_recipients }}">
+      <small class="text-secondary">Managers, your technician… each gets the same emails. Press Enter or comma after each address.</small>
     </div>
   </section>
-  <section class="nt-card nt-body">
-    <label class="form-check form-switch"><input class="form-check-input" type="checkbox" name="daily_summary" {% if s.daily_summary %}checked{% endif %}> <span class="form-check-label"><b>Morning summary</b> — yesterday's sales, data, busiest hour, router health</span></label>
-    <div class="d-flex align-items-center gap-2 mt-2"><small>Send at</small><select class="form-select form-select-sm w-auto" name="summary_hour">{% for h in hours %}<option value="{{ h }}" {% if h == s.summary_hour %}selected{% endif %}>{{ h|stringformat:'02d' }}:00</option>{% endfor %}</select></div>
-    <hr>
-    <b class="small">Quiet hours</b><p class="small text-secondary mb-2">Non-critical alerts wait for the next digest. A router going offline still wakes you.</p>
-    <div class="d-flex align-items-center gap-2"><input class="form-control form-control-sm w-auto" type="time" name="quiet_start" value="{{ s.quiet_start|time:'H:i' }}"> <small>to</small> <input class="form-control form-control-sm w-auto" type="time" name="quiet_end" value="{{ s.quiet_end|time:'H:i' }}"></div>
-    <hr>
-    <button type="submit" formaction="{% url 'notifications_test' %}" class="btn btn-sm btn-outline-primary" {% if not to %}disabled{% endif %}><i class="bi bi-send"></i> Send a test email</button>
+  <section class="nx-card nx-body">
+    <div class="d-flex justify-content-between align-items-center"><b>Last 7 days</b>
+      <button type="submit" formaction="{% url 'notifications_test' %}" formnovalidate class="btn btn-sm btn-outline-primary" {% if not to %}disabled{% endif %}><i class="bi bi-send"></i> Send a test</button></div>
+    <div class="nx-stats">
+      <div class="nx-stat ok"><b>{{ stats.sent }}</b><small>sent</small></div>
+      <div class="nx-stat"><b>{{ stats.waiting }}</b><small>waiting</small></div>
+      <div class="nx-stat {% if stats.failed %}bad{% endif %}"><b>{{ stats.failed }}</b><small>failed</small></div>
+      <div class="nx-stat"><b>{{ stats.off }}</b><small>turned off</small></div>
+    </div>
+    <div class="nx-spark" aria-hidden="true">{% for d in stats.days %}<div class="{% if forloop.last %}today{% endif %}" style="height:{{ d.pct }}%" title="{{ d.day|date:'D d M' }}: {{ d.n }}"></div>{% endfor %}</div>
+    <div class="nx-spark-l">{% for d in stats.days %}<span>{{ d.day|date:'D'|slice:':2' }}</span>{% endfor %}</div>
+    <div class="nx-when mt-3">
+      <span><i class="bi bi-clock-history"></i> Last email: {% if stats.last_sent %}{{ stats.last_sent.sent_at|timesince }} ago{% else %}none yet{% endif %}</span>
+      <span><i class="bi bi-collection"></i> Next digest: {% if stats.digest_waiting %}{{ stats.digest_waiting }} update{{ stats.digest_waiting|pluralize }}{% if stats.next_digest %} at {{ stats.next_digest|date:'H:i' }}{% else %} within the hour{% endif %}{% else %}nothing waiting{% endif %}</span>
+      <span><i class="bi bi-sunrise"></i> Morning summary: {% if s.daily_summary %}{{ stats.summary_at|date:'D H:i' }}{% else %}off{% endif %}</span>
+      {% if stats.failed %}<span class="text-danger"><i class="bi bi-exclamation-octagon"></i> {{ stats.failed }} failed — <button class="btn btn-link btn-sm p-0 align-baseline" formaction="{% url 'notifications_resend' %}" formnovalidate>send again</button></span>{% endif %}
+    </div>
   </section>
 </div>
 
-<section class="nt-card nt-body mb-3">
-  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"><h3 class="h6 fw-bold m-0">What to email you about</h3>
-    <div class="d-flex gap-1"><button type="button" class="btn btn-sm btn-light" data-all="instant">All instant</button><button type="button" class="btn btn-sm btn-light" data-all="digest">All in digest</button><button type="button" class="btn btn-sm btn-light" data-all="off">All off</button></div></div>
-  <p class="small text-secondary">Instant: right away (several at once arrive as one email). Digest: bundled into one email per hour. Off: never emailed — it still shows in TapTap.</p>
-  {% for group, events in groups.items %}<div class="nt-group"><h4>{{ group }}</h4>
-    {% for e in events %}<div class="nt-ev"><div><b><span class="nt-sev {{ e.severity }}"></span>{{ e.label }}</b><small>{{ e.help }}</small></div>
-      <div class="nt-seg" role="radiogroup" aria-label="{{ e.label }}">
-        <input type="radio" name="ev_{{ e.key }}" id="{{ e.key }}_i" value="instant" {% if e.mode == 'instant' %}checked{% endif %}><label for="{{ e.key }}_i">Instant</label>
-        <input type="radio" name="ev_{{ e.key }}" id="{{ e.key }}_d" value="digest" {% if e.mode == 'digest' %}checked{% endif %}><label for="{{ e.key }}_d">Digest</label>
-        <input type="radio" name="ev_{{ e.key }}" id="{{ e.key }}_o" value="off" {% if e.mode == 'off' %}checked{% endif %}><label for="{{ e.key }}_o">Off</label></div></div>{% endfor %}
-  </div>{% endfor %}
+<section class="nx-card nx-body mb-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2"><b><i class="bi bi-moon-stars"></i> Your day</b>
+    <label class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" name="daily_summary" id="ntSum" {% if s.daily_summary %}checked{% endif %}> <span class="form-check-label small"><b>Morning summary</b> — yesterday’s sales, data, busiest hour, router health</span></label></div>
+  <div class="nx-day" id="ntDay" aria-hidden="true"><div class="nx-quiet" id="ntQuiet"></div><div class="nx-quiet" id="ntQuiet2"></div><div class="nx-sum" id="ntSumDot" title="Morning summary">☀️</div></div>
+  <div class="nx-hours"><span>00</span><span>06</span><span>12</span><span>18</span><span>24</span></div>
+  <div class="d-flex flex-wrap gap-3 align-items-center mt-2 small">
+    <span>Summary at <select class="form-select form-select-sm d-inline-block w-auto" name="summary_hour" id="ntHour">{% for h in hours %}<option value="{{ h }}" {% if h == s.summary_hour %}selected{% endif %}>{{ h|stringformat:'02d' }}:00</option>{% endfor %}</select></span>
+    <span>Quiet from <input class="form-control form-control-sm d-inline-block w-auto" type="time" name="quiet_start" id="ntQs" value="{{ s.quiet_start|time:'H:i' }}"> to <input class="form-control form-control-sm d-inline-block w-auto" type="time" name="quiet_end" id="ntQe" value="{{ s.quiet_end|time:'H:i' }}"></span>
+    <span class="text-secondary">During quiet hours only <b>critical</b> alerts (a router going offline, a refused TapTap Link) reach you; the rest waits for the next digest.</span>
+  </div>
 </section>
-<div class="nt-save"><span id="ntSaveNote">Changes apply as soon as you save.</span><button class="btn btn-primary">Save notification settings</button></div>
+
+<div class="nx-layout nx-body">
+<section class="nx-card">
+  <h3 class="h6 fw-bold mb-2">What to email you about</h3>
+  <div class="nx-presets" role="group" aria-label="Quick choices">
+    <button type="button" class="nx-preset" data-preset="calm"><span class="e">🧘</span><b>Calm</b><small>Only emergencies right away, the rest once an hour.</small></button>
+    <button type="button" class="nx-preset" data-preset="balanced"><span class="e">⚖️</span><b>Balanced</b><small>TapTap’s recommended mix.</small></button>
+    <button type="button" class="nx-preset" data-preset="essentials"><span class="e">🎯</span><b>Essentials</b><small>Emergencies now, warnings hourly, no small news.</small></button>
+    <button type="button" class="nx-preset" data-preset="everything"><span class="e">⚡</span><b>Everything now</b><small>Every event the moment it happens.</small></button>
+  </div>
+  <div class="nx-tools"><input class="form-control form-control-sm" style="max-width:240px" type="search" id="ntFind" placeholder="Find an event…" aria-label="Find an event">
+    <small class="text-secondary"><b>⚡ Instant</b> right away (several at once arrive as one email) · <b>🗂 Digest</b> one email per hour · <b>🔕 Off</b> never emailed, still in TapTap.</small></div>
+  {% for group, g in groups.items %}<details class="nx-group" open><summary><span class="gi"><i class="bi {{ g.icon }}"></i></span>{{ group }}<span class="cnt" data-cnt></span></summary>
+    {% for e in g.events %}<div class="nx-ev" data-ev="{{ e.key }}" data-text="{{ e.label|lower }} {{ e.help|lower }}" data-default="{{ e.default }}" data-sev="{{ e.severity }}">
+      <div><b>{{ e.label }}</b><span class="nx-sev {{ e.severity }}">{{ e.severity }}</span><small>{{ e.help }}</small></div>
+      <div class="nx-seg" role="radiogroup" aria-label="{{ e.label }}">
+        <input type="radio" name="ev_{{ e.key }}" id="{{ e.key }}_i" value="instant" {% if e.mode == 'instant' %}checked{% endif %}><label for="{{ e.key }}_i">⚡ Instant</label>
+        <input type="radio" name="ev_{{ e.key }}" id="{{ e.key }}_d" value="digest" {% if e.mode == 'digest' %}checked{% endif %}><label for="{{ e.key }}_d">🗂 Digest</label>
+        <input type="radio" name="ev_{{ e.key }}" id="{{ e.key }}_o" value="off" {% if e.mode == 'off' %}checked{% endif %}><label for="{{ e.key }}_o">🔕 Off</label></div></div>{% endfor %}
+  </details>{% endfor %}
+</section>
+<aside>
+  <div class="nx-card mb-3" style="position:sticky;top:1rem">
+    <b class="small">What your inbox looks like</b>
+    <div class="nx-preview mt-2" aria-live="polite">
+      <div class="bar"><span>✉️ {{ current_business.business_name }}</span><span id="pvTag">—</span></div>
+      <div id="pvBody"></div>
+    </div>
+    <small class="text-secondary d-block mt-2" id="pvNote"></small>
+  </div>
+</aside>
+</div>
+<div class="nx-save idle" id="ntSave"><span id="ntSaveNote">Everything is saved.</span><button class="btn btn-primary">Save notification settings</button></div>
 </form>
 
-<section class="nt-card"><h3 class="h6 fw-bold">Recent notifications</h3>
-  <div class="table-responsive"><table class="table nt-log mb-0"><thead><tr><th>When</th><th>What</th><th>Status</th><th>Sent to</th></tr></thead><tbody>
-  {% for n in recent %}<tr><td class="text-nowrap">{{ n.created_at|date:'d M H:i' }}</td><td><span class="nt-sev {{ n.severity }}"></span>{{ n.subject }}</td><td><span class="nt-st {{ n.status }}" title="{{ n.error }}">{{ n.get_status_display }}</span></td><td><small class="text-secondary">{% if n.recipients %}{{ n.recipients|truncatechars:60 }}{% else %}{{ n.error|truncatechars:60 }}{% endif %}</small></td></tr>
-  {% empty %}<tr><td colspan="4" class="empty-table">Nothing yet. Notifications appear here as things happen.</td></tr>{% endfor %}
-  </tbody></table></div></section>
+<section class="nx-card">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2"><h3 class="h6 fw-bold m-0">Recent notifications</h3>
+    <div class="nx-filter" role="group" aria-label="Show"><button type="button" class="on" data-f="">All</button><button type="button" data-f="sent">Sent</button><button type="button" data-f="digest">Waiting</button><button type="button" data-f="failed">Failed</button><button type="button" data-f="skipped">Turned off</button></div></div>
+  <div class="nx-log" id="ntLog">
+  {% for n in recent %}<div class="row-i" data-st="{{ n.status }}"><span class="nx-dot {{ n.severity }}"></span>
+    <div><b>{{ n.subject }}</b><small class="d-block text-secondary">{{ n.created_at|date:'D d M H:i' }}{% if n.recipients %} · to {{ n.recipients|truncatechars:60 }}{% endif %}{% if n.error %} · <span class="text-danger">{{ n.error|truncatechars:80 }}</span>{% endif %}</small></div>
+    <span class="nx-st {{ n.status }}">{{ n.get_status_display }}</span></div>
+  {% empty %}<p class="text-secondary small m-0 py-3">Nothing yet. Notifications appear here as things happen.</p>{% endfor %}
+  </div>
+</section>
+{{ presets|json_script:"ntPresets" }}
 {% endblock %}
 {% block scripts %}
 <script>
-document.getElementById('ntEnabled').addEventListener('change',function(){document.getElementById('ntForm').classList.toggle('nt-off',!this.checked);document.getElementById('ntOnOff').textContent=this.checked?'on':'off';
-  document.getElementById('ntSaveNote').textContent=this.checked?'Save to turn email notifications on.':'Save to stop all email notifications (they still show in TapTap).';});
-document.querySelectorAll('[data-all]').forEach(function(b){b.onclick=function(){document.querySelectorAll('.nt-seg input[value='+b.dataset.all+']').forEach(function(r){r.checked=true;});};});
+(function(){
+  var form=document.getElementById('ntForm'),save=document.getElementById('ntSave'),note=document.getElementById('ntSaveNote');
+  var P=JSON.parse(document.getElementById('ntPresets').textContent);
+  var start=new FormData(form),first=true;
+  function dirty(){var now=new FormData(form),n=0;var keys=new Set([].concat(Array.from(start.keys()),Array.from(now.keys())));keys.forEach(function(k){if(k==='csrfmiddlewaretoken')return;if(String(start.getAll(k))!==String(now.getAll(k)))n++;});return n;}
+  function refresh(){
+    var n=dirty();save.classList.toggle('idle',!n);note.innerHTML=n?'<span class="pulse"></span>'+n+' change'+(n>1?'s':'')+' not saved yet':'Everything is saved.';
+    document.querySelectorAll('.nx-ev').forEach(function(r){var v=(r.querySelector('input:checked')||{}).value;r.classList.toggle('changed',start.get('ev_'+r.dataset.ev)!==v);});
+    // which preset matches
+    var cur={};document.querySelectorAll('.nx-ev').forEach(function(r){cur[r.dataset.ev]=(r.querySelector('input:checked')||{}).value;});
+    document.querySelectorAll('[data-preset]').forEach(function(b){var p=P[b.dataset.preset];b.classList.toggle('on',Object.keys(p).every(function(k){return p[k]===cur[k];}));});
+    // group counters
+    document.querySelectorAll('.nx-group').forEach(function(g){var c={instant:0,digest:0,off:0};g.querySelectorAll('.nx-ev input:checked').forEach(function(i){c[i.value]++;});g.querySelector('[data-cnt]').textContent='⚡ '+c.instant+' · 🗂 '+c.digest+' · 🔕 '+c.off;});
+    preview(cur);day();
+  }
+  // preview of the inbox
+  function preview(cur){
+    var inst=[],dig=[];document.querySelectorAll('.nx-ev').forEach(function(r){var t=r.querySelector('b').textContent,v=cur[r.dataset.ev];if(v==='instant')inst.push([t,r.dataset.sev]);else if(v==='digest')dig.push(t);});
+    var ic={critical:'🔴',warning:'🟠',info:'🔵'},h='';
+    inst.slice(0,3).forEach(function(x){h+='<div class="it"><i>'+ic[x[1]]+'</i><span><b>'+x[0]+'</b><br><small class="text-secondary">arrives right away</small></span></div>';});
+    if(dig.length)h+='<div class="it"><i>🗂</i><span><b>Hourly digest</b><br><small class="text-secondary">'+dig.slice(0,3).join(', ')+(dig.length>3?' and '+(dig.length-3)+' more':'')+'</small></span></div>';
+    if(document.getElementById('ntSum').checked)h+='<div class="it"><i>☀️</i><span><b>Morning summary</b><br><small class="text-secondary">every day at '+document.getElementById('ntHour').selectedOptions[0].text+'</small></span></div>';
+    var on=document.getElementById('ntEnabled').checked;
+    document.getElementById('pvBody').innerHTML=on?(h||'<div class="it"><i>🔕</i><span>Nothing is emailed.</span></div>'):'<div class="it"><i>🔕</i><span>Email notifications are off.</span></div>';
+    document.getElementById('pvTag').textContent=on?inst.length+' instant · '+dig.length+' in digest':'off';
+    document.getElementById('pvNote').textContent=on?'A typical day: about '+(inst.length?'a few':'no')+' instant emails, '+(dig.length?'up to one digest an hour':'no digests')+'.':'';
+  }
+  // the 24-hour strip: quiet hours shaded, the summary sun
+  function mins(v){if(!v)return null;var p=v.split(':');return (+p[0])*60+(+p[1]);}
+  function day(){
+    var q1=document.getElementById('ntQuiet'),q2=document.getElementById('ntQuiet2'),a=mins(document.getElementById('ntQs').value),b=mins(document.getElementById('ntQe').value);
+    function put(el,x,y){el.style.display='block';el.style.left=(x/14.4)+'%';el.style.width=((y-x)/14.4)+'%';}
+    q1.style.display=q2.style.display='none';
+    if(a!==null&&b!==null&&a!==b){if(a<b){put(q1,a,b);}else{put(q1,a,1440);put(q2,0,b);}}   // overnight: two pieces
+    var s=document.getElementById('ntSumDot');s.style.display=document.getElementById('ntSum').checked?'grid':'none';s.style.left=((+document.getElementById('ntHour').value*60+30)/14.4)+'%';
+  }
+  // recipients as chips
+  var hidden=document.getElementById('ntExtra'),chips=document.getElementById('ntChips'),add=document.getElementById('ntAdd');
+  function list(){return hidden.value.split(/[,;]/).map(function(x){return x.trim();}).filter(function(x){return x.indexOf('@')>0;});}
+  function draw(){chips.querySelectorAll('.nx-chip:not(.main)').forEach(function(c){c.remove();});
+    list().forEach(function(e){var c=document.createElement('span');c.className='nx-chip';c.innerHTML='<i class="bi bi-envelope"></i> '+e.replace(/</g,'&lt;')+' <button type="button" aria-label="Remove '+e.replace(/"/g,'')+'">✕</button>';
+      c.querySelector('button').onclick=function(){hidden.value=list().filter(function(x){return x!==e;}).join(', ');draw();refresh();};chips.insertBefore(c,add);});}
+  function take(){var v=add.value.replace(/[,;\s]+$/,'').trim();if(v.indexOf('@')>0&&list().indexOf(v)<0){hidden.value=list().concat([v]).join(', ');add.value='';draw();refresh();}}
+  add.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===','||e.key===';'){e.preventDefault();take();}else if(e.key==='Backspace'&&!add.value){var l=list();l.pop();hidden.value=l.join(', ');draw();refresh();}});
+  add.addEventListener('blur',take);chips.addEventListener('click',function(e){if(e.target===chips)add.focus();});
+  // presets, search, master switch, log filter
+  document.querySelectorAll('[data-preset]').forEach(function(b){b.onclick=function(){var p=P[b.dataset.preset];Object.keys(p).forEach(function(k){var i=document.getElementById(k+'_'+p[k].charAt(0));if(i)i.checked=true;});refresh();};});
+  document.getElementById('ntFind').addEventListener('input',function(){var q=this.value.trim().toLowerCase();document.querySelectorAll('.nx-ev').forEach(function(r){r.hidden=q&&r.dataset.text.indexOf(q)<0;});
+    document.querySelectorAll('.nx-group').forEach(function(g){var any=[].some.call(g.querySelectorAll('.nx-ev'),function(r){return !r.hidden;});g.hidden=!any;if(q)g.open=true;});});
+  document.getElementById('ntEnabled').addEventListener('change',function(){form.classList.toggle('nx-off',!this.checked);document.getElementById('ntOnOff').textContent=this.checked?'on':'off';
+    document.getElementById('ntPowerNote').textContent=this.checked?'TapTap emails you what matters, the way you choose below.':'Nothing is emailed — everything still shows in TapTap.';});
+  document.querySelectorAll('[data-f]').forEach(function(b){b.onclick=function(){document.querySelectorAll('[data-f]').forEach(function(x){x.classList.toggle('on',x===b);});
+    document.querySelectorAll('#ntLog .row-i').forEach(function(r){r.hidden=b.dataset.f&&r.dataset.st!==b.dataset.f&&!(b.dataset.f==='digest'&&r.dataset.st==='queued');});};});
+  form.addEventListener('input',refresh);form.addEventListener('change',refresh);
+  form.addEventListener('submit',function(){take();start=new FormData(form);window.onbeforeunload=null;});
+  window.addEventListener('beforeunload',function(e){if(dirty()){e.preventDefault();e.returnValue='';}});
+  draw();refresh();
+})();
 </script>
 {% endblock %}

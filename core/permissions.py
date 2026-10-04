@@ -100,7 +100,7 @@ URL_PERMS = {
     'finance_sale_add': 'finance.manage', 'finance_sale_delete': 'finance.manage', 'finance_expense_add': 'finance.manage',
     'finance_expense_delete': 'finance.manage', 'finance_expense_repeat': 'finance.manage', 'finance_agent_save': 'finance.manage',
     'finance_book_missing': 'finance.manage', 'finance_settings': 'finance.manage',
-    'settings': 'settings.manage', 'notifications': 'settings.manage', 'notifications_test': 'settings.manage',
+    'settings': 'settings.manage', 'notifications': 'settings.manage', 'notifications_test': 'settings.manage', 'notifications_resend': 'settings.manage',
     'live_settings': 'settings.manage',
     'subscription_select': 'subscription.manage',
     'team': 'team.manage', 'team_member_save': 'team.manage', 'team_member_action': 'team.manage',

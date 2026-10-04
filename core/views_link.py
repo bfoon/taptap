@@ -439,12 +439,43 @@ def notifications(request):
             if resp:
                 return resp
         return redirect('notifications')
+    from datetime import timedelta as _td
+    from django.db.models import Count
     groups = {}
+    icons = {'Routers': 'bi-router', 'Network': 'bi-diagram-3', 'Hotspot': 'bi-wifi', 'Security': 'bi-shield-lock', 'Business': 'bi-briefcase'}
     for key, (label, help_, default, sev, group) in EVENTS.items():
-        groups.setdefault(group, []).append({'key': key, 'label': label, 'help': help_, 'mode': (s.events or {}).get(key) or default, 'severity': sev})
+        groups.setdefault(group, {'icon': icons.get(group, 'bi-bell'), 'events': []})['events'].append(
+            {'key': key, 'label': label, 'help': help_, 'mode': (s.events or {}).get(key) or default, 'default': default, 'severity': sev})
+    now = timezone.now()
+    week = business.notifications.filter(created_at__gte=now - _td(days=7))
+    by_status = dict(week.values_list('status').annotate(n=Count('id')))
+    days = []
+    for i in range(6, -1, -1):
+        d = timezone.localdate() - _td(days=i)
+        days.append({'day': d, 'n': week.filter(created_at__date=d).count()})
+    peak = max([x['n'] for x in days] + [1])
+    for x in days:
+        x['pct'] = round(x['n'] * 100 / peak)
+    next_digest = (s.last_digest_at + _td(hours=1)) if s.last_digest_at else None
+    if next_digest and next_digest < now:
+        next_digest = now
+    summary_at = timezone.localtime(now).replace(hour=s.summary_hour, minute=0, second=0, microsecond=0)
+    if summary_at <= timezone.localtime(now):
+        summary_at += _td(days=1)
+    last_sent = business.notifications.filter(status='sent').order_by('-sent_at').first()
     return render(request, 'core/notifications.html', {
         's': s, 'groups': groups, 'to': recipients(business, s), 'configured': email_configured(),
-        'recent': business.notifications.all()[:30], 'hours': range(24),
+        'recent': business.notifications.all()[:40], 'hours': range(24),
+        'stats': {'sent': by_status.get('sent', 0), 'failed': by_status.get('failed', 0), 'waiting': by_status.get('digest', 0) + by_status.get('queued', 0),
+                  'off': by_status.get('skipped', 0), 'days': days, 'last_sent': last_sent, 'next_digest': next_digest, 'summary_at': summary_at,
+                  'digest_waiting': business.notifications.filter(status='digest').count()},
+        'presets': {
+            'calm': {k: ('instant' if v[3] == 'critical' else 'digest') for k, v in EVENTS.items()},
+            'balanced': {k: v[2] for k, v in EVENTS.items()},
+            'essentials': {k: ('instant' if v[3] == 'critical' else 'digest' if v[3] == 'warning' else 'off') for k, v in EVENTS.items()},
+            'everything': {k: 'instant' for k in EVENTS},
+        },
+        'main_email': business.email or request.user.email,
     })
 
 
@@ -456,6 +487,16 @@ def notifications_test(request):
         messages.success(request, f'Test email sent to {to}.')
     except Exception as exc:
         messages.error(request, f'Could not send the test email: {exc}')
+    return redirect('notifications')
+
+
+@login_required
+@require_POST
+def notifications_resend(request):
+    """Failed emails: try them again with the next delivery (within a minute)."""
+    business = _b(request)
+    n = business.notifications.filter(status='failed').update(status='queued', error='')
+    messages.success(request, f'{n} email(s) will be tried again within a minute.' if n else 'Nothing to send again.')
     return redirect('notifications')
 
 

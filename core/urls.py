@@ -100,7 +100,7 @@ urlpatterns = [
     path('api/agent/v1/inventory',views_link.agent_inventory,name='agent_inventory'), path('api/agent/v1/probe',views_link.agent_probe,name='agent_probe'), path('api/agent/v1/hello',views_link.agent_hello,name='agent_hello'),
     path('routers/<int:pk>/link/',views_link.router_link,name='router_link'), path('routers/<int:pk>/link/action/',views_link.router_link_action,name='router_link_action'),
     path('routers/<int:pk>/link/status/',views_link.router_link_status,name='router_link_status'),
-    path('notifications/',views_link.notifications,name='notifications'), path('notifications/test/',views_link.notifications_test,name='notifications_test'),
+    path('notifications/',views_link.notifications,name='notifications'), path('notifications/test/',views_link.notifications_test,name='notifications_test'), path('notifications/resend/',views_link.notifications_resend,name='notifications_resend'),
     path('n/off/<str:token>/',views_link.notifications_off,name='notifications_off'),
     # Team accounts, daily sales and own password
     path('team/',vteam.team,name='team'), path('team/save/',vteam.team_member_save,name='team_member_save'),
