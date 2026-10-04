@@ -27,7 +27,7 @@
 .fm-pin{width:28px;height:28px;border-radius:50% 50% 50% 0;background:#1d4ed8;transform:rotate(-45deg);border:3px solid #fff;box-shadow:0 3px 10px #0006}
 .fm-pin::after{content:'';position:absolute;inset:7px;border-radius:50%;background:#fff}
 @media (max-width:640px){.fm-save{width:calc(100% - 68px)}}   /* room for the chat bubble at the bottom right */
-.fm-auto{display:block;color:#1769e0;font-weight:700;margin-bottom:.15rem}</style>
+.fm-auto{display:block;color:#1769e0;font-weight:700;margin-bottom:.15rem}.fm-which{border:1px solid #bfd6ff;background:#f2f7ff;border-radius:14px;padding:.7rem .8rem;margin-bottom:.6rem}.fm-gw{margin:.4rem 0 .6rem}</style>
 {% endblock %}
 {% block content %}
 <div class="fm">
@@ -35,6 +35,14 @@
 
   <section class="fm-step" aria-labelledby="fmS1">
     <h3 id="fmS1"><span class="n">1</span> Which router are you next to?</h3>
+    {% if candidates %}<div class="fm-which"><b><i class="bi bi-wifi"></i> Which MikroTik is your Wi-Fi on?</b>
+      <small class="d-block text-secondary mb-2">{{ candidates|length }} of your MikroTiks share this internet address. Tap yours — or type the gateway from your phone’s Wi-Fi details below.</small>
+      <div class="d-flex flex-wrap gap-2">{% for c in candidates %}<a class="btn btn-sm btn-outline-primary" href="?site={{ c.id }}">{{ c.name }}</a>{% endfor %}</div></div>{% endif %}
+    <details class="fm-gw" {% if gw_unknown or candidates %}open{% endif %}><summary class="small">Not the right MikroTik? Use your Wi-Fi details</summary>
+      <form method="get" class="d-flex gap-2 mt-2"><input class="form-control form-control-sm" name="gw" value="{{ gw }}" inputmode="decimal" placeholder="Gateway / Router, e.g. 172.16.0.1" aria-label="Gateway shown in your Wi-Fi details"><button class="btn btn-sm btn-primary">Find</button></form>
+      <small class="text-secondary d-block mt-1">On the phone: Settings › Wi-Fi › tap the network you are on — the <b>Router</b> / <b>Gateway</b> line (Android: “Gateway”, iPhone: “Router”). The Wi-Fi access points only pass on what the MikroTik gives, so this is the MikroTik.</small>
+      {% if gw_unknown %}<div class="text-danger small mt-1">{{ gw }} is not an address of any of your MikroTiks (from their last sync). Check the number, or sync the router.</div>{% endif %}
+    </details>
     <div id="fmChosen"></div>
     <div id="fmPick">
       <input class="form-control" type="search" id="fmSearch" placeholder="Search name, IP or MAC…" aria-label="Search routers" autocomplete="off">

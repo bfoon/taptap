@@ -20,7 +20,23 @@ def topology_field(request):
     """Phone page: scan a router's label (or pick it), use the phone's location, save."""
     from .auth_security import client_ip
     business = _b(request)
-    site = geomap.site_from_ip(business, client_ip(request))
+    # Which MikroTik is giving this phone its address (the Wi-Fi access points only pass it on):
+    #  1. the gateway the person typed from their Wi-Fi details (?gw=172.16.0.1), 2. the one MikroTik the phone's
+    #  internet address points to, 3. when several MikroTiks share that address (one ISP modem), ask which.
+    gw = request.GET.get('gw', '').strip()[:45]
+    candidates = geomap.sites_from_ip(business, client_ip(request))
+    site = geomap.site_from_gateway(business, gw) if gw else None
+    gw_unknown = bool(gw) and site is None
+    if site is None and request.GET.get('site', '').isdigit():
+        site = business.routers.filter(pk=int(request.GET['site'])).first()
+    if site is None and len(candidates) == 1:
+        site = candidates[0]
+    if site is not None and (gw or request.GET.get('site')):
+        request.session['tt_field_site'] = site.pk          # remembered on this phone for the next router
+    elif site is None and request.session.get('tt_field_site'):
+        remembered = business.routers.filter(pk=request.session['tt_field_site']).first()
+        if remembered is not None and (not candidates or remembered in candidates):
+            site = remembered
     items = geomap.targets(business)
     if site:                                   # the site the phone is on first, then the rest
         items.sort(key=lambda t: (t.get('site_id') != site.pk, t['geo'] is not None, t['name'].lower()))
@@ -33,6 +49,7 @@ def topology_field(request):
         auto, why = geomap.auto_pick(items, site)
     return render(request, 'core/topology_field.html', {
         'site': site, 'chosen': chosen or auto,
+        'gw': gw, 'gw_unknown': gw_unknown, 'candidates': candidates if (site is None and len(candidates) > 1) else [],
         'field': {'items': items, 'chosen': chosen or auto, 'auto': bool(auto), 'auto_why': why, 'site_id': site.pk if site else None,
                   'save_url': reverse('topology_field_save')}})
 

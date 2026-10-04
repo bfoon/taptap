@@ -71,7 +71,7 @@ def auto_pick(items, site):
     on_site = [t for t in items if t.get('site_id') == site.pk]
     mt = next((t for t in on_site if t['key'] == f'mt:{site.pk}'), None)
     if mt and not mt['geo']:
-        return mt['key'], f'You are on {site.name}’s Wi-Fi — your phone’s connection comes through this MikroTik.'
+        return mt['key'], f'You are on {site.name}’s Wi-Fi — this MikroTik gives your phone its address (the access point only passes it on).'
     rest = [t for t in on_site if t['kind'] != 'mikrotik' and not t['geo']]
     rest.sort(key=lambda t: (not t.get('online'), t.get('suggested', False), t['name'].lower()))
     if rest:
@@ -79,6 +79,42 @@ def auto_pick(items, site):
     if mt:
         return mt['key'], f'You are on {site.name}’s Wi-Fi (already mapped — saving moves it).'
     return '', ''
+
+
+def sites_from_ip(business, ip):
+    """Every MikroTik the phone may be connected through: those whose internet address is the address the
+    phone's request came from. Several MikroTiks behind one ISP modem share it."""
+    from .models import RouterAgent
+    ip = str(ip or '').strip()
+    if not ip:
+        return []
+    out = list(business.routers.filter(ip_address=ip))
+    out += [a.router for a in RouterAgent.objects.filter(router__business=business, last_ip=ip).select_related('router') if a.router not in out]
+    return out
+
+
+def site_from_gateway(business, gateway):
+    """The MikroTik that gives the phone its address: the gateway / router / DHCP server shown in the phone's
+    Wi-Fi details (e.g. 172.16.0.1) is one of the MikroTik's own addresses (else: inside one of its networks)."""
+    import ipaddress
+    from .models import RouterConfigSnapshot
+    try:
+        gw = ipaddress.ip_address(str(gateway or '').strip())
+    except ValueError:
+        return None
+    inside = []
+    for snap in RouterConfigSnapshot.objects.filter(router__business=business).select_related('router'):
+        for r in (((snap.sections or {}).get('IP addresses') or {}).get('rows') or []):
+            try:
+                iface = ipaddress.ip_interface(str(r.get('address', '')))
+            except ValueError:
+                continue
+            if iface.ip == gw:
+                return snap.router                      # it is the MikroTik's own address
+            if gw in iface.network and iface.network.prefixlen < 32:
+                inside.append(snap.router)
+    inside = list(dict.fromkeys(inside))
+    return inside[0] if len(inside) == 1 else None
 
 
 def site_from_ip(business, ip):
