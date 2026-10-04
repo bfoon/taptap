@@ -423,12 +423,14 @@ def ingest_connections(router, conns, dns, now):
     cur = {}
     agg = defaultdict(lambda: [0, 0])
     per_dev = defaultdict(lambda: [0, 0])     # (client ip, app, category, domain) → [down, up]
+    busy = defaultdict(int)                    # busy connections per customer (Internet sharing signal)
     for c in conns:
         cid = str(c.get('id') or c.get('.id') or '')
         src_ip, _ = _split_addr(c.get('src-address'))
         dst_ip, port = _split_addr(c.get('dst-address'))
         if not cid or not _is_private(src_ip) or _is_private(dst_ip):
             continue  # only customer → Internet traffic
+        busy[src_ip] += 1
         up, down = _int(c.get('orig-bytes')), _int(c.get('repl-bytes'))
         if up + down < 1024:
             continue
@@ -457,6 +459,11 @@ def ingest_connections(router, conns, dns, now):
         _store_per_device(router, per_dev, hour)
     except Exception as exc:   # the per-router report must never suffer from this
         logger.info('device app usage %s: %s', router, exc)
+    try:
+        from .sharing import note_connections
+        note_connections(router, busy)
+    except Exception:
+        pass
     rows = sorted(agg.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))
     keep, rest = rows[:60], rows[60:]
     if rest:

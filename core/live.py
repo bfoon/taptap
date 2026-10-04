@@ -519,6 +519,15 @@ def watch_all():
             sweep(watched=watched)
         except Exception:
             logger.exception('expiry sweep')
+        # Internet sharing protection (NAT / tethering): score customers and enforce blocks.
+        try:
+            from .sharing import run as _share_run
+            from .models import Router as _SR
+            for r in _SR.objects.filter(business__sharing_policy__enabled=True).select_related('business'):
+                if r.business.has_access:
+                    _share_run(r)
+        except Exception:
+            logger.exception('sharing protection')
         # Protection rules from before v2 blocked hotspot customers on the login page: update them once.
         try:
             from .protection import upgrade as _protect_upgrade

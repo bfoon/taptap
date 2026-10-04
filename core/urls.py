@@ -6,6 +6,7 @@ from . import views_ads, views_ports, views_live, views_traffic, views_missing, 
 from . import views_team as vteam, views_platform as vp, views_detail as vdetail, views_bin as vbin, views_freeze as vfz
 from . import views_fup as vfup
 from . import views_bonanza as vbz
+from . import views_sharing as vshare
 from . import views_tracking as vtrack
 from . import views_agent_portal as vap
 from . import views_go as vgo
@@ -46,7 +47,7 @@ urlpatterns = [
     path('routers/<int:pk>/control/interface-role/',views.router_interface_role,name='router_interface_role'), path('routers/<int:pk>/control/recipe/',views.router_quick_recipe,name='router_quick_recipe'),
     path('routers/<int:pk>/telemetry/',views.router_telemetry,name='router_telemetry'),
     path('active-users/',views.active_users,name='active_users'), path('active-users/disconnect/',views.disconnect_user,name='disconnect_user'), path('ip-bindings/',views_live.ip_bindings,name='ip_bindings'), path('ip-bindings/data/',views_live.ip_bindings_data,name='ip_bindings_data'), path('ip-bindings/set/',views_live.ip_binding_set,name='ip_binding_set'), path('ip-bindings/action/',views.ip_binding_action,name='ip_binding_action'),
-    path('topology/',views.topology,name='topology'), path('topology/graph/',views.topology_graph,name='topology_graph'), path('topology/live/',views.topology_live,name='topology_live'), path('topology/refresh/<int:pk>/',views.topology_refresh,name='topology_refresh'), path('security/',views.security,name='security'), path('security/sticky/',views.security_sticky,name='security_sticky'), path('security/ack/',views.security_ack,name='security_ack'), path('security/rescan/<int:pk>/',views.security_rescan,name='security_rescan'), path('security/fix/<int:pk>/',views.security_fix,name='security_fix'), path('settings/',views.settings_view,name='settings'), path('support/',views.support,name='support'),
+    path('topology/',views.topology,name='topology'), path('topology/graph/',views.topology_graph,name='topology_graph'), path('topology/live/',views.topology_live,name='topology_live'), path('topology/refresh/<int:pk>/',views.topology_refresh,name='topology_refresh'), path('security/',views.security,name='security'), path('security/sticky/',views.security_sticky,name='security_sticky'), path('security/internet-sharing/',vshare.sharing_save,name='sharing_save'), path('security/internet-sharing/<int:pk>/',vshare.sharing_case,name='sharing_case'), path('security/internet-sharing/trust/<int:pk>/remove/',vshare.sharing_trust_remove,name='sharing_trust_remove'), path('security/ack/',views.security_ack,name='security_ack'), path('security/rescan/<int:pk>/',views.security_rescan,name='security_rescan'), path('security/fix/<int:pk>/',views.security_fix,name='security_fix'), path('settings/',views.settings_view,name='settings'), path('support/',views.support,name='support'),
     # Internet lines (multi-WAN designer)
     path('routers/<int:pk>/internet/',vw.wan_designer,name='wan_designer'), path('routers/<int:pk>/internet/detect/',vw.wan_detect,name='wan_detect'),
     path('routers/<int:pk>/internet/preview/',vw.wan_preview,name='wan_preview'), path('routers/<int:pk>/internet/apply/',vw.wan_apply,name='wan_apply'),

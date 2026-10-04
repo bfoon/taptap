@@ -976,7 +976,13 @@ def security(request):
     sticky={'locked':VoucherDeviceBinding.objects.filter(business=business,voucher__status='active').count(),
             'vouchers':VoucherDeviceBinding.objects.filter(business=business,voucher__status='active').values('voucher').distinct().count(),
             'keepalive_choices':business._meta.get_field('sticky_keepalive').choices}
-    return render(request,'core/security.html',{'sticky':sticky,'incidents':incidents,'recent_fixed':recent_fixed,'summary':summary,'routers':routers,'protection':protection,
+    from .sharing import policy as _share_policy
+    from .models_sharing import SharingCase, SharingTrust
+    share={'p':_share_policy(business),'cases':list(SharingCase.objects.filter(business=business).exclude(status='cleared').select_related('router','voucher')[:40]),
+           'recent_cleared':SharingCase.objects.filter(business=business,status='cleared').count(),
+           'trusted':SharingTrust.objects.filter(business=business),'plans':business.plans.filter(active=True).order_by('name')}
+    share['exempt_ids']=set(share['p'].exempt_plans.values_list('pk',flat=True))
+    return render(request,'core/security.html',{'share':share,'sticky':sticky,'incidents':incidents,'recent_fixed':recent_fixed,'summary':summary,'routers':routers,'protection':protection,
         'fix_labels':{k:v[3] for k,v in MikroTikService.SECURITY_FIXES.items()},**security_context(business)})
 
 

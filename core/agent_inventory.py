@@ -128,6 +128,7 @@ STAT_KEYS = ('rx-byte', 'tx-byte', 'rx-packet', 'tx-packet', 'rx-drop', 'tx-drop
 SAMPLE_SOURCES = OrderedDict([
     ('traffic_dns', {'label': 'DNS cache (traffic sample)', 'path': '/ip/dns/cache', 'sample': True}),
     ('traffic_conns', {'label': 'Busy connections (traffic sample)', 'path': '/ip/firewall/connection', 'where': 'repl-bytes>20000', 'sample': True}),
+    ('share_lists', {'label': 'Internet sharing signals', 'path': '/ip/firewall/address-list', 'where': 'list~"^tt-share-"', 'sample': True}),
 ])
 
 
@@ -666,6 +667,10 @@ def process_piece(cmd_id):
             from .traffic import dns_map_from_rows, ingest_connections
             if kind == 'traffic_dns':
                 cache.set(f'tt:linkdns:{router.pk}', dns_map_from_rows(clean_rows), 900)
+            elif kind == 'share_lists':
+                from .sharing import ingest_lists, run as share_run
+                ingest_lists(router, clean_rows)
+                share_run(router)
             else:
                 ingest_connections(router, clean_rows, cache.get(f'tt:linkdns:{router.pk}') or {}, now)
             params.update(received=True, row_count=len(clean_rows))

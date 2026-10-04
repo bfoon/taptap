@@ -164,6 +164,13 @@ def claim(voucher, mac='', fp='', source='portal', label='', hints=None):
     status: 'known' (already locked to it), 'moved' (known device, new MAC), 'new' (slot taken now),
     'denied' (all slots belong to other devices), 'off' (locking switched off)."""
     from .models import Voucher, VoucherDeviceBinding
+    try:   # Internet sharing protection (core/sharing.py): this device is blocked for a while
+        from .sharing import blocked_message
+        msg = blocked_message(voucher.business, norm_mac(mac))
+        if msg:
+            return Outcome('denied', message=msg)
+    except Exception:
+        pass
     if not enabled(voucher):
         return Outcome('off')
     mac, fp = norm_mac(mac), (fp or '').strip()[:128]

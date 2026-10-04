@@ -39,7 +39,7 @@ DEFAULT_EXPIRY = {'reboot': 5, 'port_restart': 5, 'interface_set': 15, 'port_off
 POLICY = 'ftp,read,write,test,reboot,sensitive'
 SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
-    'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
+    'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'share_rules', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
     'hotspot_users_limit', 'admin_password', 'protection',
@@ -431,6 +431,9 @@ def command_body(cmd):
                 f':local u [/ip hotspot user find name={rs(p["name"])}]; :if ([:len $u] > 0) do={{ /ip hotspot user set $u profile={prof} }}')
     if k == 'hotspot_profile_shared':   # how many devices a profile allows
         return f'/ip hotspot user profile set [find name={rs(p["profile"])}] shared-users={max(1, int(p.get("shared") or 1))}'
+    if k == 'share_rules':   # Internet sharing detection (core/sharing.py)
+        from .sharing import link_script as _share_script
+        return _share_script(bool(p.get('enable', True)))
     if k == 'hotspot_mac_unlock_all':   # older versions pinned TapTap vouchers to one MAC on the router
         return ':foreach u in=[/ip hotspot user find where comment~"^TapTap" and mac-address!=00:00:00:00:00:00] do={ /ip hotspot user set $u mac-address=00:00:00:00:00:00 }'
     if k == 'app_control':   # App & site control (core/app_control.py builds and escapes every value)
@@ -788,7 +791,14 @@ def link_traffic_samples(router):
         return
     if AgentCommand.objects.filter(router=router, kind='inventory_piece', status__in=['queued', 'sent']).exists():
         return  # a full sync is running; it has priority
-    for kind in ('traffic_dns', 'traffic_conns'):
+    kinds = ['traffic_dns', 'traffic_conns']
+    try:
+        from .sharing import policy as _share_policy
+        if _share_policy(router.business).enabled:
+            kinds.append('share_lists')           # TTL lists for Internet sharing detection
+    except Exception:
+        pass
+    for kind in kinds:
         queue(router, 'inventory_piece', {'kind': kind}, label='Traffic sample (apps & sites)', minutes=5)
 
 

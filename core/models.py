@@ -1262,3 +1262,4 @@ from .models_apps import AppRule, AppControlState  # noqa: E402,F401
 from .models_agentlog import AgentCheck, AgentHelp, AgentOrder  # noqa: E402,F401
 
 from .models_watch import Watch  # noqa: E402,F401
+from .models_sharing import SharingPolicy, SharingCase, SharingTrust  # noqa: E402,F401
