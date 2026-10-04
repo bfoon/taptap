@@ -3,6 +3,14 @@
 {% block heading %}Devices{% endblock %}
 {% block extra_head %}<style>
 .dv-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.8rem;margin-bottom:1rem}
+.dv-tabbar{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin:0 0 1rem}
+.dv-tab{position:relative;display:flex;align-items:center;gap:.7rem;border:1px solid var(--border);background:var(--panel,#fff);border-radius:16px;padding:.75rem .9rem;text-decoration:none;color:inherit;transition:transform .12s,box-shadow .12s}
+.dv-tab:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(10,20,35,.07)}
+.dv-tab .ti{font-size:1.5rem;line-height:1}.dv-tab b{display:block}.dv-tab small{display:block;color:var(--muted);font-size:.76rem}
+.dv-tab.on{border-color:#1769e0;box-shadow:0 0 0 3px rgba(23,105,224,.14);background:linear-gradient(180deg,#f2f7ff,var(--panel,#fff))}
+.dv-tab .tb{position:absolute;top:-7px;right:-6px;min-width:24px;height:24px;border-radius:12px;padding:0 7px;font-size:.75rem;font-weight:800;display:grid;place-items:center;color:#fff;background:#d97706}
+html[data-theme="dark"] .dv-tab.on{background:#14243a}
+@media(max-width:600px){.dv-tabbar{grid-template-columns:1fr}}
 .dv-kpi{background:#fff;border:1px solid var(--border);border-radius:16px;padding:.9rem 1rem;text-decoration:none;color:inherit}
 .dv-kpi:hover{border-color:#b9cbe0}.dv-kpi.on{border-color:#102033;box-shadow:0 0 0 1px #102033}
 .dv-kpi span{display:block;font-size:.74rem;color:var(--muted);font-weight:600}.dv-kpi strong{font-size:1.45rem;font-variant-numeric:tabular-nums}
@@ -36,6 +44,14 @@
   <div><h2 class="section-title">Know every device, even when its MAC changes</h2><p>Your login pages record a device signature — model, system, screen and browser traits — next to its MAC address and voucher. Modern phones switch MAC addresses; the signature stays the same.</p></div>
 </div>
 
+<nav class="dv-tabbar" role="tablist" aria-label="Devices sections">
+  <a class="dv-tab {% if view != 'shared' %}on{% endif %}" role="tab" aria-selected="{% if view != 'shared' %}true{% else %}false{% endif %}" href="?view=all">
+    <span class="ti">📱</span><span class="tl"><b>Devices</b><small>{{ stats.total }} recognised · search, flag, blacklist</small></span></a>
+  <a class="dv-tab {% if view == 'shared' %}on{% endif %}" role="tab" aria-selected="{% if view == 'shared' %}true{% else %}false{% endif %}" href="?view=shared">
+    <span class="ti">👥</span><span class="tl"><b>Vouchers used more than once</b><small>Same code on more devices than allowed</small></span>{% if stats.shared %}<span class="tb">{{ stats.shared }}</span>{% endif %}</a>
+</nav>
+
+{% if view != 'shared' %}
 <section class="ds mb-3" aria-label="Search devices">
   <form method="get" id="dsForm" autocomplete="off">
     <input type="hidden" name="view" value="{{ view }}">
@@ -72,12 +88,12 @@
   <a class="dv-kpi {% if view == 'all' %}on{% endif %}" href="?view=all"><span>Devices recognised</span><strong>{{ stats.total }}</strong></a>
   <a class="dv-kpi {% if view == 'today' %}on{% endif %}" href="?view=today"><span>Seen in 24 hours</span><strong>{{ stats.today }}</strong></a>
   <a class="dv-kpi {% if view == 'multimac' %}on{% endif %}" href="?view=multimac"><span>Changed MAC address</span><strong>{{ stats.multimac }}</strong></a>
-  <a class="dv-kpi {% if stats.shared %}warn{% endif %} {% if view == 'shared' %}on{% endif %}" href="?view=shared"><span>Vouchers shared</span><strong>{{ stats.shared }}</strong></a>
   <a class="dv-kpi {% if view == 'blacklist' %}on{% endif %}" href="?view=blacklist"><span>Blacklisted</span><strong>{{ stats.blacklisted }}</strong></a>
   <a class="dv-kpi {% if view == 'flagged' %}on{% endif %}" href="?view=flagged"><span>Flagged by you</span><strong>{{ stats.flagged }}</strong></a>
 </div>
+{% endif %}
 
-{% if view == 'all' or view == 'shared' %}
+{% if view == 'shared' %}
 <section class="panel mb-3">
   <div class="panel-head"><div><h3><i class="bi bi-people-fill text-warning"></i> Vouchers used on more devices than they allow</h3> {% include "core/partials/help_link.html" with slug="shared-auto-warn" %}
     <p>Same code on different devices — usually a shared or resold voucher.
@@ -182,7 +198,8 @@
 {% endblock %}
 {% block scripts %}{{ search_suggest|json_script:"dsSuggest" }}<script>
 (function(){
-  var f=document.getElementById('dsForm'),q=document.getElementById('dsQ'),list=document.getElementById('dsList'),all=JSON.parse(document.getElementById('dsSuggest').textContent),sel=-1,shown=[];
+  var f=document.getElementById('dsForm');if(!f)return;   // the search lives on the Devices tab only
+  var q=document.getElementById('dsQ'),list=document.getElementById('dsList'),all=JSON.parse(document.getElementById('dsSuggest').textContent),sel=-1,shown=[];
   function tokens(){return q.value.match(/(?:[^\s"]+|"[^"]*")+/g)||[];}
   function go(){f.submit();}
   function add(t){var v=q.value.trim();q.value=(v?v+' ':'')+t;q.focus();hide();}
