@@ -111,6 +111,7 @@ URL_PERMS = {
 # and the live heartbeat that keeps router data and automatic sales recording fresh).
 MEMBER_ALLOWED = {
     'go_voucher', 'go_device',
+    'tracking', 'watch_save', 'tracking_action',   # anyone can track what they can open (the item is checked)
     'home', 'login', 'register', 'logout', 'verify_code', 'resend_code', 'cancel_verification',
     'trusted_devices', 'trusted_device_remove', 'trusted_devices_remove_all', 'support', 'subscription',
     'live_tick', 'account_password', 'support_guide',

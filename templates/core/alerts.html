@@ -46,7 +46,7 @@
 <div class="page-actions"><div><h2 class="section-title">Know when a device drops off</h2><p>Live sync scans your routers every minute. When a device you watch disappears — and is still gone after a few minutes — you get an alert in the bell, a pop-up, and a desktop notification if you turn those on.</p></div>
   <form method="post" action="{% url 'alerts_read' %}">{% csrf_token %}<button class="btn btn-outline-secondary text-nowrap" {% if not unread and not ev_unread %}disabled{% endif %}>Mark all read</button></form></div>
 
-<div class="al-tabs mb-3"><a href="?f=all" class="{% if f != 'business' %}on{% endif %}"><i class="bi bi-hdd-network"></i> Devices</a><a href="?f=business" class="{% if f == 'business' %}on{% endif %}"><i class="bi bi-bell"></i> Business alerts{% if ev_unread %} ({{ ev_unread }}){% endif %}</a></div>
+<div class="al-tabs mb-3"><a href="?f=all" class="{% if f != 'business' %}on{% endif %}"><i class="bi bi-hdd-network"></i> Devices</a><a href="?f=business" class="{% if f == 'business' %}on{% endif %}"><i class="bi bi-bell"></i> Business alerts{% if ev_unread %} ({{ ev_unread }}){% endif %}</a><a href="{% url 'tracking' %}"><i class="bi bi-eye"></i> Tracking</a></div>
 {% if f == 'business' %}
 <div class="al-kpis">
   <div class="al-kpi {% if ev_unread %}bad{% endif %}"><span>Unread business alerts</span><strong>{{ ev_unread }}</strong></div>

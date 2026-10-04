@@ -175,6 +175,13 @@ def record_sale(business, voucher=None, *, plan_name='', amount=None, method='ca
     )
     if voucher is not None and not voucher.sold_at:
         Voucher.objects.filter(pk=voucher.pk).update(sold_at=when)
+    try:
+        from .tracking import notify as _track
+        _track(business, 'sold', f'{getattr(voucher, "code", plan_name) or "A voucher"} sold for {business.currency}{gross:,.2f}'
+               + (f' by {agent.name}' if agent else '') + (f' ({method})' if method else ''), voucher=voucher, actor=user,
+               plan=business.plans.filter(name=plan_name).first() if voucher is None and plan_name else None)
+    except Exception:
+        pass
     return sale
 
 
@@ -205,6 +212,11 @@ def mark_activated(voucher, when=None):
     Voucher.objects.filter(pk=voucher.pk, used_at__isnull=True).update(used_at=when)
     voucher.used_at = when
     business = voucher.business
+    try:
+        from .tracking import notify as _track
+        _track(business, 'activated', f'{voucher.code} was used for the first time' + (f' on {voucher.router.name}' if voucher.router_id else ''), voucher=voucher)
+    except Exception:
+        pass
     if business.auto_record_sales and not voucher.sold_at and effective_price(voucher) > 0 \
             and not VoucherSale.objects.filter(voucher=voucher).exists():
         record_sale(business, voucher, method='auto', notes='Auto-recorded on first router activation', when=when)
@@ -451,6 +463,12 @@ def assign_batch(batch, agent, settlement='credit', method='cash', user=None, re
         if net > 0:
             CashCollection.objects.create(business=business, agent=agent, amount=net, payment_method=method, reference=reference,
                                           note=f'Paid upfront for batch {batch.name} ({len(sales)} vouchers)', recorded_by=user)
+    try:
+        from .tracking import notify as _track
+        _track(business, 'batch_issued', (f'Batch {batch.name}: {moved} voucher(s) given to {agent.name}' + (' (paid upfront)' if settlement == 'prepaid' else ' (on credit)'))
+               if agent else f'Batch {batch.name} returned to the shop', batch=batch, actor=user)
+    except Exception:
+        pass
     return moved, sales
 
 

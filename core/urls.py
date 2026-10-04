@@ -6,6 +6,7 @@ from . import views_ads, views_ports, views_live, views_traffic, views_missing, 
 from . import views_team as vteam, views_platform as vp, views_detail as vdetail, views_bin as vbin, views_freeze as vfz
 from . import views_fup as vfup
 from . import views_bonanza as vbz
+from . import views_tracking as vtrack
 from . import views_agent_portal as vap
 from . import views_go as vgo
 from . import views_apps as vapps
@@ -16,6 +17,7 @@ from . import views_topology as vtopo
 from . import views_security_fixes as vsecfix
 
 urlpatterns = [
+    path('tracking/',vtrack.tracking_list,name='tracking'), path('tracking/save/',vtrack.watch_save,name='watch_save'), path('tracking/<int:pk>/',vtrack.tracking_action,name='tracking_action'),
     path('ag/<str:token>/',vap.agent_portal,name='agent_portal'), path('ag/<str:token>/help/',vap.agent_portal_help,name='agent_portal_help'), path('ag/<str:token>/order/',vap.agent_portal_order,name='agent_portal_order'),
     path('go/voucher/<str:code>/',vgo.go_voucher,name='go_voucher'), path('go/device/<str:mac>/',vgo.go_device,name='go_device'),
     path('traffic/apps/',vapps.app_control,name='app_control'), path('traffic/apps/save/',vapps.app_rule_save,name='app_rule_save'),

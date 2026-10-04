@@ -188,6 +188,11 @@ def generate_vouchers(request):
             except Exception as e:
                 messages.warning(request,f'Vouchers were created in TapTap; sending them to {router.name} failed for now ({e}). They go with the next sync.')
         messages.success(request,f'{qty} voucher(s) created successfully.')
+        try:
+            from .tracking import notify as _track
+            _track(business,'vouchers_added',f'{qty} new voucher(s) of {plan.name} in batch {batch.name}'+(f' by {request.user.get_full_name() or request.user.username}' if request.user.is_authenticated else ''),
+                   batch=batch,plan=plan,actor=request.user,count=qty)
+        except Exception: pass
         oid=request.POST.get('order','')
         if oid.isdigit():
             # an agent's order from the voucher checker: done — and the agent sees "Ready" on their phone

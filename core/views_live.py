@@ -81,7 +81,7 @@ def live_tick(request):
         esince = int(request.GET.get('esince') or 0)
     except ValueError:
         esince = 0
-    data['biz_alerts'] = ba.unread(business, esince)
+    data['biz_alerts'] = ba.unread(business, esince, request.user)
     return JsonResponse(data)
 
 

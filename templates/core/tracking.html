@@ -1,0 +1,28 @@
+{% extends 'core/base.html' %}{% load taptap_extras %}
+{% block title %}Tracking — TapTap{% endblock %}{% block heading %}Tracking{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <div><h2 class="section-title mb-1">What you track</h2><p class="text-secondary m-0">Press <b><i class="bi bi-bell"></i> Track</b> on any plan, batch or voucher. Only you get these alerts.</p></div>
+  <a class="btn btn-outline-secondary" href="{% url 'alerts' %}?f=business"><i class="bi bi-bell"></i> All alerts</a>
+</div>
+<div class="row g-3">
+  <div class="col-lg-7"><section class="panel">
+    {% for w in watches %}
+    <div class="d-flex gap-3 align-items-start border-bottom py-2 {% if not w.active %}opacity-50{% endif %}">
+      <span class="fs-4">{% if w.kind == 'plan' %}📋{% elif w.kind == 'batch' %}📦{% else %}🎟️{% endif %}</span>
+      <div class="flex-grow-1"><b>{% if w.gone %}{{ w.label }} <span class="badge text-bg-secondary">deleted</span>{% else %}<a href="{{ w.url }}" class="text-decoration-none">{{ w.get_kind_display }} {{ w.label }}</a>{% endif %}</b>
+        <small class="d-block text-secondary">{{ w.what }} · {% if w.channel == 'app_email' %}📱 + ✉️ app and email{% else %}📱 in the app{% endif %}{% if not w.active %} · paused{% endif %}</small>
+        {% if w.note %}<small class="d-block">“{{ w.note }}”</small>{% endif %}
+        <small class="text-secondary">{{ w.hits }} alert{{ w.hits|pluralize }}{% if w.last_hit_at %} · last {{ w.last_hit_at|timesince }} ago{% endif %} · since {{ w.created_at|date:'d M Y' }}</small></div>
+      <div class="d-flex gap-1">{% if not w.gone %}<a class="btn btn-sm btn-outline-secondary" href="{{ w.url }}" title="Change what you get">Edit</a>{% endif %}
+        <form method="post" action="{% url 'tracking_action' w.id %}">{% csrf_token %}<button class="btn btn-sm btn-outline-secondary" name="action" value="toggle">{% if w.active %}Pause{% else %}Resume{% endif %}</button></form>
+        <form method="post" action="{% url 'tracking_action' w.id %}">{% csrf_token %}<button class="btn btn-sm btn-outline-danger" name="action" value="delete" aria-label="Stop tracking {{ w.label }}"><i class="bi bi-x-lg"></i></button></form></div>
+    </div>
+    {% empty %}<div class="text-center text-secondary py-4"><i class="bi bi-bell" style="font-size:2rem"></i><p class="mt-2 mb-1">You don’t track anything yet.</p>
+      <p class="small mb-0">Example: track a plan to hear when new vouchers are added, or a voucher a customer complained about to see when it is used, frozen or ends.</p></div>{% endfor %}
+  </section></div>
+  <div class="col-lg-5"><section class="panel"><h3 class="h6 fw-bold">Your latest tracking alerts</h3>
+    {% for a in recent %}<div class="border-bottom py-2 small {% if not a.read_at %}fw-semibold{% endif %}"><a href="{{ a.link }}" class="text-decoration-none">{{ a.title }}</a><span class="d-block text-secondary">{{ a.body|truncatechars:140 }}</span><span class="text-secondary">{{ a.created_at|timesince }} ago</span></div>
+    {% empty %}<p class="small text-secondary mb-0">Nothing yet.</p>{% endfor %}</section></div>
+</div>
+{% endblock %}

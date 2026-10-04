@@ -175,3 +175,15 @@ def duration_minutes_text(minutes):
 def kvlist(value):
     """"a:A,b:B" → [('a','A'), ('b','B')] (small fixed menus in templates)."""
     return [tuple(x.split(':', 1)) for x in str(value).split(',') if ':' in x]
+
+
+@register.inclusion_tag('core/partials/track_button.html', takes_context=True)
+def track_button(context, kind, object_id, label=''):
+    """Track button + dialog for a plan, batch or voucher (core/tracking.py)."""
+    from core import tracking
+    request = context.get('request')
+    user = getattr(request, 'user', None)
+    w = tracking.watch_of(user, kind, object_id) if user is not None else None
+    return {'kind': kind, 'object_id': object_id, 'label': label, 'w': w, 'events': tracking.events_for(kind),
+            'chosen': set((w.events or []) if w else []), 'request': request, 'csrf_token': context.get('csrf_token'),
+            'has_email': bool(getattr(user, 'email', '')), 'item': {'plan': 'plan', 'batch': 'batch', 'voucher': 'voucher'}[kind]}

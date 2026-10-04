@@ -325,9 +325,18 @@ def evaluate(business, now=None, force=False):
     return fired
 
 
-def unread(business, since_id=0):
+def visible(business, user=None):
+    """Alerts this person may see: everyone's, plus their own tracking alerts."""
+    from django.db.models import Q
+    q = Q(user__isnull=True)
+    if getattr(user, 'is_authenticated', False):
+        q |= Q(user=user)
+    return business.event_alerts.filter(q)
+
+
+def unread(business, since_id=0, user=None):
     """Business alerts for the bell (merged with device alerts by the heartbeat)."""
-    qs = business.event_alerts.filter(read_at__isnull=True)
+    qs = visible(business, user).filter(read_at__isnull=True)
     fresh = [{'id': a.id, 'type': 'event', 'level': a.level, 'title': a.title, 'body': a.body, 'link': a.link,
               'sound': a.sound, 'desktop': a.desktop, 'at': a.created_at.isoformat()}
              for a in qs.filter(id__gt=since_id).order_by('-id')[:8]]

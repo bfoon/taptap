@@ -1,0 +1,38 @@
+<button type="button" class="btn btn-sm {% if w and w.active %}btn-warning{% elif w %}btn-outline-warning{% else %}btn-outline-secondary{% endif %} tt-track-btn" data-bs-toggle="modal" data-bs-target="#track-{{ kind }}-{{ object_id }}"
+        title="{% if w %}You track this {{ item }}{% else %}Get told when something happens to this {{ item }}{% endif %}">
+  <i class="bi {% if w and w.active %}bi-bell-fill{% else %}bi-bell{% endif %}"></i> {% if w and w.active %}Tracking{% elif w %}Tracking paused{% else %}Track{% endif %}
+</button>
+<div class="modal fade" id="track-{{ kind }}-{{ object_id }}" tabindex="-1" aria-labelledby="track-t-{{ kind }}-{{ object_id }}" aria-hidden="true"><div class="modal-dialog"><form class="modal-content tt-track" method="post" action="{% url 'watch_save' %}">
+  <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}"><input type="hidden" name="kind" value="{{ kind }}"><input type="hidden" name="object_id" value="{{ object_id }}"><input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <div class="modal-header"><h5 class="modal-title" id="track-t-{{ kind }}-{{ object_id }}"><i class="bi bi-bell"></i> Track {{ item }} {{ label }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body">
+    <p class="small text-secondary">Only you get these alerts{% if kind != 'voucher' %} — for the {{ item }} itself and every voucher in it{% endif %}. Things you do yourself are not sent back to you.</p>
+    <label class="form-label fw-bold small mb-1">Tell me about</label>
+    <div class="tt-seg mb-2">
+      <label><input type="radio" name="mode" value="all" {% if not w or w.mode == 'all' %}checked{% endif %}><span>🔔 Everything</span></label>
+      <label><input type="radio" name="mode" value="some" {% if w and w.mode == 'some' %}checked{% endif %}><span>🎯 Only what I choose</span></label>
+    </div>
+    <div class="tt-evs">{% for k,l,icon in events %}<label class="tt-ev"><input type="checkbox" name="events" value="{{ k }}" {% if k in chosen %}checked{% endif %}><span>{{ icon }} {{ l }}</span></label>{% endfor %}</div>
+    <label class="form-label fw-bold small mb-1 mt-3">How</label>
+    <div class="tt-seg">
+      <label><input type="radio" name="channel" value="app" {% if not w or w.channel == 'app' %}checked{% endif %}><span>📱 In the app</span></label>
+      <label><input type="radio" name="channel" value="app_email" {% if w.channel == 'app_email' %}checked{% endif %}><span>📱 + ✉️ App and email</span></label>
+    </div>
+    {% if not has_email %}<small class="text-warning-emphasis d-block mt-1">Your account has no email address yet — add one to receive emails.</small>{% endif %}
+    <label class="form-label small mt-3 mb-1">Why you track it <span class="text-secondary">(optional, shown in each alert)</span></label>
+    <input class="form-control form-control-sm" name="note" maxlength="200" value="{{ w.note|default:'' }}" placeholder="e.g. customer complained / big order for the hotel">
+    {% if w %}<label class="form-check mt-3"><input class="form-check-input" type="checkbox" name="paused" value="1" {% if not w.active %}checked{% endif %}> Pause for now</label>
+    <small class="text-secondary d-block">{{ w.hits }} alert{{ w.hits|pluralize }} so far{% if w.last_hit_at %} · last {{ w.last_hit_at|timesince }} ago{% endif %} · <a href="{% url 'tracking' %}">everything you track</a></small>{% endif %}
+  </div>
+  <div class="modal-footer">{% if w %}<button class="btn btn-outline-danger me-auto" name="stop" value="1">Stop tracking</button>{% endif %}
+    <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary"><i class="bi bi-bell"></i> {% if w %}Save{% else %}Start tracking{% endif %}</button></div>
+</form></div></div>
+<style>
+.tt-seg{display:flex;flex-wrap:wrap;gap:.4rem}.tt-seg label{flex:1;min-width:140px}.tt-seg input{position:absolute;opacity:0}
+.tt-seg span{display:block;text-align:center;border:1px solid var(--border,#dbe4ef);border-radius:12px;padding:.5rem;font-weight:700;font-size:.9rem;cursor:pointer}
+.tt-seg input:checked+span{background:#102033;color:#fff;border-color:#102033}.tt-seg input:focus-visible+span{outline:2px solid #1769e0}
+.tt-evs{display:grid;grid-template-columns:1fr 1fr;gap:.35rem}@media(max-width:520px){.tt-evs{grid-template-columns:1fr}}
+.tt-ev{display:flex;align-items:center;gap:.4rem;border:1px solid var(--border,#e3e9f1);border-radius:10px;padding:.35rem .55rem;font-size:.84rem;cursor:pointer}
+.tt-ev:has(input:checked){border-color:#1769e0;background:#eef5ff}
+.tt-track:has(input[name=mode][value=all]:checked) .tt-evs{opacity:.45;pointer-events:none}
+</style>

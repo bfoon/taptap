@@ -52,6 +52,7 @@ class EventRule(models.Model):
 
 class EventAlert(models.Model):
     business = models.ForeignKey('core.Business', on_delete=models.CASCADE, related_name='event_alerts')
+    user = models.ForeignKey('auth.User', on_delete=models.CASCADE, null=True, blank=True, related_name='+', help_text='Only this person sees it (tracking); empty = everyone')
     rule = models.ForeignKey(EventRule, on_delete=models.SET_NULL, null=True, blank=True, related_name='alerts')
     kind = models.CharField(max_length=30, blank=True)
     level = models.CharField(max_length=10, default='warning')

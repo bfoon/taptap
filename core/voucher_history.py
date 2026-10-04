@@ -81,7 +81,7 @@ def record(voucher, event, *, user=None, source='user', reason='', via='', route
     """Write one history entry. Never raises: history must not break the action."""
     from .models import VoucherEvent
     try:
-        return VoucherEvent.objects.create(
+        ev = VoucherEvent.objects.create(
             business=business or voucher.business,
             voucher=voucher if voucher is not None and voucher.pk else None,
             voucher_code=(code or getattr(voucher, 'code', '') or '')[:120],
@@ -94,6 +94,12 @@ def record(voucher, event, *, user=None, source='user', reason='', via='', route
     except Exception:
         logger.exception('Could not record voucher history for %s', getattr(voucher, 'code', code))
         return None
+    try:   # people tracking this voucher, its batch or its plan (core/tracking.py)
+        from .tracking import from_history
+        from_history(voucher, event, str(detail.get('text') or reason or '')[:200], user)
+    except Exception:
+        logger.exception('tracking for %s', getattr(voucher, 'code', code))
+    return ev
 
 
 # ─────────────────────────────── actions ───────────────────────────────

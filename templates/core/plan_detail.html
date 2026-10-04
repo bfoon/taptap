@@ -11,7 +11,7 @@
 {% block content %}{% with c=current_business.currency %}
 <div class="dt-head">
   <div>{% if 'plans.manage' in tt_perms %}<a class="small text-decoration-none" href="{% url 'plans' %}"><i class="bi bi-arrow-left"></i> All plans</a>{% endif %}
-    <h2>{{ plan.name }} {% if not plan.active %}<span class="badge text-bg-secondary align-middle">Inactive</span>{% endif %}</h2>
+    <h2>{{ plan.name }} {% if not plan.active %}<span class="badge text-bg-secondary align-middle">Inactive</span>{% endif %}</h2> {% track_button "plan" plan.id plan.name %}
     <span class="text-secondary small">{{ plan.price|money:c }} · {{ plan.duration_text }} · {{ plan.max_devices }} device{{ plan.max_devices|pluralize }}
       · created {% if plan.created_at %}{{ plan.created_at|date:'d M Y H:i' }} {% endif %}by {% include 'core/partials/created_by.html' with obj=plan %}</span></div>
   <div class="d-flex flex-wrap gap-2">

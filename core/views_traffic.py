@@ -230,8 +230,8 @@ def alerts(request):
     return render(request, 'core/alerts.html', {'alerts': qs[:200], 'rules': rules, 'f': f, 'still_down': still_down,
                                                 'ev_rules': ev_rules, 'ev_kinds': EventRule.KINDS,
                                                 'ev_firing': sum(1 for r in ev_rules if r.firing and r.enabled), 'ev_on': sum(1 for r in ev_rules if r.enabled), 'ev_levels': EventRule.LEVELS,
-                                                'ev_alerts': business.event_alerts.select_related('rule')[:100],
-                                                'ev_unread': business.event_alerts.filter(read_at__isnull=True).count(),
+                                                'ev_alerts': __import__('core.business_alerts', fromlist=['visible']).visible(business, request.user).select_related('rule')[:100],
+                                                'ev_unread': __import__('core.business_alerts', fromlist=['visible']).visible(business, request.user).filter(read_at__isnull=True).count(),
                                                 'ev_presets': [p for p in PRESETS if not any(r.kind == p[0] for r in ev_rules)],
                                                 'plan_names': list(business.plans.filter(active=True).order_by('name').values_list('name', flat=True)),
                                                 'router_list': business.routers.order_by('name'),
@@ -297,7 +297,8 @@ def alert_rule_action(request, pk):
 def alerts_read(request):
     business = _b(request)
     business.device_alerts.filter(read_at__isnull=True).update(read_at=timezone.now())
-    business.event_alerts.filter(read_at__isnull=True).update(read_at=timezone.now())
+    from .business_alerts import visible as _visible
+    _visible(business, request.user).filter(read_at__isnull=True).update(read_at=timezone.now())
     if request.headers.get('x-requested-with') == 'fetch':
         return JsonResponse({'ok': True})
     return redirect(request.POST.get('next') or 'alerts')
