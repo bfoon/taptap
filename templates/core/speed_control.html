@@ -36,7 +36,7 @@
 .priority{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
 .priority .badge{font-weight:600}
 .empty-box{padding:24px;text-align:center;color:var(--bs-secondary-color)}
-@media(max-width:1000px){.speed-grid{grid-template-columns:1fr}.scope-tabs{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:1000px){.speed-grid{grid-template-columns:minmax(0,1fr)}.scope-tabs{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:600px){.speed-hero{display:block}.speed-hero .btn{margin-top:12px}.speed-fields{grid-template-columns:1fr}.speed-stat{grid-template-columns:1fr}.scope-tabs{grid-template-columns:1fr 1fr}}
 </style>
 {% endblock %}

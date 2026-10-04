@@ -10,7 +10,7 @@
 .bar a,.bar button,.bar select{font:inherit;font-size:.82rem;font-weight:650;border:1px solid #d5dfea;background:#fff;border-radius:9px;padding:.42rem .7rem;color:#102033;text-decoration:none;cursor:pointer}
 .bar .primary{background:#1769e0;border-color:#1769e0;color:#fff}.bar label{font-size:.8rem;font-weight:650;display:flex;gap:.35rem;align-items:center}
 .note{max-width:900px;margin:1rem auto 0;background:#fff8e6;border:1px solid #f3dca5;color:#7a5200;border-radius:12px;padding:.7rem 1rem;font-size:.85rem}
-.sheets{display:flex;flex-direction:column;align-items:center;gap:18px;padding:24px 12px 60px}
+.sheets{display:flex;flex-direction:column;align-items:center;gap:18px;padding:24px 12px 60px;max-width:100%}
 .sheet{background:#fff;box-shadow:0 10px 30px -8px #0b223744;position:relative;overflow:hidden}
 .grid{display:grid;align-content:start;justify-content:center}
 .cell{position:relative}.cut .cell::after{content:"";position:absolute;inset:-.1mm;outline:.15mm dashed #b8c2cc;pointer-events:none}
@@ -22,7 +22,7 @@
 .cs-row>*{min-width:0}.cs-row b{letter-spacing:.6pt;font-size:9pt;white-space:nowrap;overflow:hidden}.cs-row small{color:#6c7c90;font-size:6.4pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cs-row i{width:3.2mm;height:3.2mm;border:.2mm solid #8a9aab;border-radius:.6mm}
 .cs-head{display:flex;justify-content:space-between;font:700 9pt Inter,system-ui,sans-serif;margin-bottom:2mm;border-bottom:.3mm solid #102033;padding-bottom:1.5mm}.cs-head small{font-weight:500;color:#6c7c90}
 .empty{max-width:520px;margin:4rem auto;text-align:center;background:#fff;border-radius:16px;padding:2rem}
-@media print{html,body{margin:0!important;padding:0!important;background:#fff}.bar,.note{display:none!important}.sheets{padding:0;gap:0;display:block}
+@media print{.sheets{zoom:1!important}html,body{margin:0!important;padding:0!important;background:#fff}.bar,.note{display:none!important}.sheets{padding:0;gap:0;display:block}
 .sheet{box-shadow:none;margin:0;break-after:page;page-break-after:always;break-inside:avoid;page-break-inside:avoid}.sheet:last-child{break-after:auto;page-break-after:auto}.cell{break-inside:avoid;page-break-inside:avoid}}
 </style></head><body>
 <div class="bar">
@@ -119,4 +119,21 @@
   document.getElementById('design').onchange=function(){var q=new URLSearchParams(location.search);q.set('design',this.value);location.search=q.toString();};
   layout(); if(document.fonts) document.fonts.ready.then(layout);
 })();
-</script></body></html>
+</script><script>
+// Small screens: show the A4 sheets scaled down to the screen (printing is always at real size).
+(function () {
+  function fit() {
+    var box = document.getElementById('sheets'), sheet = box && box.querySelector('.sheet');
+    if (!sheet) return;
+    box.style.zoom = '';
+    var k = Math.min(1, (document.documentElement.clientWidth - 24) / sheet.offsetWidth);
+    box.style.zoom = k < 1 ? String(k) : '';
+  }
+  window.addEventListener('resize', fit); window.addEventListener('load', fit); setTimeout(fit, 300);
+  var box = document.getElementById('sheets');           // the sheets are drawn by script: fit again when they appear
+  if (box && window.MutationObserver) new MutationObserver(function () { clearTimeout(box._fitT); box._fitT = setTimeout(fit, 50); }).observe(box, { childList: true });
+  window.addEventListener('beforeprint', function () { var b = document.getElementById('sheets'); if (b) b.style.zoom = ''; });
+  window.addEventListener('afterprint', fit);
+})();
+</script>
+</body></html>

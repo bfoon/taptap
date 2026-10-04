@@ -19,7 +19,7 @@
 .business-switch-menu form{margin:0}
 .business-switch-menu .dropdown-item.active small{color:rgba(255,255,255,.72)!important}
 .business-switch-avatar{cursor:pointer}
-</style>{% block extra_head %}{% endblock %}</head>
+</style>{% block extra_head %}{% endblock %}<link href="{% static 'css/responsive.css' %}" rel="stylesheet"></head>
 <body class="{% if user.is_authenticated %}app-shell{% endif %}">
 {% if user.is_authenticated %}
 <aside class="sidebar d-none d-lg-flex"><a class="brand" href="{% url 'dashboard' %}"><span class="brand-mark"><i class="bi bi-wifi"></i></span><span>TapTap<small>Connect. Tap. Go.</small></span></a><nav>

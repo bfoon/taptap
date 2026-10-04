@@ -1,0 +1,34 @@
+/* Responsive safety net — loaded last on every app page (templates/core/base.html).
+   Goal: no page ever scrolls sideways, on a small phone, a tablet or a big screen.
+   Wide things (tables, diagrams, code) scroll inside their own box; the page itself never does. */
+html, body { max-width: 100%; }
+.main-content { min-width: 0; }
+
+/* Columns and grid cells may shrink below their content's natural width (their content then scrolls inside). */
+.main-content .row > *, .main-content [class*="grid"] > * { min-width: 0; }
+
+/* Media and form controls never wider than their box */
+.main-content img, .main-content video, .main-content canvas, .main-content iframe { max-width: 100%; }
+.main-content svg:not(.td-stage svg):not(#netmap svg) { max-width: 100%; }
+.main-content input, .main-content select, .main-content textarea, .main-content .form-control, .main-content .form-select { max-width: 100%; }
+
+/* Long words, codes, MAC addresses and URLs wrap instead of pushing the page wider */
+.main-content :is(p, li, h1, h2, h3, h4, h5, label, .alert, .panel-head p, small, dd) { overflow-wrap: break-word; }
+.main-content pre { white-space: pre-wrap; word-break: break-word; max-width: 100%; }
+.main-content .alert code, .main-content p code { word-break: break-all; }
+
+.main-content .table-responsive { max-width: 100%; }
+
+/* Modals fit small screens */
+.modal-dialog { max-width: min(var(--bs-modal-width, 500px), calc(100vw - 1rem)); }
+
+/* Top bar on phones: the action buttons wrap onto their own line instead of running off the screen */
+@media (max-width: 650px) {
+  .topbar { flex-wrap: wrap; gap: .6rem; }
+  .topbar > :first-child { min-width: 0; flex: 1 1 auto; }
+  .top-actions { flex-wrap: wrap; gap: .45rem; max-width: 100%; justify-content: flex-end; margin-left: auto; }
+  .top-actions > * { min-width: 0; }
+  .live-pill { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .page-actions .btn, .page-actions .btn-group { max-width: 100%; }
+  .page-actions > * { max-width: 100%; }
+}
