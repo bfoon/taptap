@@ -39,3 +39,23 @@ class NotificationsPageTests(TestCase):
         n = Notification.objects.create(business=self.b, event='backup_failed', severity='warning', subject='x', body='x', status='failed', error='e')
         self.c.post('/notifications/resend/')
         n.refresh_from_db(); self.assertEqual((n.status, n.error), ('queued', ''))
+
+
+class DigestIntervalTests(NotificationsPageTests):
+    def test_choose_how_often_the_digest_comes(self):
+        from unittest import mock
+        from . import notify
+        data = {'enabled': 'on', 'summary_hour': '8', 'digest_minutes': '240', 'business_email': 'boss@k.gm'}
+        self.c.post('/notifications/', data)
+        s = prefs(self.b); s.refresh_from_db(); self.assertEqual(s.digest_minutes, 240)
+        self.c.post('/notifications/', {**data, 'digest_minutes': '7'})                 # not a choice: kept
+        s.refresh_from_db(); self.assertEqual(s.digest_minutes, 240)
+        Notification.objects.create(business=self.b, event='backup_done', severity='info', subject='Backup saved', body='x', status='digest')
+        s.last_digest_at = timezone.now() - timedelta(hours=2); s.save()
+        with mock.patch('core.notify._send', return_value='boss@k.gm') as send, mock.patch('core.notify.daily_jobs', return_value=0):
+            notify.deliver()
+            self.assertFalse(send.called)                                                  # 2 h < 4 h: not yet
+            s.last_digest_at = timezone.now() - timedelta(hours=5); s.save()
+            notify.deliver()
+            self.assertTrue(send.called); self.assertIn('last 4 hours', send.call_args.args[4])
+        self.assertContains(self.c.get('/notifications/'), 'every 4 hours')

@@ -1130,6 +1130,9 @@ class NotificationSettings(models.Model):
     quiet_end=models.TimeField(null=True,blank=True)
     daily_summary=models.BooleanField(default=True)
     summary_hour=models.PositiveSmallIntegerField(default=8)
+    DIGEST_CHOICES=[(15,'Every 15 minutes'),(30,'Every 30 minutes'),(60,'Every hour'),(120,'Every 2 hours'),(240,'Every 4 hours'),
+                    (360,'Every 6 hours'),(720,'Twice a day'),(1440,'Once a day')]
+    digest_minutes=models.PositiveSmallIntegerField(default=60,choices=DIGEST_CHOICES,help_text='How often the digest email is sent')
     last_digest_at=models.DateTimeField(null=True,blank=True)
     last_summary_on=models.DateField(null=True,blank=True)
     unsubscribe_token=models.CharField(max_length=40,blank=True)

@@ -45,7 +45,8 @@
 .nx-preview{border:1px solid var(--border,#e3e9f1);border-radius:16px;overflow:hidden;font-size:.82rem}
 .nx-preview .bar{background:#0f2a4d;color:#fff;padding:.55rem .8rem;display:flex;justify-content:space-between}
 .nx-preview .it{padding:.5rem .8rem;border-top:1px solid #eef2f6;display:flex;gap:.5rem}.nx-preview .it i{font-style:normal}
-.nx-log{display:flex;flex-direction:column}.nx-log .row-i{display:grid;grid-template-columns:auto 1fr auto;gap:.7rem;align-items:center;padding:.5rem 0;border-bottom:1px solid #eef2f6;font-size:.84rem}
+.nx-log{display:flex;flex-direction:column;max-height:460px;overflow-y:auto;padding-right:.3rem;overscroll-behavior:contain}
+.nx-log-wrap{position:relative}.nx-log-wrap::after{content:'';position:absolute;left:0;right:0;bottom:0;height:28px;pointer-events:none;background:linear-gradient(transparent,var(--panel,#fff))}.nx-log .row-i{display:grid;grid-template-columns:auto 1fr auto;gap:.7rem;align-items:center;padding:.5rem 0;border-bottom:1px solid #eef2f6;font-size:.84rem}
 .nx-dot{width:10px;height:10px;border-radius:50%}.nx-dot.critical{background:#d64545}.nx-dot.warning{background:#f59e0b}.nx-dot.info,.nx-dot.good{background:#1769e0}
 .nx-st{font-size:.68rem;font-weight:800;border-radius:999px;padding:.12rem .5rem;white-space:nowrap}
 .nx-st.sent{background:#e4f7ee;color:#138453}.nx-st.failed{background:#fdeaea;color:#c02b2b}.nx-st.queued,.nx-st.digest{background:#fff4dc;color:#9a6200}.nx-st.skipped{background:#eef2f6;color:#6c7c90}
@@ -108,6 +109,7 @@ html[data-theme="dark"] .nx-group>summary,html[data-theme="dark"] .nx-stat{backg
   <div class="d-flex flex-wrap gap-3 align-items-center mt-2 small">
     <span>Summary at <select class="form-select form-select-sm d-inline-block w-auto" name="summary_hour" id="ntHour">{% for h in hours %}<option value="{{ h }}" {% if h == s.summary_hour %}selected{% endif %}>{{ h|stringformat:'02d' }}:00</option>{% endfor %}</select></span>
     <span>Quiet from <input class="form-control form-control-sm d-inline-block w-auto" type="time" name="quiet_start" id="ntQs" value="{{ s.quiet_start|time:'H:i' }}"> to <input class="form-control form-control-sm d-inline-block w-auto" type="time" name="quiet_end" id="ntQe" value="{{ s.quiet_end|time:'H:i' }}"></span>
+    <span>Digest <select class="form-select form-select-sm d-inline-block w-auto" name="digest_minutes" id="ntEvery">{% for v,l in s.DIGEST_CHOICES %}<option value="{{ v }}" {% if v == s.digest_minutes %}selected{% endif %}>{{ l|lower }}</option>{% endfor %}</select></span>
     <span class="text-secondary">During quiet hours only <b>critical</b> alerts (a router going offline, a refused TapTap Link) reach you; the rest waits for the next digest.</span>
   </div>
 </section>
@@ -116,13 +118,13 @@ html[data-theme="dark"] .nx-group>summary,html[data-theme="dark"] .nx-stat{backg
 <section class="nx-card">
   <h3 class="h6 fw-bold mb-2">What to email you about</h3>
   <div class="nx-presets" role="group" aria-label="Quick choices">
-    <button type="button" class="nx-preset" data-preset="calm"><span class="e">🧘</span><b>Calm</b><small>Only emergencies right away, the rest once an hour.</small></button>
+    <button type="button" class="nx-preset" data-preset="calm"><span class="e">🧘</span><b>Calm</b><small>Only emergencies right away, the rest in the digest.</small></button>
     <button type="button" class="nx-preset" data-preset="balanced"><span class="e">⚖️</span><b>Balanced</b><small>TapTap’s recommended mix.</small></button>
-    <button type="button" class="nx-preset" data-preset="essentials"><span class="e">🎯</span><b>Essentials</b><small>Emergencies now, warnings hourly, no small news.</small></button>
+    <button type="button" class="nx-preset" data-preset="essentials"><span class="e">🎯</span><b>Essentials</b><small>Emergencies now, warnings in the digest, no small news.</small></button>
     <button type="button" class="nx-preset" data-preset="everything"><span class="e">⚡</span><b>Everything now</b><small>Every event the moment it happens.</small></button>
   </div>
   <div class="nx-tools"><input class="form-control form-control-sm" style="max-width:240px" type="search" id="ntFind" placeholder="Find an event…" aria-label="Find an event">
-    <small class="text-secondary"><b>⚡ Instant</b> right away (several at once arrive as one email) · <b>🗂 Digest</b> one email per hour · <b>🔕 Off</b> never emailed, still in TapTap.</small></div>
+    <small class="text-secondary"><b>⚡ Instant</b> right away (several at once arrive as one email) · <b>🗂 Digest</b> bundled into one email <span data-every-text>every hour</span> · <b>🔕 Off</b> never emailed, still in TapTap.</small></div>
   {% for group, g in groups.items %}<details class="nx-group" open><summary><span class="gi"><i class="bi {{ g.icon }}"></i></span>{{ group }}<span class="cnt" data-cnt></span></summary>
     {% for e in g.events %}<div class="nx-ev" data-ev="{{ e.key }}" data-text="{{ e.label|lower }} {{ e.help|lower }}" data-default="{{ e.default }}" data-sev="{{ e.severity }}">
       <div><b>{{ e.label }}</b><span class="nx-sev {{ e.severity }}">{{ e.severity }}</span><small>{{ e.help }}</small></div>
@@ -149,12 +151,13 @@ html[data-theme="dark"] .nx-group>summary,html[data-theme="dark"] .nx-stat{backg
 <section class="nx-card">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2"><h3 class="h6 fw-bold m-0">Recent notifications</h3>
     <div class="nx-filter" role="group" aria-label="Show"><button type="button" class="on" data-f="">All</button><button type="button" data-f="sent">Sent</button><button type="button" data-f="digest">Waiting</button><button type="button" data-f="failed">Failed</button><button type="button" data-f="skipped">Turned off</button></div></div>
-  <div class="nx-log" id="ntLog">
+  <div class="nx-log-wrap"><div class="nx-log" id="ntLog" tabindex="0" aria-label="Recent notifications (scroll)">
   {% for n in recent %}<div class="row-i" data-st="{{ n.status }}"><span class="nx-dot {{ n.severity }}"></span>
     <div><b>{{ n.subject }}</b><small class="d-block text-secondary">{{ n.created_at|date:'D d M H:i' }}{% if n.recipients %} · to {{ n.recipients|truncatechars:60 }}{% endif %}{% if n.error %} · <span class="text-danger">{{ n.error|truncatechars:80 }}</span>{% endif %}</small></div>
     <span class="nx-st {{ n.status }}">{{ n.get_status_display }}</span></div>
   {% empty %}<p class="text-secondary small m-0 py-3">Nothing yet. Notifications appear here as things happen.</p>{% endfor %}
-  </div>
+  </div></div>
+  {% if recent %}<small class="text-secondary d-block mt-1">Showing the last {{ recent|length }} — scroll for older ones.</small>{% endif %}
 </section>
 {{ presets|json_script:"ntPresets" }}
 {% endblock %}
@@ -180,12 +183,14 @@ html[data-theme="dark"] .nx-group>summary,html[data-theme="dark"] .nx-stat{backg
     var inst=[],dig=[];document.querySelectorAll('.nx-ev').forEach(function(r){var t=r.querySelector('b').textContent,v=cur[r.dataset.ev];if(v==='instant')inst.push([t,r.dataset.sev]);else if(v==='digest')dig.push(t);});
     var ic={critical:'🔴',warning:'🟠',info:'🔵'},h='';
     inst.slice(0,3).forEach(function(x){h+='<div class="it"><i>'+ic[x[1]]+'</i><span><b>'+x[0]+'</b><br><small class="text-secondary">arrives right away</small></span></div>';});
-    if(dig.length)h+='<div class="it"><i>🗂</i><span><b>Hourly digest</b><br><small class="text-secondary">'+dig.slice(0,3).join(', ')+(dig.length>3?' and '+(dig.length-3)+' more':'')+'</small></span></div>';
+    var every=document.getElementById('ntEvery'),et=every.selectedOptions[0].text;
+    document.querySelectorAll('[data-every-text]').forEach(function(x){x.textContent=et;});
+    if(dig.length)h+='<div class="it"><i>🗂</i><span><b>Digest — '+et+'</b><br><small class="text-secondary">'+dig.slice(0,3).join(', ')+(dig.length>3?' and '+(dig.length-3)+' more':'')+'</small></span></div>';
     if(document.getElementById('ntSum').checked)h+='<div class="it"><i>☀️</i><span><b>Morning summary</b><br><small class="text-secondary">every day at '+document.getElementById('ntHour').selectedOptions[0].text+'</small></span></div>';
     var on=document.getElementById('ntEnabled').checked;
     document.getElementById('pvBody').innerHTML=on?(h||'<div class="it"><i>🔕</i><span>Nothing is emailed.</span></div>'):'<div class="it"><i>🔕</i><span>Email notifications are off.</span></div>';
     document.getElementById('pvTag').textContent=on?inst.length+' instant · '+dig.length+' in digest':'off';
-    document.getElementById('pvNote').textContent=on?'A typical day: about '+(inst.length?'a few':'no')+' instant emails, '+(dig.length?'up to one digest an hour':'no digests')+'.':'';
+    document.getElementById('pvNote').textContent=on?'A typical day: about '+(inst.length?'a few':'no')+' instant emails, '+(dig.length?'a digest '+et:'no digests')+'.':'';
   }
   // the 24-hour strip: quiet hours shaded, the summary sun
   function mins(v){if(!v)return null;var p=v.split(':');return (+p[0])*60+(+p[1]);}

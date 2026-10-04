@@ -416,6 +416,12 @@ def notifications(request):
             s.summary_hour = max(0, min(23, int(request.POST.get('summary_hour') or 8)))
         except ValueError:
             pass
+        try:
+            dm = int(request.POST.get('digest_minutes') or s.digest_minutes)
+            if dm in dict(s.DIGEST_CHOICES):
+                s.digest_minutes = dm
+        except ValueError:
+            pass
         s.extra_recipients = ', '.join(x.strip() for x in request.POST.get('extra_recipients', '').replace(';', ',').split(',') if '@' in x)[:500]
 
         def t(v):
@@ -456,7 +462,7 @@ def notifications(request):
     peak = max([x['n'] for x in days] + [1])
     for x in days:
         x['pct'] = round(x['n'] * 100 / peak)
-    next_digest = (s.last_digest_at + _td(hours=1)) if s.last_digest_at else None
+    next_digest = (s.last_digest_at + _td(minutes=s.digest_minutes)) if s.last_digest_at else None
     if next_digest and next_digest < now:
         next_digest = now
     summary_at = timezone.localtime(now).replace(hour=s.summary_hour, minute=0, second=0, microsecond=0)
@@ -465,7 +471,7 @@ def notifications(request):
     last_sent = business.notifications.filter(status='sent').order_by('-sent_at').first()
     return render(request, 'core/notifications.html', {
         's': s, 'groups': groups, 'to': recipients(business, s), 'configured': email_configured(),
-        'recent': business.notifications.all()[:40], 'hours': range(24),
+        'recent': business.notifications.all()[:200], 'hours': range(24),
         'stats': {'sent': by_status.get('sent', 0), 'failed': by_status.get('failed', 0), 'waiting': by_status.get('digest', 0) + by_status.get('queued', 0),
                   'off': by_status.get('skipped', 0), 'days': days, 'last_sent': last_sent, 'next_digest': next_digest, 'summary_at': summary_at,
                   'digest_waiting': business.notifications.filter(status='digest').count()},

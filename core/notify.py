@@ -3,7 +3,7 @@
 notify() is called wherever something worth knowing happens. It never sends mail
 itself: it records a Notification, and deliver() (every minute, from the live
 scheduler) sends instant ones, bundles digest ones hourly and writes a morning
-summary. Owners choose per event: instant, in the hourly digest, or off.
+summary. Owners choose per event: instant, in the digest (sent as often as they choose), or off.
 
 * Quiet hours: non-critical instant alerts wait for the next digest.
 * Duplicates are suppressed: the same event for the same thing within its cool-down
@@ -48,6 +48,18 @@ EVENTS = OrderedDict([
 COOLDOWN_MIN = {'router_offline': 15, 'router_online': 15, 'device_offline': 30, 'device_online': 30, 'link_ip_change': 360,
                 'link_rejected': 60, 'traffic_guard': 30, 'stock_low': 1440, 'subscription': 1440}
 SEVERITY_COLOR = {'critical': '#d64545', 'warning': '#f59e0b', 'info': '#1769e0', 'good': '#18a66a'}
+
+
+def digest_span(minutes):
+    """'15 minutes', 'hour', '4 hours', 'day' — for the digest email's wording."""
+    m = int(minutes or 60)
+    if m >= 1440:
+        return 'day'
+    if m == 60:
+        return 'hour'
+    if m % 60 == 0:
+        return f'{m // 60} hours'
+    return f'{m} minutes'
 
 
 def prefs(business):
@@ -151,13 +163,15 @@ def deliver():
             except Exception as exc:
                 business.notifications.filter(pk__in=[n.pk for n in queued]).update(status='failed', error=str(exc)[:300])
                 logger.warning('email to %s failed: %s', business, exc)
-        due = not s.last_digest_at or now - s.last_digest_at >= timedelta(hours=1)
+        every = max(15, int(getattr(s, 'digest_minutes', 60) or 60))
+        due = not s.last_digest_at or now - s.last_digest_at >= timedelta(minutes=every)
         if due and not in_quiet_hours(s):
             waiting = list(business.notifications.filter(status='digest').order_by('created_at')[:200])
             if waiting:
                 try:
-                    to = _send(business, f'Hourly digest — {len(waiting)} update{"s" if len(waiting) != 1 else ""}', [_item(n) for n in waiting],
-                               'Your hourly digest', 'Things that happened on your network in the last hour.', s=s)
+                    span = digest_span(every)
+                    to = _send(business, f'Digest — {len(waiting)} update{"s" if len(waiting) != 1 else ""}', [_item(n) for n in waiting],
+                               'Your digest', f'Things that happened on your network in the last {span}.', s=s)
                     business.notifications.filter(pk__in=[n.pk for n in waiting]).update(status='sent', sent_at=now, recipients=to[:600], error='')
                     sent += 1
                 except Exception as exc:
