@@ -1,0 +1,49 @@
+{% load taptap_extras %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ payment.receipt_number }} — Balance receipt</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eef2f6;color:#16202a;font:14px/1.45 Arial,sans-serif}.toolbar{max-width:820px;margin:18px auto 0;display:flex;gap:8px;justify-content:flex-end}.toolbar a,.toolbar button{border:1px solid #ccd6e0;background:#fff;border-radius:8px;padding:8px 12px;color:#24384b;text-decoration:none;cursor:pointer}.sheet{max-width:820px;margin:10px auto 32px;background:#fff;padding:34px 38px;box-shadow:0 3px 20px #10203015}.head{display:flex;justify-content:space-between;gap:25px;border-bottom:2px solid #102d49;padding-bottom:18px}.brand{display:flex;align-items:center;gap:12px}.brand img{width:54px;height:54px;object-fit:contain}.brand h1{font-size:22px;margin:0}.brand small,.meta small{color:#607387}.meta{text-align:right}.meta b{display:block;font-size:17px}.badge{display:inline-block;margin-top:8px;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:800;background:#e8f7ef;color:#11633e}.amount{margin:24px 0;border-radius:14px;padding:18px;background:#f5f8fb;display:flex;justify-content:space-between;align-items:end}.amount small{display:block;color:#607387;text-transform:uppercase;font-weight:700;font-size:10px}.amount strong{font-size:30px}.balances{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}.box{border:1px solid #dce3ea;border-radius:10px;padding:12px}.box small{display:block;color:#66788a}.box b{font-size:18px}.box.after b{color:#b42318}.box.after.clear b{color:#14734a}.row{display:flex;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid #edf1f5}.row span:first-child{color:#66788a}.alloc{margin-top:22px}.alloc h2{font-size:13px;text-transform:uppercase;color:#607387}.alloc table{width:100%;border-collapse:collapse}.alloc th,.alloc td{padding:8px;border-bottom:1px solid #edf1f5;text-align:left}.alloc th:last-child,.alloc td:last-child{text-align:right}.note{margin-top:20px;border:1px solid #bcd9ff;background:#f1f7ff;border-radius:10px;padding:11px 13px;color:#36556f}.foot{border-top:1px solid #dce3ea;margin-top:28px;padding-top:14px;color:#708090;font-size:11px}.thermal .sheet{max-width:80mm;margin:0;padding:7mm;box-shadow:none}.thermal .toolbar{display:none}.thermal .head,.thermal .amount{display:block}.thermal .meta{text-align:left;margin-top:12px}.thermal .balances{display:block}.thermal .box{margin-bottom:8px}@media(max-width:640px){.sheet{margin:0;padding:20px}.toolbar{padding:0 10px}.head,.amount{display:block}.meta{text-align:left;margin-top:12px}.balances{grid-template-columns:1fr}}@media print{body{background:#fff}.toolbar{display:none}.sheet{box-shadow:none;margin:0;max-width:none;padding:15mm}.thermal .sheet{padding:4mm}}
+</style>
+</head>
+<body class="{% if fmt == 'thermal' %}thermal{% endif %}">
+<div class="toolbar">
+  <a href="{{ next_url }}">Back</a>
+  {% if fmt == 'thermal' %}<a href="?balance_receipt={{ payment.id }}&format=a4&next={{ next_url|urlencode }}">A4</a>{% else %}<a href="?balance_receipt={{ payment.id }}&format=thermal&next={{ next_url|urlencode }}">80mm</a>{% endif %}
+  <button onclick="window.print()">Print receipt</button>
+</div>
+<main class="sheet">
+  <header class="head">
+    <div class="brand">
+      {% if payment.business.logo_data %}<img src="{{ payment.business.logo_data }}" alt="">{% endif %}
+      <div><h1>{{ payment.business.business_name }}</h1><small>Member balance payment receipt</small></div>
+    </div>
+    <div class="meta"><b>{{ payment.receipt_number }}</b><small>{{ payment.paid_at|date:"d M Y H:i" }}</small><span class="badge">BALANCE PAYMENT</span></div>
+  </header>
+
+  <section class="amount"><div><small>Amount collected</small><strong>{{ payment.amount_collected|money2:payment.currency }}</strong></div><div style="text-align:right"><small>Member</small><b>{% if payment.member %}{{ payment.member.customer_name|default:payment.member.code }}{% else %}Member{% endif %}</b></div></section>
+
+  <div class="balances">
+    <div class="box"><small>Arrears before payment</small><b>{{ payment.balance_before|money2:payment.currency }}</b></div>
+    <div class="box after {% if not payment.balance_after %}clear{% endif %}"><small>Arrears after payment</small><b>{{ payment.balance_after|money2:payment.currency }}</b></div>
+  </div>
+
+  <div class="row"><span>Payment method</span><b>{{ payment.payment_method|capfirst }}</b></div>
+  {% if payment.reference %}<div class="row"><span>Reference</span><b>{{ payment.reference }}</b></div>{% endif %}
+  {% if payment.sale %}<div class="row"><span>Finance sale</span><b>#{{ payment.sale.id }}</b></div>{% endif %}
+
+  {% if payment.allocations %}
+  <section class="alloc"><h2>Applied to renewal arrears</h2><table><thead><tr><th>Renewal receipt</th><th>Plan</th><th>Amount</th></tr></thead><tbody>
+  {% for a in payment.allocations %}<tr><td>{{ a.receipt }}</td><td>{{ a.plan }}</td><td>{{ a.amount|money2:payment.currency }}</td></tr>{% endfor %}
+  </tbody></table></section>
+  {% endif %}
+
+  <div class="note"><b>No membership time was added.</b> This receipt is only for money collected against an earlier renewal balance.</div>
+  <footer class="foot">Recorded by {{ payment.recorded_by.get_full_name|default:payment.recorded_by.username|default:"TapTap" }} · TapTap member balance receipt</footer>
+</main>
+{% if autoprint %}<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),150));</script>{% endif %}
+</body>
+</html>

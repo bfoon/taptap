@@ -54,6 +54,7 @@ class CoreConfig(AppConfig):
         importlib.import_module("core.models_cash")
         importlib.import_module("core.models_free_access")
         importlib.import_module("core.models_member_plans")
+        importlib.import_module("core.models_member_arrears")
 
     def ready(self):
         from . import team  # noqa: F401
@@ -75,14 +76,11 @@ class CoreConfig(AppConfig):
         )
 
         # Shared vouchers must keep each family's/device group's slots stable.
-        # In particular, a random private MAC must never silently take an
-        # offline device's slot on a multi-device plan.
         _install_optional(
             "shared_voucher_stability",
         )
 
-        # Adds a per-device "Remove" control to the locked-device list while
-        # keeping the existing Reset devices action unchanged.
+        # Per-device removal for shared vouchers.
         _install_optional(
             "shared_voucher_device_control",
         )
@@ -100,11 +98,15 @@ class CoreConfig(AppConfig):
             "link_sync_reliability",
         )
 
-        # Member Plans have their own validity/profile truth. Make the Members
-        # "Fix on router" path enforce that truth directly on MikroTik instead
-        # of relying on the generic bulk voucher sender.
+        # Exact Member Plan -> MikroTik profile/time alignment.
         _install_optional(
             "member_router_alignment",
+        )
+
+        # Partial member payments, arrears, re-printable receipts and the
+        # compact remaining-time bar on Members.
+        _install_optional(
+            "member_arrears",
         )
 
         _install_optional(

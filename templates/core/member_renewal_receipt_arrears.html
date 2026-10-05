@@ -1,0 +1,74 @@
+{% load taptap_extras %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ renewal.receipt_number }} — Member receipt</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eef2f6;color:#16202a;font:14px/1.45 Arial,sans-serif}.toolbar{max-width:820px;margin:18px auto 0;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}.toolbar a,.toolbar button{border:1px solid #ccd6e0;background:#fff;border-radius:8px;padding:8px 12px;color:#24384b;text-decoration:none;cursor:pointer}.sheet{max-width:820px;margin:10px auto 32px;background:#fff;padding:34px 38px;box-shadow:0 3px 20px #10203015}.head{display:flex;justify-content:space-between;gap:25px;border-bottom:2px solid #102d49;padding-bottom:18px}.brand{display:flex;align-items:center;gap:12px}.brand img{width:54px;height:54px;object-fit:contain}.brand h1{font-size:22px;margin:0}.brand small{color:#607387}.receipt-meta{text-align:right}.receipt-meta b{display:block;font-size:17px}.receipt-meta small{color:#607387}.status{display:inline-block;margin-top:8px;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:800;letter-spacing:.04em;background:#e8f7ef;color:#11633e}.status.partial{background:#fff0d8;color:#925d00}.amount{margin:24px 0;border-radius:14px;padding:18px;background:#f5f8fb;display:flex;justify-content:space-between;gap:20px;align-items:end}.amount small{display:block;color:#607387;text-transform:uppercase;font-weight:700;font-size:10px}.amount strong{font-size:30px}.arrears{margin:-12px 0 22px;padding:11px 14px;border:1px solid #f0c36f;background:#fff8e8;border-radius:10px;color:#7a5100}.arrears b{color:#ad1d18}.grid{display:grid;grid-template-columns:1fr 1fr;gap:0 30px}.row{display:flex;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid #edf1f5}.row span:first-child{color:#66788a}.row b{text-align:right}.section{margin-top:22px}.section h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:#607387;margin:0 0 5px}.foot{border-top:1px solid #dce3ea;margin-top:28px;padding-top:14px;color:#708090;font-size:11px}.no-time{font-weight:700;color:#546579}.thermal .sheet{max-width:80mm;margin:0;padding:7mm;box-shadow:none}.thermal .toolbar{display:none}.thermal .head,.thermal .amount{display:block}.thermal .receipt-meta{text-align:left;margin-top:12px}.thermal .grid{display:block}.thermal .amount strong{font-size:25px}@media(max-width:640px){.sheet{margin:0;padding:20px}.toolbar{padding:0 10px}.head,.amount{display:block}.receipt-meta{text-align:left;margin-top:12px}.grid{grid-template-columns:1fr}}@media print{body{background:#fff}.toolbar{display:none}.sheet{box-shadow:none;margin:0;max-width:none;padding:15mm}.thermal .sheet{padding:4mm}}
+</style>
+</head>
+<body class="{% if fmt == 'thermal' %}thermal{% endif %}">
+<div class="toolbar">
+  <a href="{{ next_url }}">Back</a>
+  {% if fmt == 'thermal' %}<a href="?receipt={{ renewal.id }}&format=a4&next={{ next_url|urlencode }}">A4</a>{% else %}<a href="?receipt={{ renewal.id }}&format=thermal&next={{ next_url|urlencode }}">80mm</a>{% endif %}
+  <button onclick="window.print()">Print receipt</button>
+</div>
+<main class="sheet">
+  <header class="head">
+    <div class="brand">
+      {% if renewal.business.logo_data %}<img src="{{ renewal.business.logo_data }}" alt="">{% endif %}
+      <div><h1>{{ renewal.business.business_name }}</h1><small>Member renewal receipt</small></div>
+    </div>
+    <div class="receipt-meta">
+      <b>{{ renewal.receipt_number }}</b>
+      <small>{{ renewal.renewed_at|date:"d M Y H:i" }}</small>
+      <span class="status {% if arrears_at_issue %}partial{% endif %}">{% if arrears_at_issue %}PART PAYMENT{% else %}PAYMENT RECEIVED{% endif %}</span>
+    </div>
+  </header>
+
+  <section class="amount">
+    <div><small>Amount collected</small><strong>{{ renewal.amount_collected|money2:renewal.currency }}</strong></div>
+    <div style="text-align:right"><small>Plan price</small><b>{{ renewal.plan_price|money2:renewal.currency }}</b></div>
+  </section>
+
+  {% if arrears_at_issue %}
+  <div class="arrears">
+    Arrears after this renewal payment: <b>{{ arrears_at_issue|money2:renewal.currency }}</b>.
+    {% if current_renewal_arrears != arrears_at_issue %}
+      Current arrears for this renewal: <b>{{ current_renewal_arrears|money2:renewal.currency }}</b>.
+    {% endif %}
+    {% if total_arrears != current_renewal_arrears %}
+      Total member arrears now: <b>{{ total_arrears|money2:renewal.currency }}</b>.
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="grid">
+    <div>
+      <div class="row"><span>Member</span><b>{{ renewal.customer_name|default:renewal.member_username }}</b></div>
+      <div class="row"><span>Username</span><b>{{ renewal.member_username }}</b></div>
+      <div class="row"><span>Member plan</span><b>{{ renewal.plan_name }}</b></div>
+      <div class="row"><span>Devices</span><b>{{ renewal.max_devices }}</b></div>
+      <div class="row"><span>Speed</span><b>{{ renewal.speed_limit|default:"Full speed" }}</b></div>
+    </div>
+    <div>
+      <div class="row"><span>Payment method</span><b>{{ renewal.payment_method|capfirst }}</b></div>
+      {% if renewal.reference %}<div class="row"><span>Reference</span><b>{{ renewal.reference }}</b></div>{% endif %}
+      <div class="row"><span>Previous expiry</span><b>{% if renewal.old_expires_at %}{{ renewal.old_expires_at|date:"d M Y H:i" }}{% else %}—{% endif %}</b></div>
+      <div class="row"><span>New expiry</span><b>{% if renewal.new_expires_at %}{{ renewal.new_expires_at|date:"d M Y H:i" }}{% else %}<span class="no-time">Unlimited</span>{% endif %}</b></div>
+      {% if renewal.sale %}<div class="row"><span>Finance sale</span><b>#{{ renewal.sale.id }}</b></div>{% endif %}
+    </div>
+  </div>
+
+  <section class="section">
+    <h2>Payment note</h2>
+    <p>{% if arrears_at_issue %}This receipt records a partial payment. The membership period was renewed once; the unpaid amount remains as arrears and must be collected using <b>Collect balance</b>. Balance collections do not add more membership time.{% else %}This renewal is fully paid for this plan period.{% endif %}</p>
+  </section>
+
+  <footer class="foot">Recorded by {{ renewal.recorded_by.get_full_name|default:renewal.recorded_by.username|default:"TapTap" }} · TapTap member receipt</footer>
+</main>
+{% if autoprint %}<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),150));</script>{% endif %}
+</body>
+</html>
