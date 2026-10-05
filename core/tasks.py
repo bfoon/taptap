@@ -122,8 +122,12 @@ def live_watch_all():
 
 @shared_task(ignore_result=True)
 def deliver_notifications():
+    """Deliver business notifications and opt-in member expiry reminders."""
     from .notify import deliver
+    from .member_notifications import send_due_member_reminders
+
     deliver()
+    send_due_member_reminders()
 
 
 @shared_task(ignore_result=True, queue="live")

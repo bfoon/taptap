@@ -10,17 +10,25 @@ Important design:
 - Every MemberPlan has one stable MikroTik profile name:
       taptap-member-plan-<id>
   so all members on that plan share the same HotSpot user profile.
+- Member contact/reminder choices are stored separately from the Voucher row.
 """
 from __future__ import annotations
 
 import re
 from decimal import Decimal, InvalidOperation
 
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
 from django.db import transaction
 from django.utils import timezone
 
 from .models import Voucher, VoucherCodeAlias, VoucherSale
-from .models_member_plans import MemberPlan, MemberPlanAssignment
+from .models_member_plans import (
+    MemberNotificationSettings,
+    MemberPlan,
+    MemberPlanAssignment,
+    MemberRenewal,
+)
 
 
 USERNAME_RE = re.compile(r'^[a-z0-9][a-z0-9._@-]{2,31}$')
@@ -88,15 +96,15 @@ def stored_password(username, password, same):
     return check_password(password)
 
 
-def _money(value):
+def _money(value, label='Price'):
     try:
         amount = Decimal(str(value or '0').replace(',', '').strip() or '0')
     except (InvalidOperation, ValueError):
-        raise MemberError('Price must be a number.')
+        raise MemberError(f'{label} must be a number.')
     if amount < 0:
-        raise MemberError('Price cannot be negative.')
+        raise MemberError(f'{label} cannot be negative.')
     if amount > Decimal('99999999.99'):
-        raise MemberError('Price is too large.')
+        raise MemberError(f'{label} is too large.')
     return amount.quantize(Decimal('0.01'))
 
 
@@ -118,6 +126,17 @@ def _speed(value):
             'or leave it empty for full speed.'
         )
     return rate
+
+
+def _email(value):
+    email = str(value or '').strip().lower()[:254]
+    if not email:
+        return ''
+    try:
+        validate_email(email)
+    except ValidationError as exc:
+        raise MemberError('Enter a valid member email address.') from exc
+    return email
 
 
 def plan_choice(business, value, *, active_only=True):
@@ -142,6 +161,58 @@ def plan_for_member(voucher):
     except (MemberPlanAssignment.DoesNotExist, AttributeError):
         return None
     return link.plan
+
+
+def notification_settings_for(voucher):
+    """Return saved member email/reminder settings or None."""
+    try:
+        return voucher.member_notification_settings
+    except (MemberNotificationSettings.DoesNotExist, AttributeError):
+        return None
+
+
+def save_member_notifications(voucher, data, *, user=None):
+    """Validate and save the member's email and optional expiry reminders."""
+    if not voucher.is_member:
+        raise MemberError('Only members can have member reminder settings.')
+
+    email = _email(data.get('customer_email', data.get('email', '')))
+    reminders_enabled = bool(data.get('reminders_enabled'))
+    current = notification_settings_for(voucher)
+    if reminders_enabled:
+        remind_7 = bool(data.get('remind_7_days'))
+        remind_2 = bool(data.get('remind_2_days'))
+        remind_1 = bool(data.get('remind_1_day'))
+    else:
+        # Disabled checkboxes are not submitted by browsers. Keep the member's
+        # chosen thresholds ready for the next time reminders are enabled.
+        remind_7 = current.remind_7_days if current else True
+        remind_2 = current.remind_2_days if current else True
+        remind_1 = current.remind_1_day if current else True
+
+    if reminders_enabled and not email:
+        raise MemberError(
+            'Enter the member email address before enabling expiry reminders.'
+        )
+    if reminders_enabled and not any((remind_7, remind_2, remind_1)):
+        raise MemberError(
+            'Choose at least one reminder: 7 days, 2 days or 1 day before expiry.'
+        )
+
+    pref, _ = MemberNotificationSettings.objects.update_or_create(
+        member=voucher,
+        defaults={
+            'email': email,
+            'reminders_enabled': reminders_enabled,
+            'remind_7_days': remind_7,
+            'remind_2_days': remind_2,
+            'remind_1_day': remind_1,
+            'updated_by': (
+                user if getattr(user, 'is_authenticated', False) else None
+            ),
+        },
+    )
+    return pref
 
 
 def kind_of(voucher):
@@ -303,6 +374,11 @@ def create_member(
     agent=None,
     customer_name='',
     customer_phone='',
+    customer_email='',
+    reminders_enabled=False,
+    remind_7_days=True,
+    remind_2_days=True,
+    remind_1_day=True,
     note='',
     paid=False,
     method='cash',
@@ -320,6 +396,20 @@ def create_member(
     name = check_username(username)
     pw = stored_password(name, password, same)
     plan = plan_choice(business, plan_value, active_only=True)
+
+    # Validate email/reminder choices before the Voucher row is created. Because
+    # this function is atomic, any later failure also rolls back the member.
+    email = _email(customer_email)
+    if reminders_enabled and not email:
+        raise MemberError(
+            'Enter the member email address before enabling expiry reminders.'
+        )
+    if reminders_enabled and not any(
+        (remind_7_days, remind_2_days, remind_1_day)
+    ):
+        raise MemberError(
+            'Choose at least one reminder: 7 days, 2 days or 1 day before expiry.'
+        )
 
     v = Voucher.objects.create(
         business=business,
@@ -346,6 +436,25 @@ def create_member(
         member=v,
         plan=plan,
         assigned_by=(
+            user if getattr(user, 'is_authenticated', False) else None
+        ),
+    )
+
+    if not reminders_enabled and not any(
+        (remind_7_days, remind_2_days, remind_1_day)
+    ):
+        # Browsers omit disabled threshold checkboxes. Keep the useful default
+        # so turning reminders on later starts with 7d / 2d / 1d selected.
+        remind_7_days = remind_2_days = remind_1_day = True
+
+    MemberNotificationSettings.objects.create(
+        member=v,
+        email=email,
+        reminders_enabled=bool(reminders_enabled),
+        remind_7_days=bool(remind_7_days),
+        remind_2_days=bool(remind_2_days),
+        remind_1_day=bool(remind_1_day),
+        updated_by=(
             user if getattr(user, 'is_authenticated', False) else None
         ),
     )
@@ -485,7 +594,8 @@ def change_password(
     return ok, result
 
 
-def renew(
+@transaction.atomic
+def renew_with_receipt(
     voucher,
     *,
     amount=None,
@@ -493,9 +603,16 @@ def renew(
     reference='',
     agent=None,
     user=None,
+    require_amount=False,
 ):
-    """Renew a member using the CURRENT values of its assigned MemberPlan."""
-    from .finance import d, record_sale
+    """Renew a member, book the payment in Finance and create a receipt row.
+
+    ``amount`` is the actual money collected, not merely the plan list price.
+    The Members page uses ``require_amount=True`` so the cashier must explicitly
+    confirm what was collected. Programmatic callers may omit it to use the plan
+    price, preserving the older renew() behaviour.
+    """
+    from .finance import record_sale
     from . import voucher_history as vh
 
     if not voucher.is_member:
@@ -515,13 +632,20 @@ def renew(
             'so there is nothing to renew.'
         )
 
-    price = (
-        d(amount)
+    if require_amount and amount in (None, ''):
+        raise MemberError('Enter the amount collected from the member.')
+
+    collected = (
+        _money(amount, 'Amount collected')
         if amount not in (None, '')
-        else d(plan.price)
+        else _money(plan.price, 'Amount collected')
     )
-    if price < 0:
-        raise MemberError('The amount cannot be negative.')
+    if plan.price > 0 and collected <= 0:
+        raise MemberError(
+            'This is a paid Member Plan. Enter the amount actually collected.'
+        )
+
+    old_expiry = voucher.expires_at
 
     # A renewal is the point at which the current plan validity becomes the
     # member's new period. Price/devices/speed also refresh from the plan.
@@ -549,26 +673,79 @@ def renew(
         add_minutes=minutes,
     )
 
+    # vh.enable() may update expiry/status directly in the database.
+    voucher.refresh_from_db()
+
     sale = None
-    if price > 0:
+    if collected > 0:
         sale = record_sale(
             voucher.business,
             None,
             plan_name=plan.name,
-            amount=price,
+            amount=collected,
             method=method,
             agent=agent,
             customer_name=voucher.customer_name,
             customer_phone=voucher.customer_phone,
             reference=(reference or '')[:120],
             user=user,
-            notes=f'Member {voucher.code}: renewal · {plan.name}',
+            notes=(
+                f'Member {voucher.code}: renewal · {plan.name} · '
+                f'amount collected {voucher.business.currency}{collected:,.2f}'
+            ),
         )
         VoucherSale.objects.filter(pk=sale.pk).update(
             voucher_code=voucher.code
         )
         sale.voucher_code = voucher.code
 
+    pref = notification_settings_for(voucher)
+    renewal = MemberRenewal.objects.create(
+        business=voucher.business,
+        member=voucher,
+        plan=plan,
+        sale=sale,
+        member_username=voucher.code,
+        customer_name=voucher.customer_name,
+        plan_name=plan.name,
+        plan_price=plan.price,
+        amount_collected=collected,
+        currency=voucher.business.currency,
+        payment_method=method,
+        reference=(reference or '')[:120],
+        duration_minutes=plan.duration_minutes,
+        max_devices=plan.max_devices,
+        speed_limit=plan.speed_limit,
+        old_expires_at=old_expiry,
+        new_expires_at=voucher.expires_at,
+        recorded_by=(
+            user if getattr(user, 'is_authenticated', False) else None
+        ),
+        email_to=(pref.email if pref else ''),
+    )
+
+    return ok, result, sale, minutes, renewal
+
+
+def renew(
+    voucher,
+    *,
+    amount=None,
+    method='cash',
+    reference='',
+    agent=None,
+    user=None,
+):
+    """Backward-compatible renewal API returning the original four values."""
+    ok, result, sale, minutes, _renewal = renew_with_receipt(
+        voucher,
+        amount=amount,
+        method=method,
+        reference=reference,
+        agent=agent,
+        user=user,
+        require_amount=False,
+    )
     return ok, result, sale, minutes
 
 

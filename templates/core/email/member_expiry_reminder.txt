@@ -1,0 +1,11 @@
+Hello{% if member.customer_name %} {{ member.customer_name }}{% endif %},
+
+Reminder: your {{ business.business_name }} internet account {{ member.code }} expires in {{ days }} {{ word }}.
+
+Expiry: {{ expiry|date:'d M Y H:i' }}
+Plan: {{ member.plan_name }}
+
+Please contact {{ business.business_name }} to renew before your account expires.
+{% if support_phone %}Support: {{ support_phone }}
+{% endif %}
+Thank you.

@@ -1,22 +1,30 @@
 """Members and reusable Member Plans."""
+from urllib.parse import urlencode
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from . import members as mem
 from . import voucher_history as vh
 from .durations import split
-from .models_member_plans import MemberPlan
+from .models_member_plans import MemberRenewal
 from .utils import log
 from .views_agents import MANUAL_METHODS, push_one
 
 
 def _b(request):
     return request.user.business
+
+
+def _safe_next(value, fallback='/members/'):
+    value = str(value or '')
+    return value if value.startswith('/') and not value.startswith('//') else fallback
 
 
 def _back(request, fallback='members'):
@@ -58,6 +66,40 @@ def _plan_rows(business):
 @login_required
 def members(request):
     business = _b(request)
+
+    # Printable renewal receipt without adding another URL/permission surface.
+    # Example: /members/?receipt=15
+    receipt_id = str(request.GET.get('receipt') or '')
+    if request.method == 'GET' and receipt_id.isdigit():
+        renewal = get_object_or_404(
+            MemberRenewal.objects.select_related(
+                'business',
+                'member',
+                'plan',
+                'sale',
+                'recorded_by',
+            ),
+            business=business,
+            pk=int(receipt_id),
+        )
+        return render(
+            request,
+            'core/member_renewal_receipt.html',
+            {
+                'renewal': renewal,
+                'next_url': _safe_next(
+                    request.GET.get('next'),
+                    reverse('members'),
+                ),
+                'autoprint': request.GET.get('autoprint') == '1',
+                'fmt': (
+                    'thermal'
+                    if request.GET.get('format') == 'thermal'
+                    else 'a4'
+                ),
+            },
+        )
+
     active_plans = business.member_plans.filter(
         active=True
     ).order_by('price', 'name')
@@ -214,6 +256,65 @@ def members(request):
             )
             return _back(request)
 
+        # ── Member email + reminders ───────────────────────────────────
+        if action == 'save_notifications':
+            if not (
+                _can(request, 'vouchers.create')
+                or _can(request, 'vouchers.support')
+            ):
+                messages.error(
+                    request,
+                    'Your role cannot change member contact settings.',
+                )
+                return redirect('members')
+
+            member = get_object_or_404(
+                business.vouchers.filter(login_type='member'),
+                pk=f.get('member_id') or 0,
+            )
+            try:
+                pref = mem.save_member_notifications(
+                    member,
+                    f,
+                    user=request.user,
+                )
+            except mem.MemberError as exc:
+                messages.error(request, str(exc))
+                return _back(request)
+
+            if pref.email:
+                if pref.reminders_enabled:
+                    selected = []
+                    if pref.remind_7_days:
+                        selected.append('7 days')
+                    if pref.remind_2_days:
+                        selected.append('2 days')
+                    if pref.remind_1_day:
+                        selected.append('1 day')
+                    messages.success(
+                        request,
+                        f'{member.code}: email saved as {pref.email}; '
+                        f'expiry reminders enabled at {", ".join(selected)}.',
+                    )
+                else:
+                    messages.success(
+                        request,
+                        f'{member.code}: email saved as {pref.email}. '
+                        'Renewal receipts will be emailed; expiry reminders are off.',
+                    )
+            else:
+                messages.success(
+                    request,
+                    f'{member.code}: member email cleared and expiry reminders are off.',
+                )
+            log(
+                business,
+                'Member Notifications',
+                f'{member.code}: {pref.email or "no email"}; reminders '
+                f'{"on" if pref.reminders_enabled else "off"}',
+            )
+            return _back(request)
+
         # ── New member ────────────────────────────────────────────────
         if not _can(request, 'vouchers.create'):
             messages.error(
@@ -245,6 +346,11 @@ def members(request):
                 agent=agent,
                 customer_name=f.get('customer_name'),
                 customer_phone=f.get('customer_phone'),
+                customer_email=f.get('customer_email'),
+                reminders_enabled=bool(f.get('reminders_enabled')),
+                remind_7_days=bool(f.get('remind_7_days')),
+                remind_2_days=bool(f.get('remind_2_days')),
+                remind_1_day=bool(f.get('remind_1_day')),
                 note=f.get('note'),
                 paid=bool(f.get('paid')),
                 method=method,
@@ -327,6 +433,7 @@ def _ctx(
             'router',
             'agent',
             'member_plan_assignment__plan',
+            'member_notification_settings',
         )
         .order_by('-created_at')
     )
@@ -337,6 +444,7 @@ def _ctx(
             | Q(customer_name__icontains=q)
             | Q(customer_phone__icontains=q)
             | Q(plan_name__icontains=q)
+            | Q(member_notification_settings__email__icontains=q)
         )
 
     if kind == 'free':
@@ -363,10 +471,12 @@ def _ctx(
         }.get(key, label)
         end = vh.ends_at(v)
         plan = mem.plan_for_member(v)
+        pref = mem.notification_settings_for(v)
 
         rows.append({
             'v': v,
             'plan': plan,
+            'notify': pref,
             'needs_plan': plan is None,
             'key': key,
             'label': label,
@@ -396,6 +506,14 @@ def _ctx(
     plans = list(plans)
     default_plan = str(plans[0].pk) if plans else ''
 
+    default_form = {
+        'plan': default_plan,
+        'same': '',
+        'remind_7_days': '1',
+        'remind_2_days': '1',
+        'remind_1_day': '1',
+    }
+
     return {
         'plans': plans,
         'plan_rows': _plan_rows(business),
@@ -407,14 +525,16 @@ def _ctx(
         'q': q,
         'kind': kind,
         'stats': mem.member_stats(business),
-        'form': form or {
-            'plan': default_plan,
-            'same': '',
-        },
+        'form': form or default_form,
         'plan_form': plan_form or {},
         'created': created,
         'created_plan': (
             mem.plan_for_member(created)
+            if created
+            else None
+        ),
+        'created_notify': (
+            mem.notification_settings_for(created)
             if created
             else None
         ),
@@ -656,7 +776,7 @@ def member_renew(request, pk):
     ).first()
 
     try:
-        ok, result, sale, minutes = mem.renew(
+        ok, result, sale, minutes, renewal = mem.renew_with_receipt(
             v,
             amount=request.POST.get('amount'),
             method=method,
@@ -666,6 +786,7 @@ def member_renew(request, pk):
             ),
             agent=agent,
             user=request.user,
+            require_amount=True,
         )
     except (
         mem.MemberError,
@@ -675,20 +796,49 @@ def member_renew(request, pk):
         return _back(request)
 
     from .durations import text
+    from .member_notifications import send_renewal_receipt
+
+    email_message = ''
+    if renewal.email_to:
+        sent, email_message = send_renewal_receipt(renewal)
+        renewal.refresh_from_db()
+        if not sent:
+            messages.warning(
+                request,
+                f'The renewal was successful, but {email_message}',
+            )
 
     paid = (
-        f' Payment of '
-        f'{business.currency}{sale.amount:,.2f} recorded.'
+        f' {business.currency}{sale.amount:,.2f} was posted to Finance.'
         if sale
-        else ''
+        else ' No payment was required for this plan.'
     )
+    if renewal.email_to and renewal.email_sent_at:
+        paid += f' Receipt emailed to {renewal.email_to}.'
+
     (
         messages.success
         if ok
         else messages.warning
     )(
         request,
-        f'{v.code} renewed: +{text(minutes)}.'
-        f'{paid} {result}.',
+        f'{v.code} renewed: +{text(minutes)}. '
+        f'Amount collected: {business.currency}'
+        f'{renewal.amount_collected:,.2f}.{paid} {result}.',
     )
-    return _back(request)
+    log(
+        business,
+        'Member Renewed',
+        f'{v.code}: {renewal.receipt_number} · '
+        f'{business.currency}{renewal.amount_collected:,.2f}',
+    )
+
+    nxt = _safe_next(
+        request.POST.get('next'),
+        reverse('members'),
+    )
+    query = urlencode({
+        'receipt': renewal.pk,
+        'next': nxt,
+    })
+    return redirect(f'{reverse("members")}?{query}')

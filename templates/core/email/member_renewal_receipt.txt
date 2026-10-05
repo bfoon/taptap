@@ -1,0 +1,19 @@
+{% load taptap_extras %}
+Hello{% if renewal.customer_name %} {{ renewal.customer_name }}{% endif %},
+
+Your {{ business.business_name }} internet membership has been renewed.
+
+Receipt: {{ renewal.receipt_number }}
+Username: {{ renewal.member_username }}
+Member Plan: {{ renewal.plan_name }}
+Amount collected: {{ renewal.currency }} {{ renewal.amount_collected|floatformat:2 }}
+Payment method: {{ renewal.payment_method|title }}
+{% if renewal.reference %}Reference: {{ renewal.reference }}
+{% endif %}Validity added: {{ renewal.duration_minutes|minutes_text }}
+{% if renewal.new_expires_at %}New expiry: {{ renewal.new_expires_at|date:'d M Y H:i' }}
+{% endif %}Devices: {{ renewal.max_devices }}
+Speed: {{ renewal.speed_limit|default:'Full speed' }}
+
+Thank you.
+{% if support_phone %}Support: {{ support_phone }}
+{% endif %}{{ business.business_name }}
