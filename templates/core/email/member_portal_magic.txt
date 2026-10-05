@@ -1,0 +1,15 @@
+{{ business.business_name }} member account
+
+Hello {{ member.customer_name|default:member.code }},
+
+Use this secure link to access your TapTap Member Self-Service Portal:
+
+{{ access_url }}
+
+This link expires in {{ minutes }} minutes and can only be used once.
+
+You can manage connected devices, change your password, review bills, pay online when enabled, and see account activity.
+
+Do not forward this link to anyone.
+
+{{ business.business_name }}
