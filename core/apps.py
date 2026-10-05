@@ -74,6 +74,13 @@ class CoreConfig(AppConfig):
             "mac_roaming",
         )
 
+        # Shared vouchers must keep each family's/device group's slots stable.
+        # In particular, a random private MAC must never silently take an
+        # offline device's slot on a multi-device plan.
+        _install_optional(
+            "shared_voucher_stability",
+        )
+
         _install_optional(
             "link_system_health",
         )
