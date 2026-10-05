@@ -31,6 +31,7 @@ class CoreConfig(AppConfig):
         importlib.import_module("core.models_member_plans")
         importlib.import_module("core.models_member_arrears")
         importlib.import_module("core.models_member_portal")
+        importlib.import_module("core.models_sticky_exclusions")
 
     def ready(self):
         from . import team  # noqa: F401
@@ -46,6 +47,8 @@ class CoreConfig(AppConfig):
         _install_optional("member_router_alignment")
         _install_optional("member_arrears")
         _install_optional("member_self_service")
+        _install_optional("sticky_exclusions")
+        _install_optional("voucher_qr")
         _install_optional("protection_state_fix")
         _install_optional("traffic_speed")
         _install_optional("free_access")

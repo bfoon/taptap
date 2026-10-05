@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Customer portal unavailable</title><style>
+body{margin:0;background:#f3f6fa;color:#142337;font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}.wrap{max-width:520px;margin:9vh auto;padding:18px}.card{background:#fff;border:1px solid #dae4ee;border-radius:18px;padding:28px;box-shadow:0 16px 45px #1a334c14;text-align:center}.ico{width:58px;height:58px;margin:auto;border-radius:18px;background:#eef4ff;display:grid;place-items:center;font-size:28px}h1{font-size:22px;margin:16px 0 8px}.muted{color:#6d7c8d}.help{margin-top:18px;padding-top:16px;border-top:1px solid #edf1f5}
+</style></head><body><div class="wrap"><div class="card"><div class="ico">⌁</div>
+{% if business %}<h1>{{ business.business_name }} customer portal</h1><p class="muted">The online customer portal is not published at the moment. Please connect through the normal Wi-Fi login page or contact support.</p>{% if business.support_phone or business.phone %}<div class="help"><b>Support</b><br>{{ business.support_phone|default:business.phone }}</div>{% endif %}
+{% else %}<h1>This QR link is not available</h1><p class="muted">The voucher could not be found. Check the printed voucher code or contact the Wi-Fi provider.</p>{% endif %}
+</div></div></body></html>
