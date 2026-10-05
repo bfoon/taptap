@@ -1,12 +1,13 @@
 {% extends 'core/base.html' %}{% load taptap_extras %}
 {% block title %}Members — TapTap{% endblock %}{% block heading %}Members{% endblock %}
+
 {% block extra_head %}<style>
 .mb-sec{border-top:1px solid var(--border);padding-top:1rem;margin-top:1rem}.mb-sec:first-of-type{border:0;margin:0;padding:0}
 .mb-sec h4{font-size:.9rem;font-weight:800;margin:0 0 .6rem}
-.plan-pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:.5rem}
-.plan-pick label{position:relative;border:1.5px solid var(--border);border-radius:12px;padding:.6rem .7rem;cursor:pointer;display:block;margin:0}
+.plan-pick{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:.55rem}
+.plan-pick label{position:relative;border:1.5px solid var(--border);border-radius:13px;padding:.7rem .75rem;cursor:pointer;display:block;margin:0;background:#fff}
 .plan-pick label:has(input:checked){border-color:var(--primary);background:#f3f8ff;box-shadow:0 0 0 3px #1769e01a}
-.plan-pick input{position:absolute;opacity:0}.plan-pick b{display:block;font-size:.86rem}.plan-pick strong{display:block;font-size:1.1rem;color:var(--primary)}.plan-pick small{color:var(--muted);font-size:.72rem}
+.plan-pick input{position:absolute;opacity:0}.plan-pick b{display:block;font-size:.86rem}.plan-pick strong{display:block;font-size:1.08rem;color:var(--primary);margin:.1rem 0}.plan-pick small{color:var(--muted);font-size:.7rem;line-height:1.4;display:block}
 .plan-pick .free strong{color:#127a4d}
 .pw-wrap{position:relative}.pw-wrap .form-control{padding-right:8.5rem}.pw-wrap .pw-btns{position:absolute;right:.35rem;top:50%;transform:translateY(-50%);display:flex;gap:.2rem}
 .pw-btns button{border:0;background:none;font-size:.78rem;font-weight:700;color:var(--muted);padding:.25rem .45rem;border-radius:6px}.pw-btns button:hover{background:#eef2f6;color:var(--ink)}
@@ -15,19 +16,100 @@
 .vd-state.stock{background:#e6f6ee;color:#127a4d}.vd-state.sold{background:#fff4dc;color:#8a5a00}.vd-state.used{background:#e5f3fb;color:#0b6690}
 .vd-state.disabled{background:#fdeaea;color:#a12b2b}.vd-state.expired{background:#eef1f5;color:#56687a}.vd-state.frozen,.vd-state.warned{background:#e0efff;color:#1a5fb4}
 .kind{display:inline-block;font-size:.68rem;font-weight:800;letter-spacing:.03em;border-radius:5px;padding:.12rem .4rem;margin-left:.35rem;vertical-align:middle}
-.kind.free{background:#e6f6ee;color:#127a4d}.kind.paid{background:#eef2ff;color:#3b4cc0}
+.kind.free{background:#e6f6ee;color:#127a4d}.kind.paid{background:#eef2ff;color:#3b4cc0}.kind.unassigned{background:#fff1d6;color:#895c00}
 .login-card{border-radius:18px;background:linear-gradient(150deg,#0b2237,#15406f);color:#fff;padding:1.2rem 1.3rem}
 .login-card small{color:#9fbadb;font-size:.72rem;font-weight:700;display:block}
 .login-card .cred{font:800 1.25rem/1.2 ui-monospace,Menlo,monospace;background:#ffffff14;border-radius:10px;padding:.5rem .7rem;margin:.2rem 0 .7rem;word-break:break-all}
 .filters a{font-size:.8rem;font-weight:700;padding:.3rem .7rem;border-radius:999px;color:#5b6d82;text-decoration:none}.filters a.on{background:var(--ink);color:#fff}
+.member-plan-shell{border:1px solid var(--border);border-radius:18px;background:#fff;overflow:hidden;margin-bottom:1rem}
+.member-plan-head{padding:1rem 1.1rem;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap;background:#fbfcfe}
+.member-plan-head h3{font-size:1rem;font-weight:850;margin:0}.member-plan-head p{font-size:.78rem;color:var(--muted);margin:.2rem 0 0;max-width:760px}
+.member-plan-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.75rem;padding:1rem}
+.member-plan-card{border:1px solid var(--border);border-radius:15px;padding:.85rem;position:relative;background:#fff}
+.member-plan-card.inactive{opacity:.7;background:#f8f9fb}
+.member-plan-card .plan-name{font-weight:850;font-size:.94rem;padding-right:4.5rem}
+.member-plan-card .plan-price{font-size:1.25rem;font-weight:850;color:var(--primary);margin:.2rem 0}
+.member-plan-card .plan-meta{display:grid;grid-template-columns:1fr 1fr;gap:.4rem;margin-top:.65rem}
+.member-plan-card .plan-meta div{background:#f6f8fb;border-radius:9px;padding:.45rem .5rem}
+.member-plan-card .plan-meta small{display:block;color:var(--muted);font-size:.63rem;text-transform:uppercase;font-weight:800;letter-spacing:.04em}
+.member-plan-card .plan-meta b{font-size:.76rem;display:block;margin-top:.08rem;overflow-wrap:anywhere}
+.member-plan-card .status-badge{position:absolute;right:.7rem;top:.7rem}
+.member-plan-actions{border-top:1px solid var(--border);margin-top:.7rem;padding-top:.65rem;display:flex;gap:.35rem;flex-wrap:wrap}
+.member-plan-empty{margin:1rem;border:1px dashed #c9d5e3;border-radius:14px;padding:1.2rem;text-align:center;background:#fbfcfe;color:var(--muted)}
+.member-plan-rule{display:flex;gap:.65rem;align-items:flex-start;border:1px solid #bcd9ff;background:#f1f7ff;border-radius:14px;padding:.8rem .9rem;margin-bottom:1rem}
+.member-plan-rule i{color:#1769e0;font-size:1.1rem}.member-plan-rule b{font-size:.82rem}.member-plan-rule p{margin:.15rem 0 0;font-size:.74rem;color:#536b86}
+.plan-required{border:1px solid #efd9a6;background:#fff9eb;border-radius:12px;padding:.7rem .8rem;font-size:.76rem;color:#72561e}
+.plan-preview{border:1px solid var(--border);background:#fbfcfe;border-radius:12px;padding:.7rem .8rem;margin-top:.65rem;font-size:.76rem}
+.plan-preview strong{color:var(--primary)}
+@media(max-width:760px){.member-plan-grid{grid-template-columns:1fr}.kpi-row.member-kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 </style>{% endblock %}
+
 {% block content %}{% with c=current_business.currency %}
-<div class="kpi-row mb-3" style="grid-template-columns:repeat(4,minmax(0,1fr))">
-  <div class="kpi hero"><small>Members</small><strong>{{ stats.total }}</strong><em>log in with a username and password</em></div>
-  <div class="kpi"><small>Paying</small><strong>{{ stats.paid }}</strong><em>on a priced plan</em></div>
-  <div class="kpi"><small>Free &amp; unlimited</small><strong>{{ stats.free }}</strong><em>no charge, no time limit</em></div>
-  <div class="kpi"><small>Disabled</small><strong>{{ stats.disabled }}</strong><em>cannot log in</em></div>
+<div class="kpi-row member-kpis mb-3" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+  <div class="kpi hero"><small>Members</small><strong>{{ stats.total }}</strong><em>username + password accounts</em></div>
+  <div class="kpi"><small>Paying</small><strong>{{ stats.paid }}</strong><em>price comes from Member Plan</em></div>
+  <div class="kpi"><small>Free</small><strong>{{ stats.free }}</strong><em>Member Plans priced at zero</em></div>
+  <div class="kpi {% if stats.needs_plan %}warn{% endif %}"><small>Needs plan</small><strong>{{ stats.needs_plan }}</strong><em>legacy members to assign</em></div>
 </div>
+
+<div class="member-plan-rule">
+  <i class="bi bi-diagram-3"></i>
+  <div><b>Every member belongs to a Member Plan.</b>
+    <p>Create the plan once with its price, speed, number of devices and validity. When you create a member, you only choose the plan. TapTap uses one stable MikroTik profile for all members on that plan.</p>
+  </div>
+</div>
+
+<section class="member-plan-shell" id="member-plans">
+  <div class="member-plan-head">
+    <div><h3>Member Plans</h3><p>These plans are only for members. They do not appear in the normal voucher-plan list.</p></div>
+    {% if 'plans.manage' in tt_perms %}
+    <button class="btn btn-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#planModal" data-plan-new="1">
+      <i class="bi bi-plus-lg"></i> Create Member Plan
+    </button>
+    {% endif %}
+  </div>
+
+  {% if plan_rows %}
+  <div class="member-plan-grid">
+    {% for pr in plan_rows %}{% with p=pr.plan %}
+    <article class="member-plan-card {% if not p.active %}inactive{% endif %}">
+      <span class="badge status-badge {% if p.active %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if p.active %}Active{% else %}Inactive{% endif %}</span>
+      <div class="plan-name">{{ p.name }}</div>
+      <div class="plan-price">{% if p.price %}{{ p.price|money:c }}{% else %}Free{% endif %}</div>
+      <small class="text-secondary">{{ pr.assigned_count }} member{{ pr.assigned_count|pluralize }} assigned</small>
+      <div class="plan-meta">
+        <div><small>Devices</small><b>{{ p.max_devices }}</b></div>
+        <div><small>Speed</small><b>{{ p.speed_limit|default:"Full speed" }}</b></div>
+        <div><small>Validity</small><b>{{ pr.duration_text }}</b></div>
+        <div><small>Router profile</small><b>{{ p.router_profile_name }}</b></div>
+      </div>
+      {% if 'plans.manage' in tt_perms %}
+      <div class="member-plan-actions">
+        <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#planModal"
+          data-plan-id="{{ p.id }}"
+          data-plan-name="{{ p.name|escape }}"
+          data-plan-price="{{ p.price|floatformat:2 }}"
+          data-plan-devices="{{ p.max_devices }}"
+          data-plan-speed="{{ p.speed_limit|escape }}"
+          data-plan-value="{{ pr.duration_value }}"
+          data-plan-unit="{{ pr.duration_unit }}"><i class="bi bi-pencil"></i> Edit</button>
+        <form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="action" value="toggle_plan"><input type="hidden" name="plan_id" value="{{ p.id }}">
+          <button class="btn btn-sm {% if p.active %}btn-outline-secondary{% else %}btn-outline-success{% endif %}">{% if p.active %}Make inactive{% else %}Enable{% endif %}</button>
+        </form>
+      </div>
+      {% endif %}
+    </article>
+    {% endwith %}{% endfor %}
+  </div>
+  {% else %}
+  <div class="member-plan-empty">
+    <i class="bi bi-diagram-3 fs-3 d-block mb-2"></i>
+    <b>No Member Plans yet.</b>
+    <div class="small mt-1">Create a plan first. Then members can be created and assigned to it.</div>
+    {% if 'plans.manage' in tt_perms %}<button class="btn btn-primary btn-sm mt-3" type="button" data-bs-toggle="modal" data-bs-target="#planModal" data-plan-new="1">Create first Member Plan</button>{% endif %}
+  </div>
+  {% endif %}
+</section>
 
 {% if created %}
 <div class="row g-3 mb-3"><div class="col-lg-6"><div class="login-card">
@@ -35,7 +117,10 @@
     <a class="btn btn-sm btn-light" href="{% url 'voucher_detail' created.id %}">Open</a></div>
   <small>Username</small><div class="cred" id="credUser">{{ created.code }}</div>
   <small>Password</small><div class="cred" id="credPass">{{ created.login_password }}</div>
-  <div class="small" style="color:#cfe0f3">{{ created.plan_name }} · {% if created.duration_minutes %}{{ created.duration_minutes|minutes_text }}{% else %}no time limit{% endif %} · {{ created.max_devices }} device{{ created.max_devices|pluralize }}{% if created.router %} · {{ created.router.name }}{% endif %}</div>
+  <div class="small" style="color:#cfe0f3">
+    {% if created_plan %}{{ created_plan.name }} · {{ created_plan.duration_text }} · {{ created_plan.max_devices }} device{{ created_plan.max_devices|pluralize }} · {{ created_plan.speed_limit|default:"full speed" }}{% else %}{{ created.plan_name }}{% endif %}
+    {% if created.router %} · {{ created.router.name }}{% endif %}
+  </div>
   <div class="d-flex gap-2 mt-3 flex-wrap">
     <button class="btn btn-sm btn-primary" type="button" id="copyLogin"><i class="bi bi-clipboard"></i> Copy login details</button>
     {% if created.customer_phone %}<a class="btn btn-sm btn-success" id="waLogin" target="_blank" rel="noopener" href="#"><i class="bi bi-whatsapp"></i> Send by WhatsApp</a>{% endif %}
@@ -43,13 +128,18 @@
 </div></div>
 <div class="col-lg-6"><div class="panel h-100"><h3 class="h6 fw-bold">How they connect</h3>
   <ol class="small mb-0"><li>Join <b>{{ current_business.wifi_ssid|default:'your Wi-Fi' }}</b>.</li><li>On the login page, tap <b>Member</b>.</li><li>Type the username and password above and press Connect.</li></ol>
-  <p class="small text-secondary mt-2 mb-0">The Member tab is on every portal page made in Portal Studio. Re-export or re-deploy router files once so the router gets the new login page.</p></div></div></div>
+  <p class="small text-secondary mt-2 mb-0">The Member tab is on every portal page made in Portal Studio. The member receives the device limit and speed from <b>{{ created_plan.name|default:created.plan_name }}</b>.</p></div></div></div>
 {% endif %}
 
 <div class="row g-3">
 {% if 'vouchers.create' in tt_perms %}
-<div class="col-xl-4"><form method="post" class="panel" id="memberForm" novalidate>{% csrf_token %}
-  <div class="panel-head"><div><h3>New member</h3><p>Username and password can be different or the same.</p></div></div>
+<div class="col-xl-4"><form method="post" class="panel" id="memberForm" novalidate>{% csrf_token %}<input type="hidden" name="action" value="create_member">
+  <div class="panel-head"><div><h3>New member</h3><p>Create the login, then assign one of your Member Plans.</p></div></div>
+
+  {% if not plans %}
+  <div class="plan-required mb-3"><b><i class="bi bi-exclamation-triangle"></i> A Member Plan is required.</b><br>Create and enable a Member Plan above before creating members.</div>
+  {% endif %}
+
   <div class="mb-sec"><h4>Login</h4>
     <label class="form-label small fw-bold" for="mUser">Username</label>
     <input class="form-control user-in font-monospace" id="mUser" name="username" required maxlength="32" autocomplete="off" autocapitalize="none" spellcheck="false"
@@ -62,15 +152,24 @@
       <label class="form-check-label small" for="mSame">Password is the same as the username</label></div>
   </div>
 
-  <div class="mb-sec"><h4>Plan</h4>
+  <div class="mb-sec"><h4>Member Plan</h4>
+    {% if plans %}
     <div class="plan-pick">
-      <label class="free"><input type="radio" name="plan" value="free" data-price="0" {% if form.plan == 'free' or not form.plan %}checked{% endif %}><b>Free</b><strong>Unlimited</strong><small>No charge, no time limit</small></label>
-      {% for p in plans %}<label{% if p.is_free %} class="free"{% endif %}><input type="radio" name="plan" value="{{ p.id }}" data-price="{{ p.price|floatformat:2 }}" {% if form.plan == p.id|stringformat:'s' %}checked{% endif %}><b>{{ p.name }}</b><strong>{% if p.is_free %}Free{% else %}{{ p.price|money:c }}{% endif %}</strong><small>{{ p.duration_minutes|minutes_text }} · {{ p.max_devices }} device{{ p.max_devices|pluralize }}</small></label>{% endfor %}
+      {% for p in plans %}
+      <label{% if not p.price %} class="free"{% endif %}>
+        <input type="radio" name="plan" value="{{ p.id }}" data-price="{{ p.price|floatformat:2 }}"
+          data-plan-name="{{ p.name|escape }}" data-devices="{{ p.max_devices }}" data-speed="{{ p.speed_limit|default:'Full speed'|escape }}"
+          data-duration="{{ p.duration_text|escape }}" {% if form.plan == p.id|stringformat:'s' %}checked{% endif %}>
+        <b>{{ p.name }}</b>
+        <strong>{% if p.price %}{{ p.price|money:c }}{% else %}Free{% endif %}</strong>
+        <small>{{ p.duration_text }} · {{ p.max_devices }} device{{ p.max_devices|pluralize }}</small>
+        <small>{{ p.speed_limit|default:"Full speed" }}</small>
+      </label>
+      {% endfor %}
     </div>
-    <div class="row g-2 mt-1" id="freeOpts">
-      <div class="col-6"><label class="form-label small fw-bold" for="mDev">Devices</label><input class="form-control" type="number" min="1" max="20" id="mDev" name="devices" value="{{ form.devices|default:'1' }}"></div>
-      <div class="col-6"><label class="form-label small fw-bold" for="mRate">Speed <span class="fw-normal text-secondary">(optional)</span></label><input class="form-control" id="mRate" name="rate_limit" value="{{ form.rate_limit|default:'' }}" placeholder="e.g. 10M/10M"></div>
-    </div>
+    <div class="plan-preview" id="selectedPlanPreview"></div>
+    <small class="text-secondary d-block mt-2"><i class="bi bi-lock"></i> Price, device count and speed come from the Member Plan and cannot be overridden on an individual member.</small>
+    {% endif %}
   </div>
 
   <div class="mb-sec" id="payOpts" hidden><h4>First payment</h4>
@@ -86,35 +185,93 @@
     <div class="col-sm-6"><label class="form-label small fw-bold" for="mRouter">Router</label><select class="form-select" id="mRouter" name="router"><option value="">No router yet</option>{% for r in routers %}<option value="{{ r.id }}" {% if form.router == r.id|stringformat:'s' or not form.router and r == default_router %}selected{% endif %}>{{ r.name }}</option>{% endfor %}</select></div>
     <div class="col-sm-6"><label class="form-label small fw-bold" for="mNote">Note</label><input class="form-control" id="mNote" name="note" maxlength="255" value="{{ form.note|default:'' }}" placeholder="e.g. Staff, room 4"></div>
   </div></div>
-  <button class="btn btn-primary btn-lg w-100 mt-4"><i class="bi bi-person-plus"></i> Create member</button>
+  <button class="btn btn-primary btn-lg w-100 mt-4" {% if not plans %}disabled{% endif %}><i class="bi bi-person-plus"></i> Create member</button>
 </form></div>
 {% endif %}
 
 <div class="{% if 'vouchers.create' in tt_perms %}col-xl-8{% else %}col-12{% endif %}"><div class="panel">
   <div class="panel-head flex-wrap gap-2"><div><h3>All members</h3><p>{{ page.paginator.count }} shown</p></div>
-    <form class="d-flex gap-2" method="get"><input type="hidden" name="kind" value="{{ kind }}"><input class="form-control form-control-sm" type="search" name="q" value="{{ q }}" placeholder="Username, name or phone" aria-label="Search members"><button class="btn btn-sm btn-outline-secondary">Search</button></form></div>
-  <div class="filters d-flex gap-1 mb-2"><a href="?q={{ q|urlencode }}" class="{% if not kind %}on{% endif %}">All</a><a href="?kind=paid&q={{ q|urlencode }}" class="{% if kind == 'paid' %}on{% endif %}">Paying</a><a href="?kind=free&q={{ q|urlencode }}" class="{% if kind == 'free' %}on{% endif %}">Free &amp; unlimited</a></div>
+    <form class="d-flex gap-2" method="get"><input type="hidden" name="kind" value="{{ kind }}"><input class="form-control form-control-sm" type="search" name="q" value="{{ q }}" placeholder="Username, name, plan or phone" aria-label="Search members"><button class="btn btn-sm btn-outline-secondary">Search</button></form></div>
+  <div class="filters d-flex gap-1 mb-2 flex-wrap">
+    <a href="?q={{ q|urlencode }}" class="{% if not kind %}on{% endif %}">All</a>
+    <a href="?kind=paid&q={{ q|urlencode }}" class="{% if kind == 'paid' %}on{% endif %}">Paying</a>
+    <a href="?kind=free&q={{ q|urlencode }}" class="{% if kind == 'free' %}on{% endif %}">Free</a>
+    <a href="?kind=unassigned&q={{ q|urlencode }}" class="{% if kind == 'unassigned' %}on{% endif %}">Needs plan {% if stats.needs_plan %}({{ stats.needs_plan }}){% endif %}</a>
+  </div>
   <div class="table-responsive"><table class="table align-middle">
-    <thead><tr><th>Member</th><th>Plan</th><th>State</th><th>Ends</th><th class="text-end">Actions</th></tr></thead>
+    <thead><tr><th>Member</th><th>Member Plan</th><th>State</th><th>Ends</th><th class="text-end">Actions</th></tr></thead>
     <tbody>{% for r in rows %}{% with v=r.v %}<tr>
       <td><a class="fw-semibold font-monospace" href="{% url 'voucher_detail' v.id %}">{{ v.code }}</a>
         <small class="d-block text-secondary">{% if v.customer_name %}{{ v.customer_name }}{% endif %}{% if v.customer_phone %} · {{ v.customer_phone }}{% endif %}{% if not v.password %}{% if v.customer_name or v.customer_phone %} · {% endif %}password = username{% endif %}</small></td>
-      <td>{{ v.plan_name }}<span class="kind {{ r.kind }}">{% if r.kind == 'free' %}FREE{% else %}PAID{% endif %}</span>
-        <small class="d-block text-secondary">{% if v.price %}{{ v.price|money:c }} · {% endif %}{{ v.max_devices }} device{{ v.max_devices|pluralize }}{% if v.router %} · {{ v.router.name }}{% endif %}{% if v.mikrotik_sync_status != 'Synced' %} · <span class="text-warning">{{ v.mikrotik_sync_status }}</span>{% endif %}</small></td>
+      <td>
+        {% if r.plan %}
+          <b>{{ r.plan.name }}</b><span class="kind {{ r.kind }}">{% if r.kind == 'free' %}FREE{% else %}PAID{% endif %}</span>
+          <small class="d-block text-secondary">{% if r.plan.price %}{{ r.plan.price|money:c }} · {% endif %}{{ r.plan.max_devices }} device{{ r.plan.max_devices|pluralize }} · {{ r.plan.speed_limit|default:"Full speed" }}</small>
+          <small class="d-block text-secondary">{{ r.plan.duration_text }} · profile {{ r.plan.router_profile_name }}</small>
+        {% else %}
+          <span class="kind unassigned ms-0">NEEDS MEMBER PLAN</span>
+          <small class="d-block text-secondary mt-1">Legacy settings: {{ v.plan_name }} · {{ v.max_devices }} device{{ v.max_devices|pluralize }}{% if v.rate_limit %} · {{ v.rate_limit }}{% endif %}</small>
+        {% endif %}
+        {% if v.router %}<small class="d-block text-secondary"><i class="bi bi-router"></i> {{ v.router.name }}{% if v.mikrotik_sync_status != 'Synced' %} · <span class="text-warning">{{ v.mikrotik_sync_status }}</span>{% endif %}</small>{% endif %}
+      </td>
       <td><span class="vd-state {{ r.key }}">{{ r.label }}</span></td>
-      <td>{% if r.ends_at %}{{ r.ends_at|date:'d M Y' }}{% if r.left %}<small class="d-block text-secondary">{{ r.left|duration_short }} left</small>{% endif %}{% elif not v.duration_minutes %}Never{% else %}<small class="text-secondary">From first login</small>{% endif %}
+      <td>{% if r.ends_at %}{{ r.ends_at|date:'d M Y' }}{% if r.left %}<small class="d-block text-secondary">{{ r.left|duration_short }} left</small>{% endif %}{% elif r.plan and not r.plan.duration_minutes %}Never{% elif not v.duration_minutes %}Never{% else %}<small class="text-secondary">From first login</small>{% endif %}
         {% with rv=r.router_view %}{% if rv %}<small class="d-block {% if rv.mismatch %}text-danger fw-semibold{% else %}text-secondary{% endif %}" title="What {{ v.router.name }} says{% if rv.profile %} (profile {{ rv.profile }}){% endif %}, from the last sync">
-          <i class="bi bi-router"></i> {{ rv.text }}</small>
+          <i class="bi bi-router"></i> {{ rv.text }}{% if rv.profile_mismatch %} · expected {{ rv.expected_profile }}{% endif %}</small>
           {% if rv.mismatch %}<form method="post" action="{% url 'member_push' v.id %}" class="d-inline">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
-            <button class="btn btn-sm btn-outline-danger py-0 mt-1" title="Send this member to the router again with no time limit">Fix on router</button></form>{% endif %}{% endif %}{% endwith %}</td>
+            <button class="btn btn-sm btn-outline-danger py-0 mt-1" title="Send this member's assigned plan to the router again">Fix on router</button></form>{% endif %}{% endif %}{% endwith %}</td>
       <td class="text-end text-nowrap">
+        {% if plans %}
+          {% if 'vouchers.create' in tt_perms or 'plans.manage' in tt_perms %}
+          <button class="btn btn-sm {% if r.needs_plan %}btn-warning{% else %}btn-outline-primary{% endif %}" type="button" data-bs-toggle="modal" data-bs-target="#assignPlanModal"
+            data-member-id="{{ v.id }}" data-user="{{ v.code }}" data-current="{% if r.plan %}{{ r.plan.id }}{% endif %}" title="{% if r.needs_plan %}Assign Member Plan{% else %}Change Member Plan{% endif %}">
+            <i class="bi bi-diagram-3"></i>
+          </button>
+          {% endif %}
+        {% endif %}
         {% if 'vouchers.support' in tt_perms %}<button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#pwModal" data-url="{% url 'member_password' v.id %}" data-user="{{ v.code }}" title="Change password" aria-label="Change password of {{ v.code }}"><i class="bi bi-key"></i></button>{% endif %}
-        {% if r.kind == 'paid' and 'vouchers.create' in tt_perms %}<button class="btn btn-sm btn-outline-success" type="button" data-bs-toggle="modal" data-bs-target="#renewModal" data-url="{% url 'member_renew' v.id %}" data-user="{{ v.code }}" data-price="{{ v.price|floatformat:2 }}" data-dur="{{ v.duration_minutes|minutes_text }}">Renew</button>{% endif %}
+        {% if r.plan and r.plan.duration_minutes and 'vouchers.create' in tt_perms %}<button class="btn btn-sm btn-outline-success" type="button" data-bs-toggle="modal" data-bs-target="#renewModal" data-url="{% url 'member_renew' v.id %}" data-user="{{ v.code }}" data-price="{{ r.plan.price|floatformat:2 }}" data-dur="{{ r.plan.duration_text }}">Renew</button>{% endif %}
       </td></tr>{% endwith %}
-    {% empty %}<tr><td colspan="5" class="empty-table">{% if q or kind %}No members match.{% else %}No members yet. Create the first one{% if 'vouchers.create' in tt_perms %} with the form{% endif %}.{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+    {% empty %}<tr><td colspan="5" class="empty-table">{% if q or kind %}No members match.{% else %}No members yet. Create a Member Plan, then create the first member.{% endif %}</td></tr>{% endfor %}</tbody></table></div>
   {% if page.has_other_pages %}<div class="d-flex gap-2 justify-content-end">{% if page.has_previous %}<a class="btn btn-sm btn-light" href="?p={{ page.previous_page_number }}&kind={{ kind }}&q={{ q|urlencode }}">Previous</a>{% endif %}<span class="small align-self-center">Page {{ page.number }} of {{ page.paginator.num_pages }}</span>{% if page.has_next %}<a class="btn btn-sm btn-light" href="?p={{ page.next_page_number }}&kind={{ kind }}&q={{ q|urlencode }}">Next</a>{% endif %}</div>{% endif %}
 </div></div>
 </div>
+
+{% if 'plans.manage' in tt_perms %}
+<div class="modal fade" id="planModal" tabindex="-1" aria-labelledby="planTitle"><div class="modal-dialog modal-dialog-centered modal-lg"><form class="modal-content" method="post">{% csrf_token %}
+  <input type="hidden" name="action" value="save_plan"><input type="hidden" name="plan_id" id="planId">
+  <div class="modal-header border-0"><div><h5 class="modal-title fw-bold" id="planTitle">Create Member Plan</h5><p class="small text-secondary mb-0">Every member assigned to this plan inherits these values.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body pt-0">
+    <div class="row g-3">
+      <div class="col-md-6"><label class="form-label small fw-bold" for="planName">Plan name</label><input class="form-control" id="planName" name="name" maxlength="80" required placeholder="e.g. Member Monthly 10 Mbps"></div>
+      <div class="col-md-3"><label class="form-label small fw-bold" for="planPrice">Price ({{ c }})</label><input class="form-control" id="planPrice" name="price" type="number" min="0" step="0.01" required value="0"></div>
+      <div class="col-md-3"><label class="form-label small fw-bold" for="planDevices">Devices</label><input class="form-control" id="planDevices" name="max_devices" type="number" min="1" max="20" required value="1"></div>
+      <div class="col-md-4"><label class="form-label small fw-bold" for="planSpeed">Speed</label><input class="form-control" id="planSpeed" name="speed_limit" placeholder="e.g. 10M/10M"><small class="text-secondary">Blank = full speed.</small></div>
+      <div class="col-md-4"><label class="form-label small fw-bold" for="planDurationValue">Validity</label><input class="form-control" id="planDurationValue" name="duration_value" type="number" min="1" value="1"></div>
+      <div class="col-md-4"><label class="form-label small fw-bold" for="planDurationUnit">Unit</label><select class="form-select" id="planDurationUnit" name="duration_unit">
+        <option value="minutes">Minutes</option><option value="hours">Hours</option><option value="days">Days</option><option value="months" selected>Months</option><option value="unlimited">Unlimited</option>
+      </select></div>
+    </div>
+    <div class="alert alert-light border small mt-3 mb-0">
+      <b>Example:</b> Member Monthly — {{ c }}500 — 2 devices — 10M/10M — 1 month. Every member you put on that plan receives the same limits and one shared MikroTik HotSpot profile.
+    </div>
+  </div>
+  <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary"><i class="bi bi-check2"></i> Save Member Plan</button></div>
+</form></div></div>
+{% endif %}
+
+{% if plans %}
+<div class="modal fade" id="assignPlanModal" tabindex="-1" aria-labelledby="assignPlanTitle"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post">{% csrf_token %}
+  <input type="hidden" name="action" value="assign_plan"><input type="hidden" name="member_id" id="assignMemberId"><input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <div class="modal-header border-0"><div><h5 class="modal-title fw-bold" id="assignPlanTitle">Assign Member Plan</h5><p class="small text-secondary mb-0">The member will inherit the selected plan's price, devices and speed.</p></div><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body pt-0">
+    <label class="form-label small fw-bold" for="assignPlanSelect">Member Plan</label>
+    <select class="form-select" id="assignPlanSelect" name="plan" required>{% for p in plans %}<option value="{{ p.id }}">{{ p.name }} — {% if p.price %}{{ p.price|money:c }}{% else %}Free{% endif %} — {{ p.max_devices }} device{{ p.max_devices|pluralize }} — {{ p.speed_limit|default:"Full speed" }}</option>{% endfor %}</select>
+    <div class="form-text mt-2">If this member is already inside a running validity period, the current expiry is preserved. The selected plan's validity is used on the next renewal.</div>
+  </div>
+  <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Assign plan</button></div>
+</form></div></div>
+{% endif %}
 
 <div class="modal fade" id="pwModal" tabindex="-1" aria-labelledby="pwTitle"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
   <div class="modal-header border-0"><h5 class="modal-title fw-bold" id="pwTitle">Change password</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
@@ -134,23 +291,55 @@
     <div class="col-6"><label class="form-label small fw-bold" for="rnAgent">Received by</label><select class="form-select" id="rnAgent" name="agent"><option value="">Shop</option>{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></div></div></div>
   <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success">Renew and record payment</button></div></form></div></div>
 {% endwith %}{% endblock %}
+
 {% block scripts %}<script>
 (function(){
   function gen(){var a='abcdefghjkmnpqrstuvwxyz23456789',o='',r=new Uint32Array(8);crypto.getRandomValues(r);for(var i=0;i<8;i++)o+=a[r[i]%a.length];return o;}
   document.querySelectorAll('[data-show]').forEach(function(b){b.addEventListener('click',function(){var i=document.getElementById(b.dataset.show),h=i.type==='password';i.type=h?'text':'password';b.textContent=h?'Hide':'Show';});});
   document.querySelectorAll('[data-gen]').forEach(function(b){b.addEventListener('click',function(){var i=document.getElementById(b.dataset.gen);i.type='text';i.value=gen();i.disabled=false;var s=i.closest('form').querySelector('input[name=same]');if(s)s.checked=false;var sb=i.parentNode.querySelector('[data-show]');if(sb)sb.textContent='Hide';});});
-  function linkSame(same,pw){if(!same)return;var f=function(){pw.disabled=same.checked;if(same.checked)pw.value='';};same.addEventListener('change',f);f();}
+  function linkSame(same,pw){if(!same||!pw)return;var f=function(){pw.disabled=same.checked;if(same.checked)pw.value='';};same.addEventListener('change',f);f();}
   linkSame(document.getElementById('mSame'),document.getElementById('mPass'));linkSame(document.getElementById('pwSame'),document.getElementById('pwNew'));
   var u=document.getElementById('mUser');if(u)u.addEventListener('input',function(){var p=u.selectionStart;u.value=u.value.toLowerCase().replace(/\s+/g,'');try{u.setSelectionRange(p,p);}catch(e){}});
+
   var f=document.getElementById('memberForm');
-  if(f){var upd=function(){var r=f.querySelector('input[name=plan]:checked'),free=!r||r.value==='free',price=r?parseFloat(r.dataset.price||'0'):0;
-      document.getElementById('freeOpts').hidden=!free;document.getElementById('payOpts').hidden=!(price>0);};
+  if(f){var upd=function(){var r=f.querySelector('input[name=plan]:checked'),price=r?parseFloat(r.dataset.price||'0'):0,pre=document.getElementById('selectedPlanPreview');
+      document.getElementById('payOpts').hidden=!(price>0);
+      if(pre&&r)pre.innerHTML='<strong>'+r.dataset.planName+'</strong> · '+r.dataset.devices+' device'+(r.dataset.devices==='1'?'':'s')+' · '+r.dataset.speed+' · '+r.dataset.duration;
+    };
     f.querySelectorAll('input[name=plan]').forEach(function(x){x.addEventListener('change',upd);});upd();}
+
+  var unit=document.getElementById('planDurationUnit'),val=document.getElementById('planDurationValue');
+  function durationState(){if(!unit||!val)return;var unlimited=unit.value==='unlimited';val.disabled=unlimited;val.required=!unlimited;if(unlimited)val.value='';else if(!val.value)val.value='1';}
+  if(unit){unit.addEventListener('change',durationState);durationState();}
+
+  var planModal=document.getElementById('planModal');
+  if(planModal)planModal.addEventListener('show.bs.modal',function(ev){
+    var b=ev.relatedTarget,id=b&&b.dataset.planId||'',isNew=!id;
+    document.getElementById('planTitle').textContent=isNew?'Create Member Plan':'Edit Member Plan';
+    document.getElementById('planId').value=id;
+    document.getElementById('planName').value=isNew?'':b.dataset.planName||'';
+    document.getElementById('planPrice').value=isNew?'0':b.dataset.planPrice||'0';
+    document.getElementById('planDevices').value=isNew?'1':b.dataset.planDevices||'1';
+    document.getElementById('planSpeed').value=isNew?'':b.dataset.planSpeed||'';
+    unit.value=isNew?'months':b.dataset.planUnit||'months';
+    val.value=isNew?'1':b.dataset.planValue||'';
+    durationState();
+  });
+
+  var assignModal=document.getElementById('assignPlanModal');
+  if(assignModal)assignModal.addEventListener('show.bs.modal',function(ev){
+    var b=ev.relatedTarget;
+    document.getElementById('assignMemberId').value=b.dataset.memberId||'';
+    document.getElementById('assignPlanTitle').textContent=(b.dataset.current?'Change':'Assign')+' Member Plan — '+(b.dataset.user||'');
+    var s=document.getElementById('assignPlanSelect');if(b.dataset.current)s.value=b.dataset.current;
+  });
+
   document.querySelectorAll('[data-bs-target="#pwModal"],[data-bs-target="#renewModal"]').forEach(function(b){b.addEventListener('click',function(){
     var m=document.querySelector(b.dataset.bsTarget),form=m.querySelector('form');form.action=b.dataset.url;
     if(b.dataset.bsTarget==='#pwModal'){m.querySelector('#pwTitle').textContent='Change password of '+b.dataset.user;m.querySelector('#pwNew').value='';}
-    else{m.querySelector('#rnTitle').textContent='Renew '+b.dataset.user;m.querySelector('#rnAmount').value=b.dataset.price;m.querySelector('#rnText').textContent='Adds '+b.dataset.dur+' and switches the member back on if their time ran out.';}
+    else{m.querySelector('#rnTitle').textContent='Renew '+b.dataset.user;m.querySelector('#rnAmount').value=b.dataset.price;m.querySelector('#rnText').textContent='Uses the current Member Plan: adds '+b.dataset.dur+' and switches the member back on if their time ran out.';}
   });});
+
   var cp=document.getElementById('copyLogin');
   if(cp){var text='Your {{ current_business.business_name|escapejs }} Wi-Fi login\nWi-Fi: {{ current_business.wifi_ssid|default:"our Wi-Fi"|escapejs }}\nTap "Member" on the login page.\nUsername: '+document.getElementById('credUser').textContent+'\nPassword: '+document.getElementById('credPass').textContent{% if current_business.support_phone %}+'\nHelp: {{ current_business.support_phone|escapejs }}'{% endif %};
     cp.addEventListener('click',function(){navigator.clipboard.writeText(text).then(function(){cp.innerHTML='<i class="bi bi-check2"></i> Copied';});});

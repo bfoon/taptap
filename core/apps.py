@@ -53,6 +53,7 @@ class CoreConfig(AppConfig):
         super().import_models()
         importlib.import_module("core.models_cash")
         importlib.import_module("core.models_free_access")
+        importlib.import_module("core.models_member_plans")
 
     def ready(self):
         from . import team  # noqa: F401
