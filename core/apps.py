@@ -81,6 +81,12 @@ class CoreConfig(AppConfig):
             "shared_voucher_stability",
         )
 
+        # Adds a per-device "Remove" control to the locked-device list while
+        # keeping the existing Reset devices action unchanged.
+        _install_optional(
+            "shared_voucher_device_control",
+        )
+
         _install_optional(
             "link_system_health",
         )

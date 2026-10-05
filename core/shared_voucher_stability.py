@@ -24,8 +24,8 @@ For vouchers with more than one device slot:
 * A genuinely new device can take a normal free slot while capacity remains.
 * Once capacity is full, another unknown device is denied rather than replacing
   an offline family member.
-* Staff can deliberately use "Reset devices" when a family device has really
-  been replaced.
+* Staff can deliberately free one device slot, or use "Reset devices" when all
+  devices should be learned again.
 
 For a one-device voucher the original TapTap matcher is kept unchanged, so its
 existing private-MAC convenience remains.
@@ -47,7 +47,7 @@ def safe_same_phone(voucher, rows, mac, hints):
     from . import device_lock
 
     # On a shared voucher an unknown MAC is not enough evidence to identify
-    # which offline person's permanent slot should move.  Positive identity
+    # which offline person's permanent slot should move. Positive identity
     # (device token/current MAC/previous MAC) is already handled earlier by
     # device_lock.claim(), before this fallback is reached.
     if device_lock.slots(voucher) > 1:

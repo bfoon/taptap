@@ -1,5 +1,8 @@
 from decimal import Decimal
+import json
+
 from django import template
+from django.middleware.csrf import get_token
 from django.utils.html import format_html
 
 register = template.Library()
@@ -150,15 +153,91 @@ def voucher_link(code, css=''):
     return format_html('<a class="tt-vlink {}" href="{}" title="Open voucher {}">{}</a>', css, reverse('go_voucher', args=[code]), code, code)
 
 
-@register.simple_tag
-def device_link(mac, label='', css=''):
-    """<a> to a device's page from its MAC."""
+@register.simple_tag(takes_context=True)
+def device_link(context, mac, label='', css=''):
+    """<a> to a device's page from its MAC.
+
+    On the voucher-detail locked-device list, voucher-support users also get a
+    small Remove button next to the CURRENT MAC.  It posts to the existing
+    reset_mac action, so the normal server-side vouchers.support permission is
+    still enforced. Previous-MAC links and every other device link stay plain.
+    """
     from django.urls import reverse
     from django.utils.html import format_html
+
     mac = str(mac or '').strip()
     if not mac:
         return label or '—'
-    return format_html('<a class="tt-dlink {}" href="{}" title="Open device {}">{}</a>', css, reverse('go_device', args=[mac]), mac, label or mac)
+
+    link = format_html(
+        '<a class="tt-dlink {}" href="{}" title="Open device {}">{}</a>',
+        css,
+        reverse('go_device', args=[mac]),
+        mac,
+        label or mac,
+    )
+
+    try:
+        voucher = context.get('v')
+        binding = context.get('d')
+        perms = context.get('tt_perms') or ()
+        request = context.get('request')
+
+        if (
+            voucher is None
+            or binding is None
+            or request is None
+            or 'vouchers.support' not in perms
+            or getattr(voucher, 'deleted_at', None)
+            or getattr(binding, 'voucher_id', None) != getattr(voucher, 'pk', None)
+            or str(getattr(binding, 'current_mac', '') or '').strip().upper() != mac.upper()
+        ):
+            return link
+
+        # Prevent this voucher-specific control appearing if future templates
+        # happen to use variables named v/d around a device_link call.
+        template_name = getattr(getattr(context, 'template', None), 'name', '') or ''
+        if template_name and template_name != 'core/voucher_detail.html':
+            return link
+
+        from core.shared_voucher_device_control import removal_reason
+
+        csrf = get_token(request)
+        action = reverse('reset_mac', args=[voucher.pk])
+        marker = removal_reason(binding.pk)
+        slot = int(getattr(binding, 'slot_no', 0) or 0)
+        confirm_text = (
+            f'Remove only device slot {slot} ({mac})? '
+            'The other devices will stay connected and this slot will become free.'
+        )
+        onsubmit = 'return confirm(' + json.dumps(confirm_text) + ');'
+
+        # voucher_detail.html currently wraps the current MAC tag in <code>.
+        # Close that code span, render a real inline POST form, then reopen it
+        # so the template's existing closing </code> remains balanced.
+        return format_html(
+            '{}'
+            '</code>'
+            '<form method="post" action="{}" class="d-inline-block ms-2" '
+            'style="vertical-align:middle" onsubmit="{}">'
+            '<input type="hidden" name="csrfmiddlewaretoken" value="{}">'
+            '<input type="hidden" name="reason" value="{}">'
+            '<button type="submit" class="btn btn-sm btn-outline-danger py-0 px-2" '
+            'title="Remove only this device and free slot {}">'
+            '<i class="bi bi-x-circle"></i> Remove'
+            '</button></form>'
+            '<code>',
+            link,
+            action,
+            onsubmit,
+            csrf,
+            marker,
+            slot,
+        )
+    except Exception:
+        # A link to the device must never fail just because the optional
+        # single-device control is unavailable.
+        return link
 
 
 
