@@ -1,6 +1,196 @@
 {% extends 'core/base.html' %}{% load static %}
 {% block title %}Reports — TapTap{% endblock %}{% block heading %}Reports{% endblock %}
+
+{% block extra_head %}
+<style>
+/* Reports mobile containment.
+   Wide report content scrolls inside its own card; the page itself stays within the viewport. */
+.report-page{
+  min-width:0;
+  max-width:100%;
+  overflow-x:clip;
+}
+.report-page .filter-bar,
+.report-page .range-pills,
+.report-page .bar-actions,
+.report-page .chart-panel,
+.report-page .chart-box,
+.report-page .table-responsive,
+.report-page .insights{
+  min-width:0;
+  max-width:100%;
+}
+.report-page .chart-panel{
+  overflow:hidden;
+}
+.report-page .chart-box canvas{
+  display:block;
+  width:100%!important;
+  max-width:100%!important;
+}
+.report-page .table-responsive{
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+}
+.report-page .plan-table{
+  min-width:650px;
+}
+.report-page .heat-scroll{
+  width:100%;
+  max-width:100%;
+  overflow-x:auto;
+  overflow-y:hidden;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:thin;
+  padding-bottom:.2rem;
+}
+.report-page .heat-scroll .heat{
+  min-width:680px;
+}
+.report-page .insights{
+  -webkit-overflow-scrolling:touch;
+}
+.report-page .insight{
+  overflow-wrap:anywhere;
+}
+.report-page .bar-actions .form-select{
+  min-width:0;
+}
+.report-page .period-note{
+  overflow-wrap:anywhere;
+}
+
+@media(max-width:760px){
+  .report-page .filter-bar{
+    display:block;
+    padding:.7rem;
+  }
+  .report-page .range-pills{
+    width:100%;
+    display:flex;
+    flex-wrap:wrap;
+    gap:.3rem;
+  }
+  .report-page .range-pills>button{
+    flex:1 1 auto;
+  }
+  .report-page .custom-range{
+    width:100%;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);
+    gap:.4rem;
+    margin-top:.35rem;
+  }
+  .report-page .custom-range input{
+    width:100%;
+    min-width:0;
+  }
+  .report-page .custom-range button{
+    grid-column:1/-1;
+    width:100%;
+  }
+  .report-page .bar-actions{
+    width:100%;
+    display:grid;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    gap:.45rem;
+    margin-top:.65rem;
+  }
+  .report-page .bar-actions .form-select{
+    grid-column:1/-1;
+    width:100%!important;
+    max-width:100%;
+  }
+  .report-page .bar-actions .btn{
+    width:100%;
+  }
+  .report-page .kpi-row{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+  }
+  .report-page .kpi{
+    min-width:0;
+  }
+  .report-page .kpi strong{
+    font-size:1.35rem;
+    overflow-wrap:anywhere;
+  }
+  .report-page .chart-panel{
+    padding:.9rem;
+  }
+  .report-page .chart-panel header{
+    flex-wrap:wrap;
+    gap:.55rem;
+  }
+  .report-page .chart-panel header>div{
+    min-width:0;
+  }
+  .report-page .seg{
+    max-width:100%;
+    overflow-x:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+  .report-page .seg button{
+    white-space:nowrap;
+  }
+  .report-page .chart-box{
+    height:230px;
+  }
+  .report-page .chart-box.lg{
+    height:270px;
+  }
+  .report-page .chart-box.sm{
+    height:210px;
+  }
+  .report-page .insight{
+    max-width:min(82vw,300px);
+  }
+  .report-page .funnel-row{
+    grid-template-columns:minmax(72px,.85fr) minmax(0,1.5fr) auto;
+    gap:.45rem;
+  }
+  .report-page .funnel-row b{
+    white-space:nowrap;
+  }
+  .report-page .heat-scroll .heat{
+    min-width:640px;
+  }
+  .report-page .heat-legend{
+    flex-wrap:wrap;
+  }
+}
+
+@media(max-width:420px){
+  .report-page .custom-range{
+    grid-template-columns:1fr;
+  }
+  .report-page .custom-range>span{
+    display:none;
+  }
+  .report-page .custom-range button{
+    grid-column:auto;
+  }
+  .report-page .kpi-row{
+    grid-template-columns:1fr;
+  }
+  .report-page .chart-box{
+    height:220px;
+  }
+  .report-page .chart-box.lg{
+    height:250px;
+  }
+  .report-page .chart-box.sm{
+    height:200px;
+  }
+  .report-page .funnel-row{
+    grid-template-columns:minmax(66px,.9fr) minmax(0,1.35fr) auto;
+    font-size:.78rem;
+  }
+}
+</style>
+{% endblock %}
+
 {% block content %}
+<div class="report-page">
 <form class="filter-bar" id="rf">
   <div class="range-pills" role="group" aria-label="Period">
     {% for key,label in presets.items %}{% if key != 'custom' %}<button type="button" data-range="{{ key }}">{{ label }}</button>{% endif %}{% endfor %}
@@ -33,14 +223,17 @@
 </div>
 
 <div class="row g-3 mt-1">
-  <div class="col-xl-7"><div class="chart-panel h-100"><header><div><h3>When people buy</h3><p>Sales by weekday and hour — plan staffing and promos around the dark squares</p></div></header><div class="heat" id="heat"></div>
+  <div class="col-xl-7"><div class="chart-panel h-100"><header><div><h3>When people buy</h3><p>Sales by weekday and hour — plan staffing and promos around the dark squares</p></div></header>
+    <div class="heat-scroll" tabindex="0" role="region" aria-label="Sales by weekday and hour. Scroll horizontally on smaller screens."><div class="heat" id="heat"></div></div>
     <div class="heat-legend">Fewer <i style="background:#eef3fa"></i><i style="background:#b9d4f7"></i><i style="background:#6fa6ee"></i><i style="background:#2d74dc"></i><i style="background:#0b3f8c"></i> More</div></div></div>
   <div class="col-xl-5"><div class="chart-panel h-100"><header><div><h3>Top sites</h3><p>Revenue by router</p></div></header><div class="chart-box sm"><canvas id="siteChart"></canvas></div>
     <hr class="my-3"><header><div><h3>Top sellers</h3><p>Revenue by agent</p></div></header><div class="chart-box sm" style="height:180px"><canvas id="agentChart"></canvas></div></div></div>
 </div>
 </div>
 {{ initial|json_script:"repInit" }}
+</div>
 {% endblock %}
+
 {% block scripts %}
 <script>window.TT_CURRENCY="{{ current_business.currency|escapejs }}";</script>
 <script src="{% static 'vendor/chart.umd.min.js' %}"></script><script src="{% static 'js/taptap-charts.js' %}"></script>
