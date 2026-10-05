@@ -100,6 +100,13 @@ class CoreConfig(AppConfig):
             "link_sync_reliability",
         )
 
+        # Member Plans have their own validity/profile truth. Make the Members
+        # "Fix on router" path enforce that truth directly on MikroTik instead
+        # of relying on the generic bulk voucher sender.
+        _install_optional(
+            "member_router_alignment",
+        )
+
         _install_optional(
             "protection_state_fix",
         )
