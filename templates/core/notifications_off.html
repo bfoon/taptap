@@ -1,4 +1,10 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Turn off emails</title>
-<style>body{font-family:system-ui,sans-serif;background:#f3f6fa;display:grid;place-items:center;min-height:100vh;margin:0;color:#102033}.c{background:#fff;border:1px solid #e3e9f1;border-radius:16px;padding:1.5rem;max-width:420px}button{background:#d64545;color:#fff;border:0;border-radius:10px;padding:.6rem 1rem;font-weight:700;cursor:pointer}</style></head>
-<body><div class="c"><h1 style="font-size:1.2rem">Turn off all TapTap emails?</h1><p>This stops every email notification for <b>{{ s.business.business_name }}</b>. You can turn them back on (or choose only some) under Notifications in TapTap.</p>
-<form method="post">{% csrf_token %}<button>Turn off all emails</button></form></div></body></html>
+<style>body{font-family:system-ui,sans-serif;background:#f3f6fa;display:grid;place-items:center;min-height:100vh;margin:0;color:#102033}.c{background:#fff;border:1px solid #e3e9f1;border-radius:16px;padding:1.5rem;max-width:420px;margin:1rem}button{background:#d64545;color:#fff;border:0;border-radius:10px;padding:.6rem 1rem;font-weight:700;cursor:pointer}</style></head>
+<body><div class="c">{% if person %}
+<h1 style="font-size:1.2rem">Stop your TapTap emails from {{ business.business_name }}?</h1>
+<p>{{ who }} will no longer receive email notifications from <b>{{ business.business_name }}</b>. Everyone else keeps theirs, and other businesses you belong to are not affected.</p>
+<form method="post">{% csrf_token %}<button>Stop my emails</button></form>
+{% else %}
+<h1 style="font-size:1.2rem">Turn off all TapTap emails?</h1><p>This stops every email notification for <b>{{ s.business.business_name }}</b>. You can turn them back on (or choose only some) under Notifications in TapTap.</p>
+<form method="post">{% csrf_token %}<button>Turn off all emails</button></form>
+{% endif %}</div></body></html>

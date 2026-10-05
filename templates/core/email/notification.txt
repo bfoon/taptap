@@ -13,5 +13,5 @@ Devices that dropped off: {{ summary.device_alerts }} · Expired vouchers discon
   {{ it.link }}{% endif %}
 {% endfor %}
 Choose which emails you get: {{ manage_url }}
-Turn off all emails: {{ unsubscribe_url }}
+Stop my emails from {{ business.business_name }}: {{ unsubscribe_url }}
 {% endautoescape %}

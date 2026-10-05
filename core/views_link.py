@@ -15,7 +15,7 @@ from django.views.decorators.http import require_POST
 from . import agent as link
 from .mikrotik import MikroTikService
 from .models import AgentCommand, NotificationSettings, Router, RouterAgent
-from .notify import EVENTS, email_configured, notify, prefs, recipients, send_test
+from .notify import EVENTS, email_configured, notify, people, prefs, recipients, send_test, set_receives
 from .utils import log
 
 
@@ -434,6 +434,10 @@ def notifications(request):
         s.quiet_start, s.quiet_end = t(request.POST.get('quiet_start')), t(request.POST.get('quiet_end'))
         s.events = {k: request.POST.get(f'ev_{k}') for k in EVENTS if request.POST.get(f'ev_{k}') in ('instant', 'digest', 'off')}
         s.save()
+        if request.POST.get('people_form') == '1':          # "Who receives these": one switch per person
+            on = set(request.POST.getlist('recv'))
+            for p in people(business, s):
+                set_receives(business, p['key'], p['key'] in on, request.user)
         messages.success(request, 'Notification settings saved.')
         email = request.POST.get('business_email', '').strip().lower()
         if not email and business.email:
@@ -482,6 +486,7 @@ def notifications(request):
             'everything': {k: 'instant' for k in EVENTS},
         },
         'main_email': business.email or request.user.email,
+        'people': people(business, s),
     })
 
 
@@ -504,6 +509,25 @@ def notifications_resend(request):
     n = business.notifications.filter(status='failed').update(status='queued', error='')
     messages.success(request, f'{n} email(s) will be tried again within a minute.' if n else 'Nothing to send again.')
     return redirect('notifications')
+
+
+@csrf_exempt
+def notifications_me_off(request, token):
+    """Personal unsubscribe link: stops THIS person's emails for THIS business only (no login needed).
+    Mail apps' one-click "Unsubscribe" POSTs here directly (RFC 8058); in a browser we ask first."""
+    from .models import NotificationRecipient
+    r = NotificationRecipient.objects.filter(token=token).select_related('business', 'user').first() if len(token) >= 20 else None
+    if not r:
+        return HttpResponse('This link is not valid any more.', status=404, content_type='text/plain')
+    who = (r.user.email if r.user_id else r.email)
+    if request.method == 'POST':
+        if r.receives:
+            r.receives = False
+            r.save(update_fields=['receives', 'updated_at'])
+            log(r.business, 'Notifications', f'{who} unsubscribed from email notifications')
+        return HttpResponse(f'{who} will not receive email notifications from {r.business.business_name} any more. '
+                            f'An owner or admin can switch you back on under Notifications in TapTap.', content_type='text/plain')
+    return render(request, 'core/notifications_off.html', {'s': None, 'person': r, 'who': who, 'business': r.business})
 
 
 def notifications_off(request, token):

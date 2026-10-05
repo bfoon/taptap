@@ -1156,6 +1156,25 @@ class Notification(models.Model):
 
 
 # ─────────────────────────────── Email verification & trusted devices ───────────────────────────────
+
+class NotificationRecipient(models.Model):
+    """One person receiving a business's notification emails, with a personal unsubscribe link (core/notify.py).
+
+    Owner and team admins receive by default; other team members can be switched on; extra addresses typed
+    on the Notifications page appear here too. A person who belongs to several businesses has one row per
+    business, so they get each business's emails and can stop one without touching the others."""
+    business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name='notification_recipients')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name='notification_subscriptions')
+    email = models.EmailField(max_length=254, blank=True, help_text='For an extra address without a TapTap login')
+    receives = models.BooleanField(default=True)
+    token = models.CharField(max_length=48, unique=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    changed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['business', 'user'], condition=models.Q(user__isnull=False), name='uniq_notif_recipient_user'),
+                       models.UniqueConstraint(fields=['business', 'email'], condition=models.Q(user__isnull=True), name='uniq_notif_recipient_email')]
+
 class EmailOTP(models.Model):
     """A one-time code sent by email. Only an HMAC of the code is stored."""
     PURPOSES=[('register','Create account'),('login','Sign in from a new device'),('email_change','Change business email')]

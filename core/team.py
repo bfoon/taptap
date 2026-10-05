@@ -31,7 +31,7 @@ logger = logging.getLogger('taptap')
 
 VIEW_AS_KEY = 'tt_view_as'
 ACTIVE_BUSINESS_KEY = 'tt_business'
-SKIP_PREFIXES = ('/admin/', '/static/', '/api/', '/p/', '/b/', '/n/off/', '/media/', '/ag/')
+SKIP_PREFIXES = ('/admin/', '/static/', '/api/', '/p/', '/b/', '/n/off/', '/n/me/', '/media/', '/ag/')
 PLATFORM_OPEN = {
     'logout', 'login', 'home', 'verify_code', 'resend_code', 'cancel_verification',
     'account_password', 'trusted_devices', 'trusted_device_remove',

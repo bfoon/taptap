@@ -102,6 +102,7 @@ urlpatterns = [
     path('routers/<int:pk>/link/status/',views_link.router_link_status,name='router_link_status'),
     path('notifications/',views_link.notifications,name='notifications'), path('notifications/test/',views_link.notifications_test,name='notifications_test'), path('notifications/resend/',views_link.notifications_resend,name='notifications_resend'),
     path('n/off/<str:token>/',views_link.notifications_off,name='notifications_off'),
+    path('n/me/<str:token>/',views_link.notifications_me_off,name='notifications_me_off'),
     # Team accounts, daily sales and own password
     path('team/',vteam.team,name='team'), path('team/save/',vteam.team_member_save,name='team_member_save'),
     path('team/<int:pk>/action/',vteam.team_member_action,name='team_member_action'),

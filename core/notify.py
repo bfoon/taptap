@@ -73,11 +73,73 @@ def mode_for(s, event):
     return (s.events or {}).get(event) or EVENTS.get(event, ('', '', 'instant'))[2]
 
 
-def recipients(business, s=None):
+# ─────────────────────────── who receives a business's emails ───────────────────────────
+# The owner and the team's admins receive by default; other team members can be switched on; extra addresses
+# typed on the page receive too. Each person has a row per business (NotificationRecipient) with a personal
+# unsubscribe link, so someone in several businesses gets each one's emails and can stop one alone.
+DEFAULT_ON_ROLES = ('admin',)
+
+
+def _row(business, user=None, email='', default=True):
+    from .models import NotificationRecipient
+    look = {'business': business, 'user': user} if user is not None else {'business': business, 'user__isnull': True, 'email': email.lower()}
+    row = NotificationRecipient.objects.filter(**look).first()
+    if row is None:
+        row = NotificationRecipient.objects.create(business=business, user=user, email='' if user is not None else email.lower(),
+                                                   receives=default, token=secrets.token_urlsafe(24))
+    return row
+
+
+def people(business, s=None, create=False):
+    """Everyone who can receive this business's emails: [{key, kind, name, email, role, receives, default, token}]."""
+    from .models import NotificationRecipient
     s = s or prefs(business)
-    main = business.email or getattr(business.user, 'email', '')
-    extra = [x.strip() for x in (s.extra_recipients or '').replace(';', ',').split(',') if '@' in x]
-    return list(dict.fromkeys([e for e in [main, *extra] if e]))
+    by_user = {r.user_id: r for r in NotificationRecipient.objects.filter(business=business, user__isnull=False)}
+    by_email = {r.email: r for r in NotificationRecipient.objects.filter(business=business, user__isnull=True)}
+    out, seen = [], set()
+
+    def add(kind, user, email, name, role, default):
+        email = (email or '').strip()
+        if not email or '@' not in email or email.lower() in seen:
+            return
+        seen.add(email.lower())
+        row = by_user.get(user.pk) if user is not None else by_email.get(email.lower())
+        if row is None and create:
+            row = _row(business, user, email, default)
+        out.append({'key': f'u:{user.pk}' if user is not None else f'e:{email.lower()}', 'kind': kind, 'name': name, 'email': email,
+                    'role': role, 'default': default, 'receives': row.receives if row else default, 'token': row.token if row else ''})
+
+    owner = business.user
+    add('owner', owner, business.email or getattr(owner, 'email', ''), owner.get_full_name() or business.owner_name or owner.email, 'Owner', True)
+    for m in business.team.filter(is_active=True).select_related('user').order_by('user__first_name', 'user__email'):
+        if m.user_id != owner.pk:
+            add('team', m.user, m.user.email, m.user.get_full_name() or m.user.email, m.get_role_display(), m.role in DEFAULT_ON_ROLES)
+    for e in [x.strip() for x in (s.extra_recipients or '').replace(';', ',').split(',') if '@' in x]:
+        add('extra', None, e, e, 'Extra address', True)
+    return out
+
+
+def recipient_list(business, s=None):
+    """[(email, personal unsubscribe token, name)] of the people who receive — rows created on first send."""
+    return [(p['email'], p['token'], p['name']) for p in people(business, s, create=True) if p['receives']]
+
+
+def recipients(business, s=None):
+    return [e for e, _, _ in recipient_list(business, s)]
+
+
+def set_receives(business, key, on, by=None):
+    """Switch one person on/off for this business (page). key: 'u:<user id>' or 'e:<email>'."""
+    p = next((x for x in people(business) if x['key'] == key), None)
+    if not p:
+        return False
+    from django.contrib.auth.models import User
+    user = User.objects.filter(pk=key[2:]).first() if key.startswith('u:') else None
+    row = _row(business, user, p['email'], p['default'])
+    if row.receives != bool(on):
+        row.receives, row.changed_by = bool(on), by if getattr(by, 'is_authenticated', False) else None
+        row.save(update_fields=['receives', 'changed_by', 'updated_at'])
+    return True
 
 
 def in_quiet_hours(s, when=None):
@@ -121,20 +183,33 @@ def _site():
 
 
 def _send(business, subject, items, heading, intro='', s=None, summary=None):
+    """One email per person, each with their own unsubscribe link (it stops only their emails for this business)."""
     s = s or prefs(business)
-    to = recipients(business, s)
-    if not to:
-        raise ValueError('No email address: add a business email in Settings.')
-    ctx = {'business': business, 'heading': heading, 'intro': intro, 'items': items, 'site': _site(), 'summary': summary,
-           'colors': SEVERITY_COLOR, 'manage_url': f'{_site()}/notifications/', 'unsubscribe_url': f'{_site()}/n/off/{s.unsubscribe_token}/'}
-    html = render_to_string('core/email/notification.html', ctx)
-    text = render_to_string('core/email/notification.txt', ctx)
-    msg = EmailMultiAlternatives(subject=f'[{business.business_name}] {subject}'[:180], body=text, from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', None),
-                                 to=to, connection=get_connection(fail_silently=False))
-    msg.attach_alternative(html, 'text/html')
-    msg.extra_headers = {'List-Unsubscribe': f'<{ctx["unsubscribe_url"]}>'}
-    msg.send()
-    return ', '.join(to)
+    people_ = recipient_list(business, s)
+    if not people_:
+        raise ValueError('Nobody receives these emails: add a business email in Settings, or switch someone on under Notifications.')
+    conn = get_connection(fail_silently=False)
+    sent, failed = [], []
+    for email, token, name in people_:
+        ctx = {'business': business, 'heading': heading, 'intro': intro, 'items': items, 'site': _site(), 'summary': summary,
+               'colors': SEVERITY_COLOR, 'manage_url': f'{_site()}/notifications/', 'recipient_name': name,
+               'unsubscribe_url': f'{_site()}/n/me/{token}/'}
+        html = render_to_string('core/email/notification.html', ctx)
+        text = render_to_string('core/email/notification.txt', ctx)
+        msg = EmailMultiAlternatives(subject=f'[{business.business_name}] {subject}'[:180], body=text,
+                                     from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', None), to=[email], connection=conn)
+        msg.attach_alternative(html, 'text/html')
+        msg.extra_headers = {'List-Unsubscribe': f'<{ctx["unsubscribe_url"]}>', 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click'}
+        try:
+            msg.send()
+            sent.append(email)
+        except Exception as exc:          # one bad address must not stop the others
+            failed.append(f'{email}: {exc}')
+    if not sent:
+        raise ValueError('; '.join(failed)[:500])
+    if failed:
+        logger.warning('notifications for %s: %s', business.pk, '; '.join(failed))
+    return ', '.join(sent)
 
 
 def _item(n):

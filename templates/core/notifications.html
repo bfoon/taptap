@@ -57,6 +57,10 @@
 .nx-off .nx-body{opacity:.45;pointer-events:none;filter:saturate(.4)}
 .nx-layout{display:grid;grid-template-columns:1fr 340px;gap:1rem}@media(max-width:1100px){.nx-layout{grid-template-columns:1fr}.nx-hero{grid-template-columns:1fr}.nx-presets{grid-template-columns:1fr 1fr}.nx-ev{grid-template-columns:1fr}}
 html[data-theme="dark"] .nx-group>summary,html[data-theme="dark"] .nx-stat{background:#1d2229}html[data-theme="dark"] .nx-ev.changed{background:#2a2410}
+.nx-people{border:1px solid var(--border,#e3e9f1);border-radius:12px;padding:.6rem .75rem}
+.nx-person{display:flex;gap:.6rem;align-items:center;padding:.45rem 0;border-bottom:1px solid var(--border,#eef2f6);cursor:pointer}
+.nx-person:last-of-type{border-bottom:0}.nx-av{width:30px;height:30px;border-radius:50%;background:#e0ecff;color:#1d4ed8;display:grid;place-items:center;font-weight:800;flex:none}
+.nx-who{min-width:0}.nx-who b{display:block;font-size:.88rem}.nx-who small{display:block;color:#64748b;overflow-wrap:anywhere}
 </style>{% endblock %}
 {% block content %}
 {% if not configured %}<div class="alert alert-warning"><i class="bi bi-exclamation-triangle"></i> <b>No email server is set up yet</b> — messages are only written to the server log. Add <code>EMAIL_HOST</code>, <code>EMAIL_HOST_USER</code>, <code>EMAIL_HOST_PASSWORD</code> and <code>DEFAULT_FROM_EMAIL</code> to <code>/opt/taptap/.env</code>.</div>{% endif %}
@@ -79,6 +83,18 @@ html[data-theme="dark"] .nx-group>summary,html[data-theme="dark"] .nx-stat{backg
       </div>
       <input type="hidden" name="extra_recipients" id="ntExtra" value="{{ s.extra_recipients }}">
       <small class="text-secondary">Managers, your technician… each gets the same emails. Press Enter or comma after each address.</small>
+      {% if people %}<input type="hidden" name="people_form" value="1">
+      <div class="nx-people mt-3" role="group" aria-labelledby="ntPeopleT">
+        <div class="d-flex justify-content-between align-items-baseline"><b id="ntPeopleT" class="small">Who receives these</b>
+          <small class="text-secondary">{{ people|length }} {{ people|length|pluralize:"person,people" }}</small></div>
+        {% for p in people %}<label class="nx-person">
+          <span class="nx-av" aria-hidden="true">{{ p.name|slice:":1"|upper }}</span>
+          <span class="nx-who"><b>{{ p.name }}</b><small>{{ p.email }} · {{ p.role }}{% if not p.receives and p.default %} · unsubscribed{% endif %}</small></span>
+          <span class="form-check form-switch m-0 ms-auto"><input class="form-check-input" type="checkbox" role="switch" name="recv" value="{{ p.key }}" {% if p.receives %}checked{% endif %} aria-label="{{ p.name }} receives emails"></span>
+        </label>{% endfor %}
+        <small class="text-secondary d-block mt-1">The owner and admins receive by default. Each person gets their own copy with a link that stops only their emails.
+          Someone in several businesses gets each business’s emails separately.</small>
+      </div>{% endif %}
     </div>
   </section>
   <section class="nx-card nx-body">
