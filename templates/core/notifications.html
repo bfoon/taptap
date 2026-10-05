@@ -55,7 +55,7 @@
 .nx-save{position:sticky;bottom:.8rem;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:1rem;background:#102033;color:#dbe7f3;border-radius:16px;padding:.6rem .8rem .6rem 1rem;margin:1rem 0;box-shadow:0 10px 30px #0b223733;font-size:.86rem;transform:translateY(0);transition:transform .2s,opacity .2s}
 .nx-save.idle{opacity:.85}.nx-save .pulse{display:inline-block;width:8px;height:8px;border-radius:50%;background:#facc15;margin-right:.4rem;animation:nxp 1.4s infinite}@keyframes nxp{50%{opacity:.3}}
 .nx-off .nx-body{opacity:.45;pointer-events:none;filter:saturate(.4)}
-.nx-layout{display:grid;grid-template-columns:1fr 340px;gap:1rem}@media(max-width:1100px){.nx-layout{grid-template-columns:1fr}.nx-hero{grid-template-columns:1fr}.nx-presets{grid-template-columns:1fr 1fr}.nx-ev{grid-template-columns:1fr}}
+.nx-layout{display:grid;grid-template-columns:1fr 340px;gap:1rem}@media(max-width:1100px){.nx-layout{grid-template-columns:minmax(0,1fr)}.nx-hero{grid-template-columns:minmax(0,1fr)}.nx-presets{grid-template-columns:1fr 1fr}.nx-ev{grid-template-columns:1fr}}
 html[data-theme="dark"] .nx-group>summary,html[data-theme="dark"] .nx-stat{background:#1d2229}html[data-theme="dark"] .nx-ev.changed{background:#2a2410}
 .nx-people{border:1px solid var(--border,#e3e9f1);border-radius:12px;padding:.6rem .75rem}
 .nx-person{display:flex;gap:.6rem;align-items:center;padding:.45rem 0;border-bottom:1px solid var(--border,#eef2f6);cursor:pointer}

@@ -303,11 +303,13 @@ def save_member_plan(business, data, *, plan=None, user=None):
             'mikrotik_sync_status': 'Pending',
             'mikrotik_sync_error': '',
         }
-        if not member.used_at and not member.expires_at:
-            updates['duration_minutes'] = plan.duration_minutes
+        from .member_time import rebase
+        updates.update(rebase(member, plan.duration_minutes))   # a new plan length: time already used still counts
         Voucher.objects.filter(pk=member.pk).update(**updates)
         refreshed += 1
 
+    if refreshed:
+        _push_after_commit([a.member_id for a in assignments], plan)
     return plan, refreshed
 
 
@@ -322,8 +324,8 @@ def set_plan_active(plan, active):
 def assign_member_plan(voucher, plan, *, user=None):
     """Assign/change an existing member to one active MemberPlan.
 
-    If the member has already started a validity period, keep its current expiry.
-    The new plan's validity is used on the next renewal.
+    A member whose time has started keeps their clock: the days already used count in the new plan
+    (core/member_time.py). The caller sends the member to the router afterwards (push_one).
     """
     if not voucher.is_member:
         raise MemberError('Only members can be assigned to a Member Plan.')
@@ -346,9 +348,10 @@ def assign_member_plan(voucher, plan, *, user=None):
         },
     )
 
+    from .member_time import describe_change, rebase
     values = _plan_snapshot(plan)
-    if voucher.used_at or voucher.expires_at:
-        values.pop('duration_minutes', None)
+    clock = rebase(voucher, plan.duration_minutes)          # time already used counts in the new plan
+    values.update(clock)
     values.update({
         'mikrotik_sync_status': 'Pending',
         'mikrotik_sync_error': '',
@@ -359,7 +362,21 @@ def assign_member_plan(voucher, plan, *, user=None):
         if hasattr(voucher, key):
             setattr(voucher, key, value)
 
-    return voucher
+    from .voucher_history import record
+    record(voucher, 'note', user=user, reason=f'Member Plan: {plan.name}', text=describe_change(voucher, clock))
+    return voucher                      # the page sends the member to the router right after (views_members)
+
+
+def _push_after_commit(ids, plan):
+    """Send members to their routers once the change is saved, so the router has the plan's time and speed."""
+    def go():
+        from .views_agents import push_one
+        for v in Voucher.objects.filter(pk__in=ids).exclude(router__isnull=True).select_related('router'):
+            try:
+                push_one(v, plan)
+            except Exception:            # router offline: it stays Pending and the next sync sends it
+                pass
+    transaction.on_commit(go)
 
 
 @transaction.atomic

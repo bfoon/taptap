@@ -242,6 +242,8 @@ def members(request):
                 f'speed: {plan.speed_limit or "full speed"}; '
                 f'price: {business.currency}{plan.price:,.2f}.'
             )
+            from .member_time import describe_change
+            text += ' Time: ' + describe_change(member, {'duration_minutes': member.duration_minutes, 'expires_at': member.expires_at}) + '.'
             if member.router:
                 text += (
                     ' Router updated.'
@@ -521,6 +523,7 @@ def _ctx(
         'agents': business.agents.filter(active=True),
         'methods': MANUAL_METHODS,
         'rows': rows,
+        'router_mismatches': sum(1 for r in rows if (r.get('router_view') or {}).get('mismatch')),
         'page': page,
         'q': q,
         'kind': kind,
@@ -645,7 +648,12 @@ def router_view(business, vouchers):
             and u.profile != expected_profile
         )
 
+        from .member_time import expected_limit, router_matches
+        time_mismatch = not unlimited and not router_matches(v, u.limit_uptime)   # e.g. 1 month plan, router says no limit
+        want = parse_routeros(expected_limit(v), 0) or 0
         out[v.pk] = {
+            'time_mismatch': time_mismatch,
+            'expected_time': mtext(want) if want else 'no limit',
             'text': (
                 ', '.join(limits)
                 if limits
@@ -656,7 +664,7 @@ def router_view(business, vouchers):
             'mismatch': (
                 bool(limits)
                 if unlimited
-                else False
+                else time_mismatch
             ) or profile_mismatch,
             'profile_mismatch': profile_mismatch,
             'missing': False,
@@ -842,3 +850,29 @@ def member_renew(request, pk):
         'next': nxt,
     })
     return redirect(f'{reverse("members")}?{query}')
+
+
+@login_required
+@require_POST
+def member_fix_all(request):
+    """Send every member whose router time or profile differs from their Member Plan to the router again."""
+    business = _b(request)
+    members = list(business.vouchers.filter(login_type='member', router__isnull=False).exclude(status__in=['expired', 'archived'])
+                   .select_related('router'))
+    views = router_view(business, members)
+    todo = [v for v in members if (views.get(v.pk) or {}).get('mismatch')]
+    ok, later = 0, 0
+    for v in todo:
+        res = push_one(v, mem.plan_for_member(v))
+        if res is True:
+            ok += 1
+        else:
+            later += 1
+    if not todo:
+        messages.info(request, 'Every member’s router already matches their plan.')
+    else:
+        messages.success(request, f'{ok} member{"s" if ok != 1 else ""} corrected on the router'
+                         + (f'; {later} will be sent at the next sync (router not reachable now).' if later else '.'))
+        log(business, 'Member Updated', f'Router time/profile corrected for {ok} member(s)')
+    return _back(request)
+

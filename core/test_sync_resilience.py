@@ -11,7 +11,65 @@ from django.utils import timezone
 
 from .models import (AgentCommand, Business, Router, RouterHotspotProfile, RouterHotspotUser, RouterSyncJob, SyncedIPBinding, Voucher,
                      VoucherPlan)
-from .test_members import FakeSvc
+
+
+# A simulated MikroTik (kept here: core/test_members.py no longer has one)
+class FakeUsers:
+    def __init__(self, rows):
+        self.rows = rows
+
+    def get(self, name=None, **kw):
+        return [r for r in self.rows if name is None or r['name'] == name]
+
+    def set(self, id, **fields):
+        for r in self.rows:
+            if r['id'] == id:
+                r.update(fields)
+
+    def add(self, **fields):
+        fields['id'] = f'*{len(self.rows) + 1}'
+        self.rows.append(fields)
+        return fields['id']
+
+    def remove(self, id):
+        self.rows[:] = [r for r in self.rows if r['id'] != id]
+
+
+class FakeSvc:
+    """Enough of MikroTikService for pushes, password changes and a full sync."""
+    def __init__(self, rows=None, profiles=None):
+        self.users = FakeUsers(rows if rows is not None else [])
+        self.active = FakeUsers([])
+        self.profiles = profiles or []
+        self.pushed = []
+
+    def connect(self): return self
+    def close(self): pass
+
+    def resource(self, path):
+        return self.active if path.endswith('/active') else self.users
+
+    # used by push_one / sync
+    def ensure_hotspot_profile(self, *a, **k): return '*p'
+
+    def upsert_voucher(self, code, profile, limit_uptime=None, comment='', disabled=False, password=None):
+        self.pushed.append({'name': code, 'password': password or code, 'comment': comment})
+        return _RealSvc.upsert_voucher(self, code, profile, limit_uptime, comment, disabled, password)
+
+    def set_user_password(self, name, password):
+        return _RealSvc.set_user_password(self, name, password)
+
+    def reset_active_by_name(self, code): pass
+
+    # full sync
+    def hotspot_profiles(self): return self.profiles
+    def hotspot_users(self): return [dict(r) for r in self.users.rows]
+    def bindings(self): return []
+    def topology_data(self): return {}
+    def configuration_snapshot(self): raise RuntimeError('not in tests')
+
+
+@override_settings(AUTH_EMAIL_OTP=False)
 
 
 @override_settings(AUTH_EMAIL_OTP=False)
