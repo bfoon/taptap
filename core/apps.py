@@ -49,15 +49,10 @@ class CoreConfig(AppConfig):
     name = "core"
 
     def import_models(self):
-        """Load TapTap's split-out model modules during Django's model phase.
-
-        core/models.py remains the main historical model file. Cash collection
-        allocation is kept in core/models_cash.py so that feature can evolve
-        without making models.py even larger. Importing it here (rather than in
-        ready()) registers the models at the normal Django model-loading stage.
-        """
+        """Load TapTap's split-out model modules during Django's model phase."""
         super().import_models()
         importlib.import_module("core.models_cash")
+        importlib.import_module("core.models_free_access")
 
     def ready(self):
         from . import team  # noqa: F401
@@ -97,6 +92,11 @@ class CoreConfig(AppConfig):
 
         _install_optional(
             "traffic_speed",
+        )
+
+        # Business-managed HotSpot walled garden / free-access websites.
+        _install_optional(
+            "free_access",
         )
 
         # Navigation stays last.

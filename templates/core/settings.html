@@ -20,8 +20,23 @@
 .switch-card{display:flex;gap:.75rem;border:1px solid var(--border);border-radius:14px;padding:.85rem;background:#fff;cursor:pointer}.switch-card+.switch-card{margin-top:.65rem}.switch-card .form-check-input{margin-top:.18rem;flex:none}.switch-card b{display:block;font-size:.85rem}.switch-card small{display:block;color:var(--muted,#748396);font-size:.75rem;margin-top:.15rem}
 .link-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.7rem}.settings-link{display:flex;align-items:center;gap:.7rem;padding:.85rem;border:1px solid var(--border);border-radius:14px;text-decoration:none;color:var(--text,#102033);background:#fff}.settings-link:hover{border-color:#b9cbea;box-shadow:0 8px 18px rgba(24,65,120,.06);color:var(--primary,#1769e0)}.settings-link i{width:38px;height:38px;display:grid;place-items:center;border-radius:11px;background:#eef4ff;color:var(--primary,#1769e0);flex:none}.settings-link b{display:block;font-size:.83rem}.settings-link small{display:block;color:var(--muted,#748396);font-size:.7rem;margin-top:.06rem}
 .cleanup-flow{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;margin-top:.8rem}.cleanup-flow div{border:1px solid var(--border);border-radius:12px;padding:.7rem;background:#fbfcfe;font-size:.75rem}.cleanup-flow b{display:block;margin-bottom:.15rem}.mobile-jump{display:none;margin-bottom:1rem}
-@media(max-width:1100px){.settings-shell{grid-template-columns:1fr}.settings-nav{display:none}.mobile-jump{display:block}.link-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:720px){.settings-hero{padding:1rem}.summary-grid{grid-template-columns:1fr;width:100%}.settings-head,.settings-body{padding:.9rem}.link-grid,.cleanup-flow{grid-template-columns:1fr}.settings-actions .btn{width:100%}.settings-actions{align-items:stretch}.logo-box{width:86px;height:86px}}
+
+/* Free access / walled garden */
+.free-intro{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(240px,.65fr);gap:.8rem;margin-bottom:.9rem}
+.free-intro .explain{border:1px solid #bfe0cd;background:#f2fbf6;border-radius:14px;padding:.9rem}
+.free-intro .explain b{color:#087443}.free-intro .explain p{font-size:.78rem;color:#4c6658;margin:.25rem 0 0}
+.free-intro .tip{border:1px solid var(--border);background:#fbfcfe;border-radius:14px;padding:.9rem;font-size:.76rem;color:var(--muted,#748396)}
+.free-sites{display:grid;gap:.65rem}
+.free-row{display:grid;grid-template-columns:minmax(170px,1.25fr) minmax(140px,.85fr) 175px auto;gap:.55rem;align-items:end;border:1px solid var(--border);border-radius:14px;padding:.75rem;background:#fff}
+.free-row .compact-checks{display:flex;gap:.8rem;align-items:center;min-height:38px;flex-wrap:wrap}
+.free-row .compact-checks label{font-size:.72rem;margin:0;font-weight:700;white-space:nowrap}
+.free-row .remove-site{height:38px;align-self:end}
+.free-empty{border:1px dashed #cbd6e2;border-radius:14px;padding:1.15rem;text-align:center;color:var(--muted,#748396);font-size:.8rem;background:#fbfcfe}
+.free-examples{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.7rem}.free-examples span{font-size:.69rem;padding:.26rem .5rem;border-radius:999px;background:#f0f4f8;color:#52677c}
+.free-count{font-size:.72rem;color:var(--muted,#748396);font-weight:700}
+
+@media(max-width:1100px){.settings-shell{grid-template-columns:1fr}.settings-nav{display:none}.mobile-jump{display:block}.link-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.free-row{grid-template-columns:1fr 1fr}.free-row .remove-site{width:max-content}}
+@media(max-width:720px){.settings-hero{padding:1rem}.summary-grid{grid-template-columns:1fr;width:100%}.settings-head,.settings-body{padding:.9rem}.link-grid,.cleanup-flow{grid-template-columns:1fr}.settings-actions .btn{width:100%}.settings-actions{align-items:stretch}.logo-box{width:86px;height:86px}.free-intro,.free-row{grid-template-columns:1fr}.free-row .remove-site{width:100%}}
 </style>
 {% endblock %}
 
@@ -32,6 +47,7 @@
     <option value="business">Business profile</option>
     <option value="brand">Brand & appearance</option>
     <option value="hotspot">Hotspot & Wi-Fi</option>
+    <option value="free-access">Free-access websites</option>
     <option value="vouchers">Voucher behaviour</option>
     <option value="serials">Serial numbers</option>
     <option value="cleanup">Expired cleanup</option>
@@ -45,6 +61,7 @@
     <a href="#business"><i class="bi bi-building"></i>Business profile</a>
     <a href="#brand"><i class="bi bi-palette"></i>Brand & appearance</a>
     <a href="#hotspot"><i class="bi bi-wifi"></i>Hotspot & Wi-Fi</a>
+    <a href="#free-access"><i class="bi bi-globe2"></i>Free-access websites</a>
     <a href="#vouchers"><i class="bi bi-ticket-perforated"></i>Voucher behaviour</a>
     <a href="#serials"><i class="bi bi-upc-scan"></i>Serial numbers</a>
     <a href="#cleanup"><i class="bi bi-archive"></i>Expired cleanup</a>
@@ -53,7 +70,7 @@
 
   <div class="settings-main">
     <div class="settings-hero">
-      <div><h2>Business settings</h2><p>Control how {{ current_business.business_name }} appears to customers, how vouchers behave, and how your TapTap account is protected.</p></div>
+      <div><h2>Business settings</h2><p>Control how {{ current_business.business_name }} appears to customers, what can be reached before voucher login, how vouchers behave, and how your TapTap account is protected.</p></div>
       <div class="summary-grid">
         <div><small>Business</small><b>{{ current_business.business_name }}</b></div>
         <div><small>Subscription</small><b>{{ current_business.get_subscription_status_display }}</b></div>
@@ -104,6 +121,112 @@
             <div class="col-md-6"><div class="subcard"><h4><i class="bi bi-lightbulb"></i> Recommended setup</h4><p>Use one recognisable SSID and one friendly login address across the business, then print the same login address on voucher cards.</p></div></div>
           </div>
           <div class="settings-actions"><span class="hint"><i class="bi bi-router"></i> Saving changes TapTap; router-side actions still use their own apply controls.</span><button class="btn btn-primary"><i class="bi bi-check2"></i> Save hotspot settings</button></div>
+        </div>
+      </section>
+
+      <section class="settings-card" id="free-access">
+        <div class="settings-head">
+          <div class="ico"><i class="bi bi-globe2"></i></div>
+          <div class="flex-grow-1">
+            <div class="d-flex align-items-start justify-content-between gap-2 flex-wrap">
+              <div>
+                <h3>Free-access websites</h3>
+                <p>Let customers open selected websites before they enter a voucher. MikroTik calls this the HotSpot walled garden.</p>
+              </div>
+              <span class="badge text-bg-light border"><i class="bi bi-shield-lock"></i> Voucher still required for everything else</span>
+            </div>
+          </div>
+        </div>
+        <div class="settings-body">
+          <div class="free-intro">
+            <div class="explain">
+              <b><i class="bi bi-check-circle"></i> What this does</b>
+              <p>
+                A phone can reach only the websites you list here while it is unauthenticated.
+                This is useful for sponsor adverts, an external customer/payment portal, or public information.
+                It does <b>not</b> put the device fully online and it does not consume a voucher.
+              </p>
+            </div>
+            <div class="tip">
+              <b class="d-block text-dark mb-1"><i class="bi bi-info-circle"></i> Websites often use more than one domain</b>
+              If an advert or portal loads images, video, APIs or payment scripts from another CDN/domain, add those required domains too.
+              You can paste a full URL; TapTap stores only its hostname.
+            </div>
+          </div>
+
+          <input type="hidden" name="free_access_json" id="freeAccessJson" value="[]">
+
+          <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
+            <div>
+              <b class="small">Allowed before login</b>
+              <span class="free-count ms-1"><span id="freeSiteCount">{{ current_business.free_access_sites.count }}</span> / 12 websites</span>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="addFreeSite">
+              <i class="bi bi-plus-lg"></i> Add website
+            </button>
+          </div>
+
+          <div class="free-sites" id="freeSites">
+            {% for site in current_business.free_access_sites.all %}
+            <div class="free-row" data-site-row>
+              <div>
+                <label>Website / domain</label>
+                <input class="form-control fa-host" value="{{ site.host }}" placeholder="https://pay.example.com/login" autocomplete="off">
+                <div class="form-text">TapTap will use <b>{{ site.host }}</b>.</div>
+              </div>
+              <div>
+                <label>Friendly name</label>
+                <input class="form-control fa-label" value="{{ site.label }}" placeholder="e.g. Customer payment">
+              </div>
+              <div>
+                <label>Purpose</label>
+                <select class="form-select fa-purpose">
+                  <option value="advert" {% if site.purpose == 'advert' %}selected{% endif %}>Advertisement / sponsor</option>
+                  <option value="portal" {% if site.purpose == 'portal' %}selected{% endif %}>Customer / payment portal</option>
+                  <option value="public" {% if site.purpose == 'public' %}selected{% endif %}>Public information</option>
+                  <option value="other" {% if site.purpose == 'other' %}selected{% endif %}>Other</option>
+                </select>
+                <div class="compact-checks mt-2">
+                  <label><input class="form-check-input me-1 fa-sub" type="checkbox" {% if site.include_subdomains %}checked{% endif %}>Subdomains</label>
+                  <label><input class="form-check-input me-1 fa-enabled" type="checkbox" {% if site.enabled %}checked{% endif %}>Enabled</label>
+                </div>
+              </div>
+              <button type="button" class="btn btn-outline-danger remove-site" title="Remove this website"><i class="bi bi-trash"></i></button>
+            </div>
+            {% empty %}
+            <div class="free-empty" id="freeEmpty">
+              <i class="bi bi-globe fs-4 d-block mb-1"></i>
+              No free-access websites yet. Customers must authenticate before opening external websites.
+            </div>
+            {% endfor %}
+          </div>
+
+          <div class="free-examples">
+            <span><i class="bi bi-badge-ad"></i> Sponsor advert</span>
+            <span><i class="bi bi-credit-card"></i> Payment portal</span>
+            <span><i class="bi bi-person-check"></i> Customer account/login</span>
+            <span><i class="bi bi-megaphone"></i> Public notice</span>
+          </div>
+
+          <div class="alert alert-warning py-2 px-3 mt-3 mb-0 small">
+            <b>Security:</b> only add domains you intentionally want every connected person to reach without authentication.
+            Do not add broad wildcard domains or general search/social sites just to make one advert work.
+          </div>
+
+          <div class="settings-actions">
+            <span class="hint">
+              Saving stores the policy in TapTap. <b>Save & apply</b> also reconciles TapTap-managed walled-garden rules on every router.
+              Existing manual WinBox rules are left untouched.
+            </span>
+            <div class="d-flex gap-2 flex-wrap">
+              <button class="btn btn-outline-primary" name="free_access_form" value="1">
+                <i class="bi bi-check2"></i> Save only
+              </button>
+              <button class="btn btn-primary" name="free_access_apply" value="1">
+                <i class="bi bi-router"></i> Save & apply to routers
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -164,6 +287,96 @@
   const picker=document.getElementById('brandColor'), text=document.getElementById('brandColorText'), preview=document.getElementById('brandPreview'), button=document.getElementById('brandPreviewButton');
   function brand(){if(!picker)return;if(text)text.value=picker.value;if(preview)preview.style.setProperty('--preview-brand',picker.value);if(button)button.style.background=picker.value;}
   if(picker){picker.addEventListener('input',brand);brand();}
+
+  const list=document.getElementById('freeSites');
+  const add=document.getElementById('addFreeSite');
+  const count=document.getElementById('freeSiteCount');
+  const form=document.getElementById('mainSettingsForm');
+  const jsonField=document.getElementById('freeAccessJson');
+
+  function rows(){return Array.from(list ? list.querySelectorAll('[data-site-row]') : []);}
+
+  function updateEmpty(){
+    if(!list) return;
+    const empty=list.querySelector('#freeEmpty');
+    const n=rows().length;
+    if(count) count.textContent=n;
+    if(empty && n) empty.remove();
+    if(!n && !list.querySelector('#freeEmpty')){
+      const e=document.createElement('div');
+      e.className='free-empty';
+      e.id='freeEmpty';
+      e.innerHTML='<i class="bi bi-globe fs-4 d-block mb-1"></i>No free-access websites yet. Customers must authenticate before opening external websites.';
+      list.appendChild(e);
+    }
+    if(add) add.disabled=n>=12;
+  }
+
+  function newRow(){
+    const el=document.createElement('div');
+    el.className='free-row';
+    el.setAttribute('data-site-row','');
+    el.innerHTML=`
+      <div>
+        <label>Website / domain</label>
+        <input class="form-control fa-host" placeholder="https://pay.example.com/login" autocomplete="off">
+        <div class="form-text">Paste a domain or full URL.</div>
+      </div>
+      <div>
+        <label>Friendly name</label>
+        <input class="form-control fa-label" placeholder="e.g. Customer payment">
+      </div>
+      <div>
+        <label>Purpose</label>
+        <select class="form-select fa-purpose">
+          <option value="advert">Advertisement / sponsor</option>
+          <option value="portal">Customer / payment portal</option>
+          <option value="public">Public information</option>
+          <option value="other" selected>Other</option>
+        </select>
+        <div class="compact-checks mt-2">
+          <label><input class="form-check-input me-1 fa-sub" type="checkbox" checked>Subdomains</label>
+          <label><input class="form-check-input me-1 fa-enabled" type="checkbox" checked>Enabled</label>
+        </div>
+      </div>
+      <button type="button" class="btn btn-outline-danger remove-site" title="Remove this website"><i class="bi bi-trash"></i></button>`;
+    return el;
+  }
+
+  if(add) add.addEventListener('click',function(){
+    if(rows().length>=12) return;
+    const empty=list.querySelector('#freeEmpty');
+    if(empty) empty.remove();
+    const el=newRow();
+    list.appendChild(el);
+    el.querySelector('.fa-host').focus();
+    updateEmpty();
+  });
+
+  if(list) list.addEventListener('click',function(ev){
+    const btn=ev.target.closest('.remove-site');
+    if(!btn) return;
+    const row=btn.closest('[data-site-row]');
+    if(row) row.remove();
+    updateEmpty();
+  });
+
+  function serializeFreeSites(){
+    if(!jsonField) return;
+    const data=rows().map(function(row){
+      return {
+        host:(row.querySelector('.fa-host')?.value||'').trim(),
+        label:(row.querySelector('.fa-label')?.value||'').trim(),
+        purpose:row.querySelector('.fa-purpose')?.value||'other',
+        include_subdomains:!!row.querySelector('.fa-sub')?.checked,
+        enabled:!!row.querySelector('.fa-enabled')?.checked
+      };
+    }).filter(x=>x.host);
+    jsonField.value=JSON.stringify(data);
+  }
+
+  if(form) form.addEventListener('submit',serializeFreeSites);
+  updateEmpty();
 })();
 </script>
 {% endblock %}
