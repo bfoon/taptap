@@ -1,97 +1,169 @@
-{% extends 'core/base.html' %}{% block title %}Settings — TapTap{% endblock %}{% block heading %}Settings{% endblock %}{% block content %}
-<form method="post" class="row g-4">{% csrf_token %}
-<div class="col-xl-7"><div class="panel form-panel"><h3>Business profile</h3><p>Shown on your customer portal pages and printed vouchers.</p>
-  <div class="row g-3"><div class="col-md-6"><label>Business name</label><input class="form-control" name="business_name" value="{{ current_business.business_name }}" required></div>
-  <div class="col-md-6"><label>Owner</label><input class="form-control" name="owner_name" value="{{ current_business.owner_name }}" required></div>
-  <div class="col-md-6"><label>Phone</label><input class="form-control" name="phone" value="{{ current_business.phone }}"></div>
-  <div class="col-md-6"><label>Customer help line</label><input class="form-control" name="support_phone" value="{{ current_business.support_phone }}" placeholder="Shown to customers"></div>
-  <div class="col-md-6"><label>Login page address</label><input class="form-control" name="hotspot_dns_name" value="{{ current_business.hotspot_dns_name }}" placeholder="login.wifi">
-    <small class="text-secondary">Customers can type <b>{{ current_business.hotspot_dns_name|default:"login.wifi" }}</b> in the browser to open the login page (instead of the router's IP). Set on routers whose hotspot has no name yet, when you press <i>Put on all routers</i>. Print it on your voucher cards.</small></div></div>
-  <div class="row g-3 mt-0"><div class="col-md-6"><label>Business email <small class="text-secondary">(for notifications)</small></label><input class="form-control" type="email" name="business_email" value="{{ current_business.email }}" placeholder="{{ request.user.email }}"><small class="text-secondary">Changing it sends a code to the new address; it is saved once you enter the code.</small></div>
-  <div class="col-md-6 d-flex align-items-end"><a href="{% url 'notifications' %}" class="btn btn-outline-primary"><i class="bi bi-envelope"></i> Email notifications</a> <a href="{% url 'trusted_devices' %}" class="btn btn-outline-secondary"><i class="bi bi-shield-lock"></i> Trusted devices</a></div></div>
-  <h3 class="mt-4">Hotspot</h3><p>Used for the “Join our Wi-Fi” text and scan-to-login QR codes.</p>
-  <div class="row g-3"><div class="col-md-6"><label>Wi-Fi name (SSID)</label><input class="form-control" name="wifi_ssid" value="{{ current_business.wifi_ssid }}" placeholder="e.g. Kairaba-WiFi"></div>
-  <div class="col-md-6"><label>Hotspot login address</label><input class="form-control" name="hotspot_url" value="{{ current_business.hotspot_url }}" placeholder="e.g. wifi.local or 10.5.50.1"><small class="text-secondary">The router’s hotspot DNS name. QR codes open <code>http://this-address/login</code> with the code filled in.</small></div>
-  <div class="col-md-3"><label>Currency symbol</label><input class="form-control" name="currency" value="{{ current_business.currency }}" maxlength="8"></div></div>
-  <div class="settings-grid mt-4"><div><small>Email</small><b>{{ request.user.email }}</b></div><div><small>Subscription</small><b>{{ current_business.get_subscription_status_display }}</b></div><div><small>Created</small><b>{{ current_business.created_at|date:'d M Y' }}</b></div></div>
-</div></div>
-<div class="col-xl-5"><div class="panel form-panel"><h3>Brand</h3><p>Your logo and colour are offered in both studios.</p>
-  <label>Logo</label>
-  <div class="d-flex gap-3 align-items-center"><div id="logoPrev" style="width:84px;height:84px;border-radius:18px;border:1px solid var(--border);display:grid;place-items:center;overflow:hidden;background:#f4f7fb;flex:none">{% if current_business.logo_data %}<img src="{{ current_business.logo_data }}" alt="Current logo" style="width:100%;height:100%;object-fit:contain">{% else %}<i class="bi bi-image text-secondary fs-3"></i>{% endif %}</div>
-    <div><input class="form-control form-control-sm" type="file" accept="image/*" id="logoFile" aria-label="Upload logo"><small class="text-secondary d-block mt-1">Square works best. Resized to 256 px automatically.</small>
-      {% if current_business.logo_data %}<label class="form-check mt-1 small"><input class="form-check-input" type="checkbox" name="remove_logo"> Remove logo</label>{% endif %}</div></div>
-  <input type="hidden" name="logo_data" id="logoData">
-  <label class="mt-3">Brand colour</label><div class="d-flex gap-2 align-items-center"><input type="color" class="form-control form-control-color" name="brand_color" value="{{ current_business.brand_color }}" aria-label="Brand colour"><small class="text-secondary">Used as a one-click palette in the Portal Studio.</small></div>
-  <button class="btn btn-primary mt-4 w-100">Save settings</button>
-</div></div>
-<div class="col-12"><div class="panel form-panel"><h3>Voucher devices (sticky vouchers)</h3><p class="mb-1">{% include "core/partials/help_link.html" with slug="sticky-vouchers" label="How sticky vouchers work" %}</p>
-  <p>Keep customers connected and stop vouchers from being passed around.</p>
-  <input type="hidden" name="devices_form" value="1">
-  <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" role="switch" id="devLock" name="device_lock" {% if current_business.device_lock %}checked{% endif %}>
-    <label class="form-check-label" for="devLock"><b>Lock each voucher to its devices</b><small class="d-block text-secondary">The first device that uses a voucher keeps it. A voucher for 3 devices locks the first 3 different devices, then refuses all others. Recognised by device ID and MAC address (a phone that changes its MAC keeps its place). Only the owner, an admin or voucher support can free the devices, with <b>Reset devices</b> on the voucher.</small></label></div>
-  <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" role="switch" id="stSess" name="sticky_sessions" {% if current_business.sticky_sessions %}checked{% endif %}>
-    <label class="form-check-label" for="stSess"><b>Sticky sessions</b><small class="d-block text-secondary">A device that comes back is logged in again by itself, straight away, with no portal page (MAC cookie, 30 days). A quiet device is never logged out for being idle.</small></label></div>
-  <div class="row g-2 align-items-end"><div class="col-md-5"><label class="small">If a device drops off the Wi-Fi, keep its session for</label>
-    <select class="form-select" name="sticky_keepalive">{% for k,l in keepalive_choices %}<option value="{{ k }}" {% if current_business.sticky_keepalive == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
-    <div class="col-md-7"><small class="text-secondary">It logs back in by itself either way; a shorter time frees the router's list sooner.</small></div></div>
-  <div class="d-flex gap-2 mt-3"><button class="btn btn-primary">Save</button><button class="btn btn-outline-secondary" name="sticky_apply" value="1" title="Send these settings to every router now">Save and apply to routers now</button></div>
-</div></div>
-<div class="col-12"><div class="panel form-panel"><h3>Voucher serial numbers</h3><p>How the serial number printed on each voucher looks and counts. You can also change it for one batch on the Generate page.</p>
-  {% include "core/partials/serial_format.html" with sn_title="Default pattern" %}
-  <div class="row g-3 mt-1"><div class="col-md-4"><label class="small">Next running number <span class="text-secondary fw-normal">(optional)</span></label>
-    <input class="form-control" type="number" min="1" name="serial_next" placeholder="Now: {{ sn.next }}" aria-label="Next running number">
-    <small class="text-secondary">Leave empty to carry on. A lower number may repeat serials already printed.</small></div></div>
-  <button class="btn btn-primary mt-3">Save</button>
-</div></div></form>
+{% extends 'core/base.html' %}
+{% block title %}Settings — TapTap{% endblock %}
+{% block heading %}Settings{% endblock %}
 
-<form method="post" action="{% url 'voucher_archive_settings' %}" class="row g-4 mt-1">{% csrf_token %}
-<div class="col-12"><div class="panel form-panel">
-  <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
-    <div>
-      <h3>Expired voucher cleanup</h3>
-      <p class="mb-1">Keep MikroTik clean without deleting your TapTap history.</p>
-      <small class="text-secondary">When a voucher expires it is disabled immediately. After the number of days below, TapTap removes only the HotSpot user from MikroTik and changes the TapTap record to <b>Archived</b>.</small>
-    </div>
-    <span class="badge {% if current_business.voucher_archive_policy.enabled %}text-bg-success{% else %}text-bg-secondary{% endif %}">
-      {% if current_business.voucher_archive_policy.enabled %}Active{% else %}Off{% endif %}
-    </span>
-  </div>
+{% block extra_head %}
+<style>
+.settings-shell{display:grid;grid-template-columns:250px minmax(0,1fr);gap:1.2rem;align-items:start}
+.settings-nav{position:sticky;top:88px;background:#fff;border:1px solid var(--border);border-radius:18px;padding:.8rem;box-shadow:0 10px 30px rgba(20,38,63,.05)}
+.settings-nav h3{font-size:.95rem;font-weight:850;margin:.35rem .55rem .15rem}.settings-nav p{font-size:.73rem;color:var(--muted,#748396);margin:0 .55rem .7rem}
+.settings-nav a{display:flex;align-items:center;gap:.65rem;padding:.68rem .7rem;border-radius:11px;text-decoration:none;color:var(--text,#102033);font-size:.86rem;font-weight:750;margin:.1rem 0}
+.settings-nav a:hover{background:#f4f7fb;color:var(--primary,#1769e0)}.settings-nav a i{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:#eef4ff;color:var(--primary,#1769e0);flex:none}
+.settings-main{min-width:0}.settings-hero{display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap;background:radial-gradient(circle at 92% 8%,rgba(23,105,224,.12),transparent 32%),linear-gradient(135deg,#fff,#f8fbff);border:1px solid var(--border);border-radius:20px;padding:1.2rem 1.3rem;margin-bottom:1rem}
+.settings-hero h2{font-size:1.28rem;font-weight:850;margin:0 0 .25rem}.settings-hero p{margin:0;color:var(--muted,#748396);max-width:720px}.summary-grid{display:grid;grid-template-columns:repeat(3,minmax(100px,1fr));gap:.5rem;width:min(100%,440px)}
+.summary-grid div{border:1px solid var(--border);background:rgba(255,255,255,.88);border-radius:12px;padding:.6rem .7rem}.summary-grid small{display:block;font-size:.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted,#748396)}.summary-grid b{display:block;font-size:.83rem;margin-top:.1rem;overflow-wrap:anywhere}
+.settings-card{scroll-margin-top:92px;background:#fff;border:1px solid var(--border);border-radius:18px;margin-bottom:1rem;overflow:hidden;box-shadow:0 7px 24px rgba(20,38,63,.035)}
+.settings-head{display:flex;gap:.8rem;align-items:flex-start;padding:1rem 1.1rem;border-bottom:1px solid var(--border);background:#fbfcfe}.settings-head .ico{width:40px;height:40px;display:grid;place-items:center;border-radius:12px;background:#edf4ff;color:var(--primary,#1769e0);font-size:1.05rem;flex:none}.settings-head h3{font-size:1rem;font-weight:850;margin:0}.settings-head p{font-size:.8rem;color:var(--muted,#748396);margin:.18rem 0 0}.settings-body{padding:1.05rem 1.1rem}.settings-body label{font-weight:750;font-size:.82rem;margin-bottom:.35rem}.settings-body .form-text,.settings-body small.text-secondary{font-size:.75rem;line-height:1.45}
+.settings-actions{display:flex;align-items:center;justify-content:space-between;gap:.75rem;flex-wrap:wrap;padding-top:1rem;margin-top:1rem;border-top:1px solid var(--border)}.settings-actions .hint{font-size:.75rem;color:var(--muted,#748396)}
+.subcard{border:1px solid var(--border);border-radius:14px;padding:.85rem;background:#fbfcfe;height:100%}.subcard h4{font-size:.86rem;font-weight:850;margin:0 0 .2rem}.subcard p{font-size:.75rem;color:var(--muted,#748396);margin:0}
+.logo-box{width:100px;height:100px;border-radius:20px;border:1px dashed #cbd6e2;display:grid;place-items:center;overflow:hidden;background:#f6f8fb;flex:none}.logo-box img{width:100%;height:100%;object-fit:contain}.brand-preview{border:1px solid var(--border);border-radius:14px;overflow:hidden;background:#fff}.brand-preview .bar{height:10px;background:var(--preview-brand,#1769e0)}.brand-preview .inside{padding:.85rem}
+.switch-card{display:flex;gap:.75rem;border:1px solid var(--border);border-radius:14px;padding:.85rem;background:#fff;cursor:pointer}.switch-card+.switch-card{margin-top:.65rem}.switch-card .form-check-input{margin-top:.18rem;flex:none}.switch-card b{display:block;font-size:.85rem}.switch-card small{display:block;color:var(--muted,#748396);font-size:.75rem;margin-top:.15rem}
+.link-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.7rem}.settings-link{display:flex;align-items:center;gap:.7rem;padding:.85rem;border:1px solid var(--border);border-radius:14px;text-decoration:none;color:var(--text,#102033);background:#fff}.settings-link:hover{border-color:#b9cbea;box-shadow:0 8px 18px rgba(24,65,120,.06);color:var(--primary,#1769e0)}.settings-link i{width:38px;height:38px;display:grid;place-items:center;border-radius:11px;background:#eef4ff;color:var(--primary,#1769e0);flex:none}.settings-link b{display:block;font-size:.83rem}.settings-link small{display:block;color:var(--muted,#748396);font-size:.7rem;margin-top:.06rem}
+.cleanup-flow{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;margin-top:.8rem}.cleanup-flow div{border:1px solid var(--border);border-radius:12px;padding:.7rem;background:#fbfcfe;font-size:.75rem}.cleanup-flow b{display:block;margin-bottom:.15rem}.mobile-jump{display:none;margin-bottom:1rem}
+@media(max-width:1100px){.settings-shell{grid-template-columns:1fr}.settings-nav{display:none}.mobile-jump{display:block}.link-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:720px){.settings-hero{padding:1rem}.summary-grid{grid-template-columns:1fr;width:100%}.settings-head,.settings-body{padding:.9rem}.link-grid,.cleanup-flow{grid-template-columns:1fr}.settings-actions .btn{width:100%}.settings-actions{align-items:stretch}.logo-box{width:86px;height:86px}}
+</style>
+{% endblock %}
 
-  <div class="form-check form-switch mt-3">
-    <input class="form-check-input" type="checkbox" role="switch" id="archiveEnabled" name="enabled" {% if current_business.voucher_archive_policy.enabled %}checked{% endif %}>
-    <label class="form-check-label" for="archiveEnabled">
-      <b>Automatically archive expired vouchers</b>
-      <small class="d-block text-secondary">Default is ON. Turning this off does not stop normal expiry; vouchers still expire and disconnect, but TapTap will not remove them automatically from MikroTik.</small>
-    </label>
-  </div>
+{% block content %}
+<div class="mobile-jump">
+  <select class="form-select" onchange="if(this.value) location.hash=this.value">
+    <option value="">Jump to a settings section…</option>
+    <option value="business">Business profile</option>
+    <option value="brand">Brand & appearance</option>
+    <option value="hotspot">Hotspot & Wi-Fi</option>
+    <option value="vouchers">Voucher behaviour</option>
+    <option value="serials">Serial numbers</option>
+    <option value="cleanup">Expired cleanup</option>
+    <option value="security">Team & security</option>
+  </select>
+</div>
 
-  <div class="row g-3 align-items-end mt-1">
-    <div class="col-sm-5 col-md-3">
-      <label for="archiveDays">Remove from MikroTik after</label>
-      <div class="input-group">
-        <input id="archiveDays" class="form-control" type="number" min="1" max="3650" name="retention_days" value="{{ current_business.voucher_archive_policy.retention_days|default:7 }}" required>
-        <span class="input-group-text">days</span>
+<div class="settings-shell">
+  <aside class="settings-nav">
+    <h3>Settings</h3><p>Organised by what you want to manage.</p>
+    <a href="#business"><i class="bi bi-building"></i>Business profile</a>
+    <a href="#brand"><i class="bi bi-palette"></i>Brand & appearance</a>
+    <a href="#hotspot"><i class="bi bi-wifi"></i>Hotspot & Wi-Fi</a>
+    <a href="#vouchers"><i class="bi bi-ticket-perforated"></i>Voucher behaviour</a>
+    <a href="#serials"><i class="bi bi-upc-scan"></i>Serial numbers</a>
+    <a href="#cleanup"><i class="bi bi-archive"></i>Expired cleanup</a>
+    <a href="#security"><i class="bi bi-shield-check"></i>Team & security</a>
+  </aside>
+
+  <div class="settings-main">
+    <div class="settings-hero">
+      <div><h2>Business settings</h2><p>Control how {{ current_business.business_name }} appears to customers, how vouchers behave, and how your TapTap account is protected.</p></div>
+      <div class="summary-grid">
+        <div><small>Business</small><b>{{ current_business.business_name }}</b></div>
+        <div><small>Subscription</small><b>{{ current_business.get_subscription_status_display }}</b></div>
+        <div><small>Currency</small><b>{{ current_business.currency|default:"D" }}</b></div>
       </div>
     </div>
-    <div class="col-sm-7 col-md-6">
-      <small class="text-secondary">Default: 7 days. You may use 1, 7, 14, 30 or any value up to 3650 days.</small>
-    </div>
-    <div class="col-md-3">
-      <button class="btn btn-primary w-100"><i class="bi bi-archive"></i> Save cleanup policy</button>
-    </div>
-  </div>
 
-  <div class="alert alert-light border mt-3 mb-0 small">
-    <b>Example:</b> voucher expires today → status becomes <b>Expired</b> and MikroTik disables it immediately → after {{ current_business.voucher_archive_policy.retention_days|default:7 }} days TapTap removes it from MikroTik → status becomes <b>Archived</b> in TapTap. Sales, usage and voucher history stay in TapTap.
-  </div>
-</div></div>
-</form>
+    <form method="post" id="mainSettingsForm">{% csrf_token %}
+      <section class="settings-card" id="business">
+        <div class="settings-head"><div class="ico"><i class="bi bi-building"></i></div><div><h3>Business profile</h3><p>Core details used across customer portals, receipts, vouchers and notifications.</p></div></div>
+        <div class="settings-body">
+          <div class="row g-3">
+            <div class="col-md-6"><label for="businessName">Business name</label><input id="businessName" class="form-control" name="business_name" value="{{ current_business.business_name }}" required><div class="form-text">The public name customers see.</div></div>
+            <div class="col-md-6"><label for="ownerName">Owner / responsible person</label><input id="ownerName" class="form-control" name="owner_name" value="{{ current_business.owner_name }}" required></div>
+            <div class="col-md-6"><label for="businessPhone">Business phone</label><input id="businessPhone" class="form-control" name="phone" value="{{ current_business.phone }}" inputmode="tel"></div>
+            <div class="col-md-6"><label for="supportPhone">Customer help line</label><input id="supportPhone" class="form-control" name="support_phone" value="{{ current_business.support_phone }}" placeholder="Shown to customers" inputmode="tel"><div class="form-text">Shown when a customer needs help with Wi-Fi or a voucher.</div></div>
+            <div class="col-md-6"><label for="businessEmail">Business email</label><input id="businessEmail" class="form-control" type="email" name="business_email" value="{{ current_business.email }}" placeholder="{{ request.user.email }}"><div class="form-text">Changing this sends a verification code to the new address before it is saved.</div></div>
+            <div class="col-md-3"><label for="currency">Currency symbol</label><input id="currency" class="form-control" name="currency" value="{{ current_business.currency }}" maxlength="8"></div>
+            <div class="col-md-3"><label>Created</label><div class="form-control bg-light">{{ current_business.created_at|date:'d M Y' }}</div></div>
+          </div>
+          <div class="settings-actions"><span class="hint"><i class="bi bi-info-circle"></i> These details update portal pages and voucher designs immediately.</span><button class="btn btn-primary"><i class="bi bi-check2"></i> Save business profile</button></div>
+        </div>
+      </section>
 
-<div class="row g-4 mt-1"><div class="col-xl-7"><div class="panel"><div class="panel-head"><div><h3>Team &amp; security</h3><p>Give staff their own logins with limited access, and keep your own password safe.</p></div></div>
-  <div class="d-flex gap-2 flex-wrap">{% if 'team.manage' in tt_perms %}<a class="btn btn-outline-primary" href="{% url 'team' %}"><i class="bi bi-person-badge"></i> Manage team accounts</a>{% endif %}
-  <a class="btn btn-outline-secondary" href="{% url 'account_password' %}"><i class="bi bi-key"></i> Change password</a>
-  <a class="btn btn-outline-secondary" href="{% url 'trusted_devices' %}"><i class="bi bi-laptop"></i> Trusted devices</a></div></div></div></div>
+      <section class="settings-card" id="brand">
+        <div class="settings-head"><div class="ico"><i class="bi bi-palette"></i></div><div><h3>Brand & appearance</h3><p>Keep your portal and printed material visually consistent.</p></div></div>
+        <div class="settings-body">
+          <div class="row g-4">
+            <div class="col-lg-7">
+              <label>Business logo</label>
+              <div class="d-flex gap-3 align-items-center mt-1"><div id="logoPrev" class="logo-box">{% if current_business.logo_data %}<img src="{{ current_business.logo_data }}" alt="Current logo">{% else %}<i class="bi bi-image text-secondary fs-2"></i>{% endif %}</div><div class="flex-grow-1"><input class="form-control" type="file" accept="image/*" id="logoFile" aria-label="Upload logo"><small class="text-secondary d-block mt-2">Square works best. TapTap resizes it to a maximum of 256 px before saving.</small>{% if current_business.logo_data %}<label class="form-check mt-2 small"><input class="form-check-input" type="checkbox" name="remove_logo"> Remove current logo</label>{% endif %}</div></div>
+              <input type="hidden" name="logo_data" id="logoData">
+              <div class="mt-4"><label for="brandColor">Brand colour</label><div class="d-flex gap-2 align-items-center"><input id="brandColor" type="color" class="form-control form-control-color" name="brand_color" value="{{ current_business.brand_color }}" aria-label="Brand colour"><input id="brandColorText" class="form-control" style="max-width:130px" value="{{ current_business.brand_color }}" readonly></div><div class="form-text">Used as a one-click palette in Portal Studio and Voucher Studio.</div></div>
+            </div>
+            <div class="col-lg-5"><label>Preview</label><div class="brand-preview" id="brandPreview"><div class="bar"></div><div class="inside"><b>{{ current_business.business_name }}</b><small class="d-block text-secondary">Your TapTap customer experience</small><button type="button" class="btn btn-sm text-white mt-3" id="brandPreviewButton" style="background:{{ current_business.brand_color }}">Connect to Wi-Fi</button></div></div></div>
+          </div>
+          <div class="settings-actions"><span class="hint">Brand settings are shared by both studios.</span><button class="btn btn-primary"><i class="bi bi-check2"></i> Save brand</button></div>
+        </div>
+      </section>
+
+      <section class="settings-card" id="hotspot">
+        <div class="settings-head"><div class="ico"><i class="bi bi-wifi"></i></div><div><h3>Hotspot & Wi-Fi</h3><p>Customer-facing Wi-Fi and login addresses used by vouchers and portal QR codes.</p></div></div>
+        <div class="settings-body">
+          <div class="row g-3">
+            <div class="col-md-6"><label for="ssid">Wi-Fi name (SSID)</label><input id="ssid" class="form-control" name="wifi_ssid" value="{{ current_business.wifi_ssid }}" placeholder="e.g. Kairaba-WiFi"><div class="form-text">Used in “Join our Wi-Fi” instructions.</div></div>
+            <div class="col-md-6"><label for="hotspotUrl">Hotspot login address</label><input id="hotspotUrl" class="form-control" name="hotspot_url" value="{{ current_business.hotspot_url }}" placeholder="e.g. wifi.local or 10.5.50.1"><div class="form-text">QR codes open <code>http://this-address/login</code> with the code filled in.</div></div>
+            <div class="col-md-6"><label for="dnsName">Friendly login page address</label><input id="dnsName" class="form-control" name="hotspot_dns_name" value="{{ current_business.hotspot_dns_name }}" placeholder="login.wifi"><div class="form-text">Customers can type <b>{{ current_business.hotspot_dns_name|default:"login.wifi" }}</b> instead of the router IP.</div></div>
+            <div class="col-md-6"><div class="subcard"><h4><i class="bi bi-lightbulb"></i> Recommended setup</h4><p>Use one recognisable SSID and one friendly login address across the business, then print the same login address on voucher cards.</p></div></div>
+          </div>
+          <div class="settings-actions"><span class="hint"><i class="bi bi-router"></i> Saving changes TapTap; router-side actions still use their own apply controls.</span><button class="btn btn-primary"><i class="bi bi-check2"></i> Save hotspot settings</button></div>
+        </div>
+      </section>
+
+      <section class="settings-card" id="vouchers">
+        <div class="settings-head"><div class="ico"><i class="bi bi-ticket-perforated"></i></div><div><h3>Voucher behaviour</h3><p>Control device locking and automatic customer reconnection.</p></div></div>
+        <div class="settings-body">
+          <p class="mb-3">{% include "core/partials/help_link.html" with slug="sticky-vouchers" label="How sticky vouchers work" %}</p>
+          <input type="hidden" name="devices_form" value="1">
+          <label class="switch-card" for="devLock"><input class="form-check-input" type="checkbox" role="switch" id="devLock" name="device_lock" {% if current_business.device_lock %}checked{% endif %}><span><b>Lock each voucher to its devices</b><small>The first devices that use a voucher keep its device slots. New devices are refused when the voucher reaches its device limit until staff reset the devices.</small></span></label>
+          <label class="switch-card" for="stSess"><input class="form-check-input" type="checkbox" role="switch" id="stSess" name="sticky_sessions" {% if current_business.sticky_sessions %}checked{% endif %}><span><b>Sticky sessions</b><small>Returning devices can reconnect automatically with the same valid voucher without seeing the portal again.</small></span></label>
+          <div class="row g-3 align-items-end mt-2"><div class="col-md-5"><label for="keepalive">Keep a dropped Wi-Fi session for</label><select id="keepalive" class="form-select" name="sticky_keepalive">{% for k,l in keepalive_choices %}<option value="{{ k }}" {% if current_business.sticky_keepalive == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div><div class="col-md-7"><div class="form-text mb-2">A shorter period frees the MikroTik active-session list sooner. Sticky login can still restore the customer later.</div></div></div>
+          <div class="settings-actions"><span class="hint">Save updates TapTap only. Apply pushes sticky-session configuration to your routers now.</span><div class="d-flex gap-2 flex-wrap"><button class="btn btn-outline-primary"><i class="bi bi-check2"></i> Save voucher behaviour</button><button class="btn btn-primary" name="sticky_apply" value="1"><i class="bi bi-router"></i> Save & apply to routers</button></div></div>
+        </div>
+      </section>
+
+      <section class="settings-card" id="serials">
+        <div class="settings-head"><div class="ico"><i class="bi bi-upc-scan"></i></div><div><h3>Voucher serial numbers</h3><p>Choose the default printed serial-number pattern and counter behaviour.</p></div></div>
+        <div class="settings-body">
+          {% include "core/partials/serial_format.html" with sn_title="Default pattern" %}
+          <div class="row g-3 mt-2"><div class="col-md-5"><label for="serialNext">Next running number <span class="text-secondary fw-normal">(optional)</span></label><input id="serialNext" class="form-control" type="number" min="1" name="serial_next" placeholder="Current next: {{ sn.next }}"><div class="form-text">Leave empty to continue normally. A lower number may repeat a serial already printed.</div></div><div class="col-md-7"><div class="subcard"><h4>Per-batch overrides remain available</h4><p>You can still choose a different serial format for one batch on the Generate Vouchers page.</p></div></div></div>
+          <div class="settings-actions"><span class="hint">This becomes the default for future voucher batches.</span><button class="btn btn-primary"><i class="bi bi-check2"></i> Save serial settings</button></div>
+        </div>
+      </section>
+    </form>
+
+    <section class="settings-card" id="cleanup">
+      <div class="settings-head"><div class="ico"><i class="bi bi-archive"></i></div><div class="flex-grow-1 d-flex justify-content-between gap-3 align-items-start"><div><h3>Expired voucher cleanup</h3><p>Keep MikroTik clean without deleting historical voucher, usage and sales data from TapTap.</p></div><span class="badge {% if current_business.voucher_archive_policy.enabled %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if current_business.voucher_archive_policy.enabled %}Active{% else %}Off{% endif %}</span></div></div>
+      <div class="settings-body">
+        <form method="post" action="{% url 'voucher_archive_settings' %}">{% csrf_token %}
+          <label class="switch-card" for="archiveEnabled"><input class="form-check-input" type="checkbox" role="switch" id="archiveEnabled" name="enabled" {% if current_business.voucher_archive_policy.enabled %}checked{% endif %}><span><b>Automatically archive expired vouchers</b><small>Turning this off does not stop normal expiry. It only stops the later automatic cleanup from MikroTik.</small></span></label>
+          <div class="row g-3 align-items-end mt-2"><div class="col-sm-6 col-md-4"><label for="archiveDays">Remove from MikroTik after</label><div class="input-group"><input id="archiveDays" class="form-control" type="number" min="1" max="3650" name="retention_days" value="{{ current_business.voucher_archive_policy.retention_days|default:7 }}" required><span class="input-group-text">days</span></div><div class="form-text">Default 7 days; maximum 3650.</div></div></div>
+          <div class="cleanup-flow"><div><b>1. Voucher expires</b>TapTap marks it expired and stops normal use.</div><div><b>2. Retention passes</b>TapTap removes only the HotSpot user from MikroTik.</div><div><b>3. History remains</b>Sales, usage and voucher history stay in TapTap.</div></div>
+          <div class="settings-actions"><span class="hint">Current cleanup delay: {{ current_business.voucher_archive_policy.retention_days|default:7 }} day{{ current_business.voucher_archive_policy.retention_days|default:7|pluralize }}.</span><button class="btn btn-primary"><i class="bi bi-archive"></i> Save cleanup policy</button></div>
+        </form>
+      </div>
+    </section>
+
+    <section class="settings-card" id="security">
+      <div class="settings-head"><div class="ico"><i class="bi bi-shield-check"></i></div><div><h3>Team, notifications & security</h3><p>Account access and communication settings live in focused pages so this screen stays clean.</p></div></div>
+      <div class="settings-body"><div class="link-grid">
+        <a class="settings-link" href="{% url 'notifications' %}"><i class="bi bi-envelope"></i><span><b>Email notifications</b><small>Recipients, alerts, quiet hours and digests.</small></span></a>
+        {% if 'team.manage' in tt_perms %}<a class="settings-link" href="{% url 'team' %}"><i class="bi bi-people"></i><span><b>Team accounts</b><small>Add staff and control roles and access.</small></span></a>{% endif %}
+        <a class="settings-link" href="{% url 'account_password' %}"><i class="bi bi-key"></i><span><b>Password</b><small>Change your TapTap account password.</small></span></a>
+        <a class="settings-link" href="{% url 'trusted_devices' %}"><i class="bi bi-laptop"></i><span><b>Trusted devices</b><small>Review trusted computers and phones.</small></span></a>
+        <a class="settings-link" href="{% url 'subscription' %}"><i class="bi bi-credit-card"></i><span><b>Subscription</b><small>View plan and subscription status.</small></span></a>
+        <a class="settings-link" href="{% url 'support' %}"><i class="bi bi-question-circle"></i><span><b>Help & support</b><small>Guides and TapTap assistance.</small></span></a>
+      </div></div>
+    </section>
+  </div>
+</div>
 {% endblock %}
-{% block scripts %}<script>
-document.getElementById('logoFile').addEventListener('change',function(){const f=this.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{const img=new Image();img.onload=()=>{const s=Math.min(1,256/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);c.getContext('2d').drawImage(img,0,0,c.width,c.height);const d=c.toDataURL('image/png');document.getElementById('logoData').value=d;document.getElementById('logoPrev').innerHTML='<img src="'+d+'" alt="New logo" style="width:100%;height:100%;object-fit:contain">';};img.src=r.result;};r.readAsDataURL(f);});
-</script>{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const file=document.getElementById('logoFile'), data=document.getElementById('logoData'), prev=document.getElementById('logoPrev');
+  if(file) file.addEventListener('change',function(){const f=this.files&&this.files[0];if(!f)return;const r=new FileReader();r.onload=function(){const img=new Image();img.onload=function(){const s=Math.min(1,256/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);c.getContext('2d').drawImage(img,0,0,c.width,c.height);const d=c.toDataURL('image/png');data.value=d;prev.innerHTML='<img src="'+d+'" alt="New logo">';};img.src=r.result;};r.readAsDataURL(f);});
+  const picker=document.getElementById('brandColor'), text=document.getElementById('brandColorText'), preview=document.getElementById('brandPreview'), button=document.getElementById('brandPreviewButton');
+  function brand(){if(!picker)return;if(text)text.value=picker.value;if(preview)preview.style.setProperty('--preview-brand',picker.value);if(button)button.style.background=picker.value;}
+  if(picker){picker.addEventListener('input',brand);brand();}
+})();
+</script>
+{% endblock %}
