@@ -2,14 +2,18 @@
 {% load static %}
 {% block title %}{{ router.name }} Control Center — TapTap{% endblock %}
 {% block heading %}MikroTik Control Center{% endblock %}
-{% block extra_head %}<link href="{% static 'css/netviz.css' %}?v=5" rel="stylesheet">{% endblock %}
+{% block extra_head %}
+<link href="{% static 'css/netviz.css' %}?v=5" rel="stylesheet">
+<link href="{% static 'css/control-designer.css' %}?v=1" rel="stylesheet">
+{% endblock %}
 {% block content %}
 <form class="d-none" id="csrf-holder">{% csrf_token %}</form>
+
 <div class="page-actions control-page-head">
   <div>
-    <span class="control-kicker"><i class="bi bi-router"></i> {{ router.name }} • {% if router.connection_mode == 'agent' %}via TapTap Link{% else %}{{ router.ip_address }}:{{ router.api_port }}{% endif %}</span>
+    <span class="control-kicker"><i class="bi bi-router"></i> {{ router.name }} • {% if router.connection_mode == 'agent' %}via TapTap Link / Tunnel{% else %}{{ router.ip_address }}:{{ router.api_port }}{% endif %}</span>
     <h2 class="section-title mt-2">Visual + Advanced RouterOS Management</h2>
-    <p>Design the network visually, inspect RouterOS configuration, and apply controlled advanced changes.</p>
+    <p>See the MikroTik as a device, drag controlled configurations onto ports or the router, preview every change, and keep a rollback-aware history.</p>
   </div>
   <div class="d-flex gap-2 flex-wrap">
     <form method="post" action="{% url 'router_sync' router.id %}">{% csrf_token %}<button class="btn btn-primary"><i class="bi bi-arrow-repeat"></i> Full Sync</button></form>
@@ -25,14 +29,115 @@
   <div><span class="metric-icon"><i class="bi bi-clock-history"></i></span><b>{% if snapshot %}{{ snapshot.captured_at|date:'H:i:s' }}{% else %}—{% endif %}</b><small>Config snapshot</small></div>
 </div>
 
+<section class="panel mb-4 visual-configurator">
+  <div class="panel-head">
+    <div>
+      <h3><i class="bi bi-grid-3x3-gap"></i> Drag & Drop Configuration Studio</h3>
+      <p>Drag a configuration tile onto the whole router or a physical port. TapTap shows the generated RouterOS plan before anything changes.</p>
+    </div>
+    <div class="designer-live-pill"><span></span> Visual configuration</div>
+  </div>
+
+  <div class="designer-layout">
+    <aside class="config-palette">
+      <div class="palette-head">
+        <div><b>Configuration blocks</b><small>Drag one onto the router</small></div>
+        <input id="recipeSearch" class="form-control form-control-sm" placeholder="Find configuration…">
+      </div>
+      <div id="recipePalette" class="recipe-palette">
+        <div class="designer-loading"><span></span><span></span><span></span></div>
+      </div>
+    </aside>
+
+    <div class="router-stage">
+      <div class="stage-grid"></div>
+      <div class="mikrotik-shell router-dropzone" data-scope="router" data-target="">
+        <div class="router-topline">
+          <div>
+            <span class="router-brand">MikroTik</span>
+            <b>{{ router.name }}</b>
+          </div>
+          <div class="router-leds">
+            <span class="{% if router.status == 'Online' %}on{% endif %}"></span>
+            <span class="pulse {% if router.status == 'Online' %}on{% endif %}"></span>
+            <small>{{ router.status }}</small>
+          </div>
+        </div>
+
+        <div class="router-board">
+          <div class="router-cpu">
+            <i class="bi bi-cpu"></i>
+            <b>RouterOS</b>
+            <small>Drop router-wide configuration here</small>
+            <div id="routerConfigBadges" class="active-config-badges"></div>
+          </div>
+          <div class="port-bank">
+            {% for iface in interfaces %}
+            <div class="designer-port {% if iface.running and not iface.disabled %}link-up{% endif %} {% if iface.disabled %}port-disabled{% endif %}"
+                 data-scope="port" data-target="{{ iface.name }}" title="{{ iface.name }}">
+              <div class="port-jack">
+                <span></span><span></span><span></span><span></span>
+              </div>
+              <div class="port-caption">
+                <b>{{ iface.name }}</b>
+                <small>{% if iface.disabled %}Disabled{% elif iface.running %}Link up{% else %}No link{% endif %}</small>
+              </div>
+              <div class="port-configs active-config-badges" data-port-badges="{{ iface.name }}"></div>
+              <div class="traffic-spark {% if iface.running and not iface.disabled %}active{% endif %}"><i></i><i></i><i></i></div>
+            </div>
+            {% empty %}
+            <div class="empty-mini">No interfaces have been synchronized yet. Run Full Sync first.</div>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="router-footer">
+          <div><i class="bi bi-shield-check"></i><span>Controlled recipes only</span></div>
+          <div><i class="bi bi-clock-history"></i><span>Every deployment is recorded</span></div>
+          <div><i class="bi bi-arrow-counterclockwise"></i><span>Rollback where safe</span></div>
+        </div>
+      </div>
+
+      <div id="dropHint" class="drop-hint">
+        <i class="bi bi-hand-index-thumb"></i>
+        Drag a block from the left and drop it on a compatible target.
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="panel mb-4" id="visualHistoryPanel">
+  <div class="panel-head">
+    <div>
+      <h3><i class="bi bi-clock-history"></i> Visual configuration history</h3>
+      <p>What was configured, on which port, by whom, when it was applied, and whether it can be rolled back.</p>
+    </div>
+    <div class="history-filter">
+      <select id="historyFilter" class="form-select form-select-sm">
+        <option value="all">All changes</option>
+        <option value="success">Applied</option>
+        <option value="queued">Queued</option>
+        <option value="failed">Failed</option>
+        <option value="rolled_back">Rolled back</option>
+      </select>
+    </div>
+  </div>
+  <div id="designerHistory" class="designer-history">
+    <div class="designer-loading"><span></span><span></span><span></span></div>
+  </div>
+</section>
+
 <section class="panel mb-4" id="load-balancer">
-  <div class="panel-head"><div><h3><i class="bi bi-shuffle"></i> Live load balancing</h3><p>Every Internet path on this router, how traffic is split between them, and what is flowing right now.</p></div><a class="btn btn-primary btn-sm" href="{% url 'wan_designer' router.id %}"><i class="bi bi-diagram-3"></i> Set up internet lines</a></div>
+  <div class="panel-head">
+    <div><h3><i class="bi bi-shuffle"></i> Live load balancing</h3><p>Every Internet path on this router, how traffic is split between them, and what is flowing right now.</p></div>
+    <a class="btn btn-primary btn-sm" href="{% url 'wan_designer' router.id %}"><i class="bi bi-diagram-3"></i> Set up internet lines</a>
+  </div>
   {% include 'core/partials/lb_engine.html' with lb_config=lb_config %}
 </section>
 
 <section class="panel mb-4">
   <div class="panel-head visual-studio-head">
-    <div><h3><i class="bi bi-bezier2"></i> Visual Network Studio</h3><p>Drag ports into a role. TapTap can save the design only, or apply safe port/bridge changes to RouterOS.</p></div>
+    <div><h3><i class="bi bi-bezier2"></i> Port Role Studio</h3><p>Drag ports into a high-level role. This remains available alongside the new advanced configuration blocks.</p></div>
     <div class="studio-options">
       <label class="form-check form-switch"><input id="applyRouterOS" class="form-check-input" type="checkbox" checked><span class="form-check-label">Apply to RouterOS</span></label>
       <select id="studioBridge" class="form-select form-select-sm"><option value="">No bridge change</option>{% for bridge in bridges %}<option value="{{ bridge.name }}">Bridge: {{ bridge.name }}</option>{% endfor %}</select>
@@ -52,18 +157,10 @@
     </div>
     {% endfor %}
   </div>
-  <div class="quick-recipes mt-3">
-    <form method="post" action="{% url 'router_quick_recipe' router.id %}" onsubmit="return confirm('Configure this port as WAN using DHCP client + masquerade NAT? This makes real RouterOS changes.');">{% csrf_token %}
-      <input type="hidden" name="recipe" value="wan_dhcp_nat">
-      <select class="form-select" name="interface_name" required><option value="">Choose port for Quick WAN…</option>{% for iface in interfaces %}<option value="{{ iface.name }}">{{ iface.name }}</option>{% endfor %}</select>
-      <button class="btn btn-dark"><i class="bi bi-lightning-charge"></i> Quick WAN: DHCP + NAT</button>
-    </form>
-    <span>For complex VLAN, firewall, routing, queue or multi-WAN designs, use Advanced RouterOS Explorer below.</span>
-  </div>
 </section>
 
 <section class="panel mb-4">
-  <div class="panel-head"><div><h3><i class="bi bi-terminal"></i> Advanced RouterOS Explorer</h3><p>Read common configuration sections or any valid RouterOS API resource path. Sensitive fields are redacted.</p></div><span class="advanced-badge">Advanced</span></div>
+  <div class="panel-head"><div><h3><i class="bi bi-terminal"></i> Advanced RouterOS Explorer</h3><p>Read common configuration sections or any valid RouterOS API resource path. Sensitive fields are redacted.</p></div><span class="advanced-badge">Expert</span></div>
   <div class="resource-toolbar">
     <select class="form-select" id="resourceSelect">{% for label,path in catalog %}<option value="{{ path }}">{{ label }} — {{ path }}</option>{% endfor %}</select>
     <input class="form-control" id="customResource" placeholder="Or type resource path, e.g. /ip/firewall/mangle">
@@ -73,7 +170,7 @@
   <div id="resourceTable" class="resource-table-wrap"></div>
 
   <div class="advanced-change mt-4">
-    <div class="advanced-warning"><i class="bi bi-shield-exclamation"></i><div><b>Advanced change review</b><span>Only add/set/remove on configuration resources is allowed. TapTap logs every attempt. A bad route/firewall/interface change can disconnect the router, so review before Apply.</span></div></div>
+    <div class="advanced-warning"><i class="bi bi-shield-exclamation"></i><div><b>Raw advanced change review</b><span>For configuration not covered by a drag-and-drop tile. A bad route/firewall/interface change can disconnect the router.</span></div></div>
     <form method="post" action="{% url 'router_config_apply' router.id %}" id="advancedForm">{% csrf_token %}
       <div class="row g-3">
         <div class="col-lg-4"><label>Resource path</label><input class="form-control" name="resource_path" id="changePath" placeholder="/ip/firewall/nat" required></div>
@@ -92,7 +189,7 @@
 <div class="row g-4">
   <div class="col-xl-7">
     <section class="panel h-100">
-      <div class="panel-head"><div><h3>Configuration snapshot</h3><p>Broad RouterOS configuration inventory captured from the router.</p></div>{% if snapshot %}<small>{{ snapshot.captured_at|date:'d M Y H:i:s' }}</small>{% endif %}</div>
+      <div class="panel-head"><div><h3>Configuration snapshot</h3><p>Latest broad RouterOS configuration inventory captured from the router.</p></div>{% if snapshot %}<small>{{ snapshot.captured_at|date:'d M Y H:i:s' }}</small>{% endif %}</div>
       <div class="config-section-grid">
         {% if sections %}{% for label,section in sections %}<button class="config-section-card snapshot-load" type="button" data-path="{{ section.path }}"><span>{{ section.count }}</span><b>{{ label }}</b><small>{{ section.path }}</small></button>{% endfor %}{% else %}<div class="empty-mini">No configuration snapshot yet.</div>{% endif %}
       </div>
@@ -100,9 +197,37 @@
   </div>
   <div class="col-xl-5">
     <section class="panel h-100">
-      <div class="panel-head"><div><h3>Change audit</h3><p>Recent visual and advanced changes.</p></div></div>
+      <div class="panel-head"><div><h3>Raw change audit</h3><p>Existing Control Center visual-role and expert changes.</p></div></div>
       <div class="change-log">{% for change in changes %}<div><span class="change-status {% if change.status == 'success' %}ok{% endif %}"><i class="bi {% if change.status == 'success' %}bi-check-circle{% else %}bi-x-circle{% endif %}"></i></span><div><b>{{ change.operation|upper }} {{ change.resource_path }}</b><small>{{ change.target_id|default:'new item' }} • {{ change.created_at|date:'M j H:i:s' }}</small>{% if change.error %}<em>{{ change.error|truncatechars:100 }}</em>{% endif %}</div></div>{% empty %}<div class="empty-mini">No configuration changes recorded yet.</div>{% endfor %}</div>
     </section>
+  </div>
+</div>
+
+<div class="modal fade" id="designerModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content designer-modal">
+      <div class="modal-header">
+        <div><span id="modalRisk" class="risk-chip"></span><h5 class="modal-title" id="modalTitle">Configure</h5><small id="modalTarget"></small></div>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p id="modalSummary" class="text-muted"></p>
+        <div id="parameterFields" class="row g-3"></div>
+        <div class="plan-preview mt-4">
+          <div class="d-flex justify-content-between align-items-center mb-2"><b>RouterOS change plan</b><button type="button" class="btn btn-sm btn-outline-secondary" id="previewBtn">Refresh preview</button></div>
+          <div id="planPreview"><div class="empty-mini">Complete the parameters to preview.</div></div>
+        </div>
+        <div id="highRiskConfirm" class="high-risk-confirm mt-3 d-none">
+          <label>High-risk confirmation</label>
+          <input id="confirmApply" class="form-control" placeholder="Type APPLY">
+          <small>This configuration can interrupt connectivity. TapTap will not apply it until you type APPLY.</small>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" id="applyRecipeBtn"><i class="bi bi-check2-circle"></i> Apply configuration</button>
+      </div>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -114,16 +239,193 @@
   const csrf=document.querySelector('#csrf-holder [name=csrfmiddlewaretoken]').value;
   const roleUrl="{% url 'router_interface_role' router.id %}";
   const resourceUrl="{% url 'router_resource_api' router.id %}";
+  const stateUrl="{% url 'control_designer_state' router.id %}";
+  const previewUrl="{% url 'control_designer_preview' router.id %}";
+  const applyUrl="{% url 'control_designer_apply' router.id %}";
+  let designerState={catalog:[],history:[],active:[]}, current=null;
+  const modal=new bootstrap.Modal(document.getElementById('designerModal'));
 
-  // Drag/drop visual port assignment.
+  function esc(s){return String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
+  function postJson(url,data){return fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRFToken':csrf},body:JSON.stringify(data)}).then(async r=>{const j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'Request failed');return j;});}
+  function riskLabel(r){return r==='high'?'HIGH RISK':(r==='advanced'?'ADVANCED':'CONTROLLED');}
+
+  async function loadDesigner(){
+    try{
+      const r=await fetch(stateUrl,{credentials:'same-origin'}), data=await r.json();
+      if(!data.success)throw new Error(data.message||'Could not load designer');
+      designerState=data; renderPalette(); renderHistory(); paintActive();
+    }catch(e){
+      document.getElementById('recipePalette').innerHTML='<div class="alert alert-warning">'+esc(e.message)+'</div>';
+    }
+  }
+
+  function renderPalette(){
+    const q=(document.getElementById('recipeSearch').value||'').toLowerCase();
+    const items=designerState.catalog.filter(x=>(x.label+' '+x.summary+' '+x.scope).toLowerCase().includes(q));
+    document.getElementById('recipePalette').innerHTML=items.map(x=>`
+      <div class="recipe-tile risk-${esc(x.risk)}" draggable="true" data-recipe="${esc(x.key)}" data-scope="${esc(x.scope)}">
+        <span class="recipe-icon"><i class="bi ${esc(x.icon)}"></i></span>
+        <div><b>${esc(x.label)}</b><small>${esc(x.summary)}</small><em>${x.scope==='port'?'PORT':'ROUTER'} • ${riskLabel(x.risk)}</em></div>
+        <i class="bi bi-grip-vertical grip"></i>
+      </div>`).join('') || '<div class="empty-mini">No configuration blocks match.</div>';
+    bindRecipeDrag();
+  }
+
+  function bindRecipeDrag(){
+    document.querySelectorAll('.recipe-tile').forEach(tile=>{
+      tile.addEventListener('dragstart',e=>{
+        e.dataTransfer.effectAllowed='copy';
+        e.dataTransfer.setData('application/x-taptap-recipe',tile.dataset.recipe);
+        document.body.classList.add('designer-dragging');
+        document.querySelectorAll(`.router-dropzone,.designer-port`).forEach(z=>{
+          z.classList.toggle('compatible',z.dataset.scope===tile.dataset.scope);
+        });
+      });
+      tile.addEventListener('dragend',()=>{
+        document.body.classList.remove('designer-dragging');
+        document.querySelectorAll('.router-dropzone,.designer-port').forEach(z=>z.classList.remove('compatible','drag-over'));
+      });
+    });
+  }
+
+  document.querySelectorAll('.router-dropzone,.designer-port').forEach(zone=>{
+    zone.addEventListener('dragover',e=>{
+      if(!e.dataTransfer.types.includes('application/x-taptap-recipe'))return;
+      e.preventDefault(); zone.classList.add('drag-over');
+    });
+    zone.addEventListener('dragleave',()=>zone.classList.remove('drag-over'));
+    zone.addEventListener('drop',e=>{
+      const recipe=e.dataTransfer.getData('application/x-taptap-recipe'); if(!recipe)return;
+      e.preventDefault(); zone.classList.remove('drag-over');
+      const meta=designerState.catalog.find(x=>x.key===recipe);
+      if(!meta||meta.scope!==zone.dataset.scope){showToast('That block belongs on '+(meta?.scope||'another target')+'.','warning');return;}
+      openRecipe(meta,zone.dataset.target||'');
+    });
+  });
+
+  function openRecipe(meta,target){
+    current={meta,target,parameters:{}};
+    document.getElementById('modalTitle').textContent=meta.label;
+    document.getElementById('modalTarget').textContent=meta.scope==='port'?'Target port: '+target:'Target: whole router';
+    document.getElementById('modalSummary').textContent=meta.summary;
+    const risk=document.getElementById('modalRisk');risk.textContent=riskLabel(meta.risk);risk.className='risk-chip risk-'+meta.risk;
+    document.getElementById('highRiskConfirm').classList.toggle('d-none',meta.risk!=='high');
+    document.getElementById('confirmApply').value='';
+    const host=document.getElementById('parameterFields');
+    host.innerHTML=(meta.fields||[]).map(f=>{
+      let input='';
+      if(f.type==='select'){
+        input=`<select class="form-select recipe-param" data-name="${esc(f.name)}">${(f.options||[]).map(o=>`<option value="${esc(o[0])}" ${String(o[0])===String(f.default)?'selected':''}>${esc(o[1])}</option>`).join('')}</select>`;
+      }else{
+        input=`<input class="form-control recipe-param" data-name="${esc(f.name)}" type="${f.type==='number'?'number':'text'}" value="${esc(f.default||'')}">`;
+      }
+      return `<div class="col-md-6"><label>${esc(f.label)}</label>${input}</div>`;
+    }).join('') || '<div class="col-12"><div class="empty-mini">No extra parameters needed.</div></div>';
+    document.getElementById('planPreview').innerHTML='<div class="empty-mini">Press Refresh preview to review the exact plan.</div>';
+    modal.show(); previewCurrent();
+  }
+
+  function collectParams(){
+    const p={};document.querySelectorAll('.recipe-param').forEach(x=>p[x.dataset.name]=x.value);return p;
+  }
+
+  async function previewCurrent(){
+    if(!current)return;
+    current.parameters=collectParams();
+    const host=document.getElementById('planPreview');host.innerHTML='<div class="designer-loading small"><span></span><span></span><span></span></div>';
+    try{
+      const data=await postJson(previewUrl,{recipe:current.meta.key,target:current.target,parameters:current.parameters});
+      current.plan=data.plan;
+      host.innerHTML=data.plan.map((op,i)=>`
+        <div class="plan-row">
+          <span>${i+1}</span><div><b>${esc(op.label)}</b><small>${esc(op.action)} • ${esc(op.resource)}</small>
+          <code>${esc(JSON.stringify(op.find))}</code><code>${esc(JSON.stringify(op.values))}</code></div>
+        </div>`).join('');
+    }catch(e){host.innerHTML='<div class="alert alert-warning mb-0">'+esc(e.message)+'</div>';}
+  }
+
+  async function applyCurrent(){
+    if(!current)return;
+    const btn=document.getElementById('applyRecipeBtn');btn.disabled=true;btn.innerHTML='<span class="spinner-border spinner-border-sm"></span> Applying…';
+    try{
+      const data=await postJson(applyUrl,{
+        recipe:current.meta.key,target:current.target,parameters:collectParams(),
+        confirm:document.getElementById('confirmApply').value
+      });
+      modal.hide();
+      animateTarget(current.meta.scope,current.target,data.queued);
+      showToast(data.queued?'Configuration queued through TapTap Link.':'Configuration applied successfully.','success');
+      setTimeout(loadDesigner,data.queued?1000:500);
+    }catch(e){showToast(e.message,'danger');}
+    finally{btn.disabled=false;btn.innerHTML='<i class="bi bi-check2-circle"></i> Apply configuration';}
+  }
+
+  function animateTarget(scope,target,queued){
+    const el=scope==='port'?document.querySelector(`.designer-port[data-target="${CSS.escape(target)}"]`):document.querySelector('.mikrotik-shell');
+    if(!el)return;el.classList.add(queued?'config-queued':'config-success');setTimeout(()=>el.classList.remove('config-queued','config-success'),1800);
+  }
+
+  function paintActive(){
+    document.querySelectorAll('.active-config-badges').forEach(x=>x.innerHTML='');
+    designerState.active.slice().reverse().forEach(h=>{
+      const badge=`<span title="${esc(h.label)} • ${esc(h.actor)}"><i class="bi bi-check-circle-fill"></i>${esc(h.label)}</span>`;
+      if(h.scope==='port'){
+        const host=document.querySelector(`[data-port-badges="${CSS.escape(h.target)}"]`);if(host)host.insertAdjacentHTML('beforeend',badge);
+      }else document.getElementById('routerConfigBadges').insertAdjacentHTML('beforeend',badge);
+    });
+  }
+
+  function renderHistory(){
+    const filter=document.getElementById('historyFilter').value;
+    const rows=designerState.history.filter(x=>filter==='all'||x.status===filter);
+    const icon={success:'bi-check-circle-fill',queued:'bi-hourglass-split',failed:'bi-x-circle-fill',rolled_back:'bi-arrow-counterclockwise',draft:'bi-pencil'};    
+    document.getElementById('designerHistory').innerHTML=rows.map(h=>`
+      <div class="history-item status-${esc(h.status)}">
+        <div class="history-icon"><i class="bi ${icon[h.status]||'bi-circle'}"></i></div>
+        <div class="history-main">
+          <div class="history-title"><b>${esc(h.label)}</b><span>${h.scope==='port'?esc(h.target):'Whole router'}</span></div>
+          <small>${esc(h.actor)} • ${new Date(h.created_at).toLocaleString()} • ${esc(h.transport||'Preparing')}</small>
+          <div class="history-params">${Object.entries(h.parameters||{}).map(([k,v])=>`<span><b>${esc(k)}</b> ${esc(v)}</span>`).join('')}</div>
+          ${h.error?`<div class="history-error">${esc(h.error)}</div>`:''}
+        </div>
+        <div class="history-actions">
+          <span class="history-status">${esc(h.status.replace('_',' '))}</span>
+          ${h.can_rollback?`<button class="btn btn-sm btn-outline-warning rollback-btn" data-id="${h.id}"><i class="bi bi-arrow-counterclockwise"></i> Rollback</button>`:''}
+        </div>
+      </div>`).join('') || '<div class="empty-mini">No visual configuration history yet.</div>';
+    document.querySelectorAll('.rollback-btn').forEach(b=>b.addEventListener('click',()=>rollback(Number(b.dataset.id),b)));
+  }
+
+  async function rollback(id,btn){
+    if(!confirm('Roll back this configuration to the recorded previous values?'))return;
+    btn.disabled=true;
+    try{
+      const data=await postJson(`{% url 'control_designer_state' router.id %}`.replace('/state/',`/${id}/rollback/`),{});
+      showToast(data.queued?'Rollback queued through TapTap Link.':'Rollback completed.','success');setTimeout(loadDesigner,700);
+    }catch(e){showToast(e.message,'danger');btn.disabled=false;}
+  }
+
+  function showToast(message,kind){
+    let host=document.getElementById('designerToastHost');
+    if(!host){host=document.createElement('div');host.id='designerToastHost';host.className='designer-toast-host';document.body.appendChild(host);}
+    const el=document.createElement('div');el.className='designer-toast '+kind;el.innerHTML='<i class="bi bi-info-circle"></i><span>'+esc(message)+'</span>';host.appendChild(el);setTimeout(()=>el.remove(),4500);
+  }
+
+  document.getElementById('recipeSearch').addEventListener('input',renderPalette);
+  document.getElementById('historyFilter').addEventListener('change',renderHistory);
+  document.getElementById('previewBtn').addEventListener('click',previewCurrent);
+  document.getElementById('applyRecipeBtn').addEventListener('click',applyCurrent);
+
+  // Existing port-role drag/drop.
   document.querySelectorAll('.studio-port').forEach(port=>{
     port.addEventListener('dragstart',e=>{e.dataTransfer.setData('text/plain',port.dataset.interface);port.classList.add('dragging');});
     port.addEventListener('dragend',()=>port.classList.remove('dragging'));
   });
   document.querySelectorAll('.role-zone').forEach(zone=>{
-    zone.addEventListener('dragover',e=>{e.preventDefault();zone.classList.add('drag-over');});
+    zone.addEventListener('dragover',e=>{if(e.dataTransfer.types.includes('application/x-taptap-recipe'))return;e.preventDefault();zone.classList.add('drag-over');});
     zone.addEventListener('dragleave',()=>zone.classList.remove('drag-over'));
     zone.addEventListener('drop',async e=>{
+      if(e.dataTransfer.types.includes('application/x-taptap-recipe'))return;
       e.preventDefault();zone.classList.remove('drag-over');const iface=e.dataTransfer.getData('text/plain');if(!iface)return;
       const fd=new FormData();fd.append('csrfmiddlewaretoken',csrf);fd.append('interface_name',iface);fd.append('role',zone.dataset.role);
       fd.append('apply',document.getElementById('applyRouterOS').checked?'yes':'no');fd.append('bridge_name',document.getElementById('studioBridge').value);
@@ -133,23 +435,22 @@
     });
   });
 
-  // Dynamic configuration reader.
+  // Existing RouterOS explorer.
   async function loadResource(path){
     if(!path)return;document.getElementById('changePath').value=path;const status=document.getElementById('resourceStatus');const host=document.getElementById('resourceTable');status.textContent='Loading '+path+'…';host.innerHTML='';
     try{
       const res=await fetch(resourceUrl+'?path='+encodeURIComponent(path),{credentials:'same-origin'});const data=await res.json();if(!data.success)throw new Error(data.message||'Load failed');
       status.textContent=data.count+' row(s) from '+data.path;if(!data.rows.length){host.innerHTML='<div class="empty-mini">No records returned.</div>';return;}
       const keys=[];data.rows.forEach(r=>Object.keys(r).forEach(k=>{if(!keys.includes(k)&&keys.length<14)keys.push(k);}));
-      let html='<div class="table-responsive"><table class="table table-sm config-table"><thead><tr>'+keys.map(k=>'<th>'+escapeHtml(k)+'</th>').join('')+'</tr></thead><tbody>';
-      data.rows.forEach(r=>{html+='<tr>'+keys.map(k=>'<td title="'+escapeHtml(String(r[k]??''))+'">'+escapeHtml(formatValue(r[k]))+'</td>').join('')+'</tr>';});html+='</tbody></table></div>';host.innerHTML=html;
-    }catch(err){status.textContent='Error: '+err.message;host.innerHTML='<div class="alert alert-warning">'+escapeHtml(err.message)+'</div>';}
+      let html='<div class="table-responsive"><table class="table table-sm config-table"><thead><tr>'+keys.map(k=>'<th>'+esc(k)+'</th>').join('')+'</tr></thead><tbody>';
+      data.rows.forEach(r=>{html+='<tr>'+keys.map(k=>'<td title="'+esc(String(r[k]??''))+'">'+esc(formatValue(r[k]))+'</td>').join('')+'</tr>';});html+='</tbody></table></div>';host.innerHTML=html;
+    }catch(err){status.textContent='Error: '+err.message;host.innerHTML='<div class="alert alert-warning">'+esc(err.message)+'</div>';}
   }
   function formatValue(v){if(v===null||v===undefined)return '';if(typeof v==='object')return JSON.stringify(v);const s=String(v);return s.length>70?s.slice(0,67)+'…':s;}
-  function escapeHtml(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
   document.getElementById('loadResource').addEventListener('click',()=>loadResource(document.getElementById('customResource').value.trim()||document.getElementById('resourceSelect').value));
   document.querySelectorAll('.snapshot-load').forEach(btn=>btn.addEventListener('click',()=>{document.getElementById('resourceSelect').value=btn.dataset.path;loadResource(btn.dataset.path);document.getElementById('resourceTable').scrollIntoView({behavior:'smooth',block:'center'});}));
 
-  // Live load balancing is handled by static/js/netviz-lb.js
+  loadDesigner();
 })();
 </script>
 {% endblock %}
