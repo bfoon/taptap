@@ -1,0 +1,48 @@
+{% extends "core/base.html" %}
+{% block title %}Online Sales — TapTap{% endblock %}
+{% block heading %}Online Sales{% endblock %}
+{% block extra_head %}
+<style>
+.ob-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:1rem}.ob-card{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:1rem;margin-bottom:1rem}.ob-card h3{font-size:1rem;font-weight:800}.provider{border:1px solid var(--border,#e3e9f1);border-radius:12px;padding:.7rem;margin:.5rem 0}.provider.ok{border-color:#a9d9bf;background:#f1fbf6}.provider.off{background:#fafbfc}.urlbox{display:flex;gap:.4rem}.urlbox input{font-family:ui-monospace,monospace;font-size:.8rem}.purchase{display:flex;justify-content:space-between;gap:.7rem;padding:.55rem 0;border-top:1px solid #edf1f5;font-size:.8rem}
+@media(max-width:850px){.ob-grid{grid-template-columns:1fr}}
+</style>
+{% endblock %}
+{% block content %}
+<div class="alert alert-info"><b>Public Buy Online shop.</b> Customers choose a plan and pay through an active verified mobile-money provider. TapTap only issues the voucher after the provider confirms payment.</div>
+<div class="ob-grid">
+<section>
+  <form method="post" class="ob-card">{% csrf_token %}
+    <h3><i class="bi bi-shop"></i> Shop settings</h3>
+    <div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" name="enabled" value="1" id="enabled" {% if store.enabled %}checked{% endif %}><label class="form-check-label fw-bold" for="enabled">Enable public online sales</label></div>
+    <label class="form-label">Heading</label><input class="form-control mb-2" name="heading" maxlength="120" value="{{ store.heading }}">
+    <label class="form-label">Customer note</label><input class="form-control mb-2" name="note" maxlength="255" value="{{ store.note }}">
+    <label class="form-label">Router receiving purchased vouchers</label>
+    <select class="form-select mb-3" name="router"><option value="">Choose router…</option>{% for r in routers %}<option value="{{ r.id }}" {% if store.router_id == r.id %}selected{% endif %}>{{ r.name }}</option>{% endfor %}</select>
+
+    <label class="form-label">Plans sold online</label>
+    <div class="mb-3">
+      {% for p in plans %}<label class="d-block small py-1"><input class="form-check-input me-1" type="checkbox" name="plan" value="{{ p.id }}" {% if not selected_plan_ids or p.id in selected_plan_ids %}checked{% endif %}> {{ p.name }} — {{ business.currency }}{{ p.price }} · {{ p.max_devices }} device{{ p.max_devices|pluralize }}</label>{% empty %}<span class="text-secondary small">Create an active paid Voucher Plan first.</span>{% endfor %}
+    </div>
+    <div class="d-flex gap-3 flex-wrap mb-3"><label><input class="form-check-input me-1" type="checkbox" name="require_phone" value="1" {% if store.require_phone %}checked{% endif %}> Require phone</label><label><input class="form-check-input me-1" type="checkbox" name="require_email" value="1" {% if store.require_email %}checked{% endif %}> Require email</label></div>
+    <button class="btn btn-primary">Save online shop</button>
+  </form>
+
+  <div class="ob-card">
+    <h3>Public link</h3>
+    <div class="urlbox"><input class="form-control" id="shopUrl" readonly value="{{ public_url }}"><button class="btn btn-outline-primary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('shopUrl').value)">Copy</button></div>
+    <a href="{{ public_url }}" target="_blank" class="btn btn-sm btn-outline-secondary mt-2"><i class="bi bi-box-arrow-up-right"></i> Open public shop</a>
+  </div>
+</section>
+
+<aside>
+  <div class="ob-card"><h3><i class="bi bi-phone"></i> Payment providers</h3>
+    {% for p in providers %}<div class="provider {% if p.active %}ok{% else %}off{% endif %}"><div class="d-flex justify-content-between"><b>{{ p.name }}</b>{% if p.active %}<span class="badge text-bg-success">ACTIVE</span>{% else %}<span class="badge text-bg-secondary">OFF</span>{% endif %}</div>{% if p.currencies %}<div class="small text-secondary">API currency: {{ p.currencies|join:", " }}</div>{% endif %}{% if not p.active %}<div class="small text-secondary mt-1">{{ p.reason }}</div>{% endif %}</div>{% empty %}<p class="text-secondary small">No provider adapters are installed.</p>{% endfor %}
+    <p class="small text-secondary mb-0">A browser return page never marks a purchase paid. A verified provider webhook is required.</p>
+  </div>
+</aside>
+</div>
+
+<div class="ob-card"><h3>Recent online purchases</h3>
+{% for x in purchases %}<div class="purchase"><div><b>{{ x.reference }}</b> · {{ x.plan.name|default:"Plan removed" }}{% if x.customer_phone %}<br><span class="text-secondary">{{ x.customer_phone }}</span>{% endif %}</div><div class="text-end">{{ business.currency }}{{ x.amount }}<br><span class="badge text-bg-light border">{{ x.provider|title }} · {{ x.get_status_display }}</span>{% if x.voucher %}<br><a href="{% url 'voucher_detail' x.voucher.id %}">{{ x.voucher.code }}</a>{% endif %}</div></div>{% empty %}<p class="text-secondary small mb-0">No online purchases yet.</p>{% endfor %}
+</div>
+{% endblock %}

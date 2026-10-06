@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="{% if purchase.status == 'pending' or purchase.status == 'paid' %}6{% else %}300{% endif %}">
+<title>Online purchase — {{ business.business_name }}</title><style>
+body{margin:0;background:#f3f6fa;color:#142337;font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}.wrap{max-width:520px;margin:8vh auto;padding:18px}.card{background:#fff;border:1px solid #dce5ef;border-radius:18px;padding:28px;text-align:center}.code{font:900 30px ui-monospace,monospace;letter-spacing:.09em;background:#eef6ff;padding:14px;border-radius:12px;margin:15px 0}.muted{color:#6d7c8d}.ok{color:#14734a}.warn{color:#8a5a00}.bad{color:#a12b2b}
+</style></head><body><main class="wrap"><div class="card"><h1 style="font-size:22px">{{ business.business_name }}</h1>
+{% if purchase.status == "issued" and purchase.voucher %}
+<div class="ok"><b>Payment confirmed — your voucher is ready.</b></div><div class="code">{{ purchase.voucher.code }}</div><p>{{ purchase.plan.name|default:purchase.voucher.plan_name }} · {{ business.currency }}{{ purchase.amount }}</p><p class="muted">Keep this voucher until your package has ended.</p>
+{% elif purchase.status == "pending" or purchase.status == "paid" %}
+<div class="warn"><b>Payment is being confirmed.</b></div><p class="muted">Do not pay again. This page refreshes automatically after the provider confirms the transaction.</p>
+{% elif purchase.status == "review" %}
+<div class="warn"><b>Your payment needs review.</b></div><p>{{ purchase.error }}</p><p class="muted">Reference: {{ purchase.reference }}</p>
+{% else %}
+<div class="bad"><b>Payment was not completed.</b></div><p class="muted">{{ purchase.error }}<br>Reference: {{ purchase.reference }}</p>
+{% endif %}
+</div></main></body></html>

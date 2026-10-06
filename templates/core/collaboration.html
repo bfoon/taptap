@@ -1,0 +1,94 @@
+{% extends "core/base.html" %}
+{% block title %}Business Collaboration — TapTap{% endblock %}
+{% block heading %}Business Collaboration{% endblock %}
+{% block extra_head %}
+<style>
+.cl-hero{background:linear-gradient(135deg,#fff,#f5f9ff);border:1px solid var(--border,#e3e9f1);border-radius:18px;padding:1rem 1.1rem;margin-bottom:1rem}
+.cl-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.cl-card{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:1rem;margin-bottom:.8rem}
+.cl-card h3{font-size:1rem;font-weight:800}.cl-perms{display:grid;grid-template-columns:1fr 1fr;gap:.35rem .8rem}.cl-perms label{font-size:.8rem}
+.cl-rel{border:1px solid var(--border,#e3e9f1);border-radius:13px;padding:.8rem;margin-top:.6rem}.cl-status{font-size:.68rem;font-weight:800;border-radius:999px;padding:.18rem .5rem;background:#eef2f6}
+.cl-status.active{background:#e6f6ee;color:#127a4d}.cl-status.pending{background:#fff4dc;color:#8a5a00}.cl-note{font-size:.78rem;color:#65778a}
+@media(max-width:850px){.cl-grid{grid-template-columns:1fr}.cl-perms{grid-template-columns:1fr}}
+</style>
+{% endblock %}
+{% block content %}
+<div class="cl-hero">
+  <h2 class="h5 fw-bold mb-1"><i class="bi bi-buildings"></i> Work with another TapTap business</h2>
+  <p class="mb-0 text-secondary">Each business stays separate. You decide exactly what the other business owner may access. Once accepted, both owners can use TapTap's existing business switcher.</p>
+</div>
+
+<div class="cl-grid">
+  <section class="cl-card">
+    <h3><i class="bi bi-send-plus"></i> Invite another business</h3>
+    <form method="post" action="{% url 'business_collaboration_action' %}">
+      {% csrf_token %}<input type="hidden" name="action" value="invite">
+      <label class="form-label mt-2">Other business owner's TapTap email</label>
+      <input class="form-control" type="email" name="email" required placeholder="owner@example.com">
+      <label class="form-label mt-3">What may they access inside {{ business.business_name }}?</label>
+      <div class="cl-perms">
+        {% for code,label in permission_choices %}
+        <label><input class="form-check-input me-1" type="checkbox" name="grant" value="{{ code }}" {% if code in default_grants %}checked{% endif %}> {{ label }}</label>
+        {% endfor %}
+      </div>
+      <label class="form-label mt-3">Message <span class="text-secondary">(optional)</span></label>
+      <input class="form-control" name="message" maxlength="255" placeholder="Why you want to collaborate">
+      <button class="btn btn-primary mt-3"><i class="bi bi-send"></i> Send collaboration invitation</button>
+    </form>
+  </section>
+
+  <section class="cl-card">
+    <h3><i class="bi bi-shield-check"></i> How access works</h3>
+    <ul class="small text-secondary mb-0">
+      <li>The invitation must be accepted by the <b>other business owner</b>.</li>
+      <li>Access is created as a dedicated <b>Collaborator</b> membership, not Admin.</li>
+      <li>Team, Settings, Subscription and destructive warning controls are never offered through collaboration.</li>
+      <li>TapTap's existing business switcher keeps each business's data isolated.</li>
+      <li>Either owner can end the collaboration and remove cross-business access.</li>
+    </ul>
+  </section>
+</div>
+
+<section class="cl-card">
+  <h3>Incoming invitations</h3>
+  {% for c in received %}
+  <div class="cl-rel">
+    <div class="d-flex justify-content-between gap-2 flex-wrap"><b>{{ c.source_business.business_name }}</b><span class="cl-status {{ c.status }}">{{ c.get_status_display }}</span></div>
+    {% if c.message %}<div class="cl-note mt-1">{{ c.message }}</div>{% endif %}
+    <div class="cl-note mt-1">They offer you: {{ c.source_grants|join:", " }}</div>
+    {% if c.status == "pending" %}
+    <form method="post" action="{% url 'business_collaboration_action' %}" class="mt-2">
+      {% csrf_token %}<input type="hidden" name="id" value="{{ c.id }}">
+      <div class="small fw-bold mb-1">What may their owner access inside {{ business.business_name }}?</div>
+      <div class="cl-perms">
+        {% for code,label in permission_choices %}
+        <label><input class="form-check-input me-1" type="checkbox" name="grant" value="{{ code }}" {% if code in default_grants %}checked{% endif %}> {{ label }}</label>
+        {% endfor %}
+      </div>
+      <button class="btn btn-success btn-sm mt-2" name="action" value="accept"><i class="bi bi-check-circle"></i> Accept collaboration</button>
+      <button class="btn btn-outline-danger btn-sm mt-2" name="action" value="reject"><i class="bi bi-x-circle"></i> Reject</button>
+    </form>
+    {% elif c.status == "active" %}
+    <form method="post" action="{% url 'business_collaboration_action' %}" class="mt-2" onsubmit="return confirm('End this collaboration and remove cross-business access?');">
+      {% csrf_token %}<input type="hidden" name="id" value="{{ c.id }}"><button class="btn btn-outline-danger btn-sm" name="action" value="end">End collaboration</button>
+    </form>
+    {% endif %}
+  </div>
+  {% empty %}<p class="text-secondary small mb-0">No incoming collaboration invitations.</p>{% endfor %}
+</section>
+
+<section class="cl-card">
+  <h3>Invitations and collaborations you started</h3>
+  {% for c in sent %}
+  <div class="cl-rel">
+    <div class="d-flex justify-content-between gap-2 flex-wrap"><b>{{ c.target_business.business_name }}</b><span class="cl-status {{ c.status }}">{{ c.get_status_display }}</span></div>
+    <div class="cl-note mt-1">Their access to your business: {{ c.source_grants|join:", " }}</div>
+    {% if c.status == "active" %}<div class="cl-note">Your access to their business: {{ c.target_grants|join:", " }}</div>{% endif %}
+    {% if c.status == "pending" or c.status == "active" %}
+    <form method="post" action="{% url 'business_collaboration_action' %}" class="mt-2" onsubmit="return confirm('End/cancel this collaboration?');">
+      {% csrf_token %}<input type="hidden" name="id" value="{{ c.id }}"><button class="btn btn-outline-danger btn-sm" name="action" value="end">{% if c.status == "pending" %}Cancel invitation{% else %}End collaboration{% endif %}</button>
+    </form>
+    {% endif %}
+  </div>
+  {% empty %}<p class="text-secondary small mb-0">You have not invited another business yet.</p>{% endfor %}
+</section>
+{% endblock %}

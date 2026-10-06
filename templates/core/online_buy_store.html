@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ store.heading }} — {{ business.business_name }}</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f6fa;color:#142337;font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}.wrap{max-width:760px;margin:4vh auto;padding:18px}.head{text-align:center;margin-bottom:18px}.brand{font-size:26px;font-weight:900}.muted{color:#6d7c8d}.card{background:#fff;border:1px solid #dce5ef;border-radius:18px;padding:22px;box-shadow:0 14px 45px #20354d12}.plans{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.plan{border:1px solid #dbe4ed;border-radius:13px;padding:12px}.plan label{display:flex;gap:9px;cursor:pointer}.price{font-weight:900;font-size:18px}input[type=text],input[type=email],input[type=tel],select{width:100%;border:1px solid #cad6e2;border-radius:10px;padding:11px;font-size:15px}.field{margin-top:13px}.field>label{font-weight:750;display:block;margin-bottom:5px}button{width:100%;margin-top:16px;border:0;border-radius:10px;padding:13px;background:#0b5ed7;color:white;font-weight:850;font-size:16px}.msg{background:#fff4dc;border:1px solid #eed297;padding:10px;border-radius:10px;margin-bottom:10px}.off{padding:18px;background:#fff4dc;border-radius:12px;text-align:center}.provider{display:flex;align-items:center;gap:7px;padding:8px;border:1px solid #dbe4ed;border-radius:10px;margin-top:6px}.provider input{margin:0}@media(max-width:600px){.plans{grid-template-columns:1fr}}
+</style></head><body><main class="wrap">
+<div class="head"><div class="brand">{{ business.business_name }}</div><h1 style="font-size:21px;margin:.3rem 0">{{ store.heading }}</h1>{% if store.note %}<div class="muted">{{ store.note }}</div>{% endif %}</div>
+<div class="card">
+{% if messages %}{% for m in messages %}<div class="msg">{{ m }}</div>{% endfor %}{% endif %}
+{% if not store.enabled %}<div class="off"><b>Online sales are not active right now.</b><br><span class="muted">Please use the normal Wi-Fi voucher sales channel.</span></div>
+{% elif not providers %}<div class="off"><b>Mobile-money checkout is not available right now.</b><br><span class="muted">Please try again later.</span></div>
+{% else %}
+<form method="post">{% csrf_token %}
+<h2 style="font-size:16px">1. Choose your Wi-Fi plan</h2><div class="plans">
+{% for p in plans %}<div class="plan"><label><input type="radio" name="plan" value="{{ p.id }}" required><span><b>{{ p.name }}</b><br><span class="price">{{ business.currency }}{{ p.price }}</span><br><small class="muted">{{ p.max_devices }} device{{ p.max_devices|pluralize }}</small></span></label></div>{% empty %}<p>No plan is currently available online.</p>{% endfor %}
+</div>
+<h2 style="font-size:16px;margin-top:20px">2. Your details</h2>
+<div class="field"><label>Name <span class="muted">(optional)</span></label><input type="text" name="name" maxlength="120"></div>
+<div class="field"><label>Mobile number{% if store.require_phone %} *{% endif %}</label><input type="tel" name="phone" maxlength="60" {% if store.require_phone %}required{% endif %} placeholder="+220..."></div>
+<div class="field"><label>Email{% if store.require_email %} *{% endif %}</label><input type="email" name="email" maxlength="254" {% if store.require_email %}required{% endif %} placeholder="For your voucher receipt"></div>
+<h2 style="font-size:16px;margin-top:20px">3. Pay securely</h2>
+{% for p in providers %}<label class="provider"><input type="radio" name="provider" value="{{ p.code }}" required><b>{{ p.name }}</b></label>{% endfor %}
+<button type="submit">Continue to payment</button>
+<p class="muted" style="font-size:12px;text-align:center">Your voucher is issued only after the payment provider confirms the payment.</p>
+</form>{% endif %}
+</div></main></body></html>

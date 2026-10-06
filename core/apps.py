@@ -34,6 +34,7 @@ class CoreConfig(AppConfig):
         importlib.import_module("core.models_sticky_exclusions")
         importlib.import_module("core.models_fup_manual")
         importlib.import_module("core.models_permanent_device")
+        importlib.import_module("core.models_collaboration_buy")
 
     def ready(self):
         from . import team  # noqa: F401
@@ -47,6 +48,7 @@ class CoreConfig(AppConfig):
         _install_optional("link_system_health")
         _install_optional("voucher_entry_security")
         _install_optional("link_sync_reliability")
+        _install_optional("link_safe_command_compat")
         _install_optional("member_router_alignment")
         _install_optional("member_arrears")
         _install_optional("member_self_service")
@@ -54,6 +56,8 @@ class CoreConfig(AppConfig):
         _install_optional("voucher_qr")
         _install_optional("permanent_device")
         _install_optional("fup_manual")
+        _install_optional("business_collaboration")
+        _install_optional("online_buy")
         _install_optional("protection_state_fix")
         _install_optional("traffic_speed")
         _install_optional("free_access")
