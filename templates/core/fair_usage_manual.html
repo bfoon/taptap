@@ -1,0 +1,128 @@
+{% extends 'core/base.html' %}
+{% block title %}Fair Usage step rollback — TapTap{% endblock %}
+{% block heading %}Fair Usage step rollback{% endblock %}
+
+{% block extra_head %}
+<style>
+.fup-hero{background:linear-gradient(135deg,#fff,#f7fbff);border:1px solid var(--border,#e3e9f1);border-radius:18px;padding:1rem 1.1rem;margin-bottom:1rem}
+.fup-hero h2{font-size:1.15rem;font-weight:850;margin:0 0 .2rem}.fup-hero p{margin:0;color:#6b7c8f;max-width:860px}
+.fup-note{display:flex;gap:.7rem;align-items:flex-start;border:1px solid #cfe0f5;background:#f4f8fd;border-radius:13px;padding:.75rem .85rem;font-size:.8rem;color:#4f6479;margin-top:.8rem}
+.fup-toolbar{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:1rem}.fup-toolbar .spacer{flex:1}
+.fup-card{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:.9rem 1rem;margin-bottom:.7rem}
+.fup-top{display:flex;gap:.7rem 1rem;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.fup-code{font:800 1rem ui-monospace,SFMono-Regular,Menlo,monospace;text-decoration:none;color:inherit}
+.fup-meta{font-size:.76rem;color:#718196;margin-top:.15rem}
+.fup-grid{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:.7rem;margin-top:.8rem}
+.fup-grid>div{border:1px solid var(--border,#e3e9f1);border-radius:11px;padding:.6rem;background:#fbfcfe}
+.fup-grid small{display:block;text-transform:uppercase;letter-spacing:.04em;font-size:.64rem;font-weight:800;color:#8796a6}
+.fup-grid b{display:block;margin-top:.12rem}
+.step-auto{color:#5b6978}.step-manual{color:#1769e0}.step-lift{color:#148552}
+.fup-actions{display:flex;gap:.45rem;align-items:center;flex-wrap:wrap;margin-top:.75rem;padding-top:.75rem;border-top:1px dashed var(--border,#e3e9f1)}
+.fup-actions form{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;margin:0}
+.fup-actions select{min-width:270px}
+.manual-pill{font-size:.68rem;font-weight:800;padding:.18rem .48rem;border-radius:999px;background:#e9f2ff;color:#1769e0}
+.auto-pill{font-size:.68rem;font-weight:800;padding:.18rem .48rem;border-radius:999px;background:#eef1f4;color:#657586}
+.empty{text-align:center;padding:3rem 1rem;background:#fff;border:1px solid var(--border,#e3e9f1);border-radius:16px}
+@media(max-width:850px){.fup-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:520px){.fup-grid{grid-template-columns:1fr}.fup-actions form,.fup-actions select,.fup-actions .btn{width:100%}}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="fup-hero">
+  <div class="d-flex justify-content-between gap-3 align-items-start flex-wrap">
+    <div>
+      <h2><i class="bi bi-arrow-counterclockwise"></i> Roll back a Fair Usage step</h2>
+      <p>
+        Change the enforced speed step without deleting or resetting the customer's measured data.
+        A manual rollback remains active only for the current Fair Usage accounting period.
+      </p>
+    </div>
+    <div class="text-end">
+      <span class="badge text-bg-primary">{{ manual_count }} manual override{{ manual_count|pluralize }}</span>
+    </div>
+  </div>
+  <div class="fup-note">
+    <i class="bi bi-info-circle fs-5"></i>
+    <div>
+      <b>Example:</b> if usage has naturally reached Step 3, you may choose Step 0, 1, 2 or 3.
+      <b>Step 0 means full speed.</b> Choosing <b>Automatic</b> gives control back to the normal data thresholds.
+      At the next day/week/voucher-period reset, every manual rollback expires automatically.
+    </div>
+  </div>
+</div>
+
+<div class="fup-toolbar">
+  <a class="btn btn-sm btn-outline-secondary" href="{% url 'fup_slowed' %}">
+    <i class="bi bi-arrow-left"></i> Slowed vouchers
+  </a>
+  <span class="spacer"></span>
+  <form method="get" class="d-flex gap-2 flex-wrap">
+    <input class="form-control form-control-sm" style="min-width:210px" name="q" value="{{ query }}" placeholder="Voucher, device, router…">
+    <select class="form-select form-select-sm" name="policy" style="min-width:180px">
+      <option value="">All policies</option>
+      {% for p in policies %}
+      <option value="{{ p.id }}" {% if policy_filter == p.id|stringformat:'s' %}selected{% endif %}>{{ p.name }}</option>
+      {% endfor %}
+    </select>
+    <button class="btn btn-sm btn-outline-primary"><i class="bi bi-search"></i> Filter</button>
+  </form>
+</div>
+
+{% for r in rows %}
+<div class="fup-card">
+  <div class="fup-top">
+    <div>
+      <div>
+        {% if r.url %}<a class="fup-code" href="{{ r.url }}">{{ r.subject }}</a>{% else %}<span class="fup-code">{{ r.subject }}</span>{% endif %}
+        {% if r.manual %}<span class="manual-pill ms-2">Manual Step {{ r.manual_tier }}</span>{% else %}<span class="auto-pill ms-2">Automatic</span>{% endif %}
+      </div>
+      <div class="fup-meta">{{ r.kind }} · {{ r.detail }} · {{ r.router }}</div>
+    </div>
+    <span class="badge text-bg-light border">{{ r.policy.name }}</span>
+  </div>
+
+  <div class="fup-grid">
+    <div><small>Measured usage</small><b>{{ r.used_text }}</b></div>
+    <div><small>Automatic policy step</small><b class="step-auto">Step {{ r.automatic }}</b></div>
+    <div><small>Effective step now</small>
+      {% if r.lifted %}<b class="step-lift">Step 0 · Temporary full speed</b>
+      {% elif r.manual %}<b class="step-manual">Step {{ r.effective }} · Manual</b>
+      {% else %}<b>Step {{ r.effective }}</b>{% endif %}
+    </div>
+    <div><small>Period</small><b>{{ r.policy.get_period_display }}</b></div>
+  </div>
+
+  <div class="fup-actions">
+    <form method="post" action="{% url 'fup_manual_step_action' r.state.id %}">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <select class="form-select form-select-sm" name="tier" aria-label="Rollback step">
+        {% for c in r.choices %}
+        <option value="{{ c.value }}" {% if r.manual and r.manual_tier == c.value %}selected{% elif not r.manual and r.automatic == c.value %}selected{% endif %}>{{ c.label }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-sm btn-primary" name="action" value="set">
+        <i class="bi bi-arrow-counterclockwise"></i> Apply step
+      </button>
+    </form>
+
+    {% if r.manual or r.lifted %}
+    <form method="post" action="{% url 'fup_manual_step_action' r.state.id %}">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button class="btn btn-sm btn-outline-secondary" name="action" value="auto">
+        <i class="bi bi-magic"></i> Automatic
+      </button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% empty %}
+<div class="empty">
+  <i class="bi bi-speedometer2 fs-1 text-secondary"></i>
+  <h3 class="h5 mt-2">No Fair Usage states to roll back</h3>
+  <p class="text-secondary mb-0">A customer appears here after TapTap has measured enough usage to reach a Fair Usage step, or while a manual override is active.</p>
+</div>
+{% endfor %}
+{% endblock %}
