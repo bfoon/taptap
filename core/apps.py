@@ -33,6 +33,7 @@ class CoreConfig(AppConfig):
         importlib.import_module("core.models_member_portal")
         importlib.import_module("core.models_sticky_exclusions")
         importlib.import_module("core.models_fup_manual")
+        importlib.import_module("core.models_permanent_device")
 
     def ready(self):
         from . import team  # noqa: F401
@@ -50,6 +51,7 @@ class CoreConfig(AppConfig):
         _install_optional("member_self_service")
         _install_optional("sticky_exclusions")
         _install_optional("voucher_qr")
+        _install_optional("permanent_device")
         _install_optional("fup_manual")
         _install_optional("protection_state_fix")
         _install_optional("traffic_speed")
