@@ -287,6 +287,12 @@ def _fup_status(v):
         return None
 
 
+
+def _time_pct(v,end,now):
+    """How much of the voucher's period is used, 0–100 (None when not started or no end) — the time bar."""
+    if not v.used_at or not end or end<=v.used_at: return None
+    return max(0,min(100,round((now-v.used_at).total_seconds()*100/(end-v.used_at).total_seconds())))
+
 @login_required
 def voucher_detail(request,pk):
     """Everything about one voucher: details, devices, sale, router state and full history."""
@@ -301,6 +307,7 @@ def voucher_detail(request,pk):
     mirror=RouterHotspotUser.objects.filter(router=v.router,username=v.code).first() if v.router_id else None
     return render(request,'core/voucher_detail.html',{
         'v':v,'state_key':state_key,'state_label':state_label,'ends_at':end,'time_left':left,'time_is_up':vh.time_is_up(v,now),
+        'time_pct':_time_pct(v,end,now),
         'timeline':vh.timeline(v,now),'bindings':v.device_bindings.order_by('slot_no'),
         'profile_now':_vprofile(v,business.plans.filter(name=v.plan_name).first())[0],
         'profile_router':_profile_state(v),
