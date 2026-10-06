@@ -39,6 +39,7 @@ class CoreConfig(AppConfig):
         from . import team  # noqa: F401
         _install_optional("expired_portal")
         _install_optional("support_access")
+        _install_optional("support_presence")
         _install_optional("hotspot_recovery")
         _install_optional("mac_roaming")
         _install_optional("shared_voucher_stability")
