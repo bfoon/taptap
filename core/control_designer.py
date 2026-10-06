@@ -15,9 +15,10 @@ import json
 import re
 from copy import deepcopy
 
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, redirect
 from django.urls import path
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
@@ -467,6 +468,666 @@ def link_script(plan):
     return script
 
 
+
+# ───────────────────────── Current configuration + TapTap Link safety ─────────────────────────
+
+LINK_SENSITIVE_PATHS = (
+    "/ip/route",
+    "/ip/dns",
+    "/ip/address",
+    "/ip/dhcp-client",
+    "/ip/firewall",
+    "/interface",
+    "/interface/bridge",
+    "/interface/vlan",
+    "/interface/wireguard",
+    "/routing",
+    "/system/script",
+    "/system/scheduler",
+    "/system/clock",
+    "/system/ntp",
+    "/ip/service",
+    "/tool/netwatch",
+)
+
+LINK_CRITICAL_PATHS = (
+    "/ip/route",
+    "/ip/dns",
+    "/ip/dhcp-client",
+    "/ip/firewall",
+    "/interface/wireguard",
+    "/system/script",
+    "/system/scheduler",
+)
+
+
+def _link_managed(router):
+    """Whether TapTap Link/Tunnel is part of this router's management design."""
+    if getattr(router, "connection_mode", "") == "agent":
+        return True
+    try:
+        return hasattr(router, "agent")
+    except Exception:
+        return False
+
+
+def _link_live_state(router):
+    if not _link_managed(router):
+        return {
+            "managed": False,
+            "mode": "Direct API",
+            "online": None,
+            "message": "This router is not currently registered as a TapTap Link router.",
+        }
+    try:
+        from .linkops import uses_link
+        if uses_link(router):
+            try:
+                from .linklive import link_state
+                online, why = link_state(router)
+            except Exception:
+                online, why = None, "TapTap Link state is unavailable."
+            return {
+                "managed": True,
+                "mode": "TapTap Link",
+                "online": online,
+                "message": why or ("TapTap Link is online." if online else "TapTap Link is not currently reporting."),
+            }
+        return {
+            "managed": True,
+            "mode": "TapTap Tunnel/API",
+            "online": True,
+            "message": "TapTap Tunnel/API is healthy; TapTap Link remains the recovery channel.",
+        }
+    except Exception:
+        return {
+            "managed": True,
+            "mode": "TapTap Link/Tunnel",
+            "online": None,
+            "message": "TapTap management state could not be confirmed.",
+        }
+
+
+def _port_link_risk(router, target):
+    if not target:
+        return "", ""
+    try:
+        from .portctl import port_risk, RISK_TEXT
+        risk = port_risk(router, target)
+        return risk, RISK_TEXT.get(risk, "")
+    except Exception:
+        return "", ""
+
+
+def advanced_link_impact(router, resource_path):
+    """Safety classification for the raw/expert RouterOS editor."""
+    path_value = str(resource_path or "").strip().lower().rstrip("/")
+    if not _link_managed(router) or not path_value:
+        return {"affects": False, "severity": "none", "reasons": []}
+
+    matched = next(
+        (prefix for prefix in LINK_SENSITIVE_PATHS
+         if path_value == prefix or path_value.startswith(prefix + "/")),
+        None,
+    )
+    if not matched:
+        return {"affects": False, "severity": "none", "reasons": []}
+
+    reasons = []
+    severity = "critical" if any(
+        path_value == prefix or path_value.startswith(prefix + "/")
+        for prefix in LINK_CRITICAL_PATHS
+    ) else "warning"
+
+    if path_value.startswith("/system/script"):
+        reasons.append(
+            "RouterOS scripts include the TapTap Link bootstrap/poll script. "
+            "Changing scripts can stop the router from checking in."
+        )
+    elif path_value.startswith("/system/scheduler"):
+        reasons.append(
+            "TapTap Link relies on a RouterOS scheduler entry. Changing schedulers can stop automatic check-ins."
+        )
+    elif path_value.startswith("/interface/wireguard"):
+        reasons.append(
+            "WireGuard carries the TapTap Tunnel. Changing it can remove the healthy tunnel and force Link recovery."
+        )
+    elif path_value.startswith("/ip/dns"):
+        reasons.append(
+            "TapTap Link uses the TapTap hostname over HTTPS. Bad DNS settings can prevent the router resolving TapTap."
+        )
+    elif path_value.startswith("/ip/route") or path_value.startswith("/ip/dhcp-client"):
+        reasons.append(
+            "This can change the router's Internet/default-route path used by TapTap Link."
+        )
+    elif path_value.startswith("/ip/firewall"):
+        reasons.append(
+            "Firewall/NAT changes can block outbound HTTPS, tunnel traffic, DNS, or the management return path."
+        )
+    elif path_value.startswith("/ip/address") or path_value.startswith("/interface"):
+        reasons.append(
+            "Interface/address changes can alter the physical or logical path that carries TapTap Link."
+        )
+    elif path_value.startswith("/system/ntp") or path_value.startswith("/system/clock"):
+        reasons.append(
+            "TapTap Link uses HTTPS certificate validation; a wrong router clock can break trusted HTTPS."
+        )
+    elif path_value.startswith("/ip/service"):
+        reasons.append(
+            "API service changes can affect TapTap Tunnel/API management even if the outbound Link poll remains available."
+        )
+    else:
+        reasons.append("This RouterOS area can affect TapTap's management connectivity.")
+
+    return {
+        "affects": True,
+        "severity": severity,
+        "title": "This change may affect TapTap Link",
+        "reasons": reasons,
+        "confirm_word": "LINK",
+    }
+
+
+def link_impact(router, recipe, target, params, plan):
+    """Explain whether a visual recipe can interrupt TapTap Link/Tunnel."""
+    if not _link_managed(router):
+        return {"affects": False, "severity": "none", "reasons": []}
+
+    reasons = []
+    severity = "warning"
+    port_risk, port_risk_text = _port_link_risk(router, target)
+
+    if port_risk:
+        severity = "critical"
+        reasons.append(port_risk_text)
+
+    if recipe in {"wan_dhcp", "static_wan"}:
+        severity = "critical"
+        reasons.append(
+            "This recipe changes the WAN/default-route/NAT path. TapTap Link needs working Internet access to keep polling."
+        )
+
+    if recipe == "dns":
+        severity = "critical"
+        reasons.append(
+            "TapTap Link connects to TapTap by hostname over HTTPS. Incorrect DNS servers can stop Link check-ins."
+        )
+
+    if recipe == "mgmt_firewall":
+        severity = "critical"
+        reasons.append(
+            "Firewall changes can block TapTap Link/Tunnel/API traffic or lock out management if the rules are wrong."
+        )
+
+    if recipe == "ntp":
+        reasons.append(
+            "TapTap Link uses HTTPS trust. Incorrect time/NTP can make certificates appear invalid."
+        )
+
+    if recipe == "port_enabled":
+        disable = any(
+            op.get("resource") == "/interface"
+            and str((op.get("values") or {}).get("disabled", "")).lower() == "yes"
+            for op in plan
+        )
+        if disable and port_risk:
+            severity = "critical"
+            reasons.append(
+                "Disabling this port can immediately remove the physical path TapTap uses."
+            )
+
+    if recipe in {"bridge_member", "access_vlan", "trunk_vlan"} and port_risk:
+        severity = "critical"
+        reasons.append(
+            "Changing bridge/VLAN membership on this protected port can move TapTap traffic into the wrong Layer-2 network."
+        )
+
+    # Defence-in-depth for genuinely global management resources.
+    # Interface/bridge recipes are handled by the target-port risk check above,
+    # otherwise every harmless VLAN on an unrelated LAN port would show a false warning.
+    global_sensitive = (
+        "/ip/route",
+        "/ip/dns",
+        "/ip/dhcp-client",
+        "/ip/firewall",
+        "/interface/wireguard",
+        "/system/script",
+        "/system/scheduler",
+        "/system/clock",
+        "/system/ntp",
+        "/ip/service",
+    )
+    for op in plan:
+        path_value = str(op.get("resource") or "")
+        if not any(
+            path_value == prefix or path_value.startswith(prefix + "/")
+            for prefix in global_sensitive
+        ):
+            continue
+        raw = advanced_link_impact(router, path_value)
+        if raw["affects"]:
+            for reason in raw["reasons"]:
+                if reason not in reasons:
+                    reasons.append(reason)
+            if raw["severity"] == "critical":
+                severity = "critical"
+
+    return {
+        "affects": bool(reasons),
+        "severity": severity if reasons else "none",
+        "title": "TapTap Link safety warning",
+        "reasons": reasons,
+        "confirm_word": "LINK",
+        "backup_recommended": bool(reasons),
+    }
+
+
+def _snapshot(router):
+    try:
+        return router.config_snapshot
+    except Exception:
+        return None
+
+
+def _redact(value):
+    try:
+        from .mikrotik import redact
+        return redact(value)
+    except Exception:
+        return value
+
+
+def _clean_row(row):
+    hidden = {"id", ".id", ".nextid", "nextid"}
+    return {
+        str(k).lstrip("."): v
+        for k, v in (row or {}).items()
+        if k not in hidden and v not in (None, "")
+    }
+
+
+def _section_rows(snapshot, *needles):
+    if not snapshot or not snapshot.sections:
+        return []
+    needles = tuple(str(x).lower() for x in needles)
+    for label, section in snapshot.sections.items():
+        low = str(label).lower()
+        if any(n in low for n in needles):
+            return list((section or {}).get("rows") or [])
+    return []
+
+
+def _latest_recipe_parameters(router, scope, target):
+    rows = (
+        router.visual_config_deployments
+        .filter(status="success", scope=scope, target=target if scope == "port" else "")
+        .order_by("-applied_at", "-created_at")
+    )
+    out = {}
+    for row in rows:
+        out.setdefault(row.recipe, row.parameters or {})
+    return out
+
+
+def _port_adjustments(router, obj, raw, bridge_port, related):
+    current = _latest_recipe_parameters(router, "port", obj.name)
+    bridge = str((bridge_port or {}).get("bridge") or "")
+    pvid = str((bridge_port or {}).get("pvid") or "1")
+
+    # These defaults come from the router inventory itself, not deployment history.
+    current["port_enabled"] = {
+        "enabled": "no" if obj.disabled else "yes",
+    }
+    if bridge:
+        current["bridge_member"] = {"bridge": bridge}
+        if pvid and pvid != "1":
+            current["access_vlan"] = {"bridge": bridge, "vlan": pvid}
+
+    trunk = []
+    for section in related:
+        if section.get("title") != "Bridge VLAN table":
+            continue
+        for row in section.get("rows") or []:
+            tagged = {
+                x.strip()
+                for x in str(row.get("tagged") or row.get("current-tagged") or "").split(",")
+                if x.strip()
+            }
+            if obj.name in tagged:
+                vlan = row.get("vlan-ids") or row.get("vlan_ids")
+                if vlan:
+                    trunk.extend(str(vlan).split(","))
+    if trunk:
+        current["trunk_vlan"] = {
+            "bridge": bridge or "bridge1",
+            "vlans": ",".join(dict.fromkeys(x.strip() for x in trunk if x.strip())),
+        }
+
+    return [
+        {
+            "recipe": key,
+            "label": CATALOG[key]["label"],
+            "risk": CATALOG[key]["risk"],
+            "parameters": current.get(key, {}),
+        }
+        for key in ("port_enabled", "bridge_member", "access_vlan", "trunk_vlan", "wan_dhcp", "static_wan")
+    ]
+
+
+def _router_adjustments(router, snapshot):
+    current = _latest_recipe_parameters(router, "router", "")
+
+    identity_rows = _section_rows(snapshot, "identity")
+    if identity_rows:
+        name = identity_rows[0].get("name")
+        if name:
+            current["identity"] = {"identity": name}
+
+    dns_rows = _section_rows(snapshot, "dns")
+    if dns_rows:
+        row = dns_rows[0]
+        current["dns"] = {
+            "servers": row.get("servers", ""),
+            "allow_remote": "yes"
+            if str(row.get("allow-remote-requests", row.get("allow_remote_requests", ""))).lower()
+            in {"yes", "true", "1"}
+            else "no",
+        }
+
+    return [
+        {
+            "recipe": key,
+            "label": CATALOG[key]["label"],
+            "risk": CATALOG[key]["risk"],
+            "parameters": current.get(key, {}),
+        }
+        for key in ("identity", "dns", "ntp", "mgmt_firewall")
+    ]
+
+
+@login_required
+@require_POST
+def designer_refresh(request, pk):
+    """Refresh the configuration source used by the click inspector."""
+    router = _router(request, pk)
+    try:
+        from .linkops import uses_link
+        if uses_link(router):
+            from .linkops import refresh
+            created = refresh(router, request.user)
+            return JsonResponse(
+                {
+                    "success": True,
+                    "queued": True,
+                    "message": (
+                        "Collecting the latest configuration through TapTap Link. "
+                        "The inspector will update as the router sends the sections."
+                        if created
+                        else "A TapTap Link configuration collection is already running."
+                    ),
+                }
+            )
+
+        from .mikrotik import MikroTikService
+        from .models import RouterConfigSnapshot
+
+        svc = MikroTikService(router).connect()
+        try:
+            cfg = svc.configuration_snapshot()
+        finally:
+            svc.close()
+
+        snapshot, _ = RouterConfigSnapshot.objects.update_or_create(
+            router=router,
+            defaults={
+                "sections": cfg["sections"],
+                "load_balancing": cfg["load_balancing"],
+                "captured_at": cfg["captured_at"],
+            },
+        )
+        return JsonResponse(
+            {
+                "success": True,
+                "queued": False,
+                "message": "Current RouterOS configuration refreshed.",
+                "captured_at": snapshot.captured_at.isoformat(),
+            }
+        )
+    except Exception as exc:
+        return JsonResponse(
+            {"success": False, "message": str(exc)[:300]},
+            status=502,
+        )
+
+
+@login_required
+@require_GET
+def designer_inspect(request, pk):
+    """Click a port/router and see the latest captured configuration + editable recipes."""
+    router = _router(request, pk)
+    scope = str(request.GET.get("scope") or "router")
+    target = str(request.GET.get("target") or "").strip()
+    snap = _snapshot(router)
+    captured_at = getattr(snap, "captured_at", None)
+
+    if scope == "port":
+        if not target:
+            return JsonResponse({"success": False, "message": "Choose a port."}, status=400)
+        obj = router.interfaces.filter(name=target).first()
+        if not obj:
+            return JsonResponse(
+                {"success": False, "message": f"{target} has not been discovered. Run Full Sync first."},
+                status=404,
+            )
+        raw = obj.raw_data or {}
+        iface = _clean_row({k: v for k, v in raw.items() if k not in {"ethernet", "bridge_port"}})
+        ethernet = _clean_row(raw.get("ethernet") or {})
+        bridge_port = _clean_row(raw.get("bridge_port") or {})
+
+        try:
+            from .views_ports import _related_config
+            related = _related_config(snap, target, bridge_port.get("bridge", ""))
+        except Exception:
+            related = []
+
+        sections = []
+        for title, rows in (
+            ("Interface", [iface]),
+            ("Ethernet", [ethernet] if ethernet else []),
+            ("Bridge port", [bridge_port] if bridge_port else []),
+        ):
+            if rows:
+                sections.append({"title": title, "rows": _redact(rows)})
+        sections.extend(_redact(related))
+
+        risk, risk_text = _port_link_risk(router, target)
+        return JsonResponse(
+            {
+                "success": True,
+                "scope": "port",
+                "target": target,
+                "title": target,
+                "source": "Latest TapTap router inventory / configuration snapshot",
+                "captured_at": captured_at.isoformat() if captured_at else None,
+                "summary": {
+                    "type": obj.interface_type,
+                    "mac": obj.mac_address,
+                    "mtu": obj.mtu,
+                    "running": obj.running,
+                    "disabled": obj.disabled,
+                    "bridge": bridge_port.get("bridge", ""),
+                    "pvid": bridge_port.get("pvid", ""),
+                },
+                "sections": sections,
+                "adjustments": _port_adjustments(router, obj, raw, bridge_port, related),
+                "link": {
+                    **_link_live_state(router),
+                    "target_risk": risk,
+                    "target_warning": risk_text,
+                },
+            }
+        )
+
+    # Whole-router inspector. Show a bounded but broad current snapshot.
+    sections = []
+    if snap and snap.sections:
+        for label, section in snap.sections.items():
+            rows = list((section or {}).get("rows") or [])
+            count = int((section or {}).get("count") or len(rows))
+            sections.append(
+                {
+                    "title": str(label),
+                    "count": count,
+                    "rows": _redact([_clean_row(row) for row in rows[:12]]),
+                    "truncated": count > 12,
+                    "path": (section or {}).get("path", ""),
+                }
+            )
+
+    return JsonResponse(
+        {
+            "success": True,
+            "scope": "router",
+            "target": "",
+            "title": router.name,
+            "source": "Latest TapTap configuration snapshot",
+            "captured_at": captured_at.isoformat() if captured_at else None,
+            "summary": {
+                "status": router.status,
+                "connection_mode": router.connection_mode,
+                "ip_address": router.ip_address,
+                "api_port": router.api_port,
+                "interfaces": router.interfaces.count(),
+            },
+            "sections": sections,
+            "adjustments": _router_adjustments(router, snap),
+            "link": _link_live_state(router),
+        }
+    )
+
+
+def _backup_before_change(router, user):
+    """Create/queue the existing TapTap full backup before a risky visual change."""
+    from .linkops import uses_link
+    if uses_link(router):
+        from . import agent
+        stamp = timezone.localtime().strftime("%Y%m%d-%H%M%S")
+        safe = re.sub(r"[^A-Za-z0-9_-]", "-", f"taptap-{router.name}-{stamp}")[:60]
+        cmd = agent.queue(
+            router,
+            "backup",
+            {"file": safe},
+            label="Pre-change full configuration backup",
+            user=user,
+            minutes=30,
+        )
+        return {
+            "transport": "TapTap Link",
+            "queued": True,
+            "message": "Full RouterOS backup/export queued before the configuration change.",
+            "command_id": cmd.pk,
+        }
+
+    from .mikrotik import MikroTikService
+    from .portctl import backup
+    svc = MikroTikService(router).connect()
+    try:
+        record = backup(svc, router, user=user)
+    finally:
+        svc.close()
+    return {
+        "transport": "TapTap Tunnel/API" if router.connection_mode == "agent" else "Direct API",
+        "queued": False,
+        "message": f"Full backup {record.name} created before the configuration change.",
+        "backup_id": record.pk,
+    }
+
+
+def _advanced_guard_wrapper(original):
+    @functools.wraps(original)
+    def guarded(request, pk, *args, **kwargs):
+        if request.method == "POST":
+            router = _router(request, pk)
+            impact = advanced_link_impact(router, request.POST.get("resource_path"))
+            if impact["affects"] and request.POST.get("link_confirm") != "LINK":
+                messages.error(
+                    request,
+                    "TapTap Link safety guard: this RouterOS area can affect TapTap connectivity. "
+                    "Review the warning and type LINK before applying it.",
+                )
+                return redirect("router_control", pk=pk)
+        return original(request, pk, *args, **kwargs)
+
+    guarded._taptap_link_guard = True
+    return guarded
+
+
+def _role_guard_wrapper(original):
+    @functools.wraps(original)
+    def guarded(request, pk, *args, **kwargs):
+        if request.method == "POST":
+            router = _router(request, pk)
+            interface = str(request.POST.get("interface_name") or "").strip()
+            role = str(request.POST.get("role") or "").strip()
+            applying = request.POST.get("apply") == "yes"
+            risk, risk_text = _port_link_risk(router, interface)
+            role_sensitive = role in {"wan", "disabled", "trunk"}
+
+            if (
+                _link_managed(router)
+                and applying
+                and (risk or role_sensitive)
+                and request.POST.get("link_confirm") != "LINK"
+            ):
+                reasons = []
+                if risk_text:
+                    reasons.append(risk_text)
+                if role_sensitive:
+                    reasons.append(
+                        f"Changing {interface} to the {role} role can change bridge/WAN behavior "
+                        "and may interrupt the path used by TapTap Link."
+                    )
+                return JsonResponse(
+                    {
+                        "success": False,
+                        "needs_link_confirm": True,
+                        "message": " ".join(reasons),
+                        "confirm_word": "LINK",
+                    },
+                    status=409,
+                )
+        return original(request, pk, *args, **kwargs)
+
+    guarded._taptap_link_role_guard = True
+    return guarded
+
+
+def _install_advanced_guard():
+    """Protect existing expert editor and Port Role Studio as well."""
+    from . import urls
+
+    for index, pattern_obj in enumerate(list(urls.urlpatterns)):
+        name = getattr(pattern_obj, "name", None)
+
+        if name == "router_config_apply":
+            original = pattern_obj.callback
+            if not getattr(original, "_taptap_link_guard", False):
+                urls.urlpatterns[index] = path(
+                    "routers/<int:pk>/control/apply/",
+                    _advanced_guard_wrapper(original),
+                    name="router_config_apply",
+                )
+
+        elif name == "router_interface_role":
+            original = pattern_obj.callback
+            if not getattr(original, "_taptap_link_role_guard", False):
+                urls.urlpatterns[index] = path(
+                    "routers/<int:pk>/control/interface-role/",
+                    _role_guard_wrapper(original),
+                    name="router_interface_role",
+                )
+
+
 def _serialize_catalog():
     return [{"key": key, **meta} for key, meta in CATALOG.items()]
 
@@ -513,10 +1174,12 @@ def designer_preview(request, pk):
         params = data.get("parameters") or {}
         meta = CATALOG[recipe]
         plan = build_plan(recipe, target, params)
+        impact = link_impact(router, recipe, target, params, plan)
         return JsonResponse({
             "success": True,
             "recipe": recipe, "label": meta["label"], "risk": meta["risk"],
             "scope": meta["scope"], "target": target, "plan": plan,
+            "link_impact": impact,
         })
     except Exception as exc:
         return JsonResponse({"success": False, "message": str(exc)}, status=400)
@@ -535,6 +1198,16 @@ def designer_apply(request, pk):
         if meta["risk"] == "high" and str(data.get("confirm") or "") != "APPLY":
             raise ValueError("High-risk configuration requires typing APPLY.")
         plan = build_plan(recipe, target, params)
+        impact = link_impact(router, recipe, target, params, plan)
+        if impact["affects"] and str(data.get("link_confirm") or "") != "LINK":
+            raise ValueError(
+                "TapTap Link safety guard: this change can affect TapTap connectivity. "
+                "Review the warning and type LINK to confirm."
+            )
+
+        backup_result = None
+        if bool(data.get("backup_before")):
+            backup_result = _backup_before_change(router, request.user)
 
         d = RouterVisualDeployment.objects.create(
             business=router.business, router=router, actor=request.user,
@@ -553,7 +1226,7 @@ def designer_apply(request, pk):
             d.transport = "TapTap Link"
             d.agent_command_id = cmd.pk
             d.save(update_fields=["status","transport","agent_command_id"])
-            return JsonResponse({"success": True, "queued": True, "deployment_id": d.pk})
+            return JsonResponse({"success": True, "queued": True, "deployment_id": d.pk, "link_impact": impact, "backup": backup_result})
 
         from .mikrotik import MikroTikService
         svc = MikroTikService(router).connect()
@@ -573,7 +1246,7 @@ def designer_apply(request, pk):
         d.transport = "TapTap Tunnel/API" if router.connection_mode == "agent" else "Direct API"
         d.applied_at = timezone.now()
         d.save(update_fields=["after_state","status","transport","applied_at"])
-        return JsonResponse({"success": True, "queued": False, "deployment_id": d.pk})
+        return JsonResponse({"success": True, "queued": False, "deployment_id": d.pk, "link_impact": impact, "backup": backup_result})
     except Exception as exc:
         try:
             if "d" in locals():
@@ -681,6 +1354,8 @@ def _install_urls():
     if "control_designer_state" not in names:
         add.extend([
             path("routers/<int:pk>/control/designer/state/", designer_state, name="control_designer_state"),
+            path("routers/<int:pk>/control/designer/refresh/", designer_refresh, name="control_designer_refresh"),
+            path("routers/<int:pk>/control/designer/inspect/", designer_inspect, name="control_designer_inspect"),
             path("routers/<int:pk>/control/designer/preview/", designer_preview, name="control_designer_preview"),
             path("routers/<int:pk>/control/designer/apply/", designer_apply, name="control_designer_apply"),
             path("routers/<int:pk>/control/designer/<int:deployment_id>/rollback/", designer_rollback, name="control_designer_rollback"),
@@ -689,5 +1364,17 @@ def _install_urls():
 
 
 def install():
+    from . import permissions
+    for name in (
+        "control_designer_state",
+        "control_designer_refresh",
+        "control_designer_inspect",
+        "control_designer_preview",
+        "control_designer_apply",
+        "control_designer_rollback",
+    ):
+        permissions.URL_PERMS[name] = "network.manage"
+
     _install_agent()
     _install_urls()
+    _install_advanced_guard()

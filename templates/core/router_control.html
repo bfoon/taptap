@@ -18,6 +18,8 @@
   <div class="d-flex gap-2 flex-wrap">
     <form method="post" action="{% url 'router_sync' router.id %}">{% csrf_token %}<button class="btn btn-primary"><i class="bi bi-arrow-repeat"></i> Full Sync</button></form>
     <form method="post" action="{% url 'router_config_refresh' router.id %}">{% csrf_token %}<button class="btn btn-outline-primary"><i class="bi bi-download"></i> Refresh Config</button></form>
+    <button class="btn btn-outline-success" type="button" id="backupFullBtn"><i class="bi bi-cloud-arrow-down"></i> Back up full configuration</button>
+    <button class="btn btn-outline-secondary" type="button" id="backupHistoryBtn"><i class="bi bi-archive"></i> Backups</button>
     <a class="btn btn-outline-secondary" href="{% url 'topology' %}"><i class="bi bi-diagram-3"></i> Topology</a>
   </div>
 </div>
@@ -52,7 +54,7 @@
     <div class="router-stage">
       <div class="stage-grid"></div>
       <div class="mikrotik-shell router-dropzone" data-scope="router" data-target="">
-        <div class="router-topline">
+        <div class="router-topline router-inspect-trigger" role="button" tabindex="0" title="Click to inspect current router configuration">
           <div>
             <span class="router-brand">MikroTik</span>
             <b>{{ router.name }}</b>
@@ -65,7 +67,7 @@
         </div>
 
         <div class="router-board">
-          <div class="router-cpu">
+          <div class="router-cpu router-inspect-trigger" role="button" tabindex="0" title="Click to inspect current router configuration">
             <i class="bi bi-cpu"></i>
             <b>RouterOS</b>
             <small>Drop router-wide configuration here</small>
@@ -74,7 +76,7 @@
           <div class="port-bank">
             {% for iface in interfaces %}
             <div class="designer-port {% if iface.running and not iface.disabled %}link-up{% endif %} {% if iface.disabled %}port-disabled{% endif %}"
-                 data-scope="port" data-target="{{ iface.name }}" title="{{ iface.name }}">
+                 data-scope="port" data-target="{{ iface.name }}" title="Click {{ iface.name }} to inspect current configuration" role="button" tabindex="0">
               <div class="port-jack">
                 <span></span><span></span><span></span><span></span>
               </div>
@@ -100,7 +102,7 @@
 
       <div id="dropHint" class="drop-hint">
         <i class="bi bi-hand-index-thumb"></i>
-        Drag a block from the left and drop it on a compatible target.
+        Drag a block onto a target, or click the router/port to inspect and adjust its current configuration.
       </div>
     </div>
   </div>
@@ -172,6 +174,15 @@
   <div class="advanced-change mt-4">
     <div class="advanced-warning"><i class="bi bi-shield-exclamation"></i><div><b>Raw advanced change review</b><span>For configuration not covered by a drag-and-drop tile. A bad route/firewall/interface change can disconnect the router.</span></div></div>
     <form method="post" action="{% url 'router_config_apply' router.id %}" id="advancedForm">{% csrf_token %}
+      <div id="advancedLinkWarning" class="link-safety-warning d-none mb-3">
+        <div class="link-warning-icon"><i class="bi bi-exclamation-triangle-fill"></i></div>
+        <div class="flex-grow-1">
+          <b>This RouterOS area can affect TapTap Link</b>
+          <p id="advancedLinkReason" class="mb-2"></p>
+          <label class="small fw-bold">Type LINK to confirm you understand the connectivity risk</label>
+          <input class="form-control form-control-sm" name="link_confirm" id="advancedLinkConfirm" placeholder="LINK" autocomplete="off">
+        </div>
+      </div>
       <div class="row g-3">
         <div class="col-lg-4"><label>Resource path</label><input class="form-control" name="resource_path" id="changePath" placeholder="/ip/firewall/nat" required></div>
         <div class="col-lg-2"><label>Operation</label><select class="form-select" name="operation"><option value="add">Add</option><option value="set">Set</option><option value="remove">Remove</option></select></div>
@@ -203,6 +214,63 @@
   </div>
 </div>
 
+
+<div class="modal fade" id="configInspectorModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content inspector-modal">
+      <div class="modal-header">
+        <div>
+          <span class="inspector-kicker">CURRENT CONFIGURATION</span>
+          <h5 class="modal-title" id="inspectorTitle">Router configuration</h5>
+          <small id="inspectorSource" class="text-secondary"></small>
+        </div>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="inspectorLinkState"></div>
+        <div id="inspectorSummary" class="inspector-summary"></div>
+
+        <div class="inspector-actions-head mt-4">
+          <div><b>Adjust supported parameters</b><small>TapTap pre-fills values it can read from the current router inventory.</small></div>
+        </div>
+        <div id="inspectorAdjustments" class="inspector-adjustments"></div>
+
+        <div class="inspector-actions-head mt-4">
+          <div><b>Current RouterOS configuration</b><small>Latest captured configuration related to this target.</small></div>
+          <button class="btn btn-sm btn-outline-primary" type="button" id="inspectorRefreshBtn"><i class="bi bi-arrow-repeat"></i> Refresh from router</button>
+        </div>
+        <div id="inspectorSections" class="inspector-sections"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-success me-auto" type="button" id="inspectorBackupBtn"><i class="bi bi-cloud-arrow-down"></i> Back up full configuration</button>
+        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="backupModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div><span class="inspector-kicker">ROUTEROS BACKUPS</span><h5 class="modal-title">Full configuration backups</h5><small class="text-secondary">Binary .backup plus text .rsc export where RouterOS/API permits it.</small></div>
+        <button class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="backup-toolbar">
+          <button class="btn btn-success" type="button" id="backupNowInModal"><i class="bi bi-cloud-arrow-down"></i> Back up now</button>
+          <label class="form-check form-switch ms-auto mb-0">
+            <input class="form-check-input" type="checkbox" id="autoBackupToggle">
+            <span class="form-check-label">Nightly automatic backup</span>
+          </label>
+        </div>
+        <div id="backupStatus" class="small text-secondary mt-2"></div>
+        <div id="backupList" class="backup-list mt-3"><div class="designer-loading"><span></span><span></span><span></span></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="designerModal" tabindex="-1">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <div class="modal-content designer-modal">
@@ -216,6 +284,20 @@
         <div class="plan-preview mt-4">
           <div class="d-flex justify-content-between align-items-center mb-2"><b>RouterOS change plan</b><button type="button" class="btn btn-sm btn-outline-secondary" id="previewBtn">Refresh preview</button></div>
           <div id="planPreview"><div class="empty-mini">Complete the parameters to preview.</div></div>
+        </div>
+        <div id="linkSafetyWarning" class="link-safety-warning mt-3 d-none">
+          <div class="link-warning-icon"><i class="bi bi-exclamation-triangle-fill"></i></div>
+          <div class="flex-grow-1">
+            <b>TapTap Link safety warning</b>
+            <ul id="linkSafetyReasons" class="mb-2"></ul>
+            <label class="small fw-bold">Type LINK to acknowledge this warning</label>
+            <input id="linkConfirm" class="form-control" placeholder="LINK" autocomplete="off">
+          </div>
+        </div>
+        <div class="form-check form-switch mt-3 backup-before-wrap">
+          <input class="form-check-input" type="checkbox" id="backupBeforeApply">
+          <label class="form-check-label" for="backupBeforeApply"><b>Back up the full router configuration before applying this change</b></label>
+          <div class="form-text">Creates/queues the existing RouterOS .backup and text export before the configuration is applied.</div>
         </div>
         <div id="highRiskConfirm" class="high-risk-confirm mt-3 d-none">
           <label>High-risk confirmation</label>
@@ -240,10 +322,17 @@
   const roleUrl="{% url 'router_interface_role' router.id %}";
   const resourceUrl="{% url 'router_resource_api' router.id %}";
   const stateUrl="{% url 'control_designer_state' router.id %}";
+  const inspectUrl="{% url 'control_designer_inspect' router.id %}";
+  const designerRefreshUrl="{% url 'control_designer_refresh' router.id %}";
   const previewUrl="{% url 'control_designer_preview' router.id %}";
   const applyUrl="{% url 'control_designer_apply' router.id %}";
-  let designerState={catalog:[],history:[],active:[]}, current=null;
+  const backupUrl="{% url 'router_backups' router.id %}";
+  const backupDownloadTemplate="{% url 'router_backup_download' router.id 999999 %}";
+  const linkManaged={% if router.connection_mode == 'agent' %}true{% else %}false{% endif %};
+  let designerState={catalog:[],history:[],active:[]}, current=null, inspectorCurrent=null;
   const modal=new bootstrap.Modal(document.getElementById('designerModal'));
+  const inspectorModal=new bootstrap.Modal(document.getElementById('configInspectorModal'));
+  const backupModal=new bootstrap.Modal(document.getElementById('backupModal'));
 
   function esc(s){return String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));}
   function postJson(url,data){return fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRFToken':csrf},body:JSON.stringify(data)}).then(async r=>{const j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'Request failed');return j;});}
@@ -303,21 +392,26 @@
     });
   });
 
-  function openRecipe(meta,target){
-    current={meta,target,parameters:{}};
+  function openRecipe(meta,target,preset={}){
+    current={meta,target,parameters:{...preset}};
     document.getElementById('modalTitle').textContent=meta.label;
     document.getElementById('modalTarget').textContent=meta.scope==='port'?'Target port: '+target:'Target: whole router';
     document.getElementById('modalSummary').textContent=meta.summary;
     const risk=document.getElementById('modalRisk');risk.textContent=riskLabel(meta.risk);risk.className='risk-chip risk-'+meta.risk;
     document.getElementById('highRiskConfirm').classList.toggle('d-none',meta.risk!=='high');
     document.getElementById('confirmApply').value='';
+    document.getElementById('linkConfirm').value='';
+    document.getElementById('linkSafetyWarning').classList.add('d-none');
+    document.getElementById('linkSafetyReasons').innerHTML='';
+    document.getElementById('backupBeforeApply').checked=(meta.risk==='high');
     const host=document.getElementById('parameterFields');
     host.innerHTML=(meta.fields||[]).map(f=>{
       let input='';
+      const value=(preset[f.name]!==undefined && preset[f.name]!==null)?preset[f.name]:(f.default||'');
       if(f.type==='select'){
-        input=`<select class="form-select recipe-param" data-name="${esc(f.name)}">${(f.options||[]).map(o=>`<option value="${esc(o[0])}" ${String(o[0])===String(f.default)?'selected':''}>${esc(o[1])}</option>`).join('')}</select>`;
+        input=`<select class="form-select recipe-param" data-name="${esc(f.name)}">${(f.options||[]).map(o=>`<option value="${esc(o[0])}" ${String(o[0])===String(value)?'selected':''}>${esc(o[1])}</option>`).join('')}</select>`;
       }else{
-        input=`<input class="form-control recipe-param" data-name="${esc(f.name)}" type="${f.type==='number'?'number':'text'}" value="${esc(f.default||'')}">`;
+        input=`<input class="form-control recipe-param" data-name="${esc(f.name)}" type="${f.type==='number'?'number':'text'}" value="${esc(value)}">`;
       }
       return `<div class="col-md-6"><label>${esc(f.label)}</label>${input}</div>`;
     }).join('') || '<div class="col-12"><div class="empty-mini">No extra parameters needed.</div></div>';
@@ -336,6 +430,18 @@
     try{
       const data=await postJson(previewUrl,{recipe:current.meta.key,target:current.target,parameters:current.parameters});
       current.plan=data.plan;
+      current.linkImpact=data.link_impact||{affects:false,reasons:[]};
+      const linkBox=document.getElementById('linkSafetyWarning');
+      const linkReasons=document.getElementById('linkSafetyReasons');
+      if(current.linkImpact.affects){
+        linkBox.classList.remove('d-none');
+        linkBox.classList.toggle('critical',current.linkImpact.severity==='critical');
+        linkReasons.innerHTML=(current.linkImpact.reasons||[]).map(r=>`<li>${esc(r)}</li>`).join('');
+        document.getElementById('backupBeforeApply').checked=true;
+      }else{
+        linkBox.classList.add('d-none');
+        linkReasons.innerHTML='';
+      }
       host.innerHTML=data.plan.map((op,i)=>`
         <div class="plan-row">
           <span>${i+1}</span><div><b>${esc(op.label)}</b><small>${esc(op.action)} • ${esc(op.resource)}</small>
@@ -350,11 +456,15 @@
     try{
       const data=await postJson(applyUrl,{
         recipe:current.meta.key,target:current.target,parameters:collectParams(),
-        confirm:document.getElementById('confirmApply').value
+        confirm:document.getElementById('confirmApply').value,
+        link_confirm:document.getElementById('linkConfirm').value,
+        backup_before:document.getElementById('backupBeforeApply').checked
       });
       modal.hide();
       animateTarget(current.meta.scope,current.target,data.queued);
-      showToast(data.queued?'Configuration queued through TapTap Link.':'Configuration applied successfully.','success');
+      let msg=data.queued?'Configuration queued through TapTap Link.':'Configuration applied successfully.';
+      if(data.backup&&data.backup.message) msg=data.backup.message+' '+msg;
+      showToast(msg,'success');
       setTimeout(loadDesigner,data.queued?1000:500);
     }catch(e){showToast(e.message,'danger');}
     finally{btn.disabled=false;btn.innerHTML='<i class="bi bi-check2-circle"></i> Apply configuration';}
@@ -431,7 +541,20 @@
       fd.append('apply',document.getElementById('applyRouterOS').checked?'yes':'no');fd.append('bridge_name',document.getElementById('studioBridge').value);
       if(zone.dataset.role==='wan')fd.append('remove_from_bridge','yes');
       zone.classList.add('saving');
-      try{await fetch(roleUrl,{method:'POST',body:fd,credentials:'same-origin'});location.reload();}catch(err){zone.classList.remove('saving');alert('Could not apply port role: '+err);}
+      async function sendRole(confirmWord=''){
+        if(confirmWord)fd.set('link_confirm',confirmWord);
+        const res=await fetch(roleUrl,{method:'POST',body:fd,credentials:'same-origin'});
+        if(res.status===409){
+          const data=await res.json().catch(()=>({}));
+          zone.classList.remove('saving');
+          const word=window.prompt((data.message||'This role change can affect TapTap Link.')+'\n\nType LINK to continue:');
+          if(word==='LINK'){zone.classList.add('saving');return sendRole('LINK');}
+          return;
+        }
+        if(!res.ok)throw new Error('Router rejected the role change.');
+        location.reload();
+      }
+      try{await sendRole();}catch(err){zone.classList.remove('saving');alert('Could not apply port role: '+err.message);}
     });
   });
 
@@ -449,6 +572,172 @@
   function formatValue(v){if(v===null||v===undefined)return '';if(typeof v==='object')return JSON.stringify(v);const s=String(v);return s.length>70?s.slice(0,67)+'…':s;}
   document.getElementById('loadResource').addEventListener('click',()=>loadResource(document.getElementById('customResource').value.trim()||document.getElementById('resourceSelect').value));
   document.querySelectorAll('.snapshot-load').forEach(btn=>btn.addEventListener('click',()=>{document.getElementById('resourceSelect').value=btn.dataset.path;loadResource(btn.dataset.path);document.getElementById('resourceTable').scrollIntoView({behavior:'smooth',block:'center'});}));
+
+
+  // ───────────────────── Click-to-inspect current configuration ─────────────────────
+  async function openInspector(scope,target=''){
+    inspectorCurrent={scope,target};
+    const title=document.getElementById('inspectorTitle');
+    const sections=document.getElementById('inspectorSections');
+    title.textContent=scope==='port'?(target+' configuration'):'{{ router.name }} configuration';
+    document.getElementById('inspectorSource').textContent='Loading current TapTap snapshot…';
+    document.getElementById('inspectorSummary').innerHTML='<div class="designer-loading"><span></span><span></span><span></span></div>';
+    document.getElementById('inspectorAdjustments').innerHTML='';
+    sections.innerHTML='';
+    inspectorModal.show();
+    try{
+      const url=inspectUrl+'?scope='+encodeURIComponent(scope)+'&target='+encodeURIComponent(target);
+      const r=await fetch(url,{credentials:'same-origin',cache:'no-store'}), data=await r.json();
+      if(!r.ok||!data.success)throw new Error(data.message||'Could not read configuration.');
+      inspectorCurrent={scope,target,data};
+      title.textContent=data.scope==='port'?(data.target+' configuration'):data.title;
+      document.getElementById('inspectorSource').textContent=(data.source||'Current configuration')+(data.captured_at?' • captured '+new Date(data.captured_at).toLocaleString():' • no saved snapshot time');
+
+      const link=data.link||{};
+      const linkHost=document.getElementById('inspectorLinkState');
+      const targetWarn=link.target_warning||'';
+      linkHost.innerHTML=link.managed?`
+        <div class="inspector-link ${targetWarn?'danger':'safe'}">
+          <span class="inspector-link-icon"><i class="bi ${targetWarn?'bi-exclamation-triangle-fill':'bi-shield-check'}"></i></span>
+          <div><b>${esc(link.mode||'TapTap Link')}</b><small>${esc(targetWarn||link.message||'TapTap management path detected.')}</small></div>
+        </div>`:'';
+
+      document.getElementById('inspectorSummary').innerHTML=Object.entries(data.summary||{}).map(([k,v])=>`
+        <div><small>${esc(k.replaceAll('_',' '))}</small><b>${esc(v===true?'Yes':v===false?'No':(v??'—'))}</b></div>`).join('');
+
+      document.getElementById('inspectorAdjustments').innerHTML=(data.adjustments||[]).map((a,i)=>`
+        <button type="button" class="adjust-card" data-adjust="${i}">
+          <span><i class="bi bi-sliders"></i></span>
+          <div><b>${esc(a.label)}</b><small>${Object.keys(a.parameters||{}).length?'Current: '+esc(Object.entries(a.parameters).map(([k,v])=>k+'='+v).join(' • ')):'Open parameters'}</small></div>
+          <i class="bi bi-chevron-right"></i>
+        </button>`).join('')||'<div class="empty-mini">No controlled adjustment blocks are available for this target yet.</div>';
+      document.querySelectorAll('[data-adjust]').forEach(btn=>btn.addEventListener('click',()=>{
+        const adj=data.adjustments[Number(btn.dataset.adjust)];
+        const meta=designerState.catalog.find(x=>x.key===adj.recipe);if(!meta)return;
+        inspectorModal.hide();
+        setTimeout(()=>openRecipe(meta,data.scope==='port'?data.target:'',adj.parameters||{}),180);
+      }));
+
+      sections.innerHTML=(data.sections||[]).map((section,idx)=>`
+        <details class="config-detail" ${idx<3?'open':''}>
+          <summary><span>${esc(section.title)}</span><small>${section.count!==undefined?esc(section.count)+' item(s)':esc((section.rows||[]).length)+' row(s)'} ${section.truncated?'• showing first 12':''}</small></summary>
+          <div class="config-detail-body">${renderConfigRows(section.rows||[])}</div>
+        </details>`).join('')||'<div class="empty-mini">No captured configuration exists yet. Use Refresh Config / Full Sync first.</div>';
+    }catch(e){
+      document.getElementById('inspectorSummary').innerHTML='<div class="alert alert-warning">'+esc(e.message)+'</div>';
+    }
+  }
+
+  function renderConfigRows(rows){
+    if(!rows.length)return '<div class="empty-mini">No matching RouterOS rows.</div>';
+    return rows.map(row=>`<div class="config-kv-grid">${Object.entries(row||{}).map(([k,v])=>`
+      <div><small>${esc(k)}</small><code>${esc(typeof v==='object'?JSON.stringify(v):v)}</code></div>`).join('')}</div>`).join('');
+  }
+
+  let dragRecently=false;
+  document.addEventListener('dragstart',()=>{dragRecently=true;});
+  document.addEventListener('dragend',()=>setTimeout(()=>{dragRecently=false;},120));
+  document.querySelectorAll('.designer-port').forEach(port=>{
+    port.addEventListener('click',e=>{if(!dragRecently)openInspector('port',port.dataset.target);});
+    port.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openInspector('port',port.dataset.target);}});
+  });
+  document.querySelectorAll('.router-inspect-trigger').forEach(node=>{
+    node.addEventListener('click',e=>{if(e.target.closest('.designer-port'))return;if(!dragRecently)openInspector('router','');});
+    node.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openInspector('router','');}});
+  });
+  document.getElementById('inspectorRefreshBtn').addEventListener('click',async e=>{
+    if(!inspectorCurrent)return;
+    const btn=e.currentTarget;btn.disabled=true;btn.innerHTML='<span class="spinner-border spinner-border-sm"></span> Refreshing…';
+    try{
+      const data=await postJson(designerRefreshUrl,{});
+      showToast(data.message||'Configuration refresh started.','success');
+      if(data.queued){
+        setTimeout(()=>openInspector(inspectorCurrent.scope,inspectorCurrent.target),2500);
+      }else{
+        await openInspector(inspectorCurrent.scope,inspectorCurrent.target);
+      }
+    }catch(err){showToast(err.message,'danger');}
+    finally{btn.disabled=false;btn.innerHTML='<i class="bi bi-arrow-repeat"></i> Refresh from router';}
+  });
+
+  // ───────────────────────── Full configuration backups ─────────────────────────
+  async function backupNow(button=null){
+    if(!window.confirm('Create a full RouterOS configuration backup now?'))return;
+    if(button)button.disabled=true;
+    try{
+      const fd=new FormData();fd.append('csrfmiddlewaretoken',csrf);fd.append('action','backup');
+      const r=await fetch(backupUrl,{method:'POST',body:fd,credentials:'same-origin'});
+      const data=await r.json();
+      if(!r.ok||!data.ok)throw new Error(data.message||'Backup failed.');
+      showToast(data.message||'Backup created.','success');
+      if(document.getElementById('backupModal').classList.contains('show'))await loadBackups();
+    }catch(e){showToast(e.message,'danger');}
+    finally{if(button)button.disabled=false;}
+  }
+
+  async function loadBackups(){
+    const host=document.getElementById('backupList'),status=document.getElementById('backupStatus');
+    host.innerHTML='<div class="designer-loading"><span></span><span></span><span></span></div>';
+    try{
+      const r=await fetch(backupUrl,{credentials:'same-origin',cache:'no-store'}),data=await r.json();
+      if(!r.ok||!data.ok)throw new Error(data.message||'Could not load backups.');
+      document.getElementById('autoBackupToggle').checked=!!data.auto_backup;
+      status.textContent=(data.items||[]).length+' saved backup record(s). TapTap keeps the newest 30 per router.';
+      host.innerHTML=(data.items||[]).map(b=>{
+        const dl=b.downloadable?backupDownloadTemplate.replace('999999',String(b.id)):'';
+        return `<div class="backup-item">
+          <div class="backup-icon"><i class="bi bi-file-earmark-zip"></i></div>
+          <div class="flex-grow-1"><b>${esc(b.name)}</b><small>${new Date(b.at).toLocaleString()} • RouterOS ${esc(b.version||'—')} ${b.automatic?'• automatic':''}</small>
+          <div class="backup-files">${b.backup_file?'<span>'+esc(b.backup_file)+'</span>':''}${b.export_file?'<span>'+esc(b.export_file)+'</span>':''}</div>${b.error?'<em>'+esc(b.error)+'</em>':''}</div>
+          ${dl?`<a class="btn btn-sm btn-outline-primary" href="${dl}"><i class="bi bi-download"></i> .rsc</a>`:'<span class="small text-secondary">Files on router</span>'}
+        </div>`;
+      }).join('')||'<div class="empty-mini">No backup records yet. Create one now.</div>';
+    }catch(e){host.innerHTML='<div class="alert alert-warning">'+esc(e.message)+'</div>';}
+  }
+
+  document.getElementById('backupFullBtn').addEventListener('click',e=>backupNow(e.currentTarget));
+  document.getElementById('inspectorBackupBtn').addEventListener('click',e=>backupNow(e.currentTarget));
+  document.getElementById('backupHistoryBtn').addEventListener('click',()=>{backupModal.show();loadBackups();});
+  document.getElementById('backupNowInModal').addEventListener('click',e=>backupNow(e.currentTarget));
+  document.getElementById('autoBackupToggle').addEventListener('change',async e=>{
+    const fd=new FormData();fd.append('csrfmiddlewaretoken',csrf);fd.append('action','auto');fd.append('on',e.target.checked?'1':'0');
+    try{
+      const r=await fetch(backupUrl,{method:'POST',body:fd,credentials:'same-origin'}),data=await r.json();
+      if(!r.ok||!data.ok)throw new Error(data.message||'Could not change automatic backup.');
+      showToast(data.message,'success');
+    }catch(err){e.target.checked=!e.target.checked;showToast(err.message,'danger');}
+  });
+
+  // ─────────────────── Link safety for raw Advanced RouterOS editor ───────────────────
+  const advancedSensitive=[
+    '/ip/route','/ip/dns','/ip/address','/ip/dhcp-client','/ip/firewall',
+    '/interface','/routing','/system/script','/system/scheduler','/system/clock',
+    '/system/ntp','/ip/service','/tool/netwatch'
+  ];
+  function updateAdvancedLinkWarning(){
+    const box=document.getElementById('advancedLinkWarning');
+    if(!linkManaged){box.classList.add('d-none');return;}
+    const value=(document.getElementById('changePath').value||'').trim().toLowerCase().replace(/\/$/,'');
+    const hit=advancedSensitive.find(p=>value===p||value.startsWith(p+'/'));
+    if(!hit){box.classList.add('d-none');document.getElementById('advancedLinkConfirm').value='';return;}
+    let reason='This RouterOS area can change the network or management path used by TapTap Link/Tunnel.';
+    if(value.startsWith('/system/script'))reason='TapTap Link itself is a RouterOS script. A script change can stop check-ins.';
+    else if(value.startsWith('/system/scheduler'))reason='TapTap Link uses the RouterOS scheduler. A scheduler change can stop recurring check-ins.';
+    else if(value.startsWith('/ip/dns'))reason='TapTap Link resolves the TapTap hostname over HTTPS. Wrong DNS can stop Link.';
+    else if(value.startsWith('/ip/route')||value.startsWith('/ip/dhcp-client'))reason='This can change the Internet/default route that carries TapTap Link.';
+    else if(value.startsWith('/ip/firewall'))reason='Firewall/NAT changes can block Link, Tunnel, DNS or management traffic.';
+    else if(value.startsWith('/interface/wireguard'))reason='WireGuard carries TapTap Tunnel. Changing it can remove the healthy tunnel.';
+    document.getElementById('advancedLinkReason').textContent=reason;
+    box.classList.remove('d-none');
+  }
+  document.getElementById('changePath').addEventListener('input',updateAdvancedLinkWarning);
+  document.getElementById('advancedForm').addEventListener('submit',e=>{
+    updateAdvancedLinkWarning();
+    if(!document.getElementById('advancedLinkWarning').classList.contains('d-none')&&document.getElementById('advancedLinkConfirm').value!=='LINK'){
+      e.preventDefault();showToast('Type LINK in the TapTap Link safety warning before applying this raw change.','warning');
+    }
+  });
+
 
   loadDesigner();
 })();
