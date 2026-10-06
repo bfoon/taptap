@@ -437,7 +437,7 @@ def permanent_device_action(request, pk):
                 messages.success(
                     request,
                     (
-                        f"{voucher.code}: permanent protection removed. "
+                        f"{voucher.code}: Permanent Pin removed. "
                         "The same device is still normally locked to the voucher; "
                         "use Reset devices only if you want to replace it."
                     ),
@@ -451,14 +451,14 @@ def permanent_device_action(request, pk):
                 messages.success(
                     request,
                     (
-                        f"{voucher.code}: {label} is now permanent. "
+                        f"{voucher.code}: {label} is now permanently pinned. "
                         "Other devices are refused and their attempts will not warn or freeze this voucher."
                     ),
                 )
             else:
                 messages.info(
                     request,
-                    f"{voucher.code}: {label} is already the permanent device.",
+                    f"{voucher.code}: {label} is already permanently pinned.",
                 )
     except ValueError as exc:
         messages.error(request, str(exc))
@@ -520,7 +520,7 @@ def _device_panel_html(request, voucher, binding, permanent):
         <div class="alert alert-success small mt-2 mb-2 py-2">
           <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between">
             <div>
-              <span class="badge text-bg-success me-1"><i class="bi bi-pin-angle-fill"></i> Permanent device</span>
+              <span class="badge text-bg-success me-1"><i class="bi bi-pin-angle-fill"></i> Permanent Pin</span>
               <b>{label}</b>{identity}
               <div class="mt-1">
                 Only this device can use the voucher. Other devices are rejected without
@@ -528,11 +528,11 @@ def _device_panel_html(request, voucher, binding, permanent):
               </div>
             </div>
             <form method="post" action="{action_url}" class="m-0"
-                  onsubmit="return confirm('Remove permanent protection from this voucher? The current device will remain normally locked until you reset it.');">
+                  onsubmit="return confirm('Remove the Permanent Pin from this voucher? The current device will remain normally locked until you reset it.');">
               {csrf}
               <input type="hidden" name="action" value="remove">
               <button class="btn btn-sm btn-outline-danger" type="submit">
-                <i class="bi bi-pin-angle"></i> Remove permanent
+                <i class="bi bi-pin-angle"></i> Remove Permanent Pin
               </button>
             </form>
           </div>
@@ -541,7 +541,7 @@ def _device_panel_html(request, voucher, binding, permanent):
         document.addEventListener('DOMContentLoaded', function(){{
           document.querySelectorAll('[data-bs-target="#resetModal"]').forEach(function(btn){{
             btn.disabled = true;
-            btn.title = 'Remove the permanent device lock first';
+            btn.title = 'Remove the Permanent Pin first';
           }});
         }});
         </script>
@@ -552,18 +552,18 @@ def _device_panel_html(request, voucher, binding, permanent):
       <div class="d-flex flex-wrap gap-2 align-items-center justify-content-between">
         <div>
           <i class="bi bi-pin-angle"></i>
-          <b>Make this device permanent?</b> {label}{identity}
+          <b>Permanently pin this device?</b> {label}{identity}
           <div class="text-secondary mt-1">
             For this single-device voucher, no other device will be allowed to take its place
             or trigger a shared-device warning/freeze until permanence is removed.
           </div>
         </div>
         <form method="post" action="{action_url}" class="m-0"
-              onsubmit="return confirm('Make this the permanent device for voucher {escape(voucher.code)}? Other devices will be refused until you remove the permanent lock.');">
+              onsubmit="return confirm('Permanently pin this device to voucher {escape(voucher.code)}? Other devices will be refused until you remove the Permanent Pin.');">
           {csrf}
           <input type="hidden" name="action" value="make">
           <button class="btn btn-sm btn-primary" type="submit">
-            <i class="bi bi-pin-angle-fill"></i> Make permanent
+            <i class="bi bi-pin-angle-fill"></i> Permanent Pin
           </button>
         </form>
       </div>
@@ -590,18 +590,57 @@ def _inject_voucher_ui(request, response):
     if "tt-permanent-device-control" in body:
         return response
 
-    marker = '<div class="panel-head"><div><h3><i class="bi bi-phone-vibrate"></i> Locked devices</h3>'
-    if marker not in body:
-        return response
-
     binding = voucher.device_bindings.order_by("slot_no", "pk").first()
-    permanent = bool(binding and PermanentVoucherDevice.objects.filter(binding=binding).exists())
+    permanent = bool(
+        binding
+        and PermanentVoucherDevice.objects.filter(binding=binding).exists()
+    )
     block = (
         '<div id="tt-permanent-device-control">'
         + _device_panel_html(request, voucher, binding, permanent)
         + "</div>"
     )
-    body = body.replace(marker, marker + block, 1)
+
+    # Current voucher layout (Oct 2026):
+    #   <div class="hd"><h3>... Locked devices</h3> ... Reset ... </div>
+    # Insert AFTER the heading row so the Permanent Pin panel spans the card
+    # width instead of being squeezed inside the header flex row.
+    current = re.search(
+        r'(<div class="hd">\s*<h3>\s*<i class="bi bi-phone-vibrate"></i>\s*'
+        r'Locked devices\s*</h3>.*?</div>)',
+        body,
+        flags=re.S,
+    )
+    if current:
+        pos = current.end()
+        body = body[:pos] + block + body[pos:]
+    else:
+        # Previous voucher layout kept for backward compatibility.
+        old_marker = (
+            '<div class="panel-head"><div><h3>'
+            '<i class="bi bi-phone-vibrate"></i> Locked devices</h3>'
+        )
+        if old_marker in body:
+            body = body.replace(old_marker, old_marker + block, 1)
+        else:
+            # Last-resort semantic fallback. This keeps the control visible
+            # after small HTML refactors as long as the Locked devices heading
+            # still exists.
+            heading = re.search(
+                r'(<h3[^>]*>\s*<i class="bi bi-phone-vibrate"></i>\s*'
+                r'Locked devices\s*</h3>)',
+                body,
+                flags=re.S,
+            )
+            if not heading:
+                logger.warning(
+                    "Permanent Pin UI not inserted: Locked devices heading "
+                    "was not found on voucher %s",
+                    voucher.pk,
+                )
+                return response
+            pos = heading.end()
+            body = body[:pos] + block + body[pos:]
 
     output = body.encode(response.charset or "utf-8")
     response.content = output
