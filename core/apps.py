@@ -53,6 +53,7 @@ class CoreConfig(AppConfig):
         _install_optional("link_sync_reliability")
         _install_optional("link_safe_command_compat")
         _install_optional("member_router_alignment")
+        _install_optional("member_time_stability")
         _install_optional("member_arrears")
         _install_optional("member_self_service")
         _install_optional("sticky_exclusions")
