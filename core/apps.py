@@ -37,6 +37,7 @@ class CoreConfig(AppConfig):
         importlib.import_module("core.models_collaboration_buy")
         importlib.import_module("core.models_roaming")
         importlib.import_module("core.models_control_designer")
+        importlib.import_module("core.models_backup_storage")
 
     def ready(self):
         from . import team  # noqa: F401
@@ -65,4 +66,5 @@ class CoreConfig(AppConfig):
         _install_optional("traffic_speed")
         _install_optional("free_access")
         _install_optional("control_designer")
+        _install_optional("backup_server")
         _install_optional("account_navigation")

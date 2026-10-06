@@ -253,7 +253,7 @@
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
       <div class="modal-header">
-        <div><span class="inspector-kicker">ROUTEROS BACKUPS</span><h5 class="modal-title">Full configuration backups</h5><small class="text-secondary">Binary .backup plus text .rsc export where RouterOS/API permits it.</small></div>
+        <div><span class="inspector-kicker">ROUTEROS BACKUPS</span><h5 class="modal-title">Full configuration backups</h5><small class="text-secondary">Binary .backup and text .rsc are copied into private persistent TapTap server storage.</small></div>
         <button class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
@@ -327,7 +327,6 @@
   const previewUrl="{% url 'control_designer_preview' router.id %}";
   const applyUrl="{% url 'control_designer_apply' router.id %}";
   const backupUrl="{% url 'router_backups' router.id %}";
-  const backupDownloadTemplate="{% url 'router_backup_download' router.id 999999 %}";
   const linkManaged={% if router.connection_mode == 'agent' %}true{% else %}false{% endif %};
   let designerState={catalog:[],history:[],active:[]}, current=null, inspectorCurrent=null;
   const modal=new bootstrap.Modal(document.getElementById('designerModal'));
@@ -661,16 +660,54 @@
   });
 
   // ───────────────────────── Full configuration backups ─────────────────────────
+  function fileSize(n){
+    n=Number(n||0);if(!n)return '';
+    if(n<1024)return n+' B';
+    if(n<1024*1024)return (n/1024).toFixed(1)+' KB';
+    return (n/(1024*1024)).toFixed(1)+' MB';
+  }
+
+  function backupState(b){
+    const state=b.server_status||'legacy';
+    if(state==='ready')return {cls:'server-ready',icon:'bi-cloud-check-fill',label:'Saved on server'};
+    if(state==='uploading')return {cls:'server-copying',icon:'bi-cloud-arrow-up-fill',label:'Copying to server…'};
+    if(state==='queued')return {cls:'server-copying',icon:'bi-hourglass-split',label:'Waiting for router…'};
+    if(state==='partial')return {cls:'server-partial',icon:'bi-exclamation-circle-fill',label:'Partial server copy'};
+    if(state==='failed')return {cls:'server-failed',icon:'bi-x-octagon-fill',label:'Server copy failed'};
+    return {cls:'server-legacy',icon:'bi-clock-history',label:'Legacy — not stored on server'};
+  }
+
+  async function waitForServerBackup(id){
+    if(!id)return;
+    let tries=0;
+    const timer=setInterval(async()=>{
+      tries++;
+      try{
+        const r=await fetch(backupUrl,{credentials:'same-origin',cache:'no-store'}),data=await r.json();
+        const item=(data.items||[]).find(x=>Number(x.id)===Number(id));
+        if(item&&['ready','failed','partial'].includes(item.server_status)){
+          clearInterval(timer);
+          await loadBackups();
+          showToast(item.server_status==='ready'?'Backup is safely stored on the TapTap server.':(item.server_error||item.error||'Server backup did not complete.'),item.server_status==='ready'?'success':'warning');
+        }else if(document.getElementById('backupModal').classList.contains('show')){
+          await loadBackups();
+        }
+      }catch(e){}
+      if(tries>=60)clearInterval(timer);
+    },2000);
+  }
+
   async function backupNow(button=null){
-    if(!window.confirm('Create a full RouterOS configuration backup now?'))return;
+    if(!window.confirm('Create a full RouterOS backup and save it on the TapTap server?'))return;
     if(button)button.disabled=true;
     try{
       const fd=new FormData();fd.append('csrfmiddlewaretoken',csrf);fd.append('action','backup');
       const r=await fetch(backupUrl,{method:'POST',body:fd,credentials:'same-origin'});
       const data=await r.json();
       if(!r.ok||!data.ok)throw new Error(data.message||'Backup failed.');
-      showToast(data.message||'Backup created.','success');
+      showToast(data.message||'Server backup started.','success');
       if(document.getElementById('backupModal').classList.contains('show'))await loadBackups();
+      waitForServerBackup(data.backup_id);
     }catch(e){showToast(e.message,'danger');}
     finally{if(button)button.disabled=false;}
   }
@@ -682,16 +719,33 @@
       const r=await fetch(backupUrl,{credentials:'same-origin',cache:'no-store'}),data=await r.json();
       if(!r.ok||!data.ok)throw new Error(data.message||'Could not load backups.');
       document.getElementById('autoBackupToggle').checked=!!data.auto_backup;
-      status.textContent=(data.items||[]).length+' saved backup record(s). TapTap keeps the newest 30 per router.';
-      host.innerHTML=(data.items||[]).map(b=>{
-        const dl=b.downloadable?backupDownloadTemplate.replace('999999',String(b.id)):'';
+      const items=data.items||[];
+      status.textContent=(data.server_ready||0)+' of '+items.length+' backup record(s) fully stored on the TapTap server. TapTap keeps the newest 30 per router.';
+      host.innerHTML=items.map(b=>{
+        const st=backupState(b);
+        const err=b.server_error||b.error||'';
+        const hashes=[];
+        if(b.backup_sha256)hashes.push('backup SHA-256 '+b.backup_sha256.slice(0,12)+'…');
+        if(b.export_sha256)hashes.push('export SHA-256 '+b.export_sha256.slice(0,12)+'…');
         return `<div class="backup-item">
-          <div class="backup-icon"><i class="bi bi-file-earmark-zip"></i></div>
-          <div class="flex-grow-1"><b>${esc(b.name)}</b><small>${new Date(b.at).toLocaleString()} • RouterOS ${esc(b.version||'—')} ${b.automatic?'• automatic':''}</small>
-          <div class="backup-files">${b.backup_file?'<span>'+esc(b.backup_file)+'</span>':''}${b.export_file?'<span>'+esc(b.export_file)+'</span>':''}</div>${b.error?'<em>'+esc(b.error)+'</em>':''}</div>
-          ${dl?`<a class="btn btn-sm btn-outline-primary" href="${dl}"><i class="bi bi-download"></i> .rsc</a>`:'<span class="small text-secondary">Files on router</span>'}
+          <div class="backup-icon ${st.cls}"><i class="bi ${st.icon}"></i></div>
+          <div class="flex-grow-1">
+            <div class="backup-name-line"><b>${esc(b.name)}</b><span class="server-state ${st.cls}">${esc(st.label)}</span></div>
+            <small>${new Date(b.at).toLocaleString()} • RouterOS ${esc(b.version||'—')} ${b.automatic?'• automatic':''}</small>
+            <div class="backup-files">
+              ${b.server_backup_size?'<span><i class="bi bi-server"></i> .backup '+esc(fileSize(b.server_backup_size))+'</span>':''}
+              ${b.server_export_size?'<span><i class="bi bi-server"></i> .rsc '+esc(fileSize(b.server_export_size))+'</span>':''}
+            </div>
+            ${hashes.length?`<div class="backup-hashes">${esc(hashes.join(' • '))}</div>`:''}
+            ${err&&b.server_status!=='ready'?'<em>'+esc(err)+'</em>':''}
+          </div>
+          <div class="backup-downloads">
+            ${b.download_backup_url?`<a class="btn btn-sm btn-outline-success" href="${esc(b.download_backup_url)}"><i class="bi bi-download"></i> .backup</a>`:''}
+            ${b.download_export_url?`<a class="btn btn-sm btn-outline-primary" href="${esc(b.download_export_url)}"><i class="bi bi-download"></i> .rsc</a>`:''}
+            ${!b.download_backup_url&&!b.download_export_url?`<span class="small text-secondary">${esc(st.label)}</span>`:''}
+          </div>
         </div>`;
-      }).join('')||'<div class="empty-mini">No backup records yet. Create one now.</div>';
+      }).join('')||'<div class="empty-mini">No backup records yet. Create one now; it will be stored on the TapTap server.</div>';
     }catch(e){host.innerHTML='<div class="alert alert-warning">'+esc(e.message)+'</div>';}
   }
 

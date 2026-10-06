@@ -89,3 +89,16 @@
   .inspector-summary,.inspector-adjustments,.config-kv-grid{grid-template-columns:1fr}
   .backup-item{align-items:flex-start;flex-wrap:wrap}
 }
+
+
+/* Private TapTap server backup states */
+.backup-name-line{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.server-state{font-size:9px;font-weight:900;text-transform:uppercase;letter-spacing:.045em;padding:3px 7px;border-radius:999px;border:1px solid var(--bs-border-color)}
+.server-ready{color:#198754!important;border-color:rgba(25,135,84,.38)!important;background:rgba(25,135,84,.08)!important}
+.server-copying{color:#8a6800!important;border-color:rgba(255,193,7,.48)!important;background:rgba(255,193,7,.10)!important}
+.server-partial{color:#b66a00!important;border-color:rgba(253,126,20,.45)!important;background:rgba(253,126,20,.09)!important}
+.server-failed{color:#dc3545!important;border-color:rgba(220,53,69,.42)!important;background:rgba(220,53,69,.07)!important}
+.server-legacy{color:var(--bs-secondary-color)!important;background:rgba(127,127,127,.07)!important}
+.backup-downloads{display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+.backup-hashes{font-size:8px;opacity:.48;margin-top:4px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+@media(max-width:700px){.backup-downloads{width:100%;justify-content:flex-start;padding-left:48px}}
