@@ -35,6 +35,7 @@ class CoreConfig(AppConfig):
         importlib.import_module("core.models_fup_manual")
         importlib.import_module("core.models_permanent_device")
         importlib.import_module("core.models_collaboration_buy")
+        importlib.import_module("core.models_roaming")
 
     def ready(self):
         from . import team  # noqa: F401
@@ -57,6 +58,7 @@ class CoreConfig(AppConfig):
         _install_optional("permanent_device")
         _install_optional("fup_manual")
         _install_optional("business_collaboration")
+        _install_optional("business_roaming")
         _install_optional("online_buy")
         _install_optional("protection_state_fix")
         _install_optional("traffic_speed")
