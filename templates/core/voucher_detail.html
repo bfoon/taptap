@@ -55,6 +55,14 @@
 .vd-share{border:1px solid #f2d69a;background:#fff9ec;border-radius:14px;padding:.9rem 1rem}
 .vd-slot{display:flex;gap:.6rem;align-items:center;padding:.55rem .65rem;border-radius:12px;background:var(--soft,#f4f7fb)}
 .vd-slot.free{background:none;border:1px dashed var(--border,#d6dee8);color:#64748b;font-size:.85rem}
+/* Locked devices heading: Reset on the heading line, the "Pin permanently" panel (core/permanent_device.py) full width below */
+.vd-locked .panel-head{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:.5rem;margin-bottom:.5rem}
+.vd-locked .panel-head>div{display:contents}
+.vd-locked .panel-head h3{grid-column:1;grid-row:1}
+.vd-locked .panel-head>.btn{grid-column:2;grid-row:1}
+/* the panel inserted after the heading (never name its id here: core/permanent_device.py skips the page if it finds it) */
+.vd-locked .panel-head>div>:not(h3){grid-column:1/-1;grid-row:2}
+.vd-locked .panel-head>div>:not(h3) .alert{margin:0!important}
 </style>{% endblock %}
 {% block content %}
 {% with c=current_business.currency %}
@@ -310,8 +318,9 @@ document.querySelectorAll('[data-copy]').forEach(function (b) {
         {% endif %}</div>{% endif %}
     </section>
 
-    <section class="panel vd-card">
-      <div class="hd"><h3><i class="bi bi-phone-vibrate"></i> Locked devices</h3>
+    <section class="panel vd-card vd-locked">
+      {# Keep this heading exactly as it is: core/permanent_device.py finds it to add the "Pin permanently" panel. #}
+      <div class="panel-head"><div><h3><i class="bi bi-phone-vibrate"></i> Locked devices</h3></div>
         {% if bindings and 'vouchers.support' in tt_perms and not v.deleted_at %}<button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#resetModal"><i class="bi bi-arrow-counterclockwise"></i> Reset</button>{% endif %}</div>
       <p class="small text-secondary">{% if current_business.device_lock %}{{ bindings|length }} of {{ v.max_devices|default:1 }} device{{ v.max_devices|default:1|pluralize }} locked{% if bindings|length < v.max_devices|default:1 %} · {{ free_slots }} free — the next device{{ free_slots|pluralize }} to log in {{ free_slots|pluralize:"takes it,take them" }}{% else %} · full — other devices are refused{% endif %}.{% else %}Device locking is off (Settings → Voucher devices).{% endif %}</p>
       {% if bindings %}

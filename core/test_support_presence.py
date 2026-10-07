@@ -84,7 +84,7 @@ class SupportPresenceTests(TestCase):
         }
         request.tt_business = self.business
         request.tt_view_as = self.business
-        request.resolver_match = resolve(path)
+        request.resolver_match = resolve(path.split('?', 1)[0])   # Django resolves the path only, never the query
         return request
 
     def owner_request(self, path="/finance/"):
@@ -93,7 +93,7 @@ class SupportPresenceTests(TestCase):
         request.session = {}
         request.tt_business = self.business
         request.tt_view_as = None
-        request.resolver_match = resolve(path)
+        request.resolver_match = resolve(path.split('?', 1)[0])   # Django resolves the path only, never the query
         return request
 
     def test_finance_page_name_is_friendly(self):

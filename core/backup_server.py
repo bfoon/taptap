@@ -162,52 +162,80 @@ def _fail(record, storage, message):
     RouterBackup.objects.filter(pk=record.pk).update(error=message[:255])
 
 
+SERVER_BACKUP_MIN_ROS = (7, 13)      # /file read and :convert / :onerror, which the upload script needs
+
+
+def ros_tuple(version):
+    """'7.14.3 (stable)' -> (7, 14); None when unknown."""
+    m = re.match(r"\s*(\d+)\.(\d+)", str(version or ""))
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def can_upload_to_server(version):
+    """Unknown versions are tried (the router reports back if it cannot); known older ones use the router-side backup."""
+    t = ros_tuple(version)
+    return t is None or t >= SERVER_BACKUP_MIN_ROS
+
+
 def _router_script(base: str, upload_url: str, token: str) -> str:
-    """Fixed RouterOS script: create both files then upload them in safe chunks."""
+    """Fixed RouterOS script (RouterOS 7.13+): create both files, wait until they are written, upload them in safe
+    chunks, and if anything fails tell TapTap why (the backup page shows the reason). It must fit one TapTap Link
+    command; HTTPS trust for direct-API routers is prepared over the API first (_ensure_trust_api)."""
     from .agent import rs, tls_flag
 
     check = tls_flag(upload_url)
-    b = rs(base)
-    url = rs(upload_url)
-    tok = rs(token)
-    # 3 KB input -> about 4 KB base64: conservative for RouterOS variables and well below Fetch's 64 KB data limit.
-    return (
+    b, url, tok = rs(base), rs(upload_url), rs(token)
+    # 3 KB of file -> about 4 KB of base64: conservative for RouterOS variables and far below Fetch's 64 KB limit.
+    main = (
         f':local base {b}; :local url {url}; :local tok {tok}; '
-        ':do { /system backup save name=$base dont-encrypt=yes } '
-        'on-error={ /system backup save name=$base }; '
-        '/export file=$base; :delay 2s; '
+        # tell TapTap why it failed (no-op if even that cannot reach TapTap)
+        ':local report do={ :do { /tool fetch url=$url http-method=post '
+        'http-data=("kind=error&message=" . [:convert [:pick $msg 0 240] to=url]) '
+        'http-header-field=("X-TapTap-Backup: " . $tok) output=none '
+        f'check-certificate={check} idle-timeout=15s }} on-error={{}} }}; '
         ':local sendFile do={ '
-        ':local f $f; :local kind $kind; :local url $url; :local tok $tok; '
         ':local fid [/file find where name=$f]; '
-        ':if ([:len $fid] = 0) do={ :error ("Backup file missing: " . $f) }; '
+        ':if ([:len $fid] = 0) do={ :error ("backup file missing: " . $f) }; '
         ':local total [/file get $fid size]; '
-        ':if ($total < 1) do={ :error ("Backup file empty: " . $f) }; '
+        ':if ($total < 1) do={ :error ("backup file empty: " . $f) }; '
         f':for off from=0 to=($total - 1) step={CHUNK_SIZE} do={{ '
         f':local n {CHUNK_SIZE}; :if (($off + $n) > $total) do={{ :set n ($total - $off) }}; '
-        ':local rr [/file read file=$f offset=$off chunk-size=$n]; '
+        ':local rr [/file read file=$f offset=$off chunk-size=$n as-value]; '
         ':local raw ($rr->"data"); '
         ':if ([:typeof $raw] = "nil") do={ :set raw (($rr->0)->"data") }; '
-        ':local enc [:convert $raw to=base64]; '
         ':local body ("kind=" . $kind . "&offset=" . $off . "&total=" . $total . '
-        '"&data=" . [:convert $enc from=raw to=url]); '
-        f'/tool fetch url=$url http-method=post http-data=$body '
+        '"&data=" . [:convert [:convert $raw to=base64] to=url]); '
+        '/tool fetch url=$url http-method=post http-data=$body '
         'http-header-field=("X-TapTap-Backup: " . $tok) '
-        f'output=none check-certificate={check} idle-timeout=15s; '
+        f'output=none check-certificate={check} idle-timeout=20s; '
         '}; :return $total }; '
+        ':onerror err in={ '
+        ':do { /system backup save name=$base dont-encrypt=yes } on-error={ /system backup save name=$base }; '
+        '/export file=$base; '
         ':local bf ($base . ".backup"); :local ef ($base . ".rsc"); '
+        # wait until both files exist and stopped growing (slow flash can take several seconds), at most 45 s
+        ':local ready false; :local i 0; :local lb -1; :local le -1; '
+        ':while ((!$ready) and ($i < 45)) do={ :delay 1s; :set i ($i + 1); '
+        ':local fb [/file find where name=$bf]; :local fe [/file find where name=$ef]; '
+        ':if (([:len $fb] > 0) and ([:len $fe] > 0)) do={ '
+        ':local sb [/file get $fb size]; :local se [/file get $fe size]; '
+        ':if (($sb > 0) and ($se > 0) and ($sb = $lb) and ($se = $le)) do={ :set ready true }; '
+        ':set lb $sb; :set le $se } }; '
+        ':if (!$ready) do={ :error "backup files not written in 45 s" }; '
         ':local bs [$sendFile f=$bf kind="backup" url=$url tok=$tok]; '
         ':local es [$sendFile f=$ef kind="export" url=$url tok=$tok]; '
         ':local ver [/system resource get version]; '
         ':local done ("kind=finish&backup_total=" . $bs . "&export_total=" . $es . '
-        '"&version=" . [:convert $ver from=raw to=url]); '
-        f':local fin [/tool fetch url=$url http-method=post http-data=$done '
+        '"&version=" . [:convert $ver to=url]); '
+        ':local fin [/tool fetch url=$url http-method=post http-data=$done '
         'http-header-field=("X-TapTap-Backup: " . $tok) '
-        f'output=user as-value check-certificate={check} idle-timeout=15s]; '
-        ':if (($fin->"status") = "finished") do={ '
+        f'output=user as-value check-certificate={check} idle-timeout=20s]; '
+        ':if (($fin->"status") != "finished") do={ :error "TapTap did not confirm" }; '
         '/file remove [find where name=$bf]; /file remove [find where name=$ef]; '
-        ':log info "TapTap backup saved on server; temporary router files removed" '
-        '} else={ :error "TapTap server did not confirm backup" }'
+        ':log info "TapTap backup saved on server" '
+        '} do={ :log warning ("TapTap backup: " . $err); [$report url=$url tok=$tok msg=$err] }'
     )
+    return main
 
 
 def link_backup_body(params):
@@ -238,8 +266,52 @@ def _queue_link(record, storage, token, user=None, request=None):
     return command
 
 
+def _ensure_trust_api(svc):
+    """Direct-API routers often trust no root certificate, so their HTTPS upload to TapTap fails at once.
+    Over the API (no size limit): switch on RouterOS's built-in trust store and import any of TapTap's carried roots
+    the router does not have yet (core/link_trust.py). Every step is optional — a failure here never stops the backup."""
+    try:
+        svc.resource("/certificate/settings").call("set", {"builtin-trust-anchors": "trusted"})   # RouterOS 7.19+
+    except Exception:
+        pass
+    try:
+        from cryptography import x509
+        from .link_trust import root_pems
+        certs = svc.resource("/certificate")
+        have = {str(r.get("common-name", "")) for r in certs.get()}
+        files = svc.resource("/file")
+    except Exception:
+        return
+    for i, pem in enumerate(root_pems()):
+        try:
+            cn = x509.load_pem_x509_certificate(pem.encode()).subject.get_attributes_for_oid(x509.oid.NameOID.COMMON_NAME)[0].value
+        except Exception:
+            continue
+        if cn in have:
+            continue
+        name = f"taptap-ca-{i}.pem"
+        try:
+            files.add(name=name, contents=pem)
+            try:
+                certs.call("import", {"file-name": name, "passphrase": "", "trusted": "yes"})
+            except Exception:
+                certs.call("import", {"file-name": name, "passphrase": ""})
+        except Exception as exc:
+            logger.info("backup trust: could not import %s: %s", cn, exc)
+        finally:
+            try:
+                for row in files.get(name=name):
+                    files.remove(id=row.get("id") or row.get(".id"))
+            except Exception:
+                pass
+
+
 def _schedule_direct(record, storage, token, svc, request=None):
+    from .agent import tls_flag
     from .portctl import schedule_on_router
+
+    if tls_flag(_upload_url(record, request)) != "no":
+        _ensure_trust_api(svc)
 
     script = _router_script(record.name, _upload_url(record, request), token)
     schedule_on_router(
@@ -250,10 +322,65 @@ def _schedule_direct(record, storage, token, svc, request=None):
     )
 
 
+_LEGACY_BACKUP = None            # portctl.backup as it was before this module replaced it (works on RouterOS 6 and 7)
+
+
+def _ros_of(router, svc=None):
+    """RouterOS version: what TapTap Link last reported, or ask the router over the API."""
+    agent = getattr(router, "agent", None) if getattr(router, "connection_mode", "api") == "agent" else None
+    if agent is not None and agent.ros_version:
+        return agent.ros_version
+    if svc is not None:
+        try:
+            return str((svc.safe_get("/system/resource") or [{}])[0].get("version", ""))
+        except Exception:
+            return ""
+    return ""
+
+
+def _router_side_backup(router, user, automatic, version, svc=None):
+    """RouterOS older than 7.13 cannot read its own files from a script, so it cannot upload them to TapTap.
+    Direct API: the proven method (full backup kept on the router, text export copied to the TapTap server).
+    TapTap Link: the router saves both files on itself."""
+    note = (f"RouterOS {version.split()[0]} keeps the full .backup on the router (copying it to the TapTap server needs "
+            f"RouterOS 7.13 or newer). ")
+    if getattr(router, "connection_mode", "api") == "agent":
+        from . import agent
+        record = RouterBackup.objects.create(router=router, name=_safe(f"taptap-{router.name}-{timezone.localtime():%Y%m%d-%H%M%S}"),
+                                             automatic=automatic, created_by=user, ros_version=version[:60])
+        record.backup_file, record.export_file = f"{record.name}.backup", f"{record.name}.rsc"
+        record.error = (note + "Both files are saved on the router (Files).")[:255]
+        record.save(update_fields=["backup_file", "export_file", "error"])
+        agent.queue(router, "backup", {"file": record.name}, label="Back up configuration on the router", user=user)
+        type(router).objects.filter(pk=router.pk).update(last_backup_at=timezone.now())
+        return record, None
+    legacy = _LEGACY_BACKUP
+    if legacy is None:
+        raise ValueError("No router-side backup method available.")
+    own = svc is None
+    if own:
+        from .mikrotik import MikroTikService
+        svc = MikroTikService(router).connect()
+    try:
+        record = legacy(svc, router, user=user, automatic=automatic)
+    finally:
+        if own:
+            svc.close()
+    storage = _legacy_export_to_server(record) if getattr(record, "content", "") else None
+    if storage is not None:
+        RouterBackupStorage.objects.filter(pk=storage.pk).update(error=(note + "The text export is saved on the TapTap server.")[:1000])
+    RouterBackup.objects.filter(pk=record.pk).update(error=(note + ("The text export is saved on the TapTap server." if storage else ""))[:255])
+    return record, storage
+
+
 def start_backup(router, user=None, automatic=False, request=None, svc=None):
-    """Create a server-backed backup job. Returns (RouterBackup, storage)."""
+    """Create a server-backed backup job. Returns (RouterBackup, storage).
+    Routers on RouterOS older than 7.13 get the router-side backup instead (see _router_side_backup)."""
     # Resolve the public URL before making a DB record.
     _base_url(request)
+    version = _ros_of(router, svc)
+    if not can_upload_to_server(version):
+        return _router_side_backup(router, user, automatic, version, svc)
     record, storage, token = _make_record(router, user, automatic)
 
     try:
@@ -333,6 +460,14 @@ def router_backup_upload(request, bid):
             record = storage.backup
             kind = _param(data, "kind")
 
+            if kind == "error":
+                # The router could not finish: keep its reason for the backup page instead of waiting for the expiry.
+                message = ("Router: " + _param(data, "message"))[:1000]
+                storage.status, storage.error = "failed", message
+                storage.save(update_fields=["status", "error", "updated_at"])
+                RouterBackup.objects.filter(pk=record.pk).update(error=message[:255])
+                return JsonResponse({"ok": True, "status": "failed"})
+
             if kind == "finish":
                 version = _param(data, "version")[:60]
                 if version:
@@ -369,7 +504,9 @@ def router_backup_upload(request, bid):
                 try:
                     offset = int(_param(data, "offset"))
                     total = int(_param(data, "total"))
-                    chunk = base64.b64decode(_param(data, "data"), validate=True)
+                    raw = _param(data, "data").replace(" ", "+").replace("\n", "").replace("\r", "")
+                    raw = raw.replace("-", "+").replace("_", "/")          # also accept URL-safe base64
+                    chunk = base64.b64decode(raw + "=" * (-len(raw) % 4), validate=True)
                 except Exception:
                     return JsonResponse({"ok": False, "message": "Invalid chunk."}, status=400)
 
@@ -579,12 +716,15 @@ def router_backups_server(request, pk):
                 "Router Backup",
                 f"{router.name}: server backup {record.name} started",
             )
+            router_side = storage is None or storage.status == "partial"
             return JsonResponse(
                 {
                     "ok": True,
                     "backup_id": record.pk,
-                    "status": storage.status,
+                    "status": storage.status if storage is not None else "router",
                     "message": (
+                        RouterBackup.objects.get(pk=record.pk).error or "Backup saved on the router."
+                        if router_side else
                         "Backup started. TapTap is copying the binary .backup and text .rsc "
                         "into private persistent server storage."
                     ),
@@ -753,6 +893,9 @@ def _install_backup_engine():
     # so replacing it here also makes automatic backups server-backed.
     from . import portctl, views_ports
 
+    global _LEGACY_BACKUP
+    if portctl.backup is not backup_with_service:          # keep the original for RouterOS older than 7.13
+        _LEGACY_BACKUP = portctl.backup
     portctl.backup = backup_with_service
     views_ports.do_backup = backup_with_service
 
@@ -768,9 +911,11 @@ def _install_backup_engine():
                 "queued": True,
                 "message": (
                     f"Full server backup {record.name} started before the configuration change."
+                    if storage is not None and storage.status != "partial"
+                    else f"Backup {record.name} saved on the router before the configuration change."
                 ),
                 "backup_id": record.pk,
-                "server_status": storage.status,
+                "server_status": storage.status if storage is not None else "router",
             }
 
         control_designer._backup_before_change = _backup_before_change

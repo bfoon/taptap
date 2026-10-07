@@ -5,6 +5,7 @@
 {% block extra_head %}
 <link href="{% static 'css/netviz.css' %}?v=5" rel="stylesheet">
 <link href="{% static 'css/control-designer.css' %}?v=1" rel="stylesheet">
+<link href="{% static 'css/control-studio-skin.css' %}?v=1" rel="stylesheet">
 {% endblock %}
 {% block content %}
 <form class="d-none" id="csrf-holder">{% csrf_token %}</form>
@@ -796,4 +797,5 @@
   loadDesigner();
 })();
 </script>
+<script src="{% static 'js/control-studio-fx.js' %}?v=1" defer></script>
 {% endblock %}

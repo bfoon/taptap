@@ -483,25 +483,25 @@ def _owner_banner(request):
 </div>
 
 <style id="tt-support-presence-style">
-.tt-support-presence{position:sticky;top:0;z-index:1065;margin:-.1rem 0 1rem;border:1px solid #f0c36a;
-  border-radius:14px;background:#fff7df;color:#3c2b05;box-shadow:0 8px 24px rgba(75,53,4,.12);overflow:hidden}
-.tt-sp-summary{display:flex;align-items:center;gap:.55rem;padding:.7rem .85rem;background:#ffe9a8;border-bottom:1px solid #f0c36a}
-.tt-sp-pulse{width:9px;height:9px;border-radius:50%;background:#8a6a22;flex:0 0 auto}
-.tt-support-presence.has-live .tt-sp-pulse{background:#d83b2f;box-shadow:0 0 0 0 rgba(216,59,47,.42);animation:ttSpPulse 1.7s infinite}
+.tt-support-presence{{position:sticky;top:0;z-index:1065;margin:-.1rem 0 1rem;border:1px solid #f0c36a;
+  border-radius:14px;background:#fff7df;color:#3c2b05;box-shadow:0 8px 24px rgba(75,53,4,.12);overflow:hidden}}
+.tt-sp-summary{{display:flex;align-items:center;gap:.55rem;padding:.7rem .85rem;background:#ffe9a8;border-bottom:1px solid #f0c36a}}
+.tt-sp-pulse{{width:9px;height:9px;border-radius:50%;background:#8a6a22;flex:0 0 auto}}
+.tt-support-presence.has-live .tt-sp-pulse{{background:#d83b2f;box-shadow:0 0 0 0 rgba(216,59,47,.42);animation:ttSpPulse 1.7s infinite}}
 @keyframes ttSpPulse{{70%{{box-shadow:0 0 0 7px rgba(216,59,47,0)}}100%{{box-shadow:0 0 0 0 rgba(216,59,47,0)}}}}
-.tt-sp-rows{display:flex;flex-direction:column}
-.tt-sp-row{display:flex;align-items:center;gap:.75rem;padding:.7rem .85rem;border-top:1px solid rgba(125,89,11,.12)}
-.tt-sp-row:first-child{border-top:0}
-.tt-sp-avatar{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#33260b;color:white;font-weight:800;flex:0 0 auto}
-.tt-sp-info{min-width:0;flex:1}
-.tt-sp-line{display:flex;gap:.45rem;align-items:center;flex-wrap:wrap}
-.tt-sp-name{font-weight:800}.tt-sp-status{font-size:.75rem;font-weight:800;border-radius:999px;padding:.16rem .45rem;background:#ece4cf}
-.tt-sp-status.live{background:#f9d7d4;color:#9c2118}
-.tt-sp-meta{font-size:.78rem;color:#70591f;margin-top:.14rem;word-break:break-word}
-.tt-sp-revoke{white-space:nowrap}
-html[data-theme="dark"] .tt-support-presence{background:#2f291a;color:#fff4d1;border-color:#70591f}
-html[data-theme="dark"] .tt-sp-summary{background:#443717;border-color:#70591f}
-html[data-theme="dark"] .tt-sp-meta{color:#ddc987}
+.tt-sp-rows{{display:flex;flex-direction:column}}
+.tt-sp-row{{display:flex;align-items:center;gap:.75rem;padding:.7rem .85rem;border-top:1px solid rgba(125,89,11,.12)}}
+.tt-sp-row:first-child{{border-top:0}}
+.tt-sp-avatar{{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:#33260b;color:white;font-weight:800;flex:0 0 auto}}
+.tt-sp-info{{min-width:0;flex:1}}
+.tt-sp-line{{display:flex;gap:.45rem;align-items:center;flex-wrap:wrap}}
+.tt-sp-name{{font-weight:800}}.tt-sp-status{{font-size:.75rem;font-weight:800;border-radius:999px;padding:.16rem .45rem;background:#ece4cf}}
+.tt-sp-status.live{{background:#f9d7d4;color:#9c2118}}
+.tt-sp-meta{{font-size:.78rem;color:#70591f;margin-top:.14rem;word-break:break-word}}
+.tt-sp-revoke{{white-space:nowrap}}
+html[data-theme="dark"] .tt-support-presence{{background:#2f291a;color:#fff4d1;border-color:#70591f}}
+html[data-theme="dark"] .tt-sp-summary{{background:#443717;border-color:#70591f}}
+html[data-theme="dark"] .tt-sp-meta{{color:#ddc987}}
 @media(max-width:767.98px){{
   .tt-support-presence{{top:56px;border-radius:10px}}
   .tt-sp-row{{align-items:flex-start;flex-wrap:wrap}}

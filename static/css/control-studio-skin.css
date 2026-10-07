@@ -1,0 +1,83 @@
+/* Control Center → Drag & Drop Configuration Studio: visual layer (static/js/control-studio-fx.js).
+   Dresses the designer's own markup (control_designer.py / router_control.html); no behaviour lives here. */
+
+/* ── palette: compact, colour-coded by risk ── */
+.recipe-palette{display:grid;grid-template-columns:1fr;gap:.45rem}
+.recipe-tile{position:relative;border-left:4px solid var(--rk,#22c55e)!important;transition:transform .18s,box-shadow .18s!important;overflow:hidden}
+.recipe-tile.risk-advanced{--rk:#f59e0b}.recipe-tile.risk-high{--rk:#ef4444}
+.recipe-tile:hover{transform:translateX(4px);box-shadow:0 6px 18px #0f172a1f}
+.recipe-tile::after{content:'';position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,#ffffff99 50%,transparent 70%);
+  transform:translateX(-120%);transition:transform .7s;pointer-events:none}
+.recipe-tile:hover::after{transform:translateX(120%)}
+.recipe-tile.cs-picked{box-shadow:0 0 0 2px var(--rk),0 8px 22px #0f172a26}
+
+/* ── the chassis ── */
+.mikrotik-shell{position:relative;background:linear-gradient(180deg,#30363d 0%,#1b1f24 55%,#121519 100%)!important;
+  box-shadow:inset 0 1px 0 #ffffff26,inset 0 -3px 0 #000a,0 24px 50px #0f172a55!important;overflow:hidden}
+.mikrotik-shell::before{content:'';position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(90deg,#ffffff06 0 2px,transparent 2px 5px)}          /* brushed metal */
+.mikrotik-shell::after{content:'';position:absolute;top:0;left:-40%;width:40%;height:100%;pointer-events:none;
+  background:linear-gradient(100deg,transparent,#ffffff0d,transparent);animation:csSheen 9s ease-in-out infinite}
+@keyframes csSheen{0%,70%{left:-40%}100%{left:120%}}
+.router-brand{font-style:italic;font-weight:900;letter-spacing:.03em;text-shadow:0 1px 0 #000}
+
+/* ports in one row like the real front panel */
+.cs-panel .router-board{display:grid;grid-template-columns:minmax(150px,200px) minmax(0,1fr);gap:1rem}
+.cs-panel .port-bank{display:flex!important;flex-wrap:wrap;gap:.55rem;align-content:flex-start}
+.cs-panel .designer-port{width:92px;min-height:126px;display:flex;flex-direction:column;align-items:center;gap:.25rem;
+  background:#0d1013!important;border:1px solid #2c333b!important;border-radius:12px;padding:.5rem .35rem!important;position:relative;
+  transition:transform .18s,box-shadow .25s,border-color .2s!important}
+.cs-panel .designer-port:hover{transform:translateY(-3px);border-color:#475569!important}
+.cs-panel .port-caption{display:flex!important;flex-direction:column!important;align-items:center!important;gap:0!important;text-align:center;min-width:0;width:100%}
+.cs-panel .port-caption b{font-size:.74rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.cs-panel .port-caption small{font-size:.6rem;white-space:nowrap}
+/* sockets drawn by the effects script */
+.cs-sock{position:relative;width:44px;height:32px;border-radius:4px;background:linear-gradient(#050607,#1c2128);box-shadow:inset 0 2px 5px #000}
+.cs-sock.eth::before{content:'';position:absolute;left:7px;right:7px;top:5px;height:6px;
+  background:repeating-linear-gradient(90deg,#d4a72c 0 2px,transparent 2px 4px)}           /* gold contacts */
+.cs-sock.eth::after{content:'';position:absolute;left:50%;bottom:3px;transform:translateX(-50%);width:18px;height:8px;background:#000;border-radius:1px}
+.cs-sock.sfp{width:50px;height:24px;margin:4px 0;border-radius:2px;background:linear-gradient(#a3adb7,#5a636c);box-shadow:inset 0 0 0 3px #3a4047}
+.cs-sock.sfp::after{content:'';position:absolute;inset:6px 9px;background:#090b0d}
+.cs-sock.wlan{background:none;box-shadow:none}
+.cs-sock.wlan::before{content:'';position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:4px;height:26px;background:#94a3b8;border-radius:2px}
+.cs-sock.wlan::after{content:'';position:absolute;left:50%;top:-4px;transform:translateX(-50%);width:30px;height:30px;border-radius:50%;
+  border:2px solid transparent;border-top-color:#38bdf8;animation:csWave 2.2s ease-out infinite}
+@keyframes csWave{0%{opacity:1;transform:translateX(-50%) scale(.6)}100%{opacity:0;transform:translateX(-50%) scale(1.3)}}
+.cs-panel .designer-port .port-jack{display:none}                                            /* replaced by .cs-sock */
+/* link and activity lights */
+.cs-lights{display:flex;gap:.4rem}
+.cs-light{width:8px;height:8px;border-radius:50%;background:#334155;box-shadow:inset 0 1px 1px #0008}
+.designer-port.link-up .cs-light.link{background:#22c55e;box-shadow:0 0 9px #22c55e;animation:csPulse 2.4s ease-in-out infinite}
+.designer-port.link-up .cs-light.act{background:#f59e0b;box-shadow:0 0 6px #f59e0b;animation:csBlink 1.2s steps(1) infinite}
+.designer-port.port-disabled .cs-light.link{background:#7f1d1d}
+@keyframes csPulse{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes csBlink{0%,65%{opacity:1}67%,100%{opacity:.12}}
+/* a glowing cable below connected ports */
+.cs-panel .designer-port.link-up::after{content:'';position:absolute;left:50%;bottom:-12px;width:4px;height:12px;transform:translateX(-50%);
+  border-radius:2px;background:linear-gradient(#22c55e,#16a34a00);background-size:100% 200%;animation:csCable 1.6s linear infinite}
+@keyframes csCable{0%{background-position:0 100%}100%{background-position:0 -100%}}
+.cs-panel .designer-port.port-disabled{opacity:.55;filter:grayscale(.6)}
+/* configuration badges */
+.active-config-badges .badge,.active-config-badges span,.active-config-badges i{animation:csPop .4s cubic-bezier(.3,1.6,.6,1)}
+@keyframes csPop{0%{transform:scale(0)}100%{transform:scale(1)}}
+.cs-count{position:absolute;top:-7px;right:-7px;min-width:20px;height:20px;border-radius:99px;background:#38bdf8;color:#04111d;
+  font-size:.68rem;font-weight:900;display:grid;place-items:center;box-shadow:0 0 0 2px #0d1013;animation:csPop .4s}
+
+/* ── drag and drop ── */
+body.designer-dragging .designer-port.compatible,body.designer-dragging .router-dropzone.compatible .router-cpu{
+  border-color:#38bdf8!important;box-shadow:0 0 0 1px #38bdf855,0 0 16px #38bdf833!important}
+.designer-port.drag-over{transform:translateY(-5px) scale(1.07)!important;border-color:#38bdf8!important;box-shadow:0 0 0 3px #38bdf8,0 0 26px #38bdf8aa!important}
+.router-dropzone.drag-over .router-cpu{box-shadow:0 0 0 3px #38bdf8,0 0 30px #38bdf888!important}
+.cs-flash{animation:csFlash 1.2s ease-out!important}
+@keyframes csFlash{0%{box-shadow:0 0 0 0 #22c55eee}60%{box-shadow:0 0 0 16px #22c55e00}100%{box-shadow:none}}
+.cs-packet{position:fixed;z-index:3000;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle at 35% 35%,#fff,#38bdf8 45%,#0284c7);box-shadow:0 0 20px #38bdf8,0 0 4px #fff;
+  transition:transform .65s cubic-bezier(.5,-.25,.3,1.25),opacity .65s}
+.cs-packet.trail{width:10px;height:10px;margin:-5px 0 0 -5px;opacity:.5;transition-duration:.75s}
+
+/* ── history as a timeline ── */
+.cs-panel-history .designer-history>*{position:relative;animation:csIn .35s ease-out both}
+@keyframes csIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+
+@media (max-width:991px){.cs-panel .router-board{grid-template-columns:minmax(0,1fr)}.cs-panel .designer-port{width:84px}}
+@media (prefers-reduced-motion:reduce){.cs-panel *,.cs-panel *::before,.cs-panel *::after,.cs-packet,.mikrotik-shell::after,.recipe-tile::after{animation:none!important;transition:none!important}}

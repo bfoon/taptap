@@ -144,3 +144,35 @@ class PermanentVoucherDeviceTests(TestCase):
             PermanentVoucherDevice.objects.filter(binding=self.binding).count(),
             1,
         )
+
+
+from django.test import override_settings as _override_settings
+
+
+@_override_settings(AUTH_EMAIL_OTP=False)
+class PermanentDeviceOnVoucherPageTests(PermanentVoucherDeviceTests):
+    """The "Pin permanently" panel is added to the voucher page by finding the Locked devices heading.
+    If a redesign changes that heading, the panel disappears silently — this test catches it."""
+
+    def test_pin_panel_is_on_the_voucher_page(self):
+        from django.urls import reverse
+        self.client.force_login(self.user)
+        r = self.client.get(reverse("voucher_detail", args=[self.voucher.pk]))
+        self.assertContains(r, 'id="tt-permanent-device-control"')
+        self.assertContains(r, reverse("permanent_device_action", args=[self.voucher.pk]))
+
+    def test_voucher_template_never_names_the_panel(self):
+        # permanent_device skips the page when it already finds this name — even inside a CSS rule.
+        from pathlib import Path
+        from django.conf import settings
+        html = (Path(settings.BASE_DIR) / 'templates' / 'core' / 'voucher_detail.html').read_text()
+        self.assertNotIn('tt-permanent-device-control', html)
+        self.assertIn('<div class="panel-head"><div><h3><i class="bi bi-phone-vibrate"></i> Locked devices</h3>', html)
+
+    def test_pinned_device_shows_as_permanent(self):
+        from django.urls import reverse
+        self.make_permanent()
+        self.client.force_login(self.user)
+        r = self.client.get(reverse("voucher_detail", args=[self.voucher.pk]))
+        self.assertContains(r, 'id="tt-permanent-device-control"')
+        self.assertContains(r, 'alert-success')
