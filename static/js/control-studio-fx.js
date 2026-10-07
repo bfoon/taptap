@@ -32,6 +32,42 @@
   document.querySelectorAll('[data-port-badges], #routerConfigBadges').forEach(b => mo.observe(b, { childList: true }));
   counts();
 
+  // ── "Flash" a port: its lights blink on the real router (core/port_blink.py) and here, with a countdown ──
+  const blinkUrl = shell.dataset.blinkUrl;
+  const csrf = () => (document.cookie.match(/csrftoken=([^;]+)/) || [])[1] || '';
+  let note = document.querySelector('.cs-note');
+  if (!note) { note = document.createElement('div'); note.className = 'cs-note'; note.setAttribute('role', 'status'); note.setAttribute('aria-live', 'polite'); shell.parentNode.insertBefore(note, shell.nextSibling); }
+  function blinkHere(port, secs) {
+    clearInterval(port._blinkT); port.classList.add('cs-blinking');
+    let left = secs, chip = port.querySelector('.cs-countdown');
+    if (!chip) { chip = document.createElement('span'); chip.className = 'cs-countdown'; port.appendChild(chip); }
+    chip.textContent = left + 's';
+    port._blinkT = setInterval(() => {
+      left -= 1; chip.textContent = left + 's';
+      if (left <= 0) { clearInterval(port._blinkT); port.classList.remove('cs-blinking'); chip.remove(); }
+    }, 1000);
+  }
+  if (blinkUrl) document.querySelectorAll('.designer-port').forEach(port => {
+    const name = port.dataset.target || '';
+    if (!/^(ether|sfp|combo|qsfp)/i.test(name) || port.querySelector('.cs-flashbtn')) return;
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'cs-flashbtn'; b.title = 'Flash ' + name + ' on the router'; b.setAttribute('aria-label', 'Flash the lights of ' + name + ' on the router');
+    b.innerHTML = '<i class="bi bi-lightning-charge-fill"></i>';
+    b.addEventListener('click', async e => {
+      e.stopPropagation(); e.preventDefault();                        // not the inspector
+      b.disabled = true;
+      try {
+        const r = await fetch(blinkUrl, { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRFToken': csrf(), 'Content-Type': 'application/x-www-form-urlencoded' },
+                                          body: 'port=' + encodeURIComponent(name) });
+        const d = await r.json();
+        note.textContent = d.message || (d.success ? '' : 'Could not flash the port.'); note.classList.toggle('bad', !d.success);
+        if (d.success) blinkHere(port, d.seconds || 15);
+      } catch (err) { note.textContent = 'Could not reach TapTap.'; note.classList.add('bad'); }
+      setTimeout(() => { b.disabled = false; }, 3000);
+    });
+    port.appendChild(b);
+  });
+
   // ── remember what was dragged where (or clicked, when the inspector is used) ──
   let fromEl = null, toEl = null;
   document.addEventListener('dragstart', e => { const t = e.target.closest && e.target.closest('.recipe-tile'); if (t) { fromEl = t; t.classList.add('cs-picked'); } }, true);

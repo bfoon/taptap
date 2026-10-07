@@ -142,4 +142,5 @@ urlpatterns = [
     path('topology/field/save/',vgeo.topology_field_save,name='topology_field_save'),
     path('topology/geo/',vgeo.topology_geo,name='topology_geo'),
     path('topology/labels/',vgeo.topology_labels,name='topology_labels'),
+    path('routers/<int:pk>/ports/blink/',views_ports.port_blink,name='port_blink'),
 ]

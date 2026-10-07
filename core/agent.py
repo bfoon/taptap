@@ -42,7 +42,7 @@ SAFE_KINDS = {
     'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'remote_nat', 'remote_close', 'hotspot_kick_mac', 'share_rules', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
-    'hotspot_users_limit', 'admin_password', 'protection', 'site_probe',
+    'hotspot_users_limit', 'admin_password', 'port_blink', 'protection', 'site_probe',
 }
 # Delivery order for queued commands: anything about vouchers first (a customer is waiting), then the rest,
 # and the pieces of a full inventory sync last — 61 of them must never hold up a voucher.
@@ -208,6 +208,15 @@ def self_update_body(url, check):
             ':log info "TapTap Link: heartbeat updated"')
 
 
+def _backup_helper_block():
+    """Quick install: the backup helper, so TapTap Link can make backups (core/backup_server.py)."""
+    try:
+        from .backup_server import helper_install_command
+        return "\n# === Backups: the small helper that lets TapTap Link save backups ===\n" + helper_install_command() + "\n"
+    except Exception:
+        return ""
+
+
 def enrollment_script(router, token, request=None):
     url = base_url(request)
     check = tls_flag(url)
@@ -236,7 +245,7 @@ def enrollment_script(router, token, request=None):
 /system script run taptap-link
 :log info "TapTap Link installed"
 :put "Step 2 OK: TapTap Link installed - the TapTap Link page turns green after the first check-in"
-''' + (tunnel_block(token) or _tunnel_trigger(token)) + update_block()
+''' + _backup_helper_block() + (tunnel_block(token) or _tunnel_trigger(token)) + update_block()
 
 
 def _tunnel_trigger(token):
@@ -312,6 +321,9 @@ def command_body(cmd):
     name = lambda key='name': rs(p[key])
     if k == 'ping':
         return ':log info "TapTap Link: test from TapTap"'
+    if k == 'port_blink':
+        from .port_blink import link_body
+        return link_body(p)
     if k == 'interface_set':
         return f'/interface set [find name={name()}] disabled={"no" if p.get("enabled") else "yes"}'
     if k == 'port_restart':
@@ -516,7 +528,11 @@ def command_body(cmd):
         return f'/queue simple remove [find name={rs(p.get("queue") or ("TapTap limit " + p["name"]))}]'
     if k == 'backup':
         b = rs(p['file'])
-        return f':do {{ /system backup save name={b} dont-encrypt=yes }} on-error={{ /system backup save name={b} }}; /export file={b}'
+        # TapTap Link's own rights are not enough for /system backup save: use the backup helper when it is there
+        # (core/backup_server.py — "Allow backups on this router").
+        return (f':if ([:len [/system script find where name="taptap-backup-local"]] > 0) do={{ :global ttBkBase {b}; '
+                f'/system script run taptap-backup-local }} else={{ :do {{ /system backup save name={b} dont-encrypt=yes }} '
+                f'on-error={{ /system backup save name={b} }}; /export file={b} }}')
     if k == 'script':
         return str(p.get('source', ''))
     raise ValueError(f'Unknown command {k}')
@@ -563,6 +579,14 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
             raise ValueError(f'Invalid {key}.')
     if params and 'mac' in params and not MAC_RE.match(str(params['mac'])):
         raise ValueError('Invalid MAC address.')
+    if kind == 'port_blink':
+        from .port_blink import can_blink
+        try:
+            secs = int((params or {}).get('seconds') or 0)
+        except (TypeError, ValueError):
+            secs = 0
+        if not can_blink((params or {}).get('port')) or not 5 <= secs <= 60:
+            raise ValueError('Invalid port to flash.')
     if kind == 'site_probe':
         import ipaddress as _ip
         try:

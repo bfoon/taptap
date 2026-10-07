@@ -79,5 +79,18 @@ body.designer-dragging .designer-port.compatible,body.designer-dragging .router-
 .cs-panel-history .designer-history>*{position:relative;animation:csIn .35s ease-out both}
 @keyframes csIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 
+/* ── "Flash" a port (core/port_blink.py) ── */
+.cs-flashbtn{position:absolute;top:5px;left:5px;width:22px;height:22px;border-radius:50%;border:1px solid #475569;background:#1e293b;color:#fbbf24;
+  font-size:.7rem;display:grid;place-items:center;padding:0;opacity:.0;transition:opacity .15s,transform .15s;z-index:2}
+.designer-port:hover .cs-flashbtn,.cs-flashbtn:focus-visible,.cs-blinking .cs-flashbtn{opacity:1}
+.cs-flashbtn:hover{transform:scale(1.15);background:#fbbf24;color:#1e293b}
+@media (hover:none){.cs-flashbtn{opacity:.85}}                         /* phones: always visible */
+.designer-port.cs-blinking{border-color:#fbbf24!important;animation:csBeacon .5s steps(1) infinite!important}
+.designer-port.cs-blinking .cs-light{background:#fbbf24!important;box-shadow:0 0 12px #fbbf24!important;animation:csBlink .25s steps(1) infinite!important}
+@keyframes csBeacon{0%{box-shadow:0 0 0 2px #fbbf24,0 0 22px #fbbf24aa}50%{box-shadow:0 0 0 1px #fbbf2444}}
+.cs-countdown{position:absolute;bottom:-9px;left:50%;transform:translateX(-50%);background:#fbbf24;color:#1e293b;font-size:.62rem;font-weight:900;
+  border-radius:99px;padding:0 .4rem;z-index:2}
+.cs-note{min-height:1.1rem;margin-top:.6rem;font-size:.84rem;font-weight:600;color:#0369a1;text-align:center}.cs-note.bad{color:#b91c1c}
+
 @media (max-width:991px){.cs-panel .router-board{grid-template-columns:minmax(0,1fr)}.cs-panel .designer-port{width:84px}}
 @media (prefers-reduced-motion:reduce){.cs-panel *,.cs-panel *::before,.cs-panel *::after,.cs-packet,.mikrotik-shell::after,.recipe-tile::after{animation:none!important;transition:none!important}}

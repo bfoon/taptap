@@ -112,3 +112,55 @@ class BackupFlowTests(TestCase):
         storage.refresh_from_db()
         self.assertEqual((storage.status, storage.error), ('failed', 'Router: backup files not written in 45 s'))
         self.assertEqual(self.upload(record, 'ttb_wrong', 'kind=error&message=x').status_code, 403)
+
+
+@override_settings(AUTH_EMAIL_OTP=False, SITE_URL='https://taptap.example')
+class BackupHelperTests(TestCase):
+    """TapTap Link's rights cannot save a backup ("not enough permissions (9)"): a small helper script can."""
+    def setUp(self):
+        self.owner = User.objects.create_user('h@x.com', 'h@x.com', 'pw')
+        self.biz = Business.objects.create(user=self.owner, business_name='B', owner_name='O', phone='1', trial_ends_at=timezone.now() + timedelta(days=7))
+        self.r = Router.objects.create(business=self.biz, name='TapTap K', ip_address='10.0.0.1', username='u', password='p', connection_mode='agent')
+        RouterAgent.objects.create(router=self.r, ros_version='7.16.2', last_seen_at=timezone.now())
+        self.client.force_login(self.owner)
+
+    def test_link_command_runs_the_helper_and_fits(self):
+        body = bs.link_backup_body({'file': 'taptap-TapTap-K-20261007-003827', 'upload_url': 'https://taptap.example/api/router-backups/9/upload/',
+                                    'upload_token': 'ttb_' + 'x' * 43})
+        self.assertIn('/system script run taptap-backup', body)
+        self.assertIn('message=needs-helper', body)
+        self.assertNotIn('/system backup save', body)                                 # not with Link's own rights
+        self.assertTrue(routeros_balanced(body)); self.assertLess(len(body), agent.MAX_SCRIPT - 700)
+
+    def test_helper_install_command(self):
+        cmd = bs.helper_install_command('https://taptap.example')
+        self.assertIn('policy=ftp,read,write,policy,test,password,sensitive dont-require-permissions=yes', cmd)
+        self.assertIn(':global ttBkBase', cmd); self.assertIn('/system backup save', cmd)
+        self.assertIn('name="taptap-backup-local"', cmd)
+        self.assertTrue(routeros_balanced(cmd))
+
+    def test_permission_errors_become_one_clear_instruction(self):
+        from django.urls import reverse
+        for said in ('needs-helper', 'not%20enough%20permissions%20(9)%20(%2Fsystem%2Fbackup%2Fsave%3B%20line%201)'):
+            record, storage, token = bs._make_record(self.r)
+            self.client.post(reverse('router_backup_upload', args=[record.pk]), f'kind=error&message={said}',
+                             content_type='application/x-www-form-urlencoded', HTTP_X_TAPTAP_BACKUP=token)
+            storage.refresh_from_db()
+            self.assertEqual(storage.error, bs.NEEDS_HELPER)
+        d = self.client.get(reverse('router_backups', args=[self.r.pk])).json()
+        self.assertTrue(d['helper_needed']); self.assertIn('dont-require-permissions=yes', d['helper_command'])
+
+    def test_tunnel_routers_back_up_over_the_api(self):
+        svc = mock.Mock(); svc.safe_get.return_value = [{'version': '7.16'}]
+        with mock.patch('core.voucher_history.channel', return_value='TapTap Tunnel'), mock.patch('core.portctl.schedule_on_router') as sched, \
+                mock.patch.object(bs, '_ensure_trust_api'):
+            bs.start_backup(self.r, user=self.owner, svc=svc)
+        sched.assert_called_once()
+        self.assertFalse(AgentCommand.objects.filter(kind='server_backup').exists())
+
+    def test_quick_install_adds_the_helper_and_old_routeros_uses_it(self):
+        s = agent.enrollment_script(self.r, 'ttl_' + 'a' * 40, None)
+        self.assertIn('name="taptap-backup" policy=ftp,read,write,policy,test,password,sensitive', s)
+        self.assertTrue(routeros_balanced(s))
+        cmd = AgentCommand(router=self.r, kind='backup', params={'file': 'taptap-x'})
+        self.assertIn('/system script run taptap-backup-local', agent.command_body(cmd))

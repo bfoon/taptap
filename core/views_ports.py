@@ -378,3 +378,18 @@ def router_backup_download(request, pk, bid):
     resp = HttpResponse(body, content_type='application/json')
     resp['Content-Disposition'] = f'attachment; filename="{b.name}-taptap-snapshot.json"'
     return resp
+
+
+@login_required
+@require_POST
+def port_blink(request, pk):
+    """Control Center: flash a port's lights on the real router (core/port_blink.py)."""
+    from django.shortcuts import get_object_or_404
+    from .port_blink import blink
+    router = get_object_or_404(request.user.business.routers, pk=pk)
+    try:
+        msg = blink(router, request.POST.get('port', ''), request.user)
+    except ValueError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+    return JsonResponse({'success': True, 'message': msg, 'seconds': 15})
+

@@ -54,7 +54,7 @@
 
     <div class="router-stage">
       <div class="stage-grid"></div>
-      <div class="mikrotik-shell router-dropzone" data-scope="router" data-target="">
+      <div class="mikrotik-shell router-dropzone" data-scope="router" data-target="" data-blink-url="{% url 'port_blink' router.id %}">
         <div class="router-topline router-inspect-trigger" role="button" tabindex="0" title="Click to inspect current router configuration">
           <div>
             <span class="router-brand">MikroTik</span>
@@ -720,6 +720,17 @@
       const r=await fetch(backupUrl,{credentials:'same-origin',cache:'no-store'}),data=await r.json();
       if(!r.ok||!data.ok)throw new Error(data.message||'Could not load backups.');
       document.getElementById('autoBackupToggle').checked=!!data.auto_backup;
+      // TapTap Link routers: the one-time "Allow backups" command (backup helper), shown open when a backup needed it
+      let helperBox=document.getElementById('backupHelperBox');
+      if(!helperBox){helperBox=document.createElement('div');helperBox.id='backupHelperBox';host.parentNode.insertBefore(helperBox,host);}
+      helperBox.innerHTML=data.helper_command?`<details class="alert ${data.helper_needed?'alert-warning':'alert-light border'} small mt-3 mb-0" ${data.helper_needed?'open':''}>
+          <summary class="fw-bold"><i class="bi bi-key"></i> Allow backups on this router${data.helper_needed?' — needed':''}</summary>
+          <p class="mt-2 mb-2">TapTap Link’s rights on the router are not enough to save a backup (RouterOS answers “not enough permissions”).
+          Paste this once into <b>WinBox → New Terminal</b>: it adds one small script that only makes backups. Then press <b>Back up now</b> again.</p>
+          <div class="d-flex gap-2 mb-2"><button type="button" class="btn btn-sm btn-dark" id="helperCopy"><i class="bi bi-clipboard"></i> Copy command</button></div>
+          <pre class="mb-0" style="max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;font-size:.7rem">${esc(data.helper_command)}</pre></details>`:'';
+      const hc=document.getElementById('helperCopy');
+      if(hc)hc.onclick=async()=>{try{await navigator.clipboard.writeText(data.helper_command);hc.innerHTML='<i class="bi bi-check2"></i> Copied';}catch(e){hc.textContent='Select the text below and copy it';}};
       const items=data.items||[];
       status.textContent=(data.server_ready||0)+' of '+items.length+' backup record(s) fully stored on the TapTap server. TapTap keeps the newest 30 per router.';
       host.innerHTML=items.map(b=>{

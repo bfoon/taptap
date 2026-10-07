@@ -185,9 +185,13 @@ def _router_script(base: str, upload_url: str, token: str) -> str:
 
     check = tls_flag(upload_url)
     b, url, tok = rs(base), rs(upload_url), rs(token)
+    return f':local base {b}; :local url {url}; :local tok {tok}; ' + _script_body(check)
+
+
+def _script_body(check):
+    """Everything after "who/where": works with $base, $url and $tok already set (inline, or in the helper)."""
     # 3 KB of file -> about 4 KB of base64: conservative for RouterOS variables and far below Fetch's 64 KB limit.
     main = (
-        f':local base {b}; :local url {url}; :local tok {tok}; '
         # tell TapTap why it failed (no-op if even that cannot reach TapTap)
         ':local report do={ :do { /tool fetch url=$url http-method=post '
         'http-data=("kind=error&message=" . [:convert [:pick $msg 0 240] to=url]) '
@@ -238,13 +242,56 @@ def _router_script(base: str, upload_url: str, token: str) -> str:
     return main
 
 
+# ─────────── the backup helper (TapTap Link) ───────────
+# TapTap Link's own script runs with "ftp,read,write,test,reboot,sensitive". Saving a backup also needs "policy" and
+# "password" (a backup holds the users and their passwords): RouterOS answers "not enough permissions (9)". Rather
+# than giving Link those rights for everything, one small fixed script on the router does only the backup, with the
+# rights it needs (dont-require-permissions=yes): Link just hands it the file name, upload address and one-time code.
+HELPER_NAME = "taptap-backup"
+HELPER_POLICY = "ftp,read,write,policy,test,password,sensitive"
+HELPER_COMMENT = "TapTap backup helper v1 - lets TapTap Link make backups"
+LOCAL_HELPER = "taptap-backup-local"            # RouterOS older than 7.13: save both files on the router only
+LOCAL_SOURCE = (':global ttBkBase; :do { /system backup save name=$ttBkBase dont-encrypt=yes } '
+                'on-error={ /system backup save name=$ttBkBase }; /export file=$ttBkBase')
+NEEDS_HELPER = ("This router needs a one-time permission before TapTap Link can make backups: "
+                "open Backups and paste the “Allow backups on this router” command into WinBox once.")
+
+
+def helper_source(check):
+    head = (':global ttBkBase; :global ttBkUrl; :global ttBkTok; '
+            ':local base $ttBkBase; :local url $ttBkUrl; :local tok $ttBkTok; :set ttBkTok ""; ')
+    return head + _script_body(check)
+
+
+def helper_install_command(base_url=None):
+    """RouterOS commands that put the helper on a router (WinBox → New Terminal, once; also part of quick install)."""
+    from .agent import base_url as agent_base, rs, tls_flag
+    url = (base_url or agent_base(None)).rstrip("/")
+    check = tls_flag(url)
+    return ("# TapTap: allow backups through TapTap Link (one small script that only makes backups)\n"
+            f'/system script remove [find where name="{HELPER_NAME}"]\n'
+            f'/system script add name="{HELPER_NAME}" policy={HELPER_POLICY} dont-require-permissions=yes '
+            f'comment="{HELPER_COMMENT}" source={rs(helper_source(check))}\n'
+            f'/system script remove [find where name="{LOCAL_HELPER}"]\n'
+            f'/system script add name="{LOCAL_HELPER}" policy={HELPER_POLICY} dont-require-permissions=yes '
+            f'comment="TapTap backup helper (on-router copy)" source={rs(LOCAL_SOURCE)}\n'
+            ':put "TapTap backups allowed on this router"')
+
+
 def link_backup_body(params):
     base = _safe(params.get("file"))
     url = str(params.get("upload_url") or "")
     token = str(params.get("upload_token") or "")
     if not base or not url.startswith(("https://", "http://")) or not token.startswith("ttb_"):
         raise ValueError("Invalid server-backup parameters.")
-    return _router_script(base, url, token)
+    from .agent import rs, tls_flag
+    check, b, u, t = tls_flag(url), rs(base), rs(url), rs(token)
+    return (f':global ttBkBase {b}; :global ttBkUrl {u}; :global ttBkTok {t}; '
+            f':if ([:len [/system script find where name="{HELPER_NAME}"]] = 0) do={{ '
+            f':do {{ /tool fetch url={u} http-method=post http-data="kind=error&message=needs-helper" '
+            f'http-header-field=("X-TapTap-Backup: " . {t}) output=none check-certificate={check} }} on-error={{}}; '
+            f':error "TapTap backup helper missing" }}; '
+            f'/system script run {HELPER_NAME}')
 
 
 def _queue_link(record, storage, token, user=None, request=None):
@@ -384,7 +431,8 @@ def start_backup(router, user=None, automatic=False, request=None, svc=None):
     record, storage, token = _make_record(router, user, automatic)
 
     try:
-        if getattr(router, "connection_mode", "api") == "agent":
+        from .voucher_history import channel
+        if getattr(router, "connection_mode", "api") == "agent" and channel(router) == "TapTap Link":
             _queue_link(record, storage, token, user=user, request=request)
         else:
             own = svc is None
@@ -462,7 +510,11 @@ def router_backup_upload(request, bid):
 
             if kind == "error":
                 # The router could not finish: keep its reason for the backup page instead of waiting for the expiry.
-                message = ("Router: " + _param(data, "message"))[:1000]
+                said = _param(data, "message")
+                if said == "needs-helper" or "not enough permissions" in said.lower():
+                    message = NEEDS_HELPER
+                else:
+                    message = ("Router: " + said)[:1000]
                 storage.status, storage.error = "failed", message
                 storage.save(update_fields=["status", "error", "updated_at"])
                 RouterBackup.objects.filter(pk=record.pk).update(error=message[:255])
@@ -792,6 +844,11 @@ def router_backups_server(request, pk):
             }
         )
 
+    # TapTap Link routers need the backup helper once: offer the command, and say so when a backup failed for it
+    link = getattr(router, "connection_mode", "api") == "agent"
+    helper_needed = link and any(NEEDS_HELPER[:40] in str(i.get("server_error") or i.get("error") or "")
+                                 or "not enough permissions" in str(i.get("server_error") or i.get("error") or "").lower()
+                                 for i in items[:3])
     return JsonResponse(
         {
             "ok": True,
@@ -799,6 +856,8 @@ def router_backups_server(request, pk):
             "auto_backup": router.auto_backup,
             "server_ready": ready,
             "server_root": "private persistent TapTap storage",
+            "helper_needed": helper_needed,
+            "helper_command": helper_install_command(_base_url(request)) if link else "",
         }
     )
 
