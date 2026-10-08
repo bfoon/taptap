@@ -181,9 +181,12 @@ def first_ipv4(text):
 
 def ping_stats(times):
     """times: list of ms or None (lost) → summary with a plain-words quality."""
-    sent, got = len(times), [t for t in times if t is not None]
-    loss = round((sent - len(got)) * 100 / sent) if sent else 100
-    st = {'sent': sent, 'received': len(got), 'loss': loss, 'times': [None if t is None else round(t, 1) for t in times],
+    sent = len(times)
+    received = len([t for t in times if t is not None])
+    got = [t for t in times if isinstance(t, (int, float))]          # replies with a time
+    loss = round((sent - received) * 100 / sent) if sent else 100
+    st = {'sent': sent, 'received': received, 'loss': loss,
+          'times': [t if t is None or t == 'ok' else round(t, 1) for t in times],
           'min': round(min(got), 1) if got else None, 'avg': round(sum(got) / len(got), 1) if got else None,
           'max': round(max(got), 1) if got else None, 'jitter': None}
     if len(got) > 1:
@@ -195,6 +198,8 @@ def ping_stats(times):
 def quality(st):
     if not st['received']:
         return 'down', 'No replies at all.'
+    if st['avg'] is None:
+        return ('good' if st['loss'] < 5 else 'fair' if st['loss'] < 20 else 'poor'), 'Answers (this router did not report reply times).'
     avg, loss, jit = st['avg'] or 0, st['loss'], st['jitter'] or 0
     if loss >= 20 or avg >= 400:
         return 'poor', 'Customers will notice: pages hang, calls drop.'
@@ -428,23 +433,37 @@ def diagnose(facts):
     wan_ok = any(w.get('received') for w in wan)
     wan_avg = [w['avg'] for w in wan if w.get('avg') is not None]
     wan_loss = max([w.get('loss', 0) for w in wan if w.get('received')] or [0])
+    # A web page that loads proves the Internet works, whatever ping says: many ISPs and firewalls drop ping.
+    pings_blocked = not wan_ok and bool(web.get('ok'))
+    online = wan_ok or pings_blocked
     chain = [
         {'key': 'router', 'label': 'Your router', 'state': 'ok', 'detail': 'Answered TapTap'},
         {'key': 'modem', 'label': 'ISP / modem', 'state': 'unknown', 'detail': ''},
-        {'key': 'internet', 'label': 'Internet', 'state': 'ok' if wan_ok else 'bad',
-         'detail': (f'{round(sum(wan_avg) / len(wan_avg))} ms' if wan_avg else 'no reply')},
+        {'key': 'internet', 'label': 'Internet', 'state': 'ok' if wan_ok else ('warn' if pings_blocked else 'bad'),
+         'detail': (f'{round(sum(wan_avg) / len(wan_avg))} ms' if wan_avg else ('answers' if wan_ok else ('ping blocked' if pings_blocked else 'no reply')))},
         {'key': 'dns', 'label': 'Names (DNS)', 'state': 'ok' if dns.get('ok') else 'bad', 'detail': dns.get('ip') or 'fails'},
-        {'key': 'web', 'label': 'Websites', 'state': 'ok' if web.get('ok') else 'bad', 'detail': f'{web["ms"]} ms' if web.get('ok') and web.get('ms') is not None else 'fails'},
+        {'key': 'web', 'label': 'Websites', 'state': 'ok' if web.get('ok') else 'bad',
+         'detail': (web.get('text') or (f'{web["ms"]} ms' if web.get('ms') is not None else 'loads')) if web.get('ok') else 'fails'},
     ]
-    if not facts.get('has_route', True):
+    if not facts.get('has_route', True) and not online:
         chain[1].update(state='bad', detail='no default route')
     elif gw:
-        chain[1].update(state='ok' if gw.get('received') else ('warn' if wan_ok else 'bad'),
-                        detail=f'{gw["ip"]} · {gw["avg"]} ms' if gw.get('received') else f'{gw["ip"]} · no reply')
+        chain[1].update(state='ok' if gw.get('received') else ('warn' if online else 'bad'),
+                        detail=(f'{gw["ip"]} · {gw["avg"]} ms' if gw.get('avg') is not None else f'{gw["ip"]} · answers') if gw.get('received') else f'{gw["ip"]} · no reply')
     elif facts.get('gateway'):
-        chain[1].update(state='ok' if wan_ok else 'unknown', detail=facts['gateway'][:40])
+        chain[1].update(state='ok' if online else 'unknown', detail=facts['gateway'][:40])
+    elif online:
+        chain[1].update(state='ok', detail='working')
     fixes = []
-    if not facts.get('has_route', True):
+    if pings_blocked:
+        level, title = 'ok', 'The Internet is working'
+        detail = ('Websites load and names are looked up, but pings get no reply. Your ISP or a firewall rule is blocking ping — '
+                  'customers are not affected, but the Ping and Traceroute tools will show no replies.') if dns.get('ok') else (
+                  'A web page loads, but pings get no reply (blocked by the ISP or a firewall rule).')
+        fixes = ['Nothing to fix for customers.',
+                 'If you want ping to work: under IP › Firewall › Filter, look for a rule that drops ICMP on the output chain, '
+                 'or ask your ISP whether they block ping.']
+    elif not facts.get('has_route', True):
         level, title = 'bad', 'No Internet line on the router'
         detail = 'The router has no active default route, so nothing can leave your network.'
         fixes = ['Check the cable from the ISP modem/antenna to the router’s Internet port.',
@@ -531,6 +550,20 @@ def _resolve(rs, target):
     return f':local ip ""; :do {{ :set ip [:resolve {rs(target)}] }} on-error={{ :set out "err=resolve\\n" }}; '
 
 
+def _ping_snippet(addr, count, size, prefix):
+    """RouterOS: ping ``addr`` and append ``<prefix><received>|<avg ms>`` to $out.
+
+    ``/tool flood-ping`` reports only through ``do={}`` (it has no ``as-value``), and it gives the reply time.
+    If it errors or reports nothing, plain ``/ping`` (returns the number of replies) still tells whether the
+    address answers; the time is then left empty. Each ping runs in its own block so names never clash."""
+    size_arg = f' size={int(size)}' if size else ''
+    return ('{ :local rc 0; :local av ""; '
+            f':do {{ /tool flood-ping address={addr} count={int(count)}{size_arg} do={{ '
+            f':if ($sent = {int(count)}) do={{ :set rc $received; :set av $"avg-rtt" }} }} }} on-error={{}}; '
+            f':if ($rc = 0) do={{ :set av ""; :do {{ :set rc [/ping {addr} count={int(count)}{size_arg}] }} on-error={{}} }}; '
+            f':set out ($out . "{prefix}" . $rc . "|" . $av . "\\n") }}; ')
+
+
 def link_body(cmd, url, check, nonce_value):
     from .agent import rs
     p = cmd.params
@@ -539,9 +572,7 @@ def link_body(cmd, url, check, nonce_value):
     head = ':local out ""; '
     if kind == 'ping':
         body = (_resolve(rs, target) + ':if ([:len $ip] > 0) do={ :set out ("ip=" . $ip . "\\n"); '
-                f':for i from=1 to={int(p["count"])} do={{ :do {{ :local r [/tool flood-ping address=$ip count=1 size={int(p["size"])} timeout=1000ms as-value]; '
-                ':if (($r->"received") > 0) do={ :set out ($out . "r=" . ($r->"avg-rtt") . "\\n") } else={ :set out ($out . "r=-\\n") } } '
-                'on-error={ :set out ($out . "r=-\\n") }; :delay 400ms } }; ')
+                f':for i from=1 to={int(p["count"])} do={{ ' + _ping_snippet('$ip', 1, p['size'], 'r=') + ':delay 400ms } }; ')
     elif kind == 'trace':
         body = (_resolve(rs, target) + ':if ([:len $ip] > 0) do={ :do { '
                 ':foreach h in=[/tool traceroute address=$ip count=1 max-hops=20 timeout=1s as-value] do={ '
@@ -559,11 +590,8 @@ def link_body(cmd, url, check, nonce_value):
     elif kind == 'doctor':
         body = (':local g ""; :do { :set g [:tostr [/ip route get ([/ip route find where dst-address="0.0.0.0/0" active]->0) gateway]] } on-error={}; '
                 ':set out ("gw=" . $g . "\\n"); '
-                ':do { :local r [/tool flood-ping address=[:toip $g] count=3 timeout=1000ms as-value]; '
-                ':set out ($out . "gwp=" . ($r->"received") . "|" . ($r->"avg-rtt") . "\\n") } on-error={ :set out ($out . "gwp=x\\n") }; '
-                + ''.join(f':do {{ :local r [/tool flood-ping address={ip} count=3 timeout=1000ms as-value]; '
-                          f':set out ($out . "p={ip}|" . ($r->"received") . "|" . ($r->"avg-rtt") . "\\n") }} '
-                          f'on-error={{ :set out ($out . "p={ip}|0|\\n") }}; ' for ip in CHECK_IPS)
+                ':local gip [:toip $g]; :if ([:typeof $gip] = "ip") do={ ' + _ping_snippet('$gip', 3, 0, 'gwp=') + '} else={ :set out ($out . "gwp=x\\n") }; '
+                + ''.join(_ping_snippet(ip, 3, 0, f'p={ip}|') for ip in CHECK_IPS)
                 + f':do {{ :set out ($out . "dns=" . [:resolve {rs(CHECK_NAME)}] . "\\n") }} on-error={{ :set out ($out . "dns=x\\n") }}; '
                 + _dns_lines()
                 + f':do {{ :local r [/tool fetch url={rs(CHECK_URL)} output=none as-value duration=10s]; '
@@ -598,7 +626,7 @@ def parse_link(kind, params, body):
                                'servers': _servers(get('servers')), 'dynamic': _servers(get('dyn'))})
         return {'error': f'{params["target"]} could not be looked up (DNS).', 'failed': True}
     if kind == 'ping':
-        times = [None if v in ('', '-') else parse_ms(v) for k, v in lines if k == 'r']
+        times = [_link_reply(v) for k, v in lines if k == 'r']
         res = ping_stats(times or [None] * int(params.get('count', 1)))
         res['host'] = get('ip')
         return res
@@ -622,7 +650,12 @@ def parse_link(kind, params, body):
             secs = parse_seconds(get('du'))
             f = {'ok': get('st') == 'finished', 'bytes': parse_kib(get('dl')), 'seconds': max(secs or 0, 1.0) if secs is not None else None}
         if kind == 'web':
-            return web_result(params['target'], f)
+            res = web_result(params['target'], f)
+            if res['ok']:
+                _, text = _whole_seconds(get('du'))
+                res['ms'], res['time_text'] = None, text
+                res['note'] = f'The website answered ({text}; this router reports whole seconds).' if text else 'The website answered.'
+            return res
         return speed_result([f] if f.get('ok') else [], 'The test download did not finish.')
     if kind == 'doctor':
         g = get('gw')
@@ -643,9 +676,29 @@ def parse_link(kind, params, body):
         facts['dns'] = {'ok': bool(d) and d != 'x', 'ip': '' if d == 'x' else d, 'servers': _servers(get('servers')) or _servers(get('dyn'))}
         w = get('web')
         st, _, du = w.partition('|')
-        facts['web'] = {'ok': st == 'finished', 'ms': round(parse_ms(du)) if parse_ms(du) is not None else None}
+        ms, text = _whole_seconds(du)
+        facts['web'] = {'ok': st == 'finished', 'ms': ms, 'text': text}
         return diagnose(facts)
     raise ValueError('Unknown test.')
+
+
+def _link_reply(v):
+    """One Link ping reply → ms, 'ok' (answered, time unknown) or None (lost)."""
+    if '|' in v:
+        rc, _, av = v.partition('|')
+        if _int(rc) <= 0:
+            return None
+        ms = parse_ms(av)
+        return ms if ms is not None else 'ok'
+    return None if v in ('', '-') else parse_ms(v)
+
+
+def _whole_seconds(du):
+    """RouterOS fetch reports whole seconds ('00:00:01'): (ms for sorting, readable text)."""
+    sec = parse_seconds(du)
+    if sec is None:
+        return None, ''
+    return round(sec * 1000), ('under 1 s' if sec < 1 else f'about {round(sec)} s')
 
 
 def _int(v):

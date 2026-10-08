@@ -73,7 +73,7 @@
 .nt-tile{background:#f6f9fc;border-radius:12px;padding:.5rem .6rem}.nt-tile b{display:block;font-family:var(--mono);font-size:1.15rem}.nt-tile small{color:var(--muted);font-size:.7rem}
 .nt-bars{display:flex;align-items:flex-end;gap:4px;height:110px;padding:.4rem;background:#f6f9fc;border-radius:12px;position:relative}
 .nt-bars div{flex:1;min-width:4px;border-radius:4px 4px 1px 1px;background:var(--primary);position:relative}
-.nt-bars div.slow{background:var(--warn)}.nt-bars div.lost{background:repeating-linear-gradient(135deg,#f4b4b4 0 4px,#fbd9d9 4px 8px);height:100%!important}
+.nt-bars div.slow{background:var(--warn)}.nt-bars div.answered{background:#9db8dc;height:55%!important}.nt-bars div.lost{background:repeating-linear-gradient(135deg,#f4b4b4 0 4px,#fbd9d9 4px 8px);height:100%!important}
 .nt-bars div span{position:absolute;top:-1.15rem;left:50%;transform:translateX(-50%);font-size:.6rem;font-family:var(--mono);color:var(--muted);white-space:nowrap}
 .nt-note{font-size:.86rem;color:#3d5268;margin:.7rem 0 0}
 

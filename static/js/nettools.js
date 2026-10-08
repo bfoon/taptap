@@ -158,9 +158,10 @@
     ({ ping: function () { drawPing(t.result, t); }, trace: drawTrace, dns: drawDns, web: drawWeb, speed: drawSpeed })[t.kind](t);
   }
   function drawPing(r, t, title) {
-    var times = r.times || [], got = times.filter(function (x) { return x != null; }), peak = Math.max.apply(null, got.concat([20]));
+    var times = r.times || [], got = times.filter(function (x) { return typeof x === 'number'; }), peak = Math.max.apply(null, got.concat([20]));
     var bars = times.map(function (v, i) {
       if (v == null) return '<div class="lost" title="#' + (i + 1) + ' lost"></div>';
+      if (v === 'ok') return '<div class="answered" title="#' + (i + 1) + ': answered (no time reported)"></div>';
       return '<div class="' + (v > 150 ? 'slow' : '') + '" style="height:' + Math.max(4, Math.round(v * 100 / peak)) + '%" title="#' + (i + 1) + ': ' + ms(v) + '">' + (times.length <= 20 ? '<span>' + Math.round(v) + '</span>' : '') + '</div>';
     }).join('');
     out.innerHTML = head(Object.assign({}, t, title ? { kind_label: title } : {}), r.quality, r.quality)
@@ -188,7 +189,7 @@
   function drawWeb(t) {
     var r = t.result;
     out.innerHTML = head(t, r.ok ? 'loads' : (r.http ? 'error ' + r.http : 'not reachable'), r.ok ? ((r.ms || 0) > 3000 ? 'warn' : 'ok') : 'bad')
-      + '<dl class="nt-kv"><dt>Address</dt><dd>' + esc(r.url) + '</dd>' + (r.ms != null ? '<dt>Time</dt><dd>' + ms(r.ms) + '</dd>' : '')
+      + '<dl class="nt-kv"><dt>Address</dt><dd>' + esc(r.url) + '</dd>' + (r.ms != null ? '<dt>Time</dt><dd>' + ms(r.ms) + '</dd>' : (r.time_text ? '<dt>Time</dt><dd>' + esc(r.time_text) + '</dd>' : ''))
       + (r.bytes ? '<dt>Size</dt><dd>' + (r.bytes / 1024).toFixed(1) + ' KB</dd>' : '') + (r.error ? '<dt>Router said</dt><dd>' + esc(r.error) + '</dd>' : '') + '</dl>'
       + '<p class="nt-note">' + esc(r.note || '') + '</p>';
   }

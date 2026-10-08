@@ -286,3 +286,74 @@ class LinkTests(PageTests):
                 mock.patch('core.linkops.ensure_online', side_effect=ValueError('TapTap Link has not checked in for 20 minutes')):
             t = self.client.post(reverse('network_tools_run'), json.dumps({'router': self.r.pk, 'kind': 'doctor'}), content_type='application/json').json()['test']
         self.assertEqual(t['status'], 'failed'); self.assertIn('20 minutes', t['result']['error'])
+
+
+@override_settings(AUTH_EMAIL_OTP=False, SITE_URL='https://taptap.example')
+class LinkPingFixTests(LinkTests):
+    """flood-ping has no as-value: the Link script must use do={} with a plain /ping fallback,
+    and a page that loads means the Internet works even when pings get no reply."""
+
+    def test_ping_script_uses_do_block_and_ping_fallback(self):
+        from .agent import wrap
+        self.link_run({'kind': 'ping', 'target': '8.8.8.8', 'count': 3})
+        body = wrap(AgentCommand.objects.get(kind='nettest'), 'https://taptap.example', 'no')
+        self.assertNotIn('flood-ping address=$ip count=1 size=56 timeout', body)
+        self.assertNotRegex(body, r'flood-ping[^\]]*as-value')
+        self.assertIn('/tool flood-ping address=$ip count=1 size=56 do={ :if ($sent = 1) do={ :set rc $received; :set av $"avg-rtt" } }', body)
+        self.assertIn(':set rc [/ping $ip count=1 size=56]', body)
+        self.assertTrue(routeros_balanced(body))
+
+    def test_doctor_script_has_no_flood_ping_as_value(self):
+        from .agent import wrap
+        self.link_run({'kind': 'doctor'})
+        body = wrap(AgentCommand.objects.get(kind='nettest'), 'https://taptap.example', 'no')
+        self.assertNotRegex(body, r'flood-ping[^\]]*as-value')
+        for ip in ('$gip', '1.1.1.1', '8.8.8.8'):
+            self.assertIn(f'/tool flood-ping address={ip} count=3 do=', body)
+            self.assertIn(f'[/ping {ip} count=3]', body)
+        self.assertTrue(routeros_balanced(body))
+
+    def test_new_reply_format_including_untimed_replies(self):
+        t = self.link_run({'kind': 'ping', 'target': '8.8.8.8', 'count': 4})
+        cmd = AgentCommand.objects.get(kind='nettest')
+        self.upload(cmd, b'ip=8.8.8.8\nr=1|23\nr=0|\nr=1|\nr=1|0\n')
+        r = NetTest.objects.get(pk=t['id']).result
+        self.assertEqual((r['sent'], r['received'], r['loss']), (4, 3, 25))
+        self.assertEqual(r['times'], [23, None, 'ok', 0])
+        self.assertEqual((r['min'], r['max']), (0, 23))
+
+    def test_pings_blocked_but_web_loads_is_not_no_internet(self):
+        """The reported case: gateway and 1.1.1.1/8.8.8.8 give no reply, DNS and the web page work."""
+        t = self.link_run({'kind': 'doctor'})
+        cmd = AgentCommand.objects.get(kind='nettest')
+        self.upload(cmd, b'gw=192.168.1.1\ngwp=0|\np=1.1.1.1|0|\np=8.8.8.8|0|\ndns=192.178.223.138\nservers=\ndyn=192.168.1.1\nweb=finished|00:00:01\n')
+        r = NetTest.objects.get(pk=t['id']).result
+        self.assertEqual(r['level'], 'ok'); self.assertEqual(r['title'], 'The Internet is working')
+        self.assertIn('blocking ping', r['detail'])
+        states = {c['key']: (c['state'], c['detail']) for c in r['chain']}
+        self.assertEqual(states['internet'], ('warn', 'ping blocked'))
+        self.assertEqual(states['modem'][0], 'warn')
+        self.assertEqual(states['web'], ('ok', 'about 1 s'))
+
+    def test_ping_fallback_answer_counts_as_online(self):
+        t = self.link_run({'kind': 'doctor'})
+        cmd = AgentCommand.objects.get(kind='nettest')
+        self.upload(cmd, b'gw=192.168.1.1\ngwp=3|\np=1.1.1.1|3|\np=8.8.8.8|3|\ndns=1.2.3.4\nweb=finished|00:00:00\n')
+        r = NetTest.objects.get(pk=t['id']).result
+        self.assertEqual(r['level'], 'ok')
+        states = {c['key']: (c['state'], c['detail']) for c in r['chain']}
+        self.assertEqual(states['modem'], ('ok', '192.168.1.1 · answers'))
+        self.assertEqual(states['web'], ('ok', 'under 1 s'))
+
+    def test_web_tool_says_whole_seconds(self):
+        self.link_run({'kind': 'web', 'target': 'google.com'})
+        cmd = AgentCommand.objects.get(kind='nettest')
+        self.upload(cmd, b'st=finished\ndl=20\ndu=00:00:01\n')
+        r = NetTest.objects.get(pk=cmd.params['test_id']).result
+        self.assertTrue(r['ok']); self.assertIsNone(r['ms']); self.assertEqual(r['time_text'], 'about 1 s')
+
+    def test_real_outage_still_says_no_internet(self):
+        t = self.link_run({'kind': 'doctor'})
+        cmd = AgentCommand.objects.get(kind='nettest')
+        self.upload(cmd, b'gw=192.168.1.1\ngwp=0|\np=1.1.1.1|0|\np=8.8.8.8|0|\ndns=x\nweb=x\n')
+        self.assertEqual(NetTest.objects.get(pk=t['id']).result['title'], 'No Internet')
