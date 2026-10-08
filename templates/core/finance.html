@@ -151,6 +151,7 @@
 </div>
 
 {% elif tab == 'agents' %}
+{% include 'core/_agent_overview.html' %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2"><p class="text-secondary m-0 small">Agents sell your vouchers for a commission. Still to hand in = their sales − their commission − cash already received.</p>
 {% if 'finance.manage' in tt_perms %}<button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#agentModal" data-agent='{}'><i class="bi bi-person-plus"></i> Add agent</button>{% endif %}</div>
 <div class="agent-grid">

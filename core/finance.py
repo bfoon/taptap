@@ -244,6 +244,72 @@ def agent_balances(business):
     return sorted(out, key=lambda r: r['outstanding'], reverse=True)
 
 
+def agent_overview(business, period, balances=None):
+    """Totals and the leaderboard on top of Finance → Agents & cash.
+
+    All-time money (same rules as the agent cards): agents' sales split into commission, cash handed in and
+    cash still out. The leaderboard ranks agents by sales value in the selected period (ties: who hands in
+    more of what they owe), and flags agents who owe cash but have not handed any in for SLOW_DAYS."""
+    SLOW_DAYS = 7
+    balances = balances if balances is not None else agent_balances(business)
+    now = timezone.now()
+    gross = sum((r['gross'] for r in balances), ZERO)
+    comm = sum((r['commission'] for r in balances), ZERO)
+    handed = sum((r['collected'] for r in balances), ZERO)
+    owing = [r for r in balances if r['outstanding'] > 0]
+    out_total = sum((r['outstanding'] for r in owing), ZERO)
+    owed_total = sum((r['owed'] for r in balances if r['owed'] > 0), ZERO)
+    slow = [r for r in owing if not r['last_collection'] or (now - r['last_collection']).days >= SLOW_DAYS]
+    agents = [r['agent'] for r in balances]
+    active = [a for a in agents if a.active]
+    holding_n = sum(r['holding'] for r in balances)
+    holding_v = sum((r['holding_value'] for r in balances), ZERO)
+
+    # This period
+    psales = {r['agent']: r for r in business.sales.filter(agent__isnull=False, sold_at__gte=period.start, sold_at__lt=period.end)
+              .values('agent').annotate(gross=Sum('amount'), comm=Sum('commission'), n=Count('id'))}
+    p_prev = {r['agent']: d(r['gross']) for r in business.sales.filter(agent__isnull=False, sold_at__gte=period.prev_start,
+                                                                       sold_at__lt=period.prev_end).values('agent').annotate(gross=Sum('amount'))}
+    p_handed = d(business.collections.filter(collected_at__gte=period.start, collected_at__lt=period.end).aggregate(v=Sum('amount'))['v'])
+    p_comm = sum((d(r['comm']) for r in psales.values()), ZERO)
+    p_gross = sum((d(r['gross']) for r in psales.values()), ZERO)
+
+    board = []
+    for r in balances:
+        ps = psales.get(r['agent'].id)
+        if not ps or d(ps['gross']) <= 0:
+            continue
+        g = d(ps['gross'])
+        board.append({'agent': r['agent'], 'gross': g, 'sold': ps['n'], 'commission': d(ps['comm']),
+                      'share': round(float(g / p_gross * 100), 1) if p_gross > 0 else 0.0,
+                      'change': pct_change(g, p_prev.get(r['agent'].id, ZERO)),
+                      'collection_rate': min(r['collection_rate'], 100.0), 'outstanding': r['outstanding'],
+                      'holding': r['holding']})
+    board.sort(key=lambda x: (x['gross'], x['collection_rate']), reverse=True)
+    top_gross = board[0]['gross'] if board else ZERO
+    for x in board:
+        x['bar'] = round(float(x['gross'] / top_gross * 100), 1) if top_gross > 0 else 0
+    # Most reliable: hands in the largest part of what they owe (among agents who sold something, owed > 0).
+    reliable = max((r for r in balances if r['owed'] > 0 and r['sold']), key=lambda r: (min(r['collection_rate'], 100.0), r['collected']),
+                   default=None)
+    biggest_debt = owing[0] if owing else None                      # balances are sorted by outstanding, largest first
+
+    def pct(part):
+        return round(float(part / gross * 100), 1) if gross > 0 else 0.0
+    flow_out = max(out_total, ZERO)
+    return {
+        'gross': gross, 'commission': comm, 'handed': handed, 'outstanding': out_total,
+        'collection_rate': min(100.0, round(float(handed / owed_total * 100), 1)) if owed_total > 0 else 100.0,
+        'flow': {'commission': pct(comm), 'handed': pct(min(handed, gross - comm)), 'outstanding': pct(flow_out)},
+        'owing_count': len(owing), 'slow': slow[:3], 'slow_count': len(slow), 'slow_days': SLOW_DAYS,
+        'count': len(agents), 'active': len(active), 'inactive': len(agents) - len(active),
+        'holding': holding_n, 'holding_value': holding_v,
+        'period_handed': p_handed, 'period_commission': p_comm, 'period_gross': p_gross,
+        'board': board[:5], 'top': board[0] if board else None, 'podium': board[:3],
+        'reliable': reliable, 'biggest_debt': biggest_debt,
+    }
+
+
 def models_max(field):
     from django.db.models import Max
     return Max(field)
@@ -293,6 +359,7 @@ def finance_summary(business, period):
         'target_pct': min(999, round(float(month_rev / target * 100), 1)) if target > 0 else None,
         'stock_count': stock.count(), 'stock_value': d(stock.aggregate(v=Sum('price'))['v']),
         'agents': balances,
+        'agent_overview': agent_overview(business, period, balances),
     }
 
 
