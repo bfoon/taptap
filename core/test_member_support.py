@@ -148,7 +148,7 @@ class PageTests(Base):
         html = self.client.get(reverse('member_detail', args=[self.m.pk])).content.decode()
         for text in ('Jimmy Sowe', 'jimmy', 'Monthly', 'Schedule pause', 'When days are left', 'Reset password', 'Send portal access link',
                      'Sign out of portal everywhere', 'Jimmy phone', 'Free all slots', 'Block account', 'Support notes', 'History',
-                     'Renew &amp; receipt', 'Advanced'):
+                     'Billing &amp; payments', 'Renew 1 month &amp; receipt', 'Advanced'):
             self.assertIn(text, html, text)
         self.assertIn(reverse('member_detail', args=[self.m.pk]), self.client.get(reverse('members')).content.decode())
 

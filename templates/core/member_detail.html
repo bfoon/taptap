@@ -14,7 +14,7 @@
 .md-pill.expired,.md-pill.archived{background:#eef1f5;color:#56687a}.md-pill.frozen{background:#e0efff;color:#1a5fb4}.md-pill.warned{background:#fdecc8;color:#8a4b00}
 .md-acts{display:flex;flex-wrap:wrap;gap:.45rem}
 .md-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.6rem;margin-top:1rem}
-.md-kpi{background:#f6f9fc;border-radius:14px;padding:.6rem .75rem;min-width:0}.md-kpi small{display:block;color:#64748b;font-size:.72rem}
+.md-kpi{background:#f6f9fc;border-radius:14px;padding:.6rem .75rem;min-width:0;color:inherit}.md-kpi.owe{background:#fdeaea;box-shadow:inset 0 0 0 1px #f3c2c2}.md-kpi.owe b{color:#b42323}.md-kpi.owe span{color:#a12b2b}.md-kpi small{display:block;color:#64748b;font-size:.72rem}
 .md-kpi b{display:block;font-size:1.05rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.md-kpi span{font-size:.74rem;color:#64748b}
 .md-bar{height:9px;border-radius:99px;background:#eef2f6;overflow:hidden;margin-top:.9rem}.md-bar i{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#16a34a)}
 .md-bar i.mid{background:linear-gradient(90deg,#f59e0b,#d97706)}.md-bar i.end{background:linear-gradient(90deg,#ef4444,#dc2626)}
@@ -46,6 +46,25 @@
 .md-tl .ic.success{background:#e6f6ee;color:#127a4d}.md-tl .ic.danger{background:#fdeaea;color:#a12b2b}.md-tl .ic.warning{background:#fff4dc;color:#8a5a00}.md-tl .ic.info,.md-tl .ic.primary{background:#e0efff;color:#1a5fb4}
 .md-tl small{color:#64748b}
 .md-note{border:1px solid #eef2f6;border-radius:12px;padding:.55rem .7rem;margin-bottom:.45rem;font-size:.86rem}.md-note small{color:#64748b;display:block}
+.bl{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:1.2rem}
+.bl-owe{display:flex;justify-content:space-between;align-items:center;gap:.8rem;background:linear-gradient(135deg,#fdeaea,#fff5f5);border:1px solid #f3c2c2;border-radius:16px;padding:.8rem 1rem;margin-bottom:.9rem}
+.bl-owe small{display:block;font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#a12b2b}.bl-owe b{display:block;font-size:1.7rem;font-weight:800;color:#b42323;line-height:1.1}
+.bl-owe span{font-size:.74rem;color:#7f1d1d}.bl-owe>i{font-size:2.2rem;color:#ef4444;opacity:.5}
+.bl-ok{display:flex;gap:.7rem;align-items:center;background:#e7f8ee;border:1px solid #bfe8cf;border-radius:16px;padding:.75rem 1rem;margin-bottom:.9rem}.bl-ok>i{font-size:1.6rem;color:#16a34a}.bl-ok b{display:block;color:#127a4d}.bl-ok span{font-size:.8rem;color:#3d6b52}
+.bl-tabs{display:inline-flex;background:#f1f5f9;border-radius:12px;padding:.2rem;gap:.2rem;margin-bottom:.7rem}
+.bl-tabs button{border:0;background:transparent;border-radius:9px;padding:.35rem .8rem;font-weight:700;font-size:.82rem;color:#51667b}.bl-tabs button.on{background:#fff;color:#102033;box-shadow:0 1px 3px #0b223722}
+.bl-chips{display:flex;gap:.3rem;margin-top:.3rem}.bl-chips button{border:1px solid #d8e2ec;background:#fff;border-radius:999px;font-size:.72rem;font-weight:700;padding:.1rem .55rem;color:#3d5268}
+.bl-after{height:100%;min-height:62px;border-radius:14px;padding:.6rem .8rem;background:#f6f9fc;display:flex;flex-direction:column;justify-content:center;font-size:.84rem}
+.bl-after b{font-size:1.15rem}.bl-after.ok{background:#e7f8ee;color:#127a4d}.bl-after.part{background:#fff4dc;color:#7c4f00}.bl-after.bad{background:#fdeaea;color:#a12b2b}
+.bl-side h4{font-size:.8rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin:0 0 .5rem}
+.bl-ledger{list-style:none;margin:0;padding:0;max-height:430px;overflow:auto}
+.bl-ledger li{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:.6rem;align-items:center;padding:.5rem 0;border-bottom:1px solid #eef2f6}
+.bl-ledger .ic{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;background:#e0efff;color:#1a5fb4}.bl-ledger li.payment .ic{background:#e7f8ee;color:#127a4d}
+.bl-ledger .tx b{display:block;font-size:.85rem}.bl-ledger .tx small{display:block;font-size:.72rem;color:#64748b}
+.bl-ledger .am{text-align:right;font-size:.78rem}.bl-ledger .am b{display:block;font-size:.8rem}.bl-ledger .am a{font-size:.68rem;text-decoration:none;white-space:nowrap}
+@media(max-width:992px){.bl{grid-template-columns:1fr}}
+html[data-theme="dark"] .bl-owe{background:#2a1416;border-color:#5a2a2a}html[data-theme="dark"] .bl-owe span{color:#fca5a5}html[data-theme="dark"] .bl-ok{background:#11271b;border-color:#1f4d33}
+html[data-theme="dark"] .bl-after{background:#1d2229}html[data-theme="dark"] .bl-tabs{background:#1d2229}html[data-theme="dark"] .bl-tabs button.on{background:#2a313b;color:#fff}html[data-theme="dark"] .bl-ledger li{border-color:#2a313b}
 .md-danger{border-top:1px dashed #f1c4c4;margin-top:.9rem;padding-top:.8rem}
 @media(max-width:992px){.md-grid{grid-template-columns:1fr}.md-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 html[data-theme="dark"] .md-kpi,html[data-theme="dark"] .md-flags li{background:#1d2229}html[data-theme="dark"] .md-sub code{background:#1d2229;color:#e6edf5}
@@ -75,7 +94,7 @@ html[data-theme="dark"] .md-paused{background:#13233a;border-color:#244a7a}html[
       <div style="min-width:0">
         <h2 class="md-name">{{ name }}</h2>
         <div class="md-sub"><code>{{ v.code }}</code><span class="md-pill {{ state_key }}">{% if state_key == 'frozen' %}<i class="bi bi-pause-circle"></i> Paused{% else %}{{ state_label }}{% endif %}</span>
-          {% if plan %}<span><i class="bi bi-card-checklist"></i> {{ plan.name }}</span>{% else %}<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> No Member Plan</span>{% endif %}
+          {% if arrears %}<span class="md-pill disabled"><i class="bi bi-exclamation-circle"></i> Owes {{ arrears|money:cur }}</span>{% endif %}{% if plan %}<span><i class="bi bi-card-checklist"></i> {{ plan.name }}</span>{% else %}<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> No Member Plan</span>{% endif %}
           <span><i class="bi bi-router"></i> {{ v.router.name|default:"No router" }} · {{ channel }}</span></div>
       </div>
     </div>
@@ -92,7 +111,7 @@ html[data-theme="dark"] .md-paused{background:#13233a;border-color:#244a7a}html[
       <b>{% if v.frozen_at %}{% if frozen_left_minutes %}{{ frozen_left_minutes|minutes_text }}{% else %}Full time{% endif %}{% elif time_left %}{{ time_left|duration_short }}{% elif v.is_unlimited %}No limit{% elif not ends_at %}Starts at first login{% else %}Ran out{% endif %}</b>
       <span>{% if ends_at %}ends {{ ends_at|date:'d M Y H:i' }}{% elif v.frozen_at %}since {{ v.frozen_at|date:'d M H:i' }}{% endif %}</span></div>
     <div class="md-kpi"><small>Devices</small><b>{{ bindings|length }} / {{ v.max_devices|default:1 }}</b><span>{% if plan %}{{ plan.speed_limit|default:"plan speed" }}{% endif %}</span></div>
-    <div class="md-kpi"><small>Balance owed</small><b>{% if arrears %}{{ current_business.currency|default:"GMD" }} {{ arrears }}{% else %}Nothing{% endif %}</b><span>{{ renewals|length }} renewal{{ renewals|length|pluralize }}</span></div>
+    <a class="md-kpi text-decoration-none {% if arrears %}owe{% endif %}" href="#billing"><small>Balance owed</small><b>{% if arrears %}{{ arrears|money:cur }}{% else %}Nothing{% endif %}</b><span>{% if arrears %}tap to record a payment{% else %}{{ renewals|length }} renewal{{ renewals|length|pluralize }}{% endif %}</span></a>
     <div class="md-kpi"><small>Member portal</small><b>{% if security.profile.last_portal_login_at %}{{ security.profile.last_portal_login_at|timesince }} ago{% else %}Never used{% endif %}</b><span>{{ email|default:"no email" }}</span></div>
   </div>
   {% if time_pct is not None and not v.frozen_at %}<div class="md-bar" title="Time used"><i class="{% if time_pct >= 90 %}end{% elif time_pct >= 70 %}mid{% endif %}" style="width:{{ time_pct }}%"></i></div>{% endif %}
@@ -210,21 +229,60 @@ html[data-theme="dark"] .md-paused{background:#13233a;border-color:#244a7a}html[
 </section>
 
 <!-- ── Billing ── -->
-<section class="md-card" id="billing">
-  <h3><i class="bi bi-receipt"></i> Billing</h3>
-  <p class="lead">{% if plan %}{{ plan.name }}: {{ current_business.currency|default:"GMD" }} {{ plan.price }}{% if plan.duration_minutes %} per {{ plan.duration_minutes|minutes_text }}{% endif %}.{% endif %} {% if arrears %}<b class="text-danger">Owes {{ current_business.currency|default:"GMD" }} {{ arrears }}.</b>{% endif %}</p>
-  {% if plan and plan.duration_minutes and can_create %}
-  <form method="post" action="{% url 'member_renew' v.id %}" class="row g-2 mb-3">{% csrf_token %}<input type="hidden" name="next" value="{% url 'member_detail' v.id %}#billing">
-    <div class="col-sm-4"><label for="rAmt">Amount collected</label><input class="form-control form-control-sm" type="number" step="0.01" min="0" id="rAmt" name="amount" value="{{ plan.price }}" required></div>
-    <div class="col-sm-4"><label for="rMeth">Paid with</label><select class="form-select form-select-sm" id="rMeth" name="method">{% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
-    <div class="col-sm-4"><label for="rRef">Reference</label><input class="form-control form-control-sm" id="rRef" name="reference" placeholder="Wave / receipt ref"></div>
-    <div class="col-sm-8"><label for="rAg">Received by</label><select class="form-select form-select-sm" id="rAg" name="agent"><option value="">Shop</option>{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></div>
-    <div class="col-sm-4 d-flex align-items-end"><button class="btn btn-sm btn-success w-100"><i class="bi bi-arrow-repeat"></i> Renew &amp; receipt</button></div>
-  </form>{% endif %}
-  {% if renewals %}<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Date</th><th>Plan</th><th class="text-end">Paid</th><th></th></tr></thead><tbody>
-  {% for r in renewals %}<tr><td class="small">{{ r.renewed_at|date:'d M Y' }}</td><td class="small">{{ r.plan_name }}</td><td class="text-end small">{{ r.currency }} {{ r.amount_collected }}{% if r.amount_collected < r.plan_price %}<small class="d-block text-danger">of {{ r.plan_price }}</small>{% endif %}</td>
-    <td class="text-end"><a class="btn btn-sm btn-light" href="{% url 'members' %}?receipt={{ r.id }}&next={% url 'member_detail' v.id %}" title="Receipt"><i class="bi bi-receipt"></i></a></td></tr>{% endfor %}
-  </tbody></table></div>{% else %}<p class="small text-secondary mb-0">No renewals recorded yet.</p>{% endif %}
+<section class="md-card wide" id="billing">
+  <h3><i class="bi bi-receipt"></i> Billing &amp; payments</h3>
+  <p class="lead">{% if plan %}{{ plan.name }}: {{ plan.price|money:cur }}{% if plan.duration_minutes %} per {{ plan.duration_minutes|minutes_text }}{% endif %} · {% endif %}paid so far {{ paid_total|money:cur }} of {{ charged_total|money:cur }} charged.</p>
+  <div class="bl">
+    <div class="bl-main">
+      {% if arrears %}
+      <div class="bl-owe"><div><small>Arrears — still owed</small><b>{{ arrears|money:cur }}</b>
+        <span>{% for r in arrears_rows %}{{ r.renewal.receipt_number }} ({{ r.renewal.renewed_at|date:'d M' }}): {{ r.due|money:cur }}{% if not forloop.last %} · {% endif %}{% endfor %}</span></div>
+        <i class="bi bi-exclamation-octagon"></i></div>
+      {% else %}
+      <div class="bl-ok"><i class="bi bi-check-circle-fill"></i><div><b>Nothing owed</b><span>{% if charged_total %}Every renewal is fully paid.{% else %}No renewals recorded yet.{% endif %}</span></div></div>
+      {% endif %}
+
+      {% if can_create %}
+      <div class="bl-tabs" role="tablist" aria-label="Payment">
+        {% if arrears %}<button type="button" class="on" data-bl="pay" role="tab"><i class="bi bi-cash-coin"></i> Record payment</button>{% endif %}
+        {% if plan and plan.duration_minutes %}<button type="button" class="{% if not arrears %}on{% endif %}" data-bl="renew" role="tab"><i class="bi bi-arrow-repeat"></i> Renew</button>{% endif %}
+      </div>
+      {% if arrears %}
+      <form method="post" action="{% url 'member_renew' v.id %}" class="row g-2 bl-pane" data-pane="pay" id="payForm">{% csrf_token %}
+        <input type="hidden" name="mode" value="balance"><input type="hidden" name="next" value="{% url 'member_detail' v.id %}#billing">
+        <div class="col-sm-5"><label for="pAmt">Amount collected from the member</label>
+          <div class="input-group"><span class="input-group-text">{{ cur }}</span><input class="form-control form-control-lg fw-bold" type="number" step="0.01" min="0.01" max="{{ arrears|stringformat:'s' }}" id="pAmt" name="amount" value="{{ arrears|stringformat:'s' }}" required data-owed="{{ arrears|stringformat:'s' }}"></div>
+          <div class="bl-chips"><button type="button" data-fill="{{ arrears|stringformat:'s' }}">All {{ arrears|money:cur }}</button><button type="button" data-half>Half</button></div></div>
+        <div class="col-sm-7"><div class="bl-after" id="pAfter" aria-live="polite"></div></div>
+        <div class="col-sm-4"><label for="pMeth">Paid with</label><select class="form-select form-select-sm" id="pMeth" name="method">{% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+        <div class="col-sm-4"><label for="pRef">Reference</label><input class="form-control form-control-sm" id="pRef" name="reference" placeholder="Wave / receipt ref"></div>
+        <div class="col-sm-4"><label for="pAg">Received by</label><select class="form-select form-select-sm" id="pAg" name="agent"><option value="">Shop</option>{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></div>
+        <div class="col-12 d-flex flex-wrap gap-2 align-items-center"><button class="btn btn-success"><i class="bi bi-cash-coin"></i> Record payment &amp; receipt</button>
+          <small class="text-secondary">Pays the oldest balance first. Adds no time — renew separately.</small></div>
+      </form>{% endif %}
+      {% if plan and plan.duration_minutes %}
+      <form method="post" action="{% url 'member_renew' v.id %}" class="row g-2 bl-pane" data-pane="renew" id="renewForm" {% if arrears %}hidden{% endif %}>{% csrf_token %}<input type="hidden" name="next" value="{% url 'member_detail' v.id %}#billing">
+        {% if arrears %}<div class="col-12"><div class="alert alert-warning py-2 small mb-1"><i class="bi bi-lock"></i> Collect the {{ arrears|money:cur }} arrears first — TapTap does not add a new period while money is still owed.</div></div>{% endif %}
+        <div class="col-sm-5"><label for="rAmt">Amount collected</label><div class="input-group"><span class="input-group-text">{{ cur }}</span><input class="form-control form-control-lg fw-bold" type="number" step="0.01" min="0" id="rAmt" name="amount" value="{{ plan.price|stringformat:'s' }}" required data-price="{{ plan.price|stringformat:'s' }}"></div></div>
+        <div class="col-sm-7"><div class="bl-after" id="rAfter" aria-live="polite"></div></div>
+        <div class="col-sm-4"><label for="rMeth">Paid with</label><select class="form-select form-select-sm" id="rMeth" name="method">{% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+        <div class="col-sm-4"><label for="rRef">Reference</label><input class="form-control form-control-sm" id="rRef" name="reference" placeholder="Wave / receipt ref"></div>
+        <div class="col-sm-4"><label for="rAg">Received by</label><select class="form-select form-select-sm" id="rAg" name="agent"><option value="">Shop</option>{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></div>
+        <div class="col-12"><button class="btn btn-primary" {% if arrears %}disabled{% endif %}><i class="bi bi-arrow-repeat"></i> Renew {{ plan.duration_minutes|minutes_text }} &amp; receipt</button></div>
+      </form>{% endif %}
+      {% endif %}
+    </div>
+    <div class="bl-side">
+      <h4>Payment history</h4>
+      {% if ledger %}<ol class="bl-ledger">{% for x in ledger %}
+        <li class="{{ x.kind }}"><span class="ic"><i class="bi {% if x.kind == 'renewal' %}bi-arrow-repeat{% else %}bi-cash-coin{% endif %}"></i></span>
+          <div class="tx"><b>{{ x.label }}</b><small>{{ x.at|date:'d M Y' }} · {{ x.method }}{% if x.reference %} · {{ x.reference }}{% endif %}</small>
+            <small>{% if x.kind == 'renewal' %}Charged {{ x.charged|money:cur }} · paid {{ x.paid|money:cur }}{% else %}Paid {{ x.paid|money:cur }}{% endif %}</small></div>
+          <div class="am"><b class="{% if x.balance %}text-danger{% else %}text-success{% endif %}">{% if x.balance %}owes {{ x.balance|money:cur }}{% else %}settled{% endif %}</b>
+            <a href="{% url 'members' %}?{% if x.kind == 'renewal' %}receipt{% else %}balance_receipt{% endif %}={{ x.id }}&next={% url 'member_detail' v.id %}%23billing" title="Receipt {{ x.number }}"><i class="bi bi-receipt"></i> {{ x.number }}</a></div></li>
+      {% endfor %}</ol>{% else %}<p class="small text-secondary">No payments yet.</p>{% endif %}
+    </div>
+  </div>
 </section>
 
 <!-- ── Security ── -->
@@ -279,6 +337,26 @@ html[data-theme="dark"] .md-paused{background:#13233a;border-color:#244a7a}html[
   // Reminders
   var rem=document.getElementById('dRem'),days=document.getElementById('dRemDays');
   if(rem&&days){var f=function(){days.querySelectorAll('input').forEach(function(x){x.disabled=!rem.checked;});};rem.addEventListener('change',f);f();}
+  // Billing: tabs + live "what happens" previews
+  var cur='{{ cur|escapejs }}';
+  function fmt(n){return cur+(Math.round(n*100)/100).toLocaleString(undefined,{minimumFractionDigits:n%1?2:0,maximumFractionDigits:2});}
+  document.querySelectorAll('[data-bl]').forEach(function(b){b.addEventListener('click',function(){
+    document.querySelectorAll('[data-bl]').forEach(function(x){x.classList.toggle('on',x===b);});
+    document.querySelectorAll('.bl-pane').forEach(function(p){p.hidden=p.dataset.pane!==b.dataset.bl;});});});
+  var pAmt=document.getElementById('pAmt'),pAfter=document.getElementById('pAfter');
+  function payPreview(){if(!pAmt)return;var owed=parseFloat(pAmt.dataset.owed)||0,v=parseFloat(pAmt.value)||0,left=owed-v;
+    if(v<=0){pAfter.className='bl-after';pAfter.innerHTML='Type the amount the member paid.';}
+    else if(left<-0.004){pAfter.className='bl-after bad';pAfter.innerHTML='<b>Too much</b>They only owe '+fmt(owed)+'.';}
+    else if(left<0.005){pAfter.className='bl-after ok';pAfter.innerHTML='<b>Paid in full</b>Arrears cleared — '+fmt(0)+' owed after this.';}
+    else{pAfter.className='bl-after part';pAfter.innerHTML='<b>'+fmt(left)+' still owed</b>after this payment of '+fmt(v)+'.';}}
+  if(pAmt){pAmt.addEventListener('input',payPreview);payPreview();
+    document.querySelectorAll('[data-fill]').forEach(function(b){b.addEventListener('click',function(){pAmt.value=b.dataset.fill;payPreview();});});
+    document.querySelectorAll('[data-half]').forEach(function(b){b.addEventListener('click',function(){pAmt.value=(Math.round((parseFloat(pAmt.dataset.owed)||0)*50)/100).toFixed(2);payPreview();});});}
+  var rAmt=document.getElementById('rAmt'),rAfter=document.getElementById('rAfter');
+  function renewPreview(){if(!rAmt)return;var price=parseFloat(rAmt.dataset.price)||0,v=parseFloat(rAmt.value)||0,left=price-v;
+    if(left<0.005){rAfter.className='bl-after ok';rAfter.innerHTML='<b>Paid in full</b>Plan price '+fmt(price)+'.';}
+    else{rAfter.className='bl-after part';rAfter.innerHTML='<b>'+fmt(left)+' will be owed</b>Plan price is '+fmt(price)+' — the rest becomes arrears.';}}
+  if(rAmt){rAmt.addEventListener('input',renewPreview);renewPreview();}
   // Confirmations
   document.querySelectorAll('form[data-confirm]').forEach(function(f){f.addEventListener('submit',function(e){if(!confirm(f.dataset.confirm))e.preventDefault();});});
   // One-time password: copy / WhatsApp / SMS

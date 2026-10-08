@@ -40,6 +40,39 @@ def _when(value):
     return timezone.make_aware(dt) if timezone.is_naive(dt) else dt
 
 
+def _ledger(member):
+    """Every renewal (what was charged, what was paid then) and every later balance payment, newest first,
+    with the balance after each line."""
+    from decimal import Decimal
+    from .models_member_plans import MemberRenewal
+    try:
+        from .models_member_arrears import MemberBalancePayment
+        payments = list(MemberBalancePayment.objects.filter(member=member).select_related('recorded_by'))
+    except Exception:
+        payments = []
+    from .views_agents import MANUAL_METHODS
+    names = dict(MANUAL_METHODS)
+    label = lambda code: names.get(code, str(code or '').replace('_', ' ').title())
+    rows = []
+    for r in MemberRenewal.objects.filter(member=member).select_related('recorded_by'):
+        rows.append({'kind': 'renewal', 'at': r.renewed_at, 'label': f'Renewal · {r.plan_name}', 'charged': r.plan_price,
+                     'paid': r.amount_collected, 'method': label(r.payment_method),
+                     'reference': getattr(r, 'reference', ''), 'id': r.pk, 'number': r.receipt_number, 'currency': r.currency,
+                     'by': r.recorded_by})
+    for p in payments:
+        rows.append({'kind': 'payment', 'at': p.paid_at, 'label': 'Balance payment', 'charged': Decimal('0'), 'paid': p.amount_collected,
+                     'method': label(p.payment_method),
+                     'reference': p.reference, 'id': p.pk, 'number': p.receipt_number, 'currency': p.currency, 'by': p.recorded_by})
+    rows.sort(key=lambda x: (x['at'], 0 if x['kind'] == 'renewal' else 1))
+    bal = Decimal('0')
+    for x in rows:
+        bal = max(Decimal('0'), bal + x['charged'] - x['paid'])
+        x['balance'] = bal
+    paid = sum((x['paid'] for x in rows), Decimal('0'))
+    charged = sum((x['charged'] for x in rows), Decimal('0'))
+    return list(reversed(rows)), paid, charged
+
+
 @login_required
 def member_detail(request, pk):
     from . import members as mem
@@ -63,6 +96,7 @@ def member_detail(request, pk):
         arrears, arrears_rows = total_arrears(v), [r for r in balance_rows(v) if r['due'] > 0][:10]
     except Exception:
         arrears, arrears_rows = None, []
+    ledger, paid_total, charged_total = _ledger(v)
     left_frozen = v.frozen_left if v.frozen_at else None
     schedules = list(v.member_schedules.select_related('created_by').order_by('-created_at')[:12])
     return render(request, 'core/member_detail.html', {
@@ -76,6 +110,8 @@ def member_detail(request, pk):
         'security': ms.security(v),
         'renewals': MemberRenewal.objects.filter(member=v).order_by('-renewed_at')[:10],
         'arrears': arrears, 'arrears_rows': arrears_rows,
+        'cur': business.currency or 'D',
+        'ledger': ledger[:15], 'paid_total': paid_total, 'charged_total': charged_total,
         'notes': VoucherEvent.objects.filter(voucher=v, event='note', detail__support_note=True).select_related('user').order_by('-created_at')[:20],
         'timeline': vh.timeline(v, now)[:60],
         'channel': vh.channel(v.router), 'shown_password': shown.get('pw') if shown else '',

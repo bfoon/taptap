@@ -727,11 +727,14 @@ def _patch_patterns(patterns):
             URLPattern,
         ):
             continue
+        # Django 2+ resolves through URLPattern.callback (``_callback`` was the pre-2.0 name and setting it
+        # changes nothing), so set both: otherwise the wrappers are skipped whenever the URLconf loaded before
+        # install() ran, and a balance payment falls through to the plain renewal (adding a whole period).
         if pattern.name == "members":
-            pattern._callback = members_view
+            pattern.callback = pattern._callback = members_view
             changed += 1
         elif pattern.name == "member_renew":
-            pattern._callback = member_renew_view
+            pattern.callback = pattern._callback = member_renew_view
             changed += 1
     return changed
 
