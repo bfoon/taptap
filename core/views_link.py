@@ -125,6 +125,29 @@ def agent_probe(request):
 
 
 @csrf_exempt
+def agent_nettest(request):
+    """TapTap Link: a MikroTik's answer to a network test (core/nettools.receive_link)."""
+    if request.method != 'POST':
+        return HttpResponse(status=405)
+    if len(request.body or b'') > 16_000:
+        return HttpResponse('payload too large', status=413, content_type='text/plain')
+    try:
+        cid = int(request.GET.get('c', '0'))
+    except ValueError:
+        return HttpResponse(status=400)
+    cmd = AgentCommand.objects.select_related('router__business').filter(pk=cid, kind='nettest').first()
+    if not cmd:
+        return HttpResponse(status=404)
+    if not hmac.compare_digest(link.nonce(cmd), str(request.GET.get('n', ''))):
+        return HttpResponse(status=403)
+    if cmd.status in ('failed', 'expired', 'cancelled') or cmd.expires_at < timezone.now():
+        return HttpResponse(status=410)
+    from .nettools import receive_link
+    t = receive_link(cmd, request.body)
+    return JsonResponse({'ok': bool(t)})
+
+
+@csrf_exempt
 def agent_inventory(request):
     """Receive one signed/chunked RouterOS inventory section from TapTap Link."""
     if request.method != 'POST':

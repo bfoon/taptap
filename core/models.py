@@ -1310,3 +1310,4 @@ from .models_agentlog import AgentCheck, AgentHelp, AgentOrder  # noqa: E402,F40
 from .models_watch import Watch  # noqa: E402,F401
 from .models_sharing import SharingPolicy, SharingCase, SharingTrust  # noqa: E402,F401
 from .models_netdev import NetDevice, RemoteSession, OmadaController  # noqa: E402,F401
+from .models_nettools import NetTest  # noqa: E402,F401

@@ -18,6 +18,7 @@ from . import views_members as vmem
 from . import views_topology as vtopo
 from . import views_geo as vgeo
 from . import views_security_fixes as vsecfix
+from . import views_nettools as vnt
 
 urlpatterns = [
     path('network/devices/',vnd.netdev_list,name='netdev_list'), path('network/devices/save/',vnd.netdev_save,name='netdev_save'),
@@ -97,7 +98,7 @@ urlpatterns = [
     path('vouchers/missing/<int:pk>/resolve/',views_missing.resolve_missing_report,name='resolve_missing_report'),
     path('batches/<int:pk>/missing/report/',views_missing.report_missing_batch,name='report_missing_batch'),
     path('api/agent/v1/poll',views_link.agent_poll,name='agent_poll'), path('api/agent/v1/ack',views_link.agent_ack,name='agent_ack'),
-    path('api/agent/v1/inventory',views_link.agent_inventory,name='agent_inventory'), path('api/agent/v1/probe',views_link.agent_probe,name='agent_probe'), path('api/agent/v1/hello',views_link.agent_hello,name='agent_hello'),
+    path('api/agent/v1/inventory',views_link.agent_inventory,name='agent_inventory'), path('api/agent/v1/probe',views_link.agent_probe,name='agent_probe'), path('api/agent/v1/nettest',views_link.agent_nettest,name='agent_nettest'), path('api/agent/v1/hello',views_link.agent_hello,name='agent_hello'),
     path('routers/<int:pk>/link/',views_link.router_link,name='router_link'), path('routers/<int:pk>/link/action/',views_link.router_link_action,name='router_link_action'),
     path('routers/<int:pk>/link/status/',views_link.router_link_status,name='router_link_status'),
     path('notifications/',views_link.notifications,name='notifications'), path('notifications/test/',views_link.notifications_test,name='notifications_test'), path('notifications/resend/',views_link.notifications_resend,name='notifications_resend'),
@@ -143,4 +144,6 @@ urlpatterns = [
     path('topology/geo/',vgeo.topology_geo,name='topology_geo'),
     path('topology/labels/',vgeo.topology_labels,name='topology_labels'),
     path('routers/<int:pk>/ports/blink/',views_ports.port_blink,name='port_blink'),
+    path('network-tools/',vnt.network_tools,name='network_tools'), path('network-tools/run/',vnt.network_tools_run,name='network_tools_run'),
+    path('network-tools/test/<int:pk>/',vnt.network_tools_test,name='network_tools_test'),
 ]

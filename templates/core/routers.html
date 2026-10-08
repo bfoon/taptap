@@ -66,6 +66,7 @@
           {% endif %}
           <form method="post" action="{% url 'router_sync' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary router-sync-button" data-router-id="{{ r.id }}" {% if not sync_schema_ready or r.latest_sync_job.is_active %}disabled{% endif %}><i class="bi bi-arrow-repeat"></i> <span>{% if r.latest_sync_job.is_active %}Syncing…{% else %}Sync{% endif %}</span></button></form>
           <a class="btn btn-sm btn-outline-primary" href="{% url 'router_test' r.id %}"><i class="bi bi-activity"></i> Test</a>
+          <a class="btn btn-sm btn-outline-primary" href="{% url 'network_tools' %}?router={{ r.id }}" title="Ping, traceroute, DNS, speed test and Internet check from this router"><i class="bi bi-speedometer2"></i> Tools</a>
           <a class="btn btn-sm btn-outline-danger" href="{% url 'router_delete' r.id %}" onclick="return confirm('Delete this router from TapTap?')"><i class="bi bi-trash3"></i></a>
         </div>
       </div>

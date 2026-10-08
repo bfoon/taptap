@@ -1,0 +1,80 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}Network tools — TapTap{% endblock %}
+{% block heading %}Network tools{% endblock %}
+{% block extra_head %}<link href="{% static 'css/nettools.css' %}?v=1" rel="stylesheet">{% endblock %}
+{% block content %}
+{% if not sel %}
+<div class="nt-empty"><i class="bi bi-router"></i><h2>Add a router first</h2><p>Network tools run on your MikroTik, so TapTap needs one to test from.</p>
+  <a class="btn btn-primary" href="{% url 'routers' %}">Add a router</a></div>
+{% else %}
+<div id="nt" data-run="{% url 'network_tools_run' %}" data-test="{% url 'network_tools_test' 0 %}" data-router="{{ sel.id }}" data-via="{{ sel_via }}">
+{% csrf_token %}
+<div class="nt-routers" role="tablist" aria-label="Test from">
+  {% for c in routers %}<a href="?router={{ c.r.id }}" role="tab" aria-selected="{% if c.r.id == sel.id %}true{% else %}false{% endif %}" class="nt-rt {% if c.r.id == sel.id %}on{% endif %}">
+    <span class="dot {% if c.r.status == 'Online' %}up{% endif %}"></span><b>{{ c.r.name }}</b><small>{{ c.via }}</small></a>{% endfor %}
+</div>
+
+<section class="nt-hero" id="ntHero" data-state="idle">
+  <div class="nt-hero-top">
+    <div>
+      <h2 id="ntVerdict">Is the Internet working on {{ sel.name }}?</h2>
+      <p id="ntVerdictText">One check follows the whole path your customers use — router, ISP, Internet, names, websites — and tells you where it breaks.</p>
+    </div>
+    <button class="btn btn-lg nt-go" id="ntDoctor" type="button"><i class="bi bi-heart-pulse"></i> <span>Check the Internet</span></button>
+  </div>
+  <ol class="nt-path" id="ntPath" aria-label="Path from your router to websites">
+    <li data-k="router"><span class="nd"><i class="bi bi-router"></i></span><b>{{ sel.name|truncatechars:18 }}</b><small>your router</small></li>
+    <li data-k="modem"><span class="nd"><i class="bi bi-hdd-network"></i></span><b>ISP / modem</b><small>the line out</small></li>
+    <li data-k="internet"><span class="nd"><i class="bi bi-globe2"></i></span><b>Internet</b><small>1.1.1.1 · 8.8.8.8</small></li>
+    <li data-k="dns"><span class="nd"><i class="bi bi-signpost-split"></i></span><b>Names (DNS)</b><small>google.com</small></li>
+    <li data-k="web"><span class="nd"><i class="bi bi-window"></i></span><b>Websites</b><small>a test page</small></li>
+  </ol>
+  <div class="nt-fixes" id="ntFixes" hidden></div>
+  <p class="nt-via"><i class="bi bi-info-circle"></i> Runs on {{ sel.name }} through <b>{{ sel_via }}</b>{% if sel_via == 'TapTap Link' %} — the router runs it at its next check-in, so answers take a few seconds longer{% endif %}.</p>
+</section>
+
+<div class="nt-grid">
+<section class="nt-card">
+  <div class="nt-tabs" role="tablist" aria-label="Tool">
+    <button class="on" data-tool="ping" role="tab"><i class="bi bi-broadcast"></i> Ping</button>
+    <button data-tool="trace" role="tab"><i class="bi bi-bezier2"></i> Traceroute</button>
+    <button data-tool="dns" role="tab"><i class="bi bi-signpost-split"></i> DNS</button>
+    <button data-tool="web" role="tab"><i class="bi bi-window"></i> Website</button>
+    <button data-tool="speed" role="tab"><i class="bi bi-speedometer2"></i> Speed</button>
+  </div>
+
+  <form class="nt-form" id="ntForm" autocomplete="off">
+    <div class="nt-field" data-for="ping trace dns web">
+      <label for="ntTarget" id="ntTargetLabel">Address</label>
+      <input class="form-control" id="ntTarget" list="ntSuggest" placeholder="8.8.8.8 or google.com" spellcheck="false">
+      <datalist id="ntSuggest">
+        <option value="8.8.8.8">Google DNS</option><option value="1.1.1.1">Cloudflare</option><option value="google.com"><option value="facebook.com"><option value="whatsapp.net"><option value="youtube.com">
+        {% for d in devices %}<option value="{{ d.ip }}">{{ d.name }}</option>{% endfor %}
+      </datalist>
+      <div class="nt-chips" id="ntChips"></div>
+    </div>
+    <div class="nt-row" data-for="ping">
+      <label>Packets <select class="form-select form-select-sm" id="ntCount"><option>3</option><option selected>5</option><option>10</option><option>20</option></select></label>
+      <label>Size <select class="form-select form-select-sm" id="ntSize"><option value="56" selected>56 bytes (normal)</option><option value="512">512 bytes</option><option value="1400">1400 bytes (near full)</option></select></label>
+      {% if sel_via != 'TapTap Link' %}<label class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="ntKeep"> <span class="form-check-label">Keep pinging</span></label>{% endif %}
+    </div>
+    <div class="nt-speed-warn" data-for="speed"><i class="bi bi-exclamation-triangle"></i> Downloads up to {% if sel_via == 'TapTap Link' %}3 MB{% else %}26 MB{% endif %} through your Internet line — it counts against your data bundle, and customers may feel it for a few seconds.</div>
+    <button class="btn btn-primary" id="ntRun" type="submit"><i class="bi bi-play-fill"></i> <span>Run</span></button>
+    <div class="nt-msg" id="ntMsg" role="status" aria-live="polite"></div>
+  </form>
+
+  <div class="nt-out" id="ntOut" aria-live="polite">
+    <div class="nt-hint" id="ntHint">Pick a tool, type an address and press Run. Tests run on the router itself, so you see exactly what your customers get.</div>
+  </div>
+</section>
+
+<aside class="nt-card nt-hist">
+  <div class="d-flex justify-content-between align-items-center mb-2"><h3>Recent tests</h3><small class="text-secondary">all routers</small></div>
+  <div class="nt-hlist" id="ntHist"></div>
+</aside>
+</div>
+</div>
+{{ history|json_script:"ntHistory" }}
+{% endif %}
+{% endblock %}
+{% block scripts %}{% if sel %}<script src="{% static 'js/nettools.js' %}?v=1"></script>{% endif %}{% endblock %}
