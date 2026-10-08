@@ -71,8 +71,37 @@ def _allocations_paid(payments):
     return totals
 
 
+def _charge_paid(payments):
+    """Money already applied to each MemberCharge (allocations with charge_id)."""
+    totals = defaultdict(lambda: Decimal("0.00"))
+    for payment in payments:
+        for item in payment.allocations or []:
+            try:
+                cid = int(item.get("charge_id") or 0)
+                amount = Decimal(str(item.get("amount") or "0"))
+            except (TypeError, ValueError, InvalidOperation):
+                continue
+            if cid:
+                totals[cid] += amount
+    return totals
+
+
+def _charge_due(charge, paid):
+    if charge.waived_at:
+        return Decimal("0.00")
+    return max(Decimal("0.00"), charge.amount - paid[charge.pk]).quantize(Decimal("0.01"))
+
+
+def _charges_for(member_ids, lock=False):
+    from .models_member_charges import MemberCharge
+    qs = MemberCharge.objects.filter(member_id__in=list(member_ids)).order_by("charged_at", "pk")
+    return list(qs.select_for_update() if lock else qs)
+
+
 def balance_rows(member):
-    """Outstanding balance per renewal, oldest first."""
+    """Outstanding balance per renewal and per charge (late fee…), oldest first.
+
+    Each row: {"renewal": MemberRenewal or None, "charge": MemberCharge or None, "due": Decimal, "at": datetime}."""
     renewals = list(
         MemberRenewal.objects
         .filter(member=member)
@@ -94,8 +123,14 @@ def balance_rows(member):
         )
         rows.append({
             "renewal": renewal,
+            "charge": None,
             "due": due.quantize(Decimal("0.01")),
+            "at": renewal.renewed_at,
         })
+    cpaid = _charge_paid(payments)
+    for charge in _charges_for([member.pk]):
+        rows.append({"renewal": None, "charge": charge, "due": _charge_due(charge, cpaid), "at": charge.charged_at})
+    rows.sort(key=lambda r: (r["at"], 0 if r["renewal"] else 1))
     return rows
 
 
@@ -113,7 +148,7 @@ def balance_for_renewal(renewal):
             renewal.plan_price - renewal.amount_collected,
         ).quantize(Decimal("0.01"))
     for row in balance_rows(renewal.member):
-        if row["renewal"].pk == renewal.pk:
+        if row["renewal"] is not None and row["renewal"].pk == renewal.pk:
             return row["due"]
     return Decimal("0.00")
 
@@ -134,6 +169,9 @@ def summaries_for_members(members, now=None):
         .order_by("paid_at", "pk")
     )
 
+    charges_by_member = defaultdict(list)
+    for charge in _charges_for(ids):
+        charges_by_member[charge.member_id].append(charge)
     renew_by_member = defaultdict(list)
     pay_by_member = defaultdict(list)
     for renewal in renewals:
@@ -155,6 +193,9 @@ def summaries_for_members(members, now=None):
                 - renewal.amount_collected
                 - paid[renewal.pk],
             )
+        cpaid = _charge_paid(plist)
+        for charge in charges_by_member[member.pk]:
+            arrears += _charge_due(charge, cpaid)
 
         # The small bar represents one normal plan period. If an early renewal
         # leaves more than a full period remaining it stays full until the final
@@ -205,8 +246,12 @@ def collect_balance(
     reference="",
     agent=None,
     user=None,
+    first_charge=None,
 ):
-    """Collect money against old renewal arrears WITHOUT adding membership time."""
+    """Collect money against arrears (old renewals and charges such as late fees) WITHOUT adding membership time.
+
+    Oldest first — except ``first_charge`` (a MemberCharge id), which is paid before anything else: the fee the
+    member is paying for at the counter."""
     from .finance import record_sale
     from .voucher_history import record
 
@@ -242,11 +287,21 @@ def collect_balance(
         if due:
             open_rows.append((renewal, due))
             balance_before += due
+    cpaid = _charge_paid(payments)
+    for charge in _charges_for([member.pk], lock=True):
+        due = _charge_due(charge, cpaid)
+        if due:
+            open_rows.append((charge, due))
+            balance_before += due
+    open_rows.sort(key=lambda item: (getattr(item[0], "renewed_at", None) or item[0].charged_at,
+                                     0 if isinstance(item[0], MemberRenewal) else 1))
+    if first_charge:
+        open_rows.sort(key=lambda item: 0 if (not isinstance(item[0], MemberRenewal) and item[0].pk == int(first_charge)) else 1)
 
     balance_before = balance_before.quantize(Decimal("0.01"))
     if balance_before <= 0:
         raise BalanceError(
-            "This member has no outstanding renewal balance."
+            "This member owes nothing — add a charge (late fee…) first, or renew."
         )
 
     collected = _money(amount, "Amount collected")
@@ -258,16 +313,24 @@ def collect_balance(
 
     left = collected
     allocations = []
-    for renewal, due in open_rows:
+    for item, due in open_rows:
         if left <= 0:
             break
         applied = min(left, due).quantize(Decimal("0.01"))
-        allocations.append({
-            "renewal_id": renewal.pk,
-            "receipt": renewal.receipt_number,
-            "plan": renewal.plan_name,
-            "amount": str(applied),
-        })
+        if isinstance(item, MemberRenewal):
+            allocations.append({
+                "renewal_id": item.pk,
+                "receipt": item.receipt_number,
+                "plan": item.plan_name,
+                "amount": str(applied),
+            })
+        else:
+            allocations.append({
+                "charge_id": item.pk,
+                "receipt": item.receipt_number,
+                "plan": item.label,
+                "amount": str(applied),
+            })
         left -= applied
 
     balance_after = (
@@ -329,6 +392,62 @@ def collect_balance(
         ),
     )
     return payment
+
+
+@transaction.atomic
+def add_charge(member, *, kind="late_fee", amount, description="", user=None, collect=None):
+    """Put a charge (late fee, reconnection fee…) on a member's account. Adds no time.
+
+    ``collect``: {"amount", "method", "reference", "agent"} when the member pays now — the payment goes to this
+    charge first. Returns (charge, payment_or_None)."""
+    from .models_member_charges import MemberCharge
+    from .voucher_history import record
+    kinds = dict(MemberCharge.KINDS)
+    if kind not in kinds:
+        raise BalanceError("Choose what the charge is for.")
+    value = _money(amount, "Charge amount")
+    description = (description or "").strip()[:200]
+    if kind == "other" and not description:
+        raise BalanceError("Say what the charge is for.")
+    paying = None
+    if collect and str(collect.get("amount") or "").strip():
+        paying = _money(collect.get("amount"), "Amount paid now")
+        if paying > value:
+            raise BalanceError("The amount paid now cannot be more than the charge. Use Record payment for older arrears.")
+    charge = MemberCharge.objects.create(
+        business=member.business, member=member, member_username=member.code, kind=kind, description=description,
+        amount=value, currency=member.business.currency,
+        created_by=user if getattr(user, "is_authenticated", False) else None)
+    record(member, "note", user=user, source="user", reason=f"Charge added: {charge.label}",
+           text=f"{charge.receipt_number}: {member.business.currency}{value:,.2f}. No membership time was added.")
+    payment = None
+    if paying:
+        payment = collect_balance(member, amount=paying, method=collect.get("method") or "cash",
+                                  reference=collect.get("reference") or "", agent=collect.get("agent"), user=user,
+                                  first_charge=charge.pk)
+    return charge, payment
+
+
+def waive_charge(member, charge_id, *, reason="", user=None):
+    """Cancel what is still unpaid on a charge (money already paid on it stays paid)."""
+    from .models_member_charges import MemberCharge
+    from .voucher_history import record
+    reason = (reason or "").strip()[:200]
+    if not reason:
+        raise BalanceError("Give a reason for waiving the charge.")
+    charge = MemberCharge.objects.filter(member=member, pk=charge_id).first()
+    if not charge or charge.waived_at:
+        raise BalanceError("That charge is not open.")
+    payments = MemberBalancePayment.objects.filter(member=member)
+    due = _charge_due(charge, _charge_paid(payments))
+    if due <= 0:
+        raise BalanceError("That charge is already fully paid.")
+    charge.waived_at, charge.waive_reason = timezone.now(), reason
+    charge.waived_by = user if getattr(user, "is_authenticated", False) else None
+    charge.save(update_fields=["waived_at", "waive_reason", "waived_by"])
+    record(member, "note", user=user, source="user", reason=f"Charge waived: {charge.label}",
+           text=f"{charge.receipt_number}: {member.business.currency}{due:,.2f} no longer owed — {reason}")
+    return charge, due
 
 
 def _safe_next(value, fallback="/members/"):

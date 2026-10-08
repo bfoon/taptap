@@ -40,6 +40,11 @@ def _when(value):
     return timezone.make_aware(dt) if timezone.is_naive(dt) else dt
 
 
+def _charge_kinds():
+    from .models_member_charges import MemberCharge
+    return MemberCharge.KINDS
+
+
 def _ledger(member):
     """Every renewal (what was charged, what was paid then) and every later balance payment, newest first,
     with the balance after each line."""
@@ -63,13 +68,26 @@ def _ledger(member):
         rows.append({'kind': 'payment', 'at': p.paid_at, 'label': 'Balance payment', 'charged': Decimal('0'), 'paid': p.amount_collected,
                      'method': label(p.payment_method),
                      'reference': p.reference, 'id': p.pk, 'number': p.receipt_number, 'currency': p.currency, 'by': p.recorded_by})
-    rows.sort(key=lambda x: (x['at'], 0 if x['kind'] == 'renewal' else 1))
+    from .models_member_charges import MemberCharge
+    from .member_arrears import _charge_paid
+    cpaid = _charge_paid(payments)
+    for c in MemberCharge.objects.filter(member=member).select_related('created_by'):
+        rows.append({'kind': 'charge', 'at': c.charged_at, 'label': c.label, 'charged': c.amount, 'paid': Decimal('0'),
+                     'method': '', 'reference': '', 'id': c.pk, 'number': c.receipt_number, 'currency': c.currency, 'by': c.created_by})
+        if c.waived_at:
+            left = max(Decimal('0'), c.amount - cpaid[c.pk])
+            if left:
+                rows.append({'kind': 'waived', 'at': c.waived_at, 'label': f'Waived · {c.get_kind_display()}', 'charged': -left,
+                             'paid': Decimal('0'), 'method': c.waive_reason, 'reference': '', 'id': c.pk, 'number': c.receipt_number,
+                             'currency': c.currency, 'by': c.waived_by})
+    order = {'renewal': 0, 'charge': 1, 'waived': 2, 'payment': 3}
+    rows.sort(key=lambda x: (x['at'], order[x['kind']]))
     bal = Decimal('0')
     for x in rows:
         bal = max(Decimal('0'), bal + x['charged'] - x['paid'])
         x['balance'] = bal
     paid = sum((x['paid'] for x in rows), Decimal('0'))
-    charged = sum((x['charged'] for x in rows), Decimal('0'))
+    charged = sum((x['charged'] for x in rows if x['kind'] != 'waived'), Decimal('0'))
     return list(reversed(rows)), paid, charged
 
 
@@ -93,9 +111,10 @@ def member_detail(request, pk):
         shown = None
     try:
         from .member_arrears import balance_rows, total_arrears
-        arrears, arrears_rows = total_arrears(v), [r for r in balance_rows(v) if r['due'] > 0][:10]
+        arrears_all = balance_rows(v)
+        arrears, arrears_rows = total_arrears(v), [r for r in arrears_all if r['due'] > 0][:10]
     except Exception:
-        arrears, arrears_rows = None, []
+        arrears, arrears_rows, arrears_all = None, [], []
     ledger, paid_total, charged_total = _ledger(v)
     left_frozen = v.frozen_left if v.frozen_at else None
     schedules = list(v.member_schedules.select_related('created_by').order_by('-created_at')[:12])
@@ -111,6 +130,8 @@ def member_detail(request, pk):
         'renewals': MemberRenewal.objects.filter(member=v).order_by('-renewed_at')[:10],
         'arrears': arrears, 'arrears_rows': arrears_rows,
         'cur': business.currency or 'D',
+        'charge_kinds': _charge_kinds(),
+        'open_charges': [r for r in arrears_all if r.get('charge') is not None and r['due'] > 0],
         'ledger': ledger[:15], 'paid_total': paid_total, 'charged_total': charged_total,
         'notes': VoucherEvent.objects.filter(voucher=v, event='note', detail__support_note=True).select_related('user').order_by('-created_at')[:20],
         'timeline': vh.timeline(v, now)[:60],
@@ -136,7 +157,7 @@ def member_support(request, pk):
     anchor = {'pause_now': 'pause', 'unpause': 'pause', 'schedule': 'pause', 'schedule_resume': 'pause', 'cancel': 'pause',
               'password': 'access', 'portal_link': 'access', 'portal_signout': 'access', 'wifi_signout': 'access',
               'devices': 'devices', 'block': 'security', 'unblock': 'security', 'details': 'details', 'plan': 'details',
-              'note': 'notes'}.get(act, '')
+              'note': 'notes', 'charge': 'billing', 'waive': 'billing'}.get(act, '')
     back = redirect(reverse('member_detail', args=[v.pk]) + (f'#{anchor}' if anchor else ''))
     try:
         if act == 'pause_now':
@@ -195,6 +216,35 @@ def member_support(request, pk):
                 raise ms.SupportError('Your role cannot change Member Plans.')
             plan, result = ms.change_plan(v, request.POST.get('plan'), user=user)
             messages.success(request, f'{v.code} is now on {plan.name} — {result}.')
+        elif act in ('charge', 'waive'):
+            if not _can(request, 'vouchers.create'):
+                raise ms.SupportError('Your role cannot add charges or take payments.')
+            from . import member_arrears as ma
+            try:
+                if act == 'charge':
+                    collect = None
+                    if request.POST.get('pay_now'):
+                        from .views_agents import MANUAL_METHODS
+                        method = request.POST.get('method') if request.POST.get('method') in dict(MANUAL_METHODS) else 'cash'
+                        collect = {'amount': request.POST.get('paid_amount') or request.POST.get('amount'), 'method': method,
+                                   'reference': request.POST.get('reference', ''),
+                                   'agent': _b(request).agents.filter(pk=request.POST.get('agent') or 0).first()}
+                    charge, payment = ma.add_charge(v, kind=request.POST.get('kind', 'late_fee'), amount=request.POST.get('amount'),
+                                                    description=request.POST.get('description', ''), user=user, collect=collect)
+                    if payment:
+                        messages.success(request, f'{charge.label} of {payment.currency}{charge.amount:,.2f} added and '
+                                                  f'{payment.currency}{payment.amount_collected:,.2f} collected. '
+                                                  f'Still owed: {payment.currency}{payment.balance_after:,.2f}. No time was added.')
+                        from urllib.parse import urlencode
+                        return redirect(reverse('members') + '?' + urlencode({'balance_receipt': payment.pk,
+                                                                              'next': reverse('member_detail', args=[v.pk]) + '#billing'}))
+                    messages.success(request, f'{charge.label} of {charge.currency}{charge.amount:,.2f} added to {v.code}’s account — '
+                                              f'it shows as owed until paid. No time was added.')
+                else:
+                    charge, due = ma.waive_charge(v, request.POST.get('charge'), reason=reason, user=user)
+                    messages.success(request, f'{charge.label}: {charge.currency}{due:,.2f} waived.')
+            except ma.BalanceError as exc:
+                raise ms.SupportError(str(exc))
         elif act == 'note':
             ms.add_note(v, request.POST.get('text', ''), user=user)
             messages.success(request, 'Note added.')

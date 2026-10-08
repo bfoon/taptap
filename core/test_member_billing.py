@@ -101,3 +101,88 @@ class ArrearsWiringTests(TestCase):
         from django.urls import resolve
         self.assertEqual(resolve(reverse('member_renew', args=[1])).func.__module__, 'core.member_arrears')
         self.assertEqual(resolve(reverse('members')).func.__module__, 'core.member_arrears')
+
+
+@override_settings(AUTH_EMAIL_OTP=False)
+class ChargeTests(MemberBillingTests):
+    """Late fees and other charges: no renewal, no time added, paid now or later, waivable."""
+
+    def charge(self, **data):
+        base = {'action': 'charge', 'kind': 'late_fee', 'amount': '150', 'description': 'Paid 6 days late'}
+        base.update(data)
+        return self.client.post(reverse('member_support', args=[self.m.pk]), base)
+
+    def test_late_fee_paid_later_shows_as_owed(self):
+        before = Voucher.objects.get(pk=self.m.pk).expires_at
+        r = self.charge()
+        self.assertRedirects(r, self.url + '#billing', fetch_redirect_response=False)
+        self.assertEqual(total_arrears(self.m), Decimal('450'))
+        self.assertEqual(Voucher.objects.get(pk=self.m.pk).expires_at, before)                    # no time added
+        self.assertEqual(MemberRenewal.objects.filter(member=self.m).count(), 1)                  # not a renewal
+        html = self.client.get(self.url).content.decode()
+        self.assertIn('Late fee — Paid 6 days late: D150', html); self.assertIn('D450', html); self.assertIn('Waive D150', html)
+
+    def test_paying_now_goes_to_the_fee_first(self):
+        r = self.charge(pay_now='1', method='wave', reference='WV-1')
+        p = MemberBalancePayment.objects.get(member=self.m)
+        self.assertIn(f'balance_receipt={p.pk}', r['Location'])
+        self.assertEqual(p.allocations[0]['charge_id'], self.m.member_charges.get().pk)
+        self.assertEqual((p.amount_collected, p.balance_before, p.balance_after), (Decimal('150'), Decimal('450'), Decimal('300')))
+        self.assertEqual(total_arrears(self.m), Decimal('300'))                                   # the old renewal balance is untouched
+        receipt = self.client.get(r['Location']).content.decode()
+        self.assertIn('Late fee — Paid 6 days late', receipt)
+        from .models import VoucherSale
+        self.assertEqual(VoucherSale.objects.get(pk=p.sale_id).amount, Decimal('150'))            # booked as income when paid
+
+    def test_part_payment_and_checks(self):
+        self.charge(pay_now='1', paid_amount='100')
+        self.assertEqual(total_arrears(self.m), Decimal('350'))                                   # 300 + 50 left on the fee
+        n = self.m.member_charges.count()
+        self.charge(pay_now='1', paid_amount='200')                                               # more than the fee
+        self.charge(kind='other', description='')                                                 # must say what for
+        self.charge(amount='0')
+        self.assertEqual(self.m.member_charges.count(), n)
+
+    def test_waive(self):
+        self.charge()
+        c = self.m.member_charges.get()
+        self.client.post(reverse('member_support', args=[self.m.pk]), {'action': 'waive', 'charge': c.pk})          # needs a reason
+        self.assertEqual(total_arrears(self.m), Decimal('450'))
+        self.client.post(reverse('member_support', args=[self.m.pk]), {'action': 'waive', 'charge': c.pk, 'reason': 'First time'})
+        self.assertEqual(total_arrears(self.m), Decimal('300'))
+        html = self.client.get(self.url).content.decode()
+        self.assertIn('Waived · Late fee', html); self.assertIn('D150 no longer owed', html)
+
+    def test_part_paid_fee_waives_only_the_rest(self):
+        self.charge(pay_now='1', paid_amount='100')
+        c = self.m.member_charges.get()
+        self.client.post(reverse('member_support', args=[self.m.pk]), {'action': 'waive', 'charge': c.pk, 'reason': 'Goodwill'})
+        self.assertEqual(total_arrears(self.m), Decimal('300'))
+        rows, paid, charged = _ledger(self.m)
+        self.assertEqual(rows[0]['kind'], 'waived'); self.assertEqual(rows[0]['charged'], Decimal('-50'))
+        self.assertEqual(rows[0]['balance'], Decimal('300'))
+
+    def test_members_list_and_renewal_rule_count_charges(self):
+        from .member_arrears import summaries_for_members
+        self.pay('300')                                                                            # old renewal settled
+        self.charge()
+        self.assertEqual(summaries_for_members([self.m])[self.m.pk]['arrears'], Decimal('150'))
+        self.client.post(reverse('member_renew', args=[self.m.pk]), {'amount': '1000', 'method': 'cash', 'next': self.url})
+        self.assertEqual(MemberRenewal.objects.filter(member=self.m).count(), 1)                  # collect the fee first
+        self.pay('150')
+        self.client.post(reverse('member_renew', args=[self.m.pk]), {'amount': '1000', 'method': 'cash', 'next': self.url})
+        self.assertEqual(MemberRenewal.objects.filter(member=self.m).count(), 2)
+
+    def test_charge_with_nothing_else_owed(self):
+        self.pay('300')
+        self.charge(amount='75', kind='reconnection', description='', pay_now='1')
+        self.assertEqual(total_arrears(self.m), Decimal('0'))
+        self.assertIn('Reconnection fee', self.client.get(self.url).content.decode())
+
+    def test_roles_without_create_rights_cannot_charge(self):
+        from .models_team import TeamMember
+        u = User.objects.create_user('sup2', 's2@x.gm', 'pw12345678')
+        TeamMember.objects.create(business=self.b, user=u, role='voucher_support')
+        self.client.force_login(u)
+        self.charge()
+        self.assertFalse(self.m.member_charges.exists())

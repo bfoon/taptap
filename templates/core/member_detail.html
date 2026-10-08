@@ -56,6 +56,10 @@
 .bl-chips{display:flex;gap:.3rem;margin-top:.3rem}.bl-chips button{border:1px solid #d8e2ec;background:#fff;border-radius:999px;font-size:.72rem;font-weight:700;padding:.1rem .55rem;color:#3d5268}
 .bl-after{height:100%;min-height:62px;border-radius:14px;padding:.6rem .8rem;background:#f6f9fc;display:flex;flex-direction:column;justify-content:center;font-size:.84rem}
 .bl-after b{font-size:1.15rem}.bl-after.ok{background:#e7f8ee;color:#127a4d}.bl-after.part{background:#fff4dc;color:#7c4f00}.bl-after.bad{background:#fdeaea;color:#a12b2b}
+.bl-charges{list-style:none;margin:-.4rem 0 .9rem;padding:0}.bl-charges li{display:grid;grid-template-columns:auto 1fr auto;gap:.2rem .6rem;align-items:center;border:1px solid #f3d3d3;border-radius:12px;padding:.45rem .7rem;margin-bottom:.35rem;font-size:.82rem}
+.bl-charges li>i{color:#b42323}.bl-charges small{display:block;color:#64748b;font-size:.7rem}.bl-charges li>b{color:#b42323}
+.bl-waive{grid-column:1/-1}.bl-waive summary{font-size:.72rem;color:#a12b2b;cursor:pointer}
+.bl-ledger li.charge .ic{background:#fff4dc;color:#9a6200}.bl-ledger li.waived .ic{background:#eef2f6;color:#64748b}
 .bl-side h4{font-size:.8rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin:0 0 .5rem}
 .bl-ledger{list-style:none;margin:0;padding:0;max-height:430px;overflow:auto}
 .bl-ledger li{display:grid;grid-template-columns:32px minmax(0,1fr) auto;gap:.6rem;align-items:center;padding:.5rem 0;border-bottom:1px solid #eef2f6}
@@ -236,8 +240,12 @@ html[data-theme="dark"] .md-paused{background:#13233a;border-color:#244a7a}html[
     <div class="bl-main">
       {% if arrears %}
       <div class="bl-owe"><div><small>Arrears — still owed</small><b>{{ arrears|money:cur }}</b>
-        <span>{% for r in arrears_rows %}{{ r.renewal.receipt_number }} ({{ r.renewal.renewed_at|date:'d M' }}): {{ r.due|money:cur }}{% if not forloop.last %} · {% endif %}{% endfor %}</span></div>
+        <span>{% for r in arrears_rows %}{% if r.renewal %}Renewal {{ r.renewal.renewed_at|date:'d M' }}{% else %}{{ r.charge.label }}{% endif %}: {{ r.due|money:cur }}{% if not forloop.last %} · {% endif %}{% endfor %}</span></div>
         <i class="bi bi-exclamation-octagon"></i></div>
+      {% if open_charges and can_create %}<ul class="bl-charges">{% for r in open_charges %}
+        <li><i class="bi bi-tag"></i><span><b>{{ r.charge.label }}</b> · {{ r.charge.charged_at|date:'d M Y' }}<small>{{ r.charge.receipt_number }}{% if r.due < r.charge.amount %} · {{ r.charge.amount|money:cur }}, part paid{% endif %}</small></span><b>{{ r.due|money:cur }}</b>
+          <details class="bl-waive"><summary>Waive</summary><form method="post" action="{% url 'member_support' v.id %}" class="d-flex gap-1 mt-1">{% csrf_token %}<input type="hidden" name="action" value="waive"><input type="hidden" name="charge" value="{{ r.charge.id }}">
+            <input class="form-control form-control-sm" name="reason" required placeholder="Why waive?"><button class="btn btn-sm btn-outline-danger">Waive {{ r.due|money:cur }}</button></form></details></li>{% endfor %}</ul>{% endif %}
       {% else %}
       <div class="bl-ok"><i class="bi bi-check-circle-fill"></i><div><b>Nothing owed</b><span>{% if charged_total %}Every renewal is fully paid.{% else %}No renewals recorded yet.{% endif %}</span></div></div>
       {% endif %}
@@ -245,6 +253,7 @@ html[data-theme="dark"] .md-paused{background:#13233a;border-color:#244a7a}html[
       {% if can_create %}
       <div class="bl-tabs" role="tablist" aria-label="Payment">
         {% if arrears %}<button type="button" class="on" data-bl="pay" role="tab"><i class="bi bi-cash-coin"></i> Record payment</button>{% endif %}
+        <button type="button" class="{% if not arrears and not plan.duration_minutes %}on{% endif %}" data-bl="charge" role="tab"><i class="bi bi-tag"></i> Late fee / charge</button>
         {% if plan and plan.duration_minutes %}<button type="button" class="{% if not arrears %}on{% endif %}" data-bl="renew" role="tab"><i class="bi bi-arrow-repeat"></i> Renew</button>{% endif %}
       </div>
       {% if arrears %}
@@ -260,6 +269,22 @@ html[data-theme="dark"] .md-paused{background:#13233a;border-color:#244a7a}html[
         <div class="col-12 d-flex flex-wrap gap-2 align-items-center"><button class="btn btn-success"><i class="bi bi-cash-coin"></i> Record payment &amp; receipt</button>
           <small class="text-secondary">Pays the oldest balance first. Adds no time — renew separately.</small></div>
       </form>{% endif %}
+      <form method="post" action="{% url 'member_support' v.id %}" class="row g-2 bl-pane" data-pane="charge" id="chargeForm" {% if arrears or plan.duration_minutes %}hidden{% endif %}>{% csrf_token %}
+        <input type="hidden" name="action" value="charge">
+        <div class="col-sm-5"><label for="cKind">What for</label><select class="form-select form-select-sm" id="cKind" name="kind">{% for k,l in charge_kinds %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+        <div class="col-sm-7"><label for="cDesc">Note <span class="fw-normal text-secondary">(on the receipt)</span></label><input class="form-control form-control-sm" id="cDesc" name="description" maxlength="200" placeholder="e.g. Paid 6 days late"></div>
+        <div class="col-sm-5"><label for="cAmt">Amount of the charge</label><div class="input-group"><span class="input-group-text">{{ cur }}</span><input class="form-control form-control-lg fw-bold" type="number" step="0.01" min="0.01" id="cAmt" name="amount" required placeholder="0"></div></div>
+        <div class="col-sm-7"><div class="bl-after" id="cAfter" aria-live="polite" data-owed="{{ arrears|default:0|stringformat:'s' }}"></div></div>
+        <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="cPayNow" name="pay_now" value="1" checked><label class="form-check-label fw-normal" for="cPayNow">The member is paying it now</label></div></div>
+        <div class="col-12 row g-2 m-0 p-0" id="cPay">
+          <div class="col-sm-3"><label for="cPaid">Paid now</label><div class="input-group input-group-sm"><span class="input-group-text">{{ cur }}</span><input class="form-control" type="number" step="0.01" min="0.01" id="cPaid" name="paid_amount" placeholder="all"></div></div>
+          <div class="col-sm-3"><label for="cMeth">Paid with</label><select class="form-select form-select-sm" id="cMeth" name="method">{% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+          <div class="col-sm-3"><label for="cRef">Reference</label><input class="form-control form-control-sm" id="cRef" name="reference" placeholder="Wave ref"></div>
+          <div class="col-sm-3"><label for="cAg">Received by</label><select class="form-select form-select-sm" id="cAg" name="agent"><option value="">Shop</option>{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2 align-items-center"><button class="btn btn-dark" id="cBtn"><i class="bi bi-tag"></i> <span>Add charge &amp; take payment</span></button>
+          <small class="text-secondary">The service keeps running — no time is added or removed.</small></div>
+      </form>
       {% if plan and plan.duration_minutes %}
       <form method="post" action="{% url 'member_renew' v.id %}" class="row g-2 bl-pane" data-pane="renew" id="renewForm" {% if arrears %}hidden{% endif %}>{% csrf_token %}<input type="hidden" name="next" value="{% url 'member_detail' v.id %}#billing">
         {% if arrears %}<div class="col-12"><div class="alert alert-warning py-2 small mb-1"><i class="bi bi-lock"></i> Collect the {{ arrears|money:cur }} arrears first — TapTap does not add a new period while money is still owed.</div></div>{% endif %}
@@ -275,11 +300,11 @@ html[data-theme="dark"] .md-paused{background:#13233a;border-color:#244a7a}html[
     <div class="bl-side">
       <h4>Payment history</h4>
       {% if ledger %}<ol class="bl-ledger">{% for x in ledger %}
-        <li class="{{ x.kind }}"><span class="ic"><i class="bi {% if x.kind == 'renewal' %}bi-arrow-repeat{% else %}bi-cash-coin{% endif %}"></i></span>
-          <div class="tx"><b>{{ x.label }}</b><small>{{ x.at|date:'d M Y' }} · {{ x.method }}{% if x.reference %} · {{ x.reference }}{% endif %}</small>
-            <small>{% if x.kind == 'renewal' %}Charged {{ x.charged|money:cur }} · paid {{ x.paid|money:cur }}{% else %}Paid {{ x.paid|money:cur }}{% endif %}</small></div>
+        <li class="{{ x.kind }}"><span class="ic"><i class="bi {% if x.kind == 'renewal' %}bi-arrow-repeat{% elif x.kind == 'charge' %}bi-tag{% elif x.kind == 'waived' %}bi-x-circle{% else %}bi-cash-coin{% endif %}"></i></span>
+          <div class="tx"><b>{{ x.label }}</b><small>{{ x.at|date:'d M Y' }}{% if x.method %} · {{ x.method }}{% endif %}{% if x.reference %} · {{ x.reference }}{% endif %}</small>
+            <small>{% if x.kind == 'renewal' %}Charged {{ x.charged|money:cur }} · paid {{ x.paid|money:cur }}{% elif x.kind == 'charge' %}Charged {{ x.charged|money:cur }}{% elif x.kind == 'waived' %}{{ x.charged|money:cur }} no longer owed{% else %}Paid {{ x.paid|money:cur }}{% endif %}</small></div>
           <div class="am"><b class="{% if x.balance %}text-danger{% else %}text-success{% endif %}">{% if x.balance %}owes {{ x.balance|money:cur }}{% else %}settled{% endif %}</b>
-            <a href="{% url 'members' %}?{% if x.kind == 'renewal' %}receipt{% else %}balance_receipt{% endif %}={{ x.id }}&next={% url 'member_detail' v.id %}%23billing" title="Receipt {{ x.number }}"><i class="bi bi-receipt"></i> {{ x.number }}</a></div></li>
+            {% if x.kind == 'renewal' or x.kind == 'payment' %}<a href="{% url 'members' %}?{% if x.kind == 'renewal' %}receipt{% else %}balance_receipt{% endif %}={{ x.id }}&next={% url 'member_detail' v.id %}%23billing" title="Receipt {{ x.number }}"><i class="bi bi-receipt"></i> {{ x.number }}</a>{% else %}<small class="text-secondary">{{ x.number }}</small>{% endif %}</div></li>
       {% endfor %}</ol>{% else %}<p class="small text-secondary">No payments yet.</p>{% endif %}
     </div>
   </div>
@@ -357,6 +382,15 @@ html[data-theme="dark"] .md-paused{background:#13233a;border-color:#244a7a}html[
     if(left<0.005){rAfter.className='bl-after ok';rAfter.innerHTML='<b>Paid in full</b>Plan price '+fmt(price)+'.';}
     else{rAfter.className='bl-after part';rAfter.innerHTML='<b>'+fmt(left)+' will be owed</b>Plan price is '+fmt(price)+' — the rest becomes arrears.';}}
   if(rAmt){rAmt.addEventListener('input',renewPreview);renewPreview();}
+  var cAmt=document.getElementById('cAmt'),cAfter=document.getElementById('cAfter'),cPayNow=document.getElementById('cPayNow'),cPaid=document.getElementById('cPaid'),cPay=document.getElementById('cPay'),cBtn=document.getElementById('cBtn');
+  function chargePreview(){if(!cAmt)return;var owed=parseFloat(cAfter.dataset.owed)||0,v=parseFloat(cAmt.value)||0,paying=cPayNow.checked,p=paying?(parseFloat(cPaid.value)||v):0;
+    cPay.hidden=!paying;cBtn.querySelector('span').textContent=paying?'Add charge & take payment':'Add charge (pay later)';
+    if(v<=0){cAfter.className='bl-after';cAfter.innerHTML='Type the fee amount.';return;}
+    if(paying&&p>v+0.004){cAfter.className='bl-after bad';cAfter.innerHTML='<b>More than the charge</b>Use Record payment for older arrears.';return;}
+    var after=owed+v-p;
+    cAfter.className='bl-after '+(after<0.005?'ok':'part');
+    cAfter.innerHTML=after<0.005?'<b>Paid on the spot</b>Nothing owed after this.':'<b>'+fmt(after)+' owed after this</b>'+(paying?fmt(p)+' paid now':'the whole '+fmt(v)+' stays owed')+(owed?' · includes '+fmt(owed)+' from before':'');}
+  if(cAmt){[cAmt,cPaid].forEach(function(x){x.addEventListener('input',chargePreview);});cPayNow.addEventListener('change',chargePreview);chargePreview();}
   // Confirmations
   document.querySelectorAll('form[data-confirm]').forEach(function(f){f.addEventListener('submit',function(e){if(!confirm(f.dataset.confirm))e.preventDefault();});});
   // One-time password: copy / WhatsApp / SMS
