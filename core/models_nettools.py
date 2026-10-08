@@ -5,7 +5,8 @@ from django.db import models
 
 class NetTest(models.Model):
     KINDS = [('doctor', 'Internet check'), ('ping', 'Ping'), ('trace', 'Traceroute'), ('dns', 'DNS lookup'),
-             ('web', 'Website check'), ('speed', 'Speed test')]
+             ('web', 'Website check'), ('speed', 'Speed test'),
+             ('whoami', 'Find my device'), ('hops', 'Path check'), ('mypath', 'My connection')]
     STATUS = [('running', 'Running'), ('waiting', 'Waiting for the router'), ('done', 'Done'), ('failed', 'Failed')]
     business = models.ForeignKey('core.Business', on_delete=models.CASCADE, related_name='net_tests')
     router = models.ForeignKey('core.Router', on_delete=models.CASCADE, related_name='net_tests')

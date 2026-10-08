@@ -146,4 +146,7 @@ urlpatterns = [
     path('routers/<int:pk>/ports/blink/',views_ports.port_blink,name='port_blink'),
     path('network-tools/',vnt.network_tools,name='network_tools'), path('network-tools/run/',vnt.network_tools_run,name='network_tools_run'),
     path('network-tools/test/<int:pk>/',vnt.network_tools_test,name='network_tools_test'),
+    path('network-tools/path/',vnt.network_tools_path,name='network_tools_path'), path('network-tools/devices/',vnt.network_tools_devices,name='network_tools_devices'),
+    path('network-tools/verdict/',vnt.network_tools_verdict,name='network_tools_verdict'), path('network-tools/save-chain/',vnt.network_tools_save_chain,name='network_tools_save_chain'),
+    path('network-tools/blob/',vnt.network_tools_blob,name='network_tools_blob'), path('network-tools/sink/',vnt.network_tools_sink,name='network_tools_sink'),
 ]

@@ -10,7 +10,7 @@
   var LABEL = { ping: 'Address to ping', trace: 'Trace the path to', dns: 'Name to look up', web: 'Website' };
   var CHIPS = { ping: ['8.8.8.8', '1.1.1.1', 'google.com'], trace: ['8.8.8.8', '1.1.1.1', 'facebook.com'],
                 dns: ['google.com', 'facebook.com', 'whatsapp.net', 'youtube.com'], web: ['google.com', 'facebook.com', 'youtube.com', 'web.whatsapp.com'] };
-  var ICON = { doctor: 'bi-heart-pulse', ping: 'bi-broadcast', trace: 'bi-bezier2', dns: 'bi-signpost-split', web: 'bi-window', speed: 'bi-speedometer2' };
+  var ICON = { mypath: 'bi-bezier', whoami: 'bi-crosshair', hops: 'bi-diagram-2', doctor: 'bi-heart-pulse', ping: 'bi-broadcast', trace: 'bi-bezier2', dns: 'bi-signpost-split', web: 'bi-window', speed: 'bi-speedometer2' };
   var devices = [].map.call(document.querySelectorAll('#ntSuggest option'), function (o) { return o.textContent && /^\d/.test(o.value) && !/^(8\.8\.8\.8|1\.1\.1\.1)$/.test(o.value) ? o.value : null; }).filter(Boolean).slice(0, 3);
   CHIPS.ping = CHIPS.ping.concat(devices);
 
@@ -223,12 +223,26 @@
     var b = e.target.closest('.nt-h'); if (!b) return;
     var t = items.find(function (x) { return String(x.id) === b.dataset.id; }); if (!t) return;
     stopKeep();
-    if (t.kind === 'doctor') { drawDoctor(t); return; }
+    if (t.kind === 'mypath' || t.kind === 'whoami' || t.kind === 'hops') { mode('mine'); document.dispatchEvent(new CustomEvent('nt:show', { detail: t })); return; }
+    if (t.kind === 'doctor') { mode('router'); drawDoctor(t); return; }
     if (t.kind !== tool) show(t.kind);
     if (t.target && LABEL[t.kind]) { target.value = t.target; remembered[t.kind] = t.target; }
     if (t.status === 'waiting') { out.innerHTML = head(t, 'waiting', 'warn') + '<p class="nt-note">Still waiting for the router.</p>'; return; }
     draw(t);
   });
+
+  // Modes: "From this device" (mypath.js) and "From the router" (the Internet check above).
+  function mode(m) {
+    document.querySelectorAll('.nt-modes button').forEach(function (b) { b.classList.toggle('on', b.dataset.mode === m); b.setAttribute('aria-selected', b.dataset.mode === m); });
+    var mp = $('mp'); if (mp) mp.hidden = m !== 'mine';
+    hero.hidden = m !== 'router';
+    try { sessionStorage.setItem('ntMode', m); } catch (e) {}
+  }
+  document.querySelectorAll('.nt-modes button').forEach(function (b) { b.addEventListener('click', function () { mode(b.dataset.mode); }); });
+  var startMode = 'mine'; try { startMode = sessionStorage.getItem('ntMode') || 'mine'; } catch (e) {}
+  mode(startMode);
+  document.addEventListener('nt:test', function (e) { var t = e.detail; if (items.some(function (x) { return x.id === t.id; })) updHist(t); else addHist(t); });
+  window.ntItems = function () { return items; };
 
   show('ping'); paint();
   var lastDoc = items.find(function (x) { return x.kind === 'doctor' && x.status === 'done' && String(x.router_id) === String(ROUTER); });

@@ -30,7 +30,12 @@ KINDS = {
     'dns': 'DNS lookup',
     'web': 'Website check',
     'speed': 'Speed test',
+    'whoami': 'Find my device',
+    'hops': 'Path check',
+    'mypath': 'My connection',
 }
+PATH_KINDS = ('whoami', 'hops')       # core/pathtrace.py
+
 CHECK_IPS = ('1.1.1.1', '8.8.8.8')
 CHECK_NAME = 'google.com'
 CHECK_URL = 'http://connectivitycheck.gstatic.com/generate_204'
@@ -100,8 +105,11 @@ def is_ip(v):
 
 def clean_params(kind, data):
     """Validated parameters for one test (raises ValueError with a readable message)."""
-    if kind not in KINDS:
+    if kind not in KINDS or kind == 'mypath':
         raise ValueError('Unknown test.')
+    if kind in PATH_KINDS:
+        from .pathtrace import clean
+        return clean(kind, data)
     out = {}
     if kind in ('ping', 'trace', 'dns'):
         out['target'] = clean_host(data.get('target'))
@@ -122,8 +130,9 @@ def clean_params(kind, data):
 
 def limit_check(business, router, kind):
     """Refuse floods: a busy hand on the button must not hammer the router (or the customer's data bundle)."""
-    n, window = RATE_PINGS if kind == 'ping' else RATE_TESTS     # "Keep pinging" sends many small pings
-    key = f'tt:nt:rate:{business.pk}:{"p" if kind == "ping" else "t"}'
+    light = kind in ('ping',) + PATH_KINDS                         # "Keep pinging" and path checks send many small pings
+    n, window = RATE_PINGS if light else RATE_TESTS
+    key = f'tt:nt:rate:{business.pk}:{"p" if light else "t"}'
     count = cache.get(key, 0)
     if count >= n:
         raise ValueError('Too many tests in the last few minutes — wait a little and try again.')
@@ -514,6 +523,9 @@ def run_api(test):
     try:
         if test.kind == 'doctor':
             return run_doctor(svc)
+        if test.kind in PATH_KINDS:
+            from . import pathtrace
+            return {'whoami': pathtrace.run_whoami, 'hops': pathtrace.run_hops}[test.kind](svc, test.params)
         return RUNNERS[test.kind](svc, test.params)
     finally:
         svc.close()
@@ -538,6 +550,13 @@ def summary(test):
         return f'OK · {r.get("ms")} ms' if r.get('ok') else (f'Error {r["http"]}' if r.get('http') else 'Not reachable')
     if test.kind == 'speed':
         return f'{r["mbps"]} Mbit/s' if r.get('ok') else 'Did not finish'
+    if test.kind == 'whoami':
+        c = next((x for x in r.get('candidates', []) if x['ip'] == r.get('chosen')), None)
+        return f'{c["name"] or c["ip"]} · {c["ip"]}' if c else f'{len(r.get("candidates", []))} candidates'
+    if test.kind == 'hops':
+        return f'{len(r.get("samples", {}))} stops · {"under load" if r.get("phase") == "load" else "idle"}'
+    if test.kind == 'mypath':
+        return r.get('title', '')
     return ''
 
 
@@ -570,7 +589,10 @@ def link_body(cmd, url, check, nonce_value):
     kind, target = p.get('kind'), p.get('target', '')
     upload = rs(f'{url}/api/agent/v1/nettest?c={cmd.pk}&n={nonce_value}')
     head = ':local out ""; '
-    if kind == 'ping':
+    if kind in PATH_KINDS:
+        from .pathtrace import link_body as path_body
+        body = path_body(kind, p, rs)
+    elif kind == 'ping':
         body = (_resolve(rs, target) + ':if ([:len $ip] > 0) do={ :set out ("ip=" . $ip . "\\n"); '
                 f':for i from=1 to={int(p["count"])} do={{ ' + _ping_snippet('$ip', 1, p['size'], 'r=') + ':delay 400ms } }; ')
     elif kind == 'trace':
@@ -610,7 +632,7 @@ def _dns_lines():
 
 def _lines(body):
     out = []
-    for line in (body or b'').decode('utf-8', 'replace').splitlines()[:200]:
+    for line in (body or b'').decode('utf-8', 'replace').splitlines()[:400]:
         k, _, v = line.partition('=')
         out.append((k.strip(), v.strip()))
     return out
@@ -620,6 +642,9 @@ def parse_link(kind, params, body):
     """The router's upload → the same result shape the API runners produce."""
     lines = _lines(body)
     get = lambda k: next((v for kk, v in lines if kk == k), '')
+    if kind in PATH_KINDS:
+        from .pathtrace import parse_link as path_parse
+        return path_parse(kind, params, lines)
     if get('err') == 'resolve' and kind in ('ping', 'trace', 'dns'):
         if kind == 'dns':
             return dns_result({'name': params['target'], 'ip': '', 'ok': False, 'ms': None,
@@ -715,6 +740,9 @@ def receive_link(cmd, body):
     if not t:
         return None
     res = parse_link(t.kind, t.params, body)
+    if t.kind == 'whoami':
+        from .pathtrace import enrich_whoami
+        res = enrich_whoami(t.router, res, t.params.get('hint', ''))
     failed = bool(res.pop('failed', False))
     t.result, t.status, t.finished_at = res, ('failed' if failed else 'done'), timezone.now()
     t.save(update_fields=['result', 'status', 'finished_at'])
