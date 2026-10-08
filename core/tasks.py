@@ -128,6 +128,12 @@ def deliver_notifications():
 
     deliver()
     send_due_member_reminders()
+    try:                                   # scheduled member pause / unpause (core/member_support.py)
+        from .member_support import run_due
+        run_due()
+    except Exception:
+        import logging
+        logging.getLogger('taptap.members').exception('member schedules failed')
 
 
 @shared_task(ignore_result=True, queue="live")

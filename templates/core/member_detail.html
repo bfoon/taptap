@@ -1,0 +1,291 @@
+{% extends 'core/base.html' %}{% load taptap_extras %}
+{% block title %}{{ v.customer_name|default:v.code }} — Member — TapTap{% endblock %}
+{% block heading %}Member{% endblock %}
+{% block extra_head %}<style>
+.md-head{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:20px;padding:1.2rem 1.3rem;margin-bottom:1rem}
+.md-top{display:flex;flex-wrap:wrap;gap:1rem;justify-content:space-between;align-items:flex-start}
+.md-who{display:flex;gap:.9rem;align-items:center;min-width:0}
+.md-av{width:56px;height:56px;border-radius:18px;display:grid;place-items:center;font-weight:800;font-size:1.3rem;background:#0b2440;color:#fff;flex:none}
+.md-name{font-size:1.45rem;font-weight:800;margin:0;line-height:1.15;overflow-wrap:anywhere}
+.md-sub{display:flex;flex-wrap:wrap;gap:.35rem .55rem;align-items:center;color:#51667b;font-size:.86rem;margin-top:.25rem}
+.md-sub code{font-size:.92rem;font-weight:700;color:#102033;background:#f1f5f9;border-radius:7px;padding:.05rem .4rem}
+.md-pill{display:inline-flex;align-items:center;gap:.35rem;border-radius:999px;padding:.2rem .7rem;font-weight:700;font-size:.78rem}
+.md-pill.stock,.md-pill.used,.md-pill.sold{background:#e6f6ee;color:#127a4d}.md-pill.disabled{background:#fdeaea;color:#a12b2b}
+.md-pill.expired,.md-pill.archived{background:#eef1f5;color:#56687a}.md-pill.frozen{background:#e0efff;color:#1a5fb4}.md-pill.warned{background:#fdecc8;color:#8a4b00}
+.md-acts{display:flex;flex-wrap:wrap;gap:.45rem}
+.md-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.6rem;margin-top:1rem}
+.md-kpi{background:#f6f9fc;border-radius:14px;padding:.6rem .75rem;min-width:0}.md-kpi small{display:block;color:#64748b;font-size:.72rem}
+.md-kpi b{display:block;font-size:1.05rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.md-kpi span{font-size:.74rem;color:#64748b}
+.md-bar{height:9px;border-radius:99px;background:#eef2f6;overflow:hidden;margin-top:.9rem}.md-bar i{display:block;height:100%;background:linear-gradient(90deg,#22c55e,#16a34a)}
+.md-bar i.mid{background:linear-gradient(90deg,#f59e0b,#d97706)}.md-bar i.end{background:linear-gradient(90deg,#ef4444,#dc2626)}
+.md-nav{position:sticky;top:0;z-index:5;display:flex;gap:.3rem;overflow-x:auto;background:var(--bg,#f4f7fb);padding:.4rem 0 .6rem;margin-bottom:.4rem}
+.md-nav a{white-space:nowrap;border:1px solid var(--border,#e3e9f1);background:var(--panel,#fff);border-radius:999px;padding:.3rem .8rem;font-size:.8rem;font-weight:700;color:#3d5268;text-decoration:none}
+.md-nav a:hover{border-color:#1769e0;color:#1769e0}
+.md-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
+.md-card{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:18px;padding:1rem 1.1rem;scroll-margin-top:70px;min-width:0}
+.md-card h3{font-size:1rem;font-weight:800;margin:0 0 .2rem;display:flex;align-items:center;gap:.45rem}.md-card h3 i{color:#1769e0}
+.md-card>p.lead{font-size:.82rem;color:#64748b;margin:0 0 .8rem}
+.md-card.wide{grid-column:1/-1}
+.md-card label{font-size:.78rem;font-weight:700}
+.md-paused{background:linear-gradient(135deg,#e0efff,#f2f8ff);border:1px solid #b9d6fb;border-radius:14px;padding:.8rem .9rem;margin-bottom:.8rem}
+.md-paused b{color:#1a5fb4}
+.md-sched{list-style:none;margin:.6rem 0 0;padding:0}.md-sched li{display:flex;gap:.6rem;align-items:center;justify-content:space-between;border:1px solid #eef2f6;border-radius:12px;padding:.5rem .7rem;margin-bottom:.4rem;font-size:.84rem}
+.md-sched li .ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:#e0efff;color:#1a5fb4;flex:none}
+.md-sched li.resume .ic{background:#e6f6ee;color:#127a4d}.md-sched small{color:#64748b;display:block}
+.md-seg{display:inline-flex;background:#f1f5f9;border-radius:10px;padding:.2rem;gap:.2rem;margin-bottom:.5rem;flex-wrap:wrap}
+.md-seg label{margin:0;cursor:pointer}.md-seg input{display:none}.md-seg span{display:block;padding:.3rem .7rem;border-radius:8px;font-size:.78rem;font-weight:700;color:#51667b}
+.md-seg input:checked+span{background:#fff;color:#102033;box-shadow:0 1px 3px #0b223722}
+.md-pw{display:flex;flex-wrap:wrap;gap:.8rem;align-items:center;justify-content:space-between;background:#fffbea;border:1px solid #f2d69a;border-radius:16px;padding:.9rem 1rem;margin-bottom:1rem}
+.md-pw code{font-size:1.5rem;font-weight:800;letter-spacing:.12em;color:#102033;background:#fff;border-radius:10px;padding:.15rem .6rem}
+.md-flags{list-style:none;padding:0;margin:0 0 .8rem}.md-flags li{border-left:4px solid #cbd5e1;background:#f6f9fc;border-radius:0 10px 10px 0;padding:.4rem .65rem;margin-bottom:.35rem;font-size:.82rem}
+.md-flags li.warn{border-color:#f59e0b}.md-flags li.info{border-color:#3b82f6}
+.md-kv{display:grid;grid-template-columns:max-content 1fr;gap:.3rem .9rem;font-size:.84rem;margin:0 0 .8rem}.md-kv dt{color:#64748b;font-weight:600}.md-kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.md-tl{list-style:none;padding:0;margin:0;max-height:560px;overflow:auto}
+.md-tl li{display:grid;grid-template-columns:30px 1fr;gap:.6rem;padding:.45rem 0;border-bottom:1px solid #eef2f6;font-size:.84rem}
+.md-tl .ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:#eef2f6;color:#475569}
+.md-tl .ic.success{background:#e6f6ee;color:#127a4d}.md-tl .ic.danger{background:#fdeaea;color:#a12b2b}.md-tl .ic.warning{background:#fff4dc;color:#8a5a00}.md-tl .ic.info,.md-tl .ic.primary{background:#e0efff;color:#1a5fb4}
+.md-tl small{color:#64748b}
+.md-note{border:1px solid #eef2f6;border-radius:12px;padding:.55rem .7rem;margin-bottom:.45rem;font-size:.86rem}.md-note small{color:#64748b;display:block}
+.md-danger{border-top:1px dashed #f1c4c4;margin-top:.9rem;padding-top:.8rem}
+@media(max-width:992px){.md-grid{grid-template-columns:1fr}.md-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+html[data-theme="dark"] .md-kpi,html[data-theme="dark"] .md-flags li{background:#1d2229}html[data-theme="dark"] .md-sub code{background:#1d2229;color:#e6edf5}
+html[data-theme="dark"] .md-nav{background:transparent}html[data-theme="dark"] .md-pw{background:#2a2410;border-color:#5a4a1c}html[data-theme="dark"] .md-pw code{background:#1d2229;color:#fff}
+html[data-theme="dark"] .md-paused{background:#13233a;border-color:#244a7a}html[data-theme="dark"] .md-seg{background:#1d2229}html[data-theme="dark"] .md-seg input:checked+span{background:#2a313b;color:#fff}
+</style>{% endblock %}
+{% block content %}
+{% with name=v.customer_name|default:v.code %}
+<div class="mb-2"><a href="{% url 'members' %}" class="small text-decoration-none"><i class="bi bi-arrow-left"></i> All members</a></div>
+
+{% if shown_password %}
+<div class="md-pw" id="pwShown" role="status">
+  <div><div class="small fw-bold mb-1"><i class="bi bi-key"></i> New password for {{ v.code }} — shown once</div><code id="pwText">{{ shown_password }}</code>
+    <div class="small text-secondary mt-1">{% if shown_emailed %}Also emailed to {{ shown_emailed }}.{% else %}Give it to the member now; TapTap will not show it again.{% endif %}</div></div>
+  <div class="d-flex flex-wrap gap-2">
+    <button class="btn btn-sm btn-dark" type="button" data-copy="Username: {{ v.code }}&#10;Password: {{ shown_password }}"><i class="bi bi-clipboard"></i> Copy login</button>
+    {% if v.customer_phone %}<a class="btn btn-sm btn-success" target="_blank" rel="noopener" id="waLink" data-phone="{{ v.customer_phone }}" href="#"><i class="bi bi-whatsapp"></i> WhatsApp</a>
+    <a class="btn btn-sm btn-outline-secondary" id="smsLink" href="sms:{{ v.customer_phone }}"><i class="bi bi-chat-dots"></i> SMS</a>{% endif %}
+  </div>
+</div>
+{% endif %}
+
+<section class="md-head">
+  <div class="md-top">
+    <div class="md-who">
+      <div class="md-av" aria-hidden="true">{{ name|slice:":1"|upper }}</div>
+      <div style="min-width:0">
+        <h2 class="md-name">{{ name }}</h2>
+        <div class="md-sub"><code>{{ v.code }}</code><span class="md-pill {{ state_key }}">{% if state_key == 'frozen' %}<i class="bi bi-pause-circle"></i> Paused{% else %}{{ state_label }}{% endif %}</span>
+          {% if plan %}<span><i class="bi bi-card-checklist"></i> {{ plan.name }}</span>{% else %}<span class="text-warning"><i class="bi bi-exclamation-triangle"></i> No Member Plan</span>{% endif %}
+          <span><i class="bi bi-router"></i> {{ v.router.name|default:"No router" }} · {{ channel }}</span></div>
+      </div>
+    </div>
+    {% if can_support %}<div class="md-acts">
+      {% if v.frozen_at %}<form method="post" action="{% url 'member_support' v.id %}">{% csrf_token %}<input type="hidden" name="action" value="unpause"><button class="btn btn-primary"><i class="bi bi-play-circle"></i> Unpause</button></form>
+      {% else %}<a class="btn btn-outline-primary" href="#pause"><i class="bi bi-pause-circle"></i> Pause</a>{% endif %}
+      <a class="btn btn-outline-secondary" href="#access"><i class="bi bi-key"></i> Reset password</a>
+      {% if plan and plan.duration_minutes and can_create %}<a class="btn btn-outline-success" href="#billing"><i class="bi bi-arrow-repeat"></i> Renew</a>{% endif %}
+      <a class="btn btn-light" href="{% url 'voucher_detail' v.id %}" title="Every voucher control: add time, devices, profile, code…"><i class="bi bi-sliders"></i> Advanced</a>
+    </div>{% endif %}
+  </div>
+  <div class="md-kpis">
+    <div class="md-kpi"><small>{% if v.frozen_at %}Time kept while paused{% else %}Time left{% endif %}</small>
+      <b>{% if v.frozen_at %}{% if frozen_left_minutes %}{{ frozen_left_minutes|minutes_text }}{% else %}Full time{% endif %}{% elif time_left %}{{ time_left|duration_short }}{% elif v.is_unlimited %}No limit{% elif not ends_at %}Starts at first login{% else %}Ran out{% endif %}</b>
+      <span>{% if ends_at %}ends {{ ends_at|date:'d M Y H:i' }}{% elif v.frozen_at %}since {{ v.frozen_at|date:'d M H:i' }}{% endif %}</span></div>
+    <div class="md-kpi"><small>Devices</small><b>{{ bindings|length }} / {{ v.max_devices|default:1 }}</b><span>{% if plan %}{{ plan.speed_limit|default:"plan speed" }}{% endif %}</span></div>
+    <div class="md-kpi"><small>Balance owed</small><b>{% if arrears %}{{ current_business.currency|default:"GMD" }} {{ arrears }}{% else %}Nothing{% endif %}</b><span>{{ renewals|length }} renewal{{ renewals|length|pluralize }}</span></div>
+    <div class="md-kpi"><small>Member portal</small><b>{% if security.profile.last_portal_login_at %}{{ security.profile.last_portal_login_at|timesince }} ago{% else %}Never used{% endif %}</b><span>{{ email|default:"no email" }}</span></div>
+  </div>
+  {% if time_pct is not None and not v.frozen_at %}<div class="md-bar" title="Time used"><i class="{% if time_pct >= 90 %}end{% elif time_pct >= 70 %}mid{% endif %}" style="width:{{ time_pct }}%"></i></div>{% endif %}
+</section>
+
+<nav class="md-nav" aria-label="Sections"><a href="#pause"><i class="bi bi-pause-circle"></i> Pause</a><a href="#access"><i class="bi bi-key"></i> Password &amp; access</a><a href="#devices"><i class="bi bi-phone"></i> Devices</a>
+  <a href="#details"><i class="bi bi-person-lines-fill"></i> Details</a><a href="#billing"><i class="bi bi-receipt"></i> Billing</a><a href="#security"><i class="bi bi-shield-lock"></i> Security</a>
+  <a href="#notes"><i class="bi bi-sticky"></i> Notes</a><a href="#history"><i class="bi bi-clock-history"></i> History</a></nav>
+
+<div class="md-grid">
+<!-- ── Pause ── -->
+<section class="md-card" id="pause">
+  <h3><i class="bi bi-pause-circle"></i> Pause</h3>
+  <p class="lead">A paused member has no internet and their time left stands still. Unpausing gives it back exactly — 10 days left stays 10 days.</p>
+  {% if v.frozen_at %}
+  <div class="md-paused"><b><i class="bi bi-pause-circle-fill"></i> Paused since {{ v.frozen_at|date:'d M Y H:i' }}</b>{% if v.frozen_by %} by {{ v.frozen_by.get_full_name|default:v.frozen_by.username }}{% endif %}
+    <div class="small">{% if v.freeze_reason %}Reason: {{ v.freeze_reason }}. {% endif %}{% if frozen_left_minutes %}Kept: {{ frozen_left_minutes|minutes_text }}.{% else %}Clock had not started — full time kept.{% endif %}</div></div>
+  {% if can_support %}
+  <form method="post" action="{% url 'member_support' v.id %}" class="d-flex gap-2 flex-wrap mb-2">{% csrf_token %}<input type="hidden" name="action" value="unpause">
+    <input class="form-control form-control-sm" name="reason" placeholder="Note (optional)" style="max-width:260px"><button class="btn btn-sm btn-primary"><i class="bi bi-play-circle"></i> Unpause now</button></form>
+  <form method="post" action="{% url 'member_support' v.id %}" class="row g-2 align-items-end">{% csrf_token %}<input type="hidden" name="action" value="schedule_resume">
+    <div class="col-sm-7"><label for="resAt">…or unpause automatically on</label><input class="form-control form-control-sm" type="datetime-local" id="resAt" name="resume_at" min="{{ now_local|date:'Y-m-d\TH:i' }}" required></div>
+    <div class="col-sm-5"><button class="btn btn-sm btn-outline-primary w-100"><i class="bi bi-calendar-check"></i> Schedule unpause</button></div></form>
+  {% endif %}
+  {% elif can_support %}
+  <form method="post" action="{% url 'member_support' v.id %}" class="mb-3">{% csrf_token %}
+    <div class="md-seg" role="radiogroup" aria-label="When">
+      <label><input type="radio" name="kind" value="later" checked data-toggle-pause><span><i class="bi bi-calendar-event"></i> Schedule</span></label>
+      <label><input type="radio" name="kind" value="now" data-toggle-pause><span><i class="bi bi-lightning"></i> Pause now</span></label>
+    </div>
+    <input type="hidden" name="action" value="schedule" id="pauseAction">
+    <div id="pauseLater">
+      <div class="md-seg" role="radiogroup" aria-label="Pause on">
+        <label><input type="radio" name="when_mode" value="days" {% if ends_at %}checked{% else %}disabled{% endif %} data-mode><span>When days are left</span></label>
+        <label><input type="radio" name="when_mode" value="date" {% if not ends_at %}checked{% endif %} data-mode><span>On a date</span></label>
+      </div>
+      <div class="row g-2">
+        <div class="col-sm-6" data-for="days" {% if not ends_at %}hidden{% endif %}><label for="daysLeft">Pause when this many days are left</label>
+          <div class="input-group input-group-sm"><input class="form-control" type="number" id="daysLeft" name="days_left" min="1" max="365" value="10"><span class="input-group-text">days</span></div>
+          <div class="form-text">{% if ends_at %}Their time ends {{ ends_at|date:'d M Y' }}. Follows renewals: renew and the pause moves with it.{% endif %}</div></div>
+        <div class="col-sm-6" data-for="date" {% if ends_at %}hidden{% endif %}><label for="pauseAt">Pause on</label>
+          <input class="form-control form-control-sm" type="datetime-local" id="pauseAt" name="pause_at" min="{{ now_local|date:'Y-m-d\TH:i' }}">{% if not ends_at %}<div class="form-text">Their clock has not started, so pick a date.</div>{% endif %}</div>
+        <div class="col-sm-6"><label for="resumeAt">Unpause on <span class="fw-normal text-secondary">(optional)</span></label>
+          <input class="form-control form-control-sm" type="datetime-local" id="resumeAt" name="resume_at" min="{{ now_local|date:'Y-m-d\TH:i' }}"><div class="form-text">Empty = stays paused until you unpause.</div></div>
+      </div>
+    </div>
+    <label for="pauseReason" class="mt-2">Reason <span class="fw-normal text-secondary">(kept in the history; shown to the member)</span></label>
+    <div class="d-flex gap-2"><input class="form-control form-control-sm" id="pauseReason" name="reason" required maxlength="255" placeholder="e.g. Travelling — keeps their remaining days">
+      <button class="btn btn-sm btn-primary text-nowrap" id="pauseBtn"><i class="bi bi-calendar-check"></i> <span>Schedule pause</span></button></div>
+  </form>
+  {% else %}<p class="small text-secondary">Your role can see pauses but not change them.</p>{% endif %}
+  {% if pending %}<h4 class="small fw-bold mt-3 mb-1">Waiting</h4><ul class="md-sched">{% for s in pending %}
+    <li class="{{ s.action }}"><span class="ic"><i class="bi {% if s.action == 'pause' %}bi-pause-fill{% else %}bi-play-fill{% endif %}"></i></span>
+      <div class="flex-grow-1"><b>{{ s.get_action_display }} {{ s.run_at|date:'D d M Y H:i' }}</b><small>{% if s.days_left %}When {{ s.days_left }} day{{ s.days_left|pluralize }} are left · {% endif %}{{ s.reason }}{% if s.created_by %} · set by {{ s.created_by.get_full_name|default:s.created_by.username }}{% endif %}</small></div>
+      {% if can_support %}<form method="post" action="{% url 'member_support' v.id %}">{% csrf_token %}<input type="hidden" name="action" value="cancel"><input type="hidden" name="schedule" value="{{ s.id }}"><button class="btn btn-sm btn-light" title="Cancel"><i class="bi bi-x-lg"></i></button></form>{% endif %}</li>{% endfor %}</ul>{% endif %}
+  {% if schedules %}<details class="mt-2"><summary class="small text-secondary">Earlier schedules</summary><ul class="md-sched">{% for s in schedules %}
+    <li class="{{ s.action }}"><span class="ic"><i class="bi {% if s.action == 'pause' %}bi-pause-fill{% else %}bi-play-fill{% endif %}"></i></span><div class="flex-grow-1"><b>{{ s.get_action_display }} · {{ s.get_status_display }}</b><small>{{ s.run_at|date:'d M Y H:i' }}{% if s.result %} · {{ s.result }}{% endif %}</small></div></li>{% endfor %}</ul></details>{% endif %}
+</section>
+
+<!-- ── Password & access ── -->
+<section class="md-card" id="access">
+  <h3><i class="bi bi-key"></i> Password &amp; access</h3>
+  <p class="lead">Login: username <b>{{ v.code }}</b> · password {% if v.password %}set{% else %}<span class="text-warning fw-bold">same as the username</span>{% endif %}{% if security.last_password %} · last changed {{ security.last_password.created_at|date:'d M Y' }}{% endif %}.</p>
+  {% if can_support %}
+  <form method="post" action="{% url 'member_support' v.id %}" class="mb-3">{% csrf_token %}<input type="hidden" name="action" value="password">
+    <div class="md-seg" role="radiogroup" aria-label="New password">
+      <label><input type="radio" name="mode" value="random" checked data-pw><span><i class="bi bi-shuffle"></i> Random</span></label>
+      <label><input type="radio" name="mode" value="custom" data-pw><span><i class="bi bi-pencil"></i> Type one</span></label>
+      <label><input type="radio" name="mode" value="same" data-pw><span>Same as username</span></label>
+    </div>
+    <div id="pwCustom" hidden><input class="form-control form-control-sm font-monospace mb-2" name="password" id="pwInput" autocomplete="new-password" minlength="4" maxlength="64" placeholder="4–64 characters, no spaces"></div>
+    {% if email %}<div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="email" id="pwEmail" value="1"><label class="form-check-label fw-normal" for="pwEmail">Email the new password to {{ email }}</label></div>{% endif %}
+    <div class="d-flex gap-2"><input class="form-control form-control-sm" name="reason" placeholder="Why (optional), e.g. forgot password"><button class="btn btn-sm btn-dark text-nowrap"><i class="bi bi-key"></i> Reset password</button></div>
+    <div class="form-text">The router gets the new password and the member is signed out of the Wi-Fi, so they log in again with it.</div>
+  </form>
+  <dl class="md-kv"><dt>Member portal</dt><dd>{% if email %}{{ email }}{% else %}<span class="text-secondary">no email — add one under Details</span>{% endif %}</dd>
+    <dt>Last portal login</dt><dd>{{ security.profile.last_portal_login_at|date:'d M Y H:i'|default:"never" }}</dd>
+    <dt>Agreement</dt><dd>{% if security.profile.agreement_accepted_at %}accepted {{ security.profile.agreement_accepted_at|date:'d M Y' }}{% else %}not yet{% endif %}</dd></dl>
+  <div class="d-flex flex-wrap gap-2">
+    <form method="post" action="{% url 'member_support' v.id %}">{% csrf_token %}<input type="hidden" name="action" value="portal_link"><button class="btn btn-sm btn-outline-primary" {% if not email %}disabled{% endif %}><i class="bi bi-envelope-paper"></i> Send portal access link</button></form>
+    <form method="post" action="{% url 'member_support' v.id %}" data-confirm="Sign {{ v.code }} out of the member portal on every device?">{% csrf_token %}<input type="hidden" name="action" value="portal_signout"><button class="btn btn-sm btn-outline-secondary"><i class="bi bi-box-arrow-right"></i> Sign out of portal everywhere</button></form>
+    <form method="post" action="{% url 'member_support' v.id %}">{% csrf_token %}<input type="hidden" name="action" value="wifi_signout"><button class="btn btn-sm btn-outline-secondary"><i class="bi bi-wifi-off"></i> Sign out of the Wi-Fi now</button></form>
+  </div>
+  {% endif %}
+</section>
+
+<!-- ── Devices ── -->
+<section class="md-card" id="devices">
+  <h3><i class="bi bi-phone"></i> Devices</h3>
+  <p class="lead">{{ bindings|length }} of {{ v.max_devices|default:1 }} device slot{{ v.max_devices|default:1|pluralize }} taken. A new phone can only log in when a slot is free.</p>
+  {% if bindings %}<div class="table-responsive"><table class="table table-sm align-middle mb-2"><thead><tr><th>Slot</th><th>Device</th><th>MAC</th><th>Last seen</th></tr></thead><tbody>
+  {% for d in bindings %}<tr><td>{{ d.slot_no }}</td><td>{{ d.label|default:"Unknown device" }}<small class="d-block text-secondary">via {{ d.locked_by|default:"portal" }}</small></td><td class="font-monospace small">{{ d.current_mac|default:"—" }}{% if d.previous_mac %}<small class="d-block text-secondary">was {{ d.previous_mac }}</small>{% endif %}</td><td class="small">{{ d.last_seen_at|timesince }} ago</td></tr>{% endfor %}
+  </tbody></table></div>{% else %}<p class="small text-secondary">No devices yet — the first devices to log in take the slots.</p>{% endif %}
+  {% if can_support and bindings %}<form method="post" action="{% url 'member_support' v.id %}" class="d-flex gap-2" data-confirm="Free every device slot of {{ v.code }}? Their devices are signed out and the next devices to log in take the slots.">{% csrf_token %}<input type="hidden" name="action" value="devices">
+    <input class="form-control form-control-sm" name="reason" placeholder="Why, e.g. new phone"><button class="btn btn-sm btn-outline-danger text-nowrap"><i class="bi bi-arrow-counterclockwise"></i> Free all slots</button></form>{% endif %}
+</section>
+
+<!-- ── Details ── -->
+<section class="md-card" id="details">
+  <h3><i class="bi bi-person-lines-fill"></i> Details</h3>
+  <p class="lead">Who the member is and how to reach them. Created {{ v.created_at|date:'d M Y' }}{% if v.created_by_label %} by {{ v.created_by_label }}{% endif %}.</p>
+  {% if can_support %}<form method="post" action="{% url 'member_support' v.id %}" class="row g-2">{% csrf_token %}<input type="hidden" name="action" value="details">
+    <div class="col-sm-6"><label for="dName">Full name</label><input class="form-control form-control-sm" id="dName" name="customer_name" value="{{ v.customer_name }}" maxlength="120"></div>
+    <div class="col-sm-6"><label for="dPhone">Phone</label><input class="form-control form-control-sm" id="dPhone" name="customer_phone" value="{{ v.customer_phone }}" maxlength="60" inputmode="tel"></div>
+    <div class="col-12"><label for="dEmail">Email <span class="fw-normal text-secondary">(member portal, receipts, reminders)</span></label><input class="form-control form-control-sm" type="email" id="dEmail" name="customer_email" value="{{ email }}"></div>
+    <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="dRem" name="reminders_enabled" value="1" {% if pref.reminders_enabled %}checked{% endif %}><label class="form-check-label fw-normal" for="dRem">Email expiry reminders</label></div>
+      <div class="d-flex gap-3 small ms-4" id="dRemDays"><label class="fw-normal"><input type="checkbox" name="remind_7_days" value="1" {% if not pref or pref.remind_7_days %}checked{% endif %}> 7 days</label><label class="fw-normal"><input type="checkbox" name="remind_2_days" value="1" {% if not pref or pref.remind_2_days %}checked{% endif %}> 2 days</label><label class="fw-normal"><input type="checkbox" name="remind_1_day" value="1" {% if not pref or pref.remind_1_day %}checked{% endif %}> 1 day</label></div></div>
+    <div class="col-12"><label for="dNote">Note on the account</label><input class="form-control form-control-sm" id="dNote" name="note" value="{{ v.note }}" maxlength="255"></div>
+    <div class="col-12"><button class="btn btn-sm btn-primary"><i class="bi bi-check2"></i> Save details</button></div>
+  </form>
+  {% if can_create and plans %}<form method="post" action="{% url 'member_support' v.id %}" class="d-flex gap-2 align-items-end mt-3 pt-3 border-top" data-confirm="Move {{ v.code }} to this plan? Time already used counts in the new plan.">{% csrf_token %}<input type="hidden" name="action" value="plan">
+    <div class="flex-grow-1"><label for="dPlan">Member Plan</label><select class="form-select form-select-sm" id="dPlan" name="plan">{% for p in plans %}<option value="{{ p.id }}" {% if plan and p.id == plan.id %}selected{% endif %}>{{ p.name }} — {{ p.price }} · {{ p.max_devices }} device{{ p.max_devices|pluralize }}</option>{% endfor %}</select></div>
+    <button class="btn btn-sm btn-outline-primary text-nowrap"><i class="bi bi-arrow-left-right"></i> Change plan</button></form>{% endif %}
+  {% endif %}
+</section>
+
+<!-- ── Billing ── -->
+<section class="md-card" id="billing">
+  <h3><i class="bi bi-receipt"></i> Billing</h3>
+  <p class="lead">{% if plan %}{{ plan.name }}: {{ current_business.currency|default:"GMD" }} {{ plan.price }}{% if plan.duration_minutes %} per {{ plan.duration_minutes|minutes_text }}{% endif %}.{% endif %} {% if arrears %}<b class="text-danger">Owes {{ current_business.currency|default:"GMD" }} {{ arrears }}.</b>{% endif %}</p>
+  {% if plan and plan.duration_minutes and can_create %}
+  <form method="post" action="{% url 'member_renew' v.id %}" class="row g-2 mb-3">{% csrf_token %}<input type="hidden" name="next" value="{% url 'member_detail' v.id %}#billing">
+    <div class="col-sm-4"><label for="rAmt">Amount collected</label><input class="form-control form-control-sm" type="number" step="0.01" min="0" id="rAmt" name="amount" value="{{ plan.price }}" required></div>
+    <div class="col-sm-4"><label for="rMeth">Paid with</label><select class="form-select form-select-sm" id="rMeth" name="method">{% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-sm-4"><label for="rRef">Reference</label><input class="form-control form-control-sm" id="rRef" name="reference" placeholder="Wave / receipt ref"></div>
+    <div class="col-sm-8"><label for="rAg">Received by</label><select class="form-select form-select-sm" id="rAg" name="agent"><option value="">Shop</option>{% for a in agents %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select></div>
+    <div class="col-sm-4 d-flex align-items-end"><button class="btn btn-sm btn-success w-100"><i class="bi bi-arrow-repeat"></i> Renew &amp; receipt</button></div>
+  </form>{% endif %}
+  {% if renewals %}<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Date</th><th>Plan</th><th class="text-end">Paid</th><th></th></tr></thead><tbody>
+  {% for r in renewals %}<tr><td class="small">{{ r.renewed_at|date:'d M Y' }}</td><td class="small">{{ r.plan_name }}</td><td class="text-end small">{{ r.currency }} {{ r.amount_collected }}{% if r.amount_collected < r.plan_price %}<small class="d-block text-danger">of {{ r.plan_price }}</small>{% endif %}</td>
+    <td class="text-end"><a class="btn btn-sm btn-light" href="{% url 'members' %}?receipt={{ r.id }}&next={% url 'member_detail' v.id %}" title="Receipt"><i class="bi bi-receipt"></i></a></td></tr>{% endfor %}
+  </tbody></table></div>{% else %}<p class="small text-secondary mb-0">No renewals recorded yet.</p>{% endif %}
+</section>
+
+<!-- ── Security ── -->
+<section class="md-card" id="security">
+  <h3><i class="bi bi-shield-lock"></i> Security</h3>
+  <p class="lead">Things worth a look, and the member portal’s recent activity.</p>
+  {% if security.flags %}<ul class="md-flags">{% for level,text in security.flags %}<li class="{{ level }}">{{ text }}</li>{% endfor %}</ul>{% else %}<p class="small text-success"><i class="bi bi-check-circle"></i> Nothing unusual.</p>{% endif %}
+  {% if security.ips %}<dl class="md-kv"><dt>Portal used from</dt><dd class="font-monospace small">{{ security.ips|join:", " }}</dd></dl>{% endif %}
+  {% if security.events %}<details><summary class="small fw-bold">Portal activity ({{ security.events|length }})</summary><ul class="md-tl mt-2">{% for e in security.events %}
+    <li><span class="ic"><i class="bi bi-person-badge"></i></span><div>{{ e.get_event_display }}<small class="d-block">{{ e.created_at|date:'d M Y H:i' }}{% if e.ip_address %} · {{ e.ip_address }}{% endif %}</small></div></li>{% endfor %}</ul></details>{% endif %}
+  {% if can_support %}<div class="md-danger">
+    {% if v.status == 'disabled' and not v.frozen_at %}
+    <form method="post" action="{% url 'member_support' v.id %}" class="d-flex gap-2">{% csrf_token %}<input type="hidden" name="action" value="unblock"><input class="form-control form-control-sm" name="reason" placeholder="Note (optional)"><button class="btn btn-sm btn-success text-nowrap"><i class="bi bi-unlock"></i> Unblock account</button></form>
+    {% elif not v.frozen_at %}
+    <form method="post" action="{% url 'member_support' v.id %}" class="d-flex gap-2" data-confirm="Block {{ v.code }}? Their internet stops now. Unlike a pause, the clock keeps running.">{% csrf_token %}<input type="hidden" name="action" value="block"><input class="form-control form-control-sm" name="reason" required placeholder="Reason, e.g. account shared / abuse"><button class="btn btn-sm btn-outline-danger text-nowrap"><i class="bi bi-slash-circle"></i> Block account</button></form>
+    <div class="form-text">Block = stop the account (the clock keeps running). To keep their days, use Pause.</div>
+    {% endif %}
+  </div>{% endif %}
+</section>
+
+<!-- ── Notes ── -->
+<section class="md-card" id="notes">
+  <h3><i class="bi bi-sticky"></i> Support notes</h3>
+  <p class="lead">For staff only — calls, complaints, promises made. The member never sees these.</p>
+  {% if can_support %}<form method="post" action="{% url 'member_support' v.id %}" class="d-flex gap-2 mb-3">{% csrf_token %}<input type="hidden" name="action" value="note">
+    <input class="form-control form-control-sm" name="text" required maxlength="1000" placeholder="e.g. Called — slow at night, will check the shop repeater"><button class="btn btn-sm btn-primary"><i class="bi bi-plus-lg"></i> Add</button></form>{% endif %}
+  {% for n in notes %}<div class="md-note">{% if n.detail.text %}{{ n.detail.text }}{% else %}{{ n.reason }}{% endif %}<small>{{ n.created_at|date:'d M Y H:i' }} · {{ n.user.get_full_name|default:n.user.username|default:"TapTap" }}</small></div>{% empty %}<p class="small text-secondary mb-0">No notes yet.</p>{% endfor %}
+</section>
+
+<!-- ── History ── -->
+<section class="md-card" id="history">
+  <h3><i class="bi bi-clock-history"></i> History</h3>
+  <p class="lead">Everything that happened to this account, newest first.</p>
+  <ul class="md-tl">{% for e in timeline %}<li><span class="ic {{ e.tone }}"><i class="bi {{ e.icon }}"></i></span><div><b>{{ e.title }}</b>{% if e.reason %} — {{ e.reason }}{% endif %}{% if e.text %}<div>{{ e.text }}</div>{% endif %}
+    <small>{{ e.at|date:'d M Y H:i' }}{% if e.who %} · {{ e.who }}{% endif %}{% if e.via %} · {{ e.via }}{% endif %}{% if e.result %} · {{ e.result }}{% endif %}</small></div></li>{% empty %}<li><span></span><small>Nothing yet.</small></li>{% endfor %}</ul>
+</section>
+</div>
+{% endwith %}
+{% endblock %}
+{% block scripts %}<script>
+(function(){
+  // Pause: schedule or now; date or days-left
+  var act=document.getElementById('pauseAction'),btn=document.getElementById('pauseBtn'),later=document.getElementById('pauseLater');
+  document.querySelectorAll('[data-toggle-pause]').forEach(function(r){r.addEventListener('change',function(){
+    var now=r.value==='now'&&r.checked; if(!act)return; act.value=now?'pause_now':'schedule'; later.hidden=now;
+    btn.querySelector('span').textContent=now?'Pause now':'Schedule pause'; btn.querySelector('i').className='bi '+(now?'bi-pause-circle':'bi-calendar-check');});});
+  document.querySelectorAll('[data-mode]').forEach(function(r){r.addEventListener('change',function(){
+    document.querySelectorAll('#pauseLater [data-for]').forEach(function(el){el.hidden=el.dataset.for!==r.value;});});});
+  // Password mode
+  document.querySelectorAll('[data-pw]').forEach(function(r){r.addEventListener('change',function(){var c=document.getElementById('pwCustom'),i=document.getElementById('pwInput');
+    c.hidden=r.value!=='custom';i.required=r.value==='custom';});});
+  // Reminders
+  var rem=document.getElementById('dRem'),days=document.getElementById('dRemDays');
+  if(rem&&days){var f=function(){days.querySelectorAll('input').forEach(function(x){x.disabled=!rem.checked;});};rem.addEventListener('change',f);f();}
+  // Confirmations
+  document.querySelectorAll('form[data-confirm]').forEach(function(f){f.addEventListener('submit',function(e){if(!confirm(f.dataset.confirm))e.preventDefault();});});
+  // One-time password: copy / WhatsApp / SMS
+  document.querySelectorAll('[data-copy]').forEach(function(b){b.addEventListener('click',function(){navigator.clipboard.writeText(b.dataset.copy).then(function(){b.innerHTML='<i class="bi bi-check2"></i> Copied';});});});
+  var wa=document.getElementById('waLink'),pw=document.getElementById('pwText');
+  if(wa&&pw){var msg='{{ current_business.business_name|escapejs }} Wi-Fi\nUsername: {{ v.code|escapejs }}\nNew password: '+pw.textContent+'\nTap "Member" on the login page.';
+    var digits=(wa.dataset.phone||'').replace(/\D/g,'');wa.href='https://wa.me/'+digits+'?text='+encodeURIComponent(msg);
+    var sms=document.getElementById('smsLink');if(sms)sms.href='sms:'+wa.dataset.phone+'?body='+encodeURIComponent(msg);}
+})();
+</script>{% endblock %}

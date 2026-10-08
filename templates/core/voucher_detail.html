@@ -77,7 +77,7 @@
         {% track_button "voucher" v.id v.code %}</div>
       <div class="vd-sub">
         <span class="vd-state {{ state_key }}"><i class="bi bi-circle-fill" style="font-size:.5rem"></i> {{ state_label }}</span>
-        {% if v.is_member %}<span class="badge text-bg-light border"><i class="bi bi-person-badge"></i> Member</span>{% endif %}
+        {% if v.is_member %}<a class="badge text-bg-primary text-decoration-none" href="{% url 'member_detail' v.id %}" title="Pause schedule, password, access and support controls"><i class="bi bi-person-badge"></i> Member — open member page</a>{% endif %}
         <span><b class="text-body">{{ v.plan_name }}</b> · {{ v.price|money:c }}</span>
         {% if v.router %}<span><i class="bi bi-router"></i> {{ v.router.name }}</span>{% endif %}
       </div>

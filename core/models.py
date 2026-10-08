@@ -1311,3 +1311,4 @@ from .models_watch import Watch  # noqa: E402,F401
 from .models_sharing import SharingPolicy, SharingCase, SharingTrust  # noqa: E402,F401
 from .models_netdev import NetDevice, RemoteSession, OmadaController  # noqa: E402,F401
 from .models_nettools import NetTest  # noqa: E402,F401
+from .models_member_support import MemberSchedule  # noqa: E402,F401

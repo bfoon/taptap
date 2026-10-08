@@ -15,6 +15,7 @@ from . import views_apps as vapps
 from . import views_profiles as vprof
 from . import views_chat as vchat
 from . import views_members as vmem
+from . import views_member_detail as vmd
 from . import views_topology as vtopo
 from . import views_geo as vgeo
 from . import views_security_fixes as vsecfix
@@ -123,7 +124,7 @@ urlpatterns = [
     # Support › Help Center guides
     path('support/guides/<slug:slug>/',vhelp.support_guide,name='support_guide'),
     # Members (username + password logins), agent cash-flow statements, batch receipts
-    path('members/',vmem.members,name='members'), path('members/<int:pk>/password/',vmem.member_password,name='member_password'),
+    path('members/',vmem.members,name='members'), path('members/<int:pk>/',vmd.member_detail,name='member_detail'), path('members/<int:pk>/support/',vmd.member_support,name='member_support'), path('members/<int:pk>/password/',vmem.member_password,name='member_password'),
     path('members/<int:pk>/renew/',vmem.member_renew,name='member_renew'), path('members/<int:pk>/push/',vmem.member_push,name='member_push'), path('members/fix-routers/',vmem.member_fix_all,name='member_fix_all'),
     path('finance/agents/<int:pk>/statement/',va.agent_statement,name='agent_statement'),
     path('batches/<int:pk>/receipt/',va.batch_receipt,name='batch_receipt'),
