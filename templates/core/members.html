@@ -1,5 +1,5 @@
 {% extends 'core/base.html' %}{% load taptap_extras %}
-{% block title %}Members — TapTap{% endblock %}{% block heading %}Members{% endblock %}
+{% block title %}Members — TapTap{% endblock %}{% block heading %}Members{% endblock %}{% block presence %}{% include "core/_presence.html" with pp_kind="members" pp_id=0 %}{% endblock %}
 
 {% block extra_head %}<style>
 .mb-sec{border-top:1px solid var(--border);padding-top:1rem;margin-top:1rem}.mb-sec:first-of-type{border:0;margin:0;padding:0}

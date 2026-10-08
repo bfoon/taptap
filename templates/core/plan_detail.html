@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}{% load taptap_extras %}{% block title %}{{ plan.name }} — TapTap{% endblock %}{% block heading %}Plan details{% endblock %}
+{% extends 'core/base.html' %}{% load taptap_extras %}{% block title %}{{ plan.name }} — TapTap{% endblock %}{% block heading %}Plan details{% endblock %}{% block presence %}{% include "core/_presence.html" with pp_kind="plan" pp_id=plan.id %}{% endblock %}
 {% block extra_head %}<style>
 .dt-head{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;justify-content:space-between;margin-bottom:1rem}.dt-head h2{font-size:1.25rem;font-weight:800;margin:0}
 .dt-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:.75rem}.dt-kpi{background:#fff;border:1px solid #e3e9f1;border-radius:14px;padding:.75rem .9rem}

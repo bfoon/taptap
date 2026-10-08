@@ -1,6 +1,6 @@
 {% extends 'core/base.html' %}{% load taptap_extras %}
 {% block title %}{{ v.customer_name|default:v.code }} — Member — TapTap{% endblock %}
-{% block heading %}Member{% endblock %}
+{% block heading %}Member{% endblock %}{% block presence %}{% include "core/_presence.html" with pp_kind="member" pp_id=v.id %}{% endblock %}
 {% block extra_head %}<style>
 .md-head{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:20px;padding:1.2rem 1.3rem;margin-bottom:1rem}
 .md-top{display:flex;flex-wrap:wrap;gap:1rem;justify-content:space-between;align-items:flex-start}
