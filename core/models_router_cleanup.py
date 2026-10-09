@@ -4,7 +4,7 @@ from django.db import models
 
 
 class RouterCleanup(models.Model):
-    ACTIONS = [('scan', 'Scan'), ('clean', 'Clean')]
+    ACTIONS = [('scan', 'Scan'), ('clean', 'Clean'), ('copy', 'Save to computer')]
     STATUS = [('running', 'Running'), ('waiting', 'Waiting for the router'), ('done', 'Done'), ('failed', 'Failed')]
     business = models.ForeignKey('core.Business', on_delete=models.CASCADE, related_name='router_cleanups')
     router = models.ForeignKey('core.Router', on_delete=models.CASCADE, related_name='cleanups')

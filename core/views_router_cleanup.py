@@ -20,8 +20,17 @@ def _router(request, pk):
 
 
 def as_json(job):
-    return {'id': job.pk, 'action': job.action, 'status': job.status, 'via': job.via, 'result': job.result or {},
-            'at': timezone.localtime(job.created_at).strftime('%d %b %H:%M')}
+    out = {'id': job.pk, 'action': job.action, 'status': job.status, 'via': job.via, 'result': job.result or {},
+           'at': timezone.localtime(job.created_at).strftime('%d %b %H:%M')}
+    if job.action == 'copy':
+        from django.urls import reverse
+        from .router_file_copy import received
+        p = job.params or {}
+        out.update(name=p.get('name'), total=p.get('total') or p.get('size') or 0, received=received(job))
+        if job.status == 'done' and not (job.result or {}).get('purged'):
+            out['download'] = reverse('router_cleanup_download', args=[job.router_id, job.pk])
+    # never send the token hash to the page
+    return out
 
 
 def _health(router):
@@ -136,4 +145,60 @@ def router_cleanup_job(request, pk, job_id):
     if not job:
         raise Http404
     rc.expire_waiting(job)
+    if job.action == 'copy' and job.status in ('waiting', 'running'):
+        _expire_copy(job)
     return JsonResponse({'ok': True, 'job': as_json(job), 'left': len((job.params or {}).get('left') or [])})
+
+
+def _expire_copy(job):
+    from datetime import datetime
+    exp = (job.params or {}).get('expires')
+    if exp and datetime.fromisoformat(exp) < timezone.now():
+        job.status, job.result, job.finished_at = 'failed', {'error': 'The router did not finish sending the file within an hour.'}, timezone.now()
+        job.save(update_fields=['status', 'result', 'finished_at'])
+
+
+@login_required
+@require_POST
+def router_cleanup_copy(request, pk):
+    """Save one scanned file to the computer: {"scan": id, "name": "..."}."""
+    from . import router_file_copy as rfc
+    router = _router(request, pk)
+    try:
+        data = json.loads(request.body or b'{}')
+    except ValueError:
+        data = {}
+    scan = RouterCleanup.objects.filter(router=router, pk=str(data.get('scan') or 0), action='scan', status='done').first()
+    if not scan:
+        return JsonResponse({'ok': False, 'message': 'Scan the router first.'}, status=400)
+    name = str(data.get('name') or '')
+    plan = (scan.result or {}).get('plan') or {}
+    found = next((f for g in plan.get('groups', []) for f in g['files'] if f['name'] == name), None)
+    if not found:
+        return JsonResponse({'ok': False, 'message': 'That file was not in the scan.'}, status=400)
+    running = RouterCleanup.objects.filter(router=router, action='copy', status__in=('waiting', 'running'),
+                                           params__name=name, created_at__gte=timezone.now() - timedelta(minutes=60)).first()
+    if running:
+        return JsonResponse({'ok': True, 'job': as_json(running)})
+    try:
+        job = rfc.start(request, router, name, found.get('size'))
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'message': str(exc)}, status=400)
+    except Exception as exc:  # noqa: BLE001
+        logger.info('file copy on router %s failed to start: %s', router.pk, exc)
+        return JsonResponse({'ok': False, 'message': f'Could not reach {router.name}: {exc}'[:300]}, status=400)
+    return JsonResponse({'ok': True, 'job': as_json(job)})
+
+
+@login_required
+@require_GET
+def router_cleanup_download(request, pk, job_id):
+    from django.http import FileResponse
+    from .router_file_copy import _path
+    router = _router(request, pk)
+    job = RouterCleanup.objects.filter(router=router, pk=job_id, action='copy', status='done').first()
+    path = _path(job) if job else None
+    if not job or not path.exists() or (job.result or {}).get('purged'):
+        raise Http404
+    name = (job.params or {}).get('name', 'router-file').rsplit('/', 1)[-1]
+    return FileResponse(path.open('rb'), as_attachment=True, filename=name)

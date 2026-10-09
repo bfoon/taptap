@@ -21,7 +21,7 @@
     <form method="post" action="{% url 'router_config_refresh' router.id %}">{% csrf_token %}<button class="btn btn-outline-primary"><i class="bi bi-download"></i> Refresh Config</button></form>
     <button class="btn btn-outline-success" type="button" id="backupFullBtn"><i class="bi bi-cloud-arrow-down"></i> Back up full configuration</button>
     <button class="btn btn-outline-secondary" type="button" id="backupHistoryBtn"><i class="bi bi-archive"></i> Backups</button>
-    <button class="btn btn-dark rc-open" type="button" id="cleanBtn" data-scan="{% url 'router_cleanup_scan' router.id %}" data-clean="{% url 'router_cleanup_clean' router.id %}" data-job="{% url 'router_cleanup_job' router.id 0 %}" data-via="{% if router.connection_mode == 'agent' %}link{% else %}api{% endif %}"><i class="bi bi-stars"></i> Clean router memory</button>
+    <button class="btn btn-dark rc-open" type="button" id="cleanBtn" data-scan="{% url 'router_cleanup_scan' router.id %}" data-clean="{% url 'router_cleanup_clean' router.id %}" data-job="{% url 'router_cleanup_job' router.id 0 %}" data-copy="{% url 'router_cleanup_copy' router.id %}" data-via="{% if router.connection_mode == 'agent' %}link{% else %}api{% endif %}"><i class="bi bi-stars"></i> Clean router memory</button>
     <a class="btn btn-outline-secondary" href="{% url 'topology' %}"><i class="bi bi-diagram-3"></i> Topology</a>
   </div>
 </div>
@@ -343,7 +343,9 @@
     <div class="rc-empty"><i class="bi bi-hdd-stack"></i><p>Nothing scanned yet. Your hotspot pages, certificates and settings are never touched — only files TapTap knows are safe, or that you tick yourself.</p></div>
   </div>
   <div class="rc-foot" id="rcFoot" hidden>
-    <div><b id="rcSel">0 B</b> <span id="rcSelTxt">selected</span></div>
+    <div><b id="rcSel">0 B</b> <span id="rcSelTxt">selected</span>
+      <label class="form-check form-switch rc-savefirst"><input class="form-check-input" type="checkbox" id="rcSaveFirst" checked> <span class="form-check-label">Save “Check first” files to my computer before removing</span></label>
+      <div class="rc-saving" id="rcSaving" hidden></div></div>
     <button class="btn btn-success btn-lg fw-bold" id="rcClean" type="button" disabled><i class="bi bi-stars"></i> <span>Clean</span></button>
   </div>
 </div></div></div>

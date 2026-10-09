@@ -39,7 +39,7 @@ from .models_backup_storage import RouterBackupStorage
 logger = logging.getLogger("taptap.backups")
 
 TOKEN_MINUTES = 60
-CHUNK_SIZE = 3072
+CHUNK_SIZE = 16384      # 16 KB per request: a 10 MB backup is ~650 requests, not ~3,400 (base64 stays far below Fetch's 64 KB)
 MAX_BYTES = int(os.getenv("ROUTER_BACKUP_MAX_BYTES", str(32 * 1024 * 1024)))
 PRIVATE_ROOT = Path(
     os.getenv(
@@ -268,6 +268,9 @@ HELPER_COMMENT = "TapTap backup helper v1 - lets TapTap Link make backups"
 LOCAL_HELPER = "taptap-backup-local"            # RouterOS older than 7.13: save both files on the router only
 LOCAL_SOURCE = (':global ttBkBase; :do { /system backup save name=$ttBkBase dont-encrypt=yes } '
                 'on-error={ /system backup save name=$ttBkBase }; /export file=$ttBkBase')
+STORAGE_FULL = ("The router could not write the backup file — its storage is almost certainly full (a backup needs "
+                "room for the .backup and the .rsc). Open Clean router memory, save the old backups to your computer and remove "
+                "them, then press Back up now again.")
 NEEDS_HELPER = ("This router needs a one-time permission before TapTap Link can make backups: "
                 "open Backups and paste the “Allow backups on this router” command into WinBox once.")
 
@@ -303,7 +306,10 @@ def link_backup_body(params):
     check, b, u, t = tls_flag(url), rs(base), rs(url), rs(token)
     # The save-only helper (pasted once with "Allow backups") saves the files; this command uploads them.
     # Without it, TapTap is told so and the Backups page shows the one-time command.
-    return (f':global ttBkBase {b}; :local base {b}; :local url {u}; :local tok {t}; '
+    # ttBkR: a router never runs the same backup twice at once (a late resend would re-save the file and clash
+    # with the upload already under way — "409 Conflict").
+    return (f':global ttBkBase {b}; :global ttBkR; :if ($ttBkR=$ttBkBase) do={{:error "busy"}}; :set ttBkR $ttBkBase; '
+            f':local base $ttBkBase; :local url {u}; :local tok {t}; '
             + _script_body(check, LINK_SAVE_STEP))
 
 
@@ -524,8 +530,14 @@ def router_backup_upload(request, bid):
             if kind == "error":
                 # The router could not finish: keep its reason for the backup page instead of waiting for the expiry.
                 said = _param(data, "message")
-                if "needs-helper" in said or "not enough permissions" in said.lower():
+                low = said.lower()
+                if "needs-helper" in said or "not enough permissions" in low:
                     message = NEEDS_HELPER
+                elif "action failed" in low and ("backup/save" in low or "export" in low):
+                    message = STORAGE_FULL + f" (Router said: {said})"[:300]
+                elif "409" in said and "conflict" in low:
+                    message = ("The copy clashed with another copy of the same backup still uploading (an older TapTap sent "
+                               "the backup twice). Run Back up now again — this version waits for the upload to finish.")
                 else:
                     message = ("Router: " + said)[:1000]
                 storage.status, storage.error = "failed", message

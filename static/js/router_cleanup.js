@@ -88,7 +88,8 @@
         + '<span class="rc-chip ' + g.level + '">' + (g.level === 'safe' ? 'Safe to remove' : g.level === 'check' ? 'Check first' : 'Kept') + '</span><span class="rc-size">' + size(g.bytes) + '</span></div>'
         + '<ul class="rc-files">' + g.files.map(function (f, fi) {
           return '<li><input class="form-check-input" type="checkbox" data-f="' + gi + ':' + fi + '" ' + (f.selected ? 'checked' : '') + (removable ? '' : ' disabled') + '>'
-            + '<code title="' + esc(f.name) + '">' + esc(f.name) + '</code><span class="age">' + age(f.age) + '</span><span class="sz">' + size(f.size) + '</span></li>';
+            + '<code title="' + esc(f.name) + '">' + esc(f.name) + '</code><span class="age">' + age(f.age) + '</span><span class="sz">' + size(f.size) + '</span>'
+            + '<button type="button" class="rc-dl" data-dl="' + gi + ':' + fi + '" title="Save to my computer" aria-label="Save ' + esc(f.name) + ' to my computer"><i class="bi bi-download"></i><span class="bar"></span></button></li>';
         }).join('') + (g.count > g.files.length ? '<li><span></span><small class="text-secondary">and ' + (g.count - g.files.length) + ' more (the largest are shown)</small></li>' : '') + '</ul></div>';
     });
     html += '<div class="rc-group rc-logcard ' + (p.log.lines ? 'safe' : 'kept') + '"><div class="rc-gh"><input class="form-check-input" type="checkbox" id="rcLogChk" ' + (p.log.suggest ? 'checked' : '') + (p.log.lines ? '' : ' disabled') + '>'
@@ -102,6 +103,7 @@
     body.querySelectorAll('[data-gall]').forEach(function (c) { c.addEventListener('change', function () {
       body.querySelectorAll('[data-f^="' + c.dataset.gall + ':"]').forEach(function (x) { x.checked = c.checked; }); update(); }); });
     body.querySelectorAll('[data-f], #rcLogChk').forEach(function (c) { c.addEventListener('change', update); });
+    body.querySelectorAll('[data-dl]').forEach(function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); saveFile(b.dataset.dl).catch(function () {}); }); });
     update();                                    // also draws the ring with the slice to be freed
     var safe = p.safe_bytes;
     phase('plan', safe ? size(safe) + ' can be freed safely' : 'Your router is already tidy',
@@ -131,10 +133,67 @@
     });
   }
 
+  // ── save a router file to the computer (core/router_file_copy.py) ──
+  var saved = {};
+  function saveFile(key, onPct) {
+    var a = key.split(':'), f = state.plan.groups[+a[0]].files[+a[1]];
+    var b = body.querySelector('[data-dl="' + key + '"]'), row = b && b.closest('li');
+    if (saved[f.name]) return Promise.resolve(saved[f.name]);
+    function show(p, txt) {
+      if (b) { b.querySelector('.bar').style.width = (p || 0) + '%'; }
+      if (row) { var el = row.querySelector('.pct') || row.appendChild(Object.assign(document.createElement('span'), { className: 'pct' })); el.textContent = txt; }
+      onPct && onPct(p, txt);
+    }
+    if (b) { b.disabled = true; b.className = 'rc-dl busy'; }
+    show(0, LINK ? 'Asking the router (TapTap Link) to send it…' : 'Asking the router to send it…');
+    return post(U.copy, { scan: state.scan.id, name: f.name }).then(function (j) {
+      var job = j.job, t0 = Date.now();
+      return new Promise(function (resolve, reject) {
+        (function poll() {
+          fetch(U.job.replace(/0\/$/, job.id + '/'), { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (jj) {
+            var x = jj.job, tot = x.total || f.size || 0, pct = tot ? Math.min(100, Math.round(x.received * 100 / tot)) : 0;
+            if (x.status === 'done' && x.download) return resolve(x);
+            if (x.status === 'failed') return reject(new Error((x.result || {}).error || 'The router could not send the file.'));
+            show(pct, x.received ? 'Saving… ' + pct + '% (' + size(x.received) + ' of ' + size(tot) + ')' : (x.status === 'waiting' ? 'Waiting for the router… ' + Math.round((Date.now() - t0) / 1000) + ' s' : 'Starting…'));
+            setTimeout(poll, 1500);
+          }).catch(function () { setTimeout(poll, 3000); });
+        })();
+      });
+    }).then(function (x) {
+      show(100, 'Saved to your computer ✓ (' + size(x.received) + ')');
+      if (b) b.className = 'rc-dl ok';
+      var link = document.createElement('a'); link.href = x.download; link.download = f.name.split('/').pop(); document.body.appendChild(link); link.click(); link.remove();
+      saved[f.name] = x; return x;
+    }, function (e) {
+      show(0, e.message); if (b) { b.className = 'rc-dl bad'; b.disabled = false; } throw e;
+    });
+  }
+  function saveFirst(keys) {
+    var box = $('rcSaving'); box.hidden = false;
+    return keys.reduce(function (p, key, i) {
+      return p.then(function () {
+        return saveFile(key, function (pct, txt) { box.textContent = 'Saving ' + (i + 1) + ' of ' + keys.length + ' to your computer — ' + txt; });
+      });
+    }, Promise.resolve()).then(function () { box.textContent = 'All ' + keys.length + ' saved to your computer ✓'; });
+  }
+
   // ── clean ──
   function clean() {
     var c = chosen(); if (state.busy || (!c.files.length && !c.log)) return;
-    if (body.querySelector('.rc-group.check [data-f]:checked') && !confirm('You ticked files marked “Check first”. Remove them anyway?')) return;
+    var checks = [].map.call(body.querySelectorAll('.rc-group.check [data-f]:checked'), function (x) { return x.dataset.f; });
+    var unsaved = checks.filter(function (k) { var a = k.split(':'); return !saved[state.plan.groups[+a[0]].files[+a[1]].name]; });
+    if (unsaved.length && $('rcSaveFirst').checked) {
+      state.busy = true; cleanBtn.disabled = true; go.disabled = true;
+      saveFirst(unsaved).then(function () { state.busy = false; reallyClean(c); }, function (e) {
+        state.busy = false; cleanBtn.disabled = false; go.disabled = false;
+        $('rcSaving').textContent = 'Not cleaned — a file could not be saved: ' + e.message;
+      });
+      return;
+    }
+    if (unsaved.length && !confirm('You ticked “Check first” files without saving them. Remove them anyway?')) return;
+    reallyClean(c);
+  }
+  function reallyClean(c) {
     state.busy = true; cleanBtn.disabled = true; go.disabled = true; foot.hidden = true;
     phase('clean', 'Cleaning…', LINK ? 'The router removes the files at its next check-in — keep this window open.' : 'Removing the files from the router…');
     body.innerHTML = '<div class="rc-vac"><div class="rc-stream" id="rcStream">' + c.files.slice(0, 80).map(function (n) { return '<span class="rc-fchip">' + esc(n) + '</span>'; }).join('')
