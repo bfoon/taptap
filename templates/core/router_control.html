@@ -21,6 +21,7 @@
     <form method="post" action="{% url 'router_config_refresh' router.id %}">{% csrf_token %}<button class="btn btn-outline-primary"><i class="bi bi-download"></i> Refresh Config</button></form>
     <button class="btn btn-outline-success" type="button" id="backupFullBtn"><i class="bi bi-cloud-arrow-down"></i> Back up full configuration</button>
     <button class="btn btn-outline-secondary" type="button" id="backupHistoryBtn"><i class="bi bi-archive"></i> Backups</button>
+    <button class="btn btn-dark rc-open" type="button" id="cleanBtn" data-scan="{% url 'router_cleanup_scan' router.id %}" data-clean="{% url 'router_cleanup_clean' router.id %}" data-job="{% url 'router_cleanup_job' router.id 0 %}" data-via="{% if router.connection_mode == 'agent' %}link{% else %}api{% endif %}"><i class="bi bi-stars"></i> Clean router memory</button>
     <a class="btn btn-outline-secondary" href="{% url 'topology' %}"><i class="bi bi-diagram-3"></i> Topology</a>
   </div>
 </div>
@@ -313,6 +314,40 @@
     </div>
   </div>
 </div>
+<div class="modal fade" id="cleanModal" tabindex="-1" aria-labelledby="rcTitle"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content rc">
+  <div class="rc-hero" data-phase="idle" id="rcHero">
+    <button type="button" class="btn-close btn-close-white rc-x" data-bs-dismiss="modal" aria-label="Close"></button>
+    <div class="rc-ringwrap">
+      <svg class="rc-ring" viewBox="0 0 160 160" aria-hidden="true">
+        <defs><linearGradient id="rcGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#60a5fa"/><stop offset="1" stop-color="#a78bfa"/></linearGradient>
+          <linearGradient id="rcHot" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fbbf24"/><stop offset="1" stop-color="#ef4444"/></linearGradient></defs>
+        <circle class="track" cx="80" cy="80" r="66"/>
+        <circle class="used" id="rcUsed" cx="80" cy="80" r="66" pathLength="100" stroke-dasharray="0 100"/>
+        <circle class="ghost" id="rcGhost" cx="80" cy="80" r="66" pathLength="100" stroke-dasharray="0 100"/>
+      </svg>
+      <div class="rc-sweep" aria-hidden="true"></div>
+      <div class="rc-center"><b id="rcPct">—</b><small id="rcPctLbl">storage used</small></div>
+    </div>
+    <div class="rc-info">
+      <h2 id="rcTitle">Clean router memory</h2>
+      <p id="rcText">TapTap looks through the files on {{ router.name }}, shows what is safe to remove, and frees the space.</p>
+      <div class="rc-stats">
+        <div><small>Free storage</small><b id="rcFree">—</b><span id="rcTotal"></span></div>
+        <div><small>Free RAM</small><b id="rcRam">—</b><span id="rcRamTotal"></span></div>
+        <div><small>Memory log</small><b id="rcLog">—</b><span>lines</span></div>
+      </div>
+      <div class="rc-actions"><button class="btn btn-light btn-lg fw-bold" id="rcGo" type="button"><i class="bi bi-radar"></i> <span>Scan the router</span></button></div>
+    </div>
+  </div>
+  <div class="modal-body rc-body" id="rcBody">
+    <div class="rc-empty"><i class="bi bi-hdd-stack"></i><p>Nothing scanned yet. Your hotspot pages, certificates and settings are never touched — only files TapTap knows are safe, or that you tick yourself.</p></div>
+  </div>
+  <div class="rc-foot" id="rcFoot" hidden>
+    <div><b id="rcSel">0 B</b> <span id="rcSelTxt">selected</span></div>
+    <button class="btn btn-success btn-lg fw-bold" id="rcClean" type="button" disabled><i class="bi bi-stars"></i> <span>Clean</span></button>
+  </div>
+</div></div></div>
+<link rel="stylesheet" href="{% static 'css/router_cleanup.css' %}?v=1">
 {% endblock %}
 
 {% block scripts %}
@@ -809,4 +844,5 @@
 })();
 </script>
 <script src="{% static 'js/control-studio-fx.js' %}?v=1" defer></script>
+<script src="{% static 'js/router_cleanup.js' %}?v=1" defer></script>
 {% endblock %}

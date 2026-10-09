@@ -21,6 +21,7 @@ from . import views_topology as vtopo
 from . import views_geo as vgeo
 from . import views_security_fixes as vsecfix
 from . import views_nettools as vnt
+from . import views_router_cleanup as vrc
 
 urlpatterns = [
     path('network/devices/',vnd.netdev_list,name='netdev_list'), path('network/devices/save/',vnd.netdev_save,name='netdev_save'),
@@ -51,7 +52,7 @@ urlpatterns = [
     path('batches/',views.batches,name='batches'), path('plans/',views.plans,name='plans'), path('plans/<int:pk>/update/',views.plan_update,name='plan_update'), path('plans/<int:pk>/delete/',vbin.plan_delete,name='plan_delete'), path('plans/<int:pk>/move/',vbin.plan_move,name='plan_move'),
     path('routers/',views.routers,name='routers'), path('routers/agent/register/',views_link.router_agent_register,name='router_agent_register'), path('routers/inventory/',views.router_inventory,name='router_inventory'), path('routers/sync-all/',views.routers_sync_all,name='routers_sync_all'), path('routers/sync-status/',views.router_sync_status,name='router_sync_status'),
     path('routers/<int:pk>/sync/',views.router_sync,name='router_sync'), path('routers/<int:pk>/test/',views_link.router_test,name='router_test'), path('routers/<int:pk>/delete/',views.router_delete,name='router_delete'),
-    path('routers/<int:pk>/control/',views.router_control,name='router_control'), path('routers/<int:pk>/control/refresh/',views.router_config_refresh,name='router_config_refresh'),
+    path('routers/<int:pk>/control/',views.router_control,name='router_control'), path('routers/<int:pk>/cleanup/scan/',vrc.router_cleanup_scan,name='router_cleanup_scan'), path('routers/<int:pk>/cleanup/clean/',vrc.router_cleanup_clean,name='router_cleanup_clean'), path('routers/<int:pk>/cleanup/<int:job_id>/',vrc.router_cleanup_job,name='router_cleanup_job'), path('routers/<int:pk>/control/refresh/',views.router_config_refresh,name='router_config_refresh'),
     path('routers/<int:pk>/control/resource/',views.router_resource_api,name='router_resource_api'), path('routers/<int:pk>/control/apply/',views.router_config_apply,name='router_config_apply'),
     path('routers/<int:pk>/control/interface-role/',views.router_interface_role,name='router_interface_role'), path('routers/<int:pk>/control/recipe/',views.router_quick_recipe,name='router_quick_recipe'),
     path('routers/<int:pk>/telemetry/',views.router_telemetry,name='router_telemetry'),
@@ -100,7 +101,7 @@ urlpatterns = [
     path('vouchers/missing/<int:pk>/resolve/',views_missing.resolve_missing_report,name='resolve_missing_report'),
     path('batches/<int:pk>/missing/report/',views_missing.report_missing_batch,name='report_missing_batch'),
     path('api/agent/v1/poll',views_link.agent_poll,name='agent_poll'), path('api/agent/v1/ack',views_link.agent_ack,name='agent_ack'),
-    path('api/agent/v1/inventory',views_link.agent_inventory,name='agent_inventory'), path('api/agent/v1/probe',views_link.agent_probe,name='agent_probe'), path('api/agent/v1/nettest',views_link.agent_nettest,name='agent_nettest'), path('api/agent/v1/hello',views_link.agent_hello,name='agent_hello'),
+    path('api/agent/v1/inventory',views_link.agent_inventory,name='agent_inventory'), path('api/agent/v1/probe',views_link.agent_probe,name='agent_probe'), path('api/agent/v1/nettest',views_link.agent_nettest,name='agent_nettest'), path('api/agent/v1/cleanup',views_link.agent_cleanup,name='agent_cleanup'), path('api/agent/v1/hello',views_link.agent_hello,name='agent_hello'),
     path('routers/<int:pk>/link/',views_link.router_link,name='router_link'), path('routers/<int:pk>/link/action/',views_link.router_link_action,name='router_link_action'),
     path('routers/<int:pk>/link/status/',views_link.router_link_status,name='router_link_status'),
     path('notifications/',views_link.notifications,name='notifications'), path('notifications/test/',views_link.notifications_test,name='notifications_test'), path('notifications/resend/',views_link.notifications_resend,name='notifications_resend'),

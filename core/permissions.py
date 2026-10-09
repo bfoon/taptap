@@ -56,7 +56,7 @@ STAFF_ROLES = [(k, v[0]) for k, v in ROLES.items() if k != 'owner']
 
 # ── url name → permission (a tuple means "any of these") ────────────────────
 _NETWORK = '''routers router_agent_register router_inventory routers_sync_all router_sync_status router_sync router_test
-router_delete router_control router_config_refresh router_resource_api router_config_apply router_interface_role
+router_delete router_control router_cleanup_scan router_cleanup_clean router_cleanup_job router_config_refresh router_resource_api router_config_apply router_interface_role
 router_quick_recipe router_telemetry ip_bindings ip_bindings_data ip_binding_set ip_binding_action topology topology_graph
 topology_live topology_refresh security security_sticky sharing_save sharing_case sharing_trust_remove security_ack security_rescan security_fix security_plan_limits security_sharing security_admin_account security_protection wan_designer wan_detect wan_preview
 wan_apply wan_confirm wan_undo wan_status wan_script router_port port_action router_reboot router_backups

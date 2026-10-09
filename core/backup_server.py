@@ -188,56 +188,71 @@ def _router_script(base: str, upload_url: str, token: str) -> str:
     return f':local base {b}; :local url {url}; :local tok {tok}; ' + _script_body(check)
 
 
-def _script_body(check):
+SAVE_STEP = ':do { /system backup save name=$base dont-encrypt=yes } on-error={ /system backup save name=$base }; /export file=$base; '
+# TapTap Link cannot save a backup itself (needs "policy" and "password"): it runs the small local helper the owner
+# pasted once, which only saves the two files. Everything else — waiting, uploading, reporting — runs in Link's own
+# command, so fixes to the upload reach every router without pasting anything again.
+# it reads :global ttBkBase (set by the command); "needs-helper" makes the Backups page show the one-time command
+LINK_SAVE_STEP = ':if ([:len [/system script find name=taptap-backup-local]] = 0) do={ :error "needs-helper" }; /system script run taptap-backup-local; '
+
+
+def _script_body(check, save=SAVE_STEP):
     """Everything after "who/where": works with $base, $url and $tok already set (inline, or in the helper)."""
     # 3 KB of file -> about 4 KB of base64: conservative for RouterOS variables and far below Fetch's 64 KB limit.
     main = (
+        ':local h (\"X-TapTap-Backup: \" . $tok); ' f':local c \"{check}\"; '
         # tell TapTap why it failed (no-op if even that cannot reach TapTap)
-        ':local report do={ :do { /tool fetch url=$url http-method=post '
+        ':local rp do={ :do { /tool fetch url=$url http-method=post '
         'http-data=("kind=error&message=" . [:convert [:pick $msg 0 240] to=url]) '
-        'http-header-field=("X-TapTap-Backup: " . $tok) output=none '
-        f'check-certificate={check} idle-timeout=15s }} on-error={{}} }}; '
-        ':local sendFile do={ '
-        ':local fid [/file find where name=$f]; '
-        ':if ([:len $fid] = 0) do={ :error ("backup file missing: " . $f) }; '
-        ':local total [/file get $fid size]; '
-        ':if ($total < 1) do={ :error ("backup file empty: " . $f) }; '
-        f':for off from=0 to=($total - 1) step={CHUNK_SIZE} do={{ '
-        f':local n {CHUNK_SIZE}; :if (($off + $n) > $total) do={{ :set n ($total - $off) }}; '
-        ':local rr [/file read file=$f offset=$off chunk-size=$n as-value]; '
-        ':local raw ($rr->"data"); '
-        ':if ([:typeof $raw] = "nil") do={ :set raw (($rr->0)->"data") }; '
-        ':local body ("kind=" . $kind . "&offset=" . $off . "&total=" . $total . '
-        '"&data=" . [:convert [:convert $raw to=base64] to=url]); '
-        '/tool fetch url=$url http-method=post http-data=$body '
-        'http-header-field=("X-TapTap-Backup: " . $tok) '
-        f'output=none check-certificate={check} idle-timeout=20s; '
-        '}; :return $total }; '
-        ':onerror err in={ '
-        ':do { /system backup save name=$base dont-encrypt=yes } on-error={ /system backup save name=$base }; '
-        '/export file=$base; '
+        'http-header-field=$h output=none '
+        'check-certificate=$c idle-timeout=15s } on-error={} }; '
+        ':local sf do={ '
+        ':local fid [/file find name=$f]; '
+        ':if ([:len $fid] = 0) do={ :error ("missing: " . $f) }; '
+        ':local z [/file get $fid size]; '
+        ':if ($z < 1) do={ :error ("empty: " . $f) }; '
+        # Read piece by piece. A refused read ("chunk out of file bounds": the size RouterOS reports can be a little
+        # off) is retried with half the size; the position moves by the bytes really read, and an empty read after
+        # the first piece is the real end of the file — TapTap is told the true length when finishing.
+        ':local o 0; '
+        ':while ($o < $z) do={ '
+        f':local n {CHUNK_SIZE}; :if (($o + $n) > $z) do={{ :set n ($z - $o) }}; '
+        ':local r ""; :local g 0; '
+        ':while (($g = 0) and ($n > 0)) do={ '
+        ':onerror e in={ :local rr [/file read file=$f offset=$o chunk-size=$n as-value]; '
+        ':set r ($rr->"data"); :if ([:typeof $r] = "nil") do={ :set r (($rr->0)->"data") }; '
+        ':set g [:len $r] } do={ :set g 0 }; '
+        ':if ($g = 0) do={ :set n ($n / 2) } }; '
+        ':if ($g = 0) do={ :if ($o = 0) do={ :error ("cannot read " . $f) }; :set z $o } else={ '
+        ':local q ("kind=" . $kind . "&offset=" . $o . "&total=" . $z . '
+        '"&data=" . [:convert [:convert $r to=base64] to=url]); '
+        '/tool fetch url=$url http-method=post http-data=$q '
+        'http-header-field=$h '
+        'output=none check-certificate=$c idle-timeout=20s; '
+        ':set o ($o + $g) } }; :return $o }; '
+        ':onerror err in={ ' + save +
         ':local bf ($base . ".backup"); :local ef ($base . ".rsc"); '
         # wait until both files exist and stopped growing (slow flash can take several seconds), at most 45 s
-        ':local ready false; :local i 0; :local lb -1; :local le -1; '
-        ':while ((!$ready) and ($i < 45)) do={ :delay 1s; :set i ($i + 1); '
-        ':local fb [/file find where name=$bf]; :local fe [/file find where name=$ef]; '
+        ':local rd false; :local i 0; :local lb -1; :local le -1; '
+        ':while ((!$rd) and ($i < 45)) do={ :delay 1s; :set i ($i + 1); '
+        ':local fb [/file find name=$bf]; :local fe [/file find name=$ef]; '
         ':if (([:len $fb] > 0) and ([:len $fe] > 0)) do={ '
         ':local sb [/file get $fb size]; :local se [/file get $fe size]; '
-        ':if (($sb > 0) and ($se > 0) and ($sb = $lb) and ($se = $le)) do={ :set ready true }; '
+        ':if (($sb > 0) and ($se > 0) and ($sb = $lb) and ($se = $le)) do={ :set rd true }; '
         ':set lb $sb; :set le $se } }; '
-        ':if (!$ready) do={ :error "backup files not written in 45 s" }; '
-        ':local bs [$sendFile f=$bf kind="backup" url=$url tok=$tok]; '
-        ':local es [$sendFile f=$ef kind="export" url=$url tok=$tok]; '
+        ':if (!$rd) do={ :error "files not written in 45 s" }; '
+        ':local bs [$sf f=$bf kind="backup" url=$url h=$h c=$c]; '
+        ':local es [$sf f=$ef kind="export" url=$url h=$h c=$c]; '
         ':local ver [/system resource get version]; '
         ':local done ("kind=finish&backup_total=" . $bs . "&export_total=" . $es . '
         '"&version=" . [:convert $ver to=url]); '
         ':local fin [/tool fetch url=$url http-method=post http-data=$done '
-        'http-header-field=("X-TapTap-Backup: " . $tok) '
-        f'output=user as-value check-certificate={check} idle-timeout=20s]; '
+        'http-header-field=$h '
+        'output=user as-value check-certificate=$c idle-timeout=20s]; '
         ':if (($fin->"status") != "finished") do={ :error "TapTap did not confirm" }; '
-        '/file remove [find where name=$bf]; /file remove [find where name=$ef]; '
+        '/file remove $bf; /file remove $ef; '
         ':log info "TapTap backup saved on server" '
-        '} do={ :log warning ("TapTap backup: " . $err); [$report url=$url tok=$tok msg=$err] }'
+        '} do={ :log warning ("TapTap backup: " . $err); [$rp url=$url h=$h c=$c msg=$err] }'
     )
     return main
 
@@ -286,12 +301,10 @@ def link_backup_body(params):
         raise ValueError("Invalid server-backup parameters.")
     from .agent import rs, tls_flag
     check, b, u, t = tls_flag(url), rs(base), rs(url), rs(token)
-    return (f':global ttBkBase {b}; :global ttBkUrl {u}; :global ttBkTok {t}; '
-            f':if ([:len [/system script find where name="{HELPER_NAME}"]] = 0) do={{ '
-            f':do {{ /tool fetch url={u} http-method=post http-data="kind=error&message=needs-helper" '
-            f'http-header-field=("X-TapTap-Backup: " . {t}) output=none check-certificate={check} }} on-error={{}}; '
-            f':error "TapTap backup helper missing" }}; '
-            f'/system script run {HELPER_NAME}')
+    # The save-only helper (pasted once with "Allow backups") saves the files; this command uploads them.
+    # Without it, TapTap is told so and the Backups page shows the one-time command.
+    return (f':global ttBkBase {b}; :local base {b}; :local url {u}; :local tok {t}; '
+            + _script_body(check, LINK_SAVE_STEP))
 
 
 def _queue_link(record, storage, token, user=None, request=None):
@@ -511,7 +524,7 @@ def router_backup_upload(request, bid):
             if kind == "error":
                 # The router could not finish: keep its reason for the backup page instead of waiting for the expiry.
                 said = _param(data, "message")
-                if said == "needs-helper" or "not enough permissions" in said.lower():
+                if "needs-helper" in said or "not enough permissions" in said.lower():
                     message = NEEDS_HELPER
                 else:
                     message = ("Router: " + said)[:1000]
@@ -524,6 +537,23 @@ def router_backup_upload(request, bid):
                 version = _param(data, "version")[:60]
                 if version:
                     RouterBackup.objects.filter(pk=record.pk).update(ros_version=version)
+                # The router reports how many bytes it really read from each file (RouterOS can report a file
+                # size a little larger than it lets a script read). If that is exactly what TapTap holds, that is
+                # the complete file.
+                for kind_, param in (("backup", "backup_total"), ("export", "export_total")):
+                    try:
+                        real = int(_param(data, param) or 0)
+                    except ValueError:
+                        real = 0
+                    info = _kind_info(record, kind_)
+                    rel = getattr(storage, info["path_field"])
+                    if real > 0 and rel:
+                        full = _full_path(rel)
+                        if full.exists() and full.stat().st_size == real and getattr(storage, info["size_field"]) != real:
+                            setattr(storage, info["expected_field"], real)
+                            setattr(storage, info["size_field"], real)
+                            setattr(storage, info["sha_field"], _sha256_file(full))
+                            storage.save(update_fields=[info["expected_field"], info["size_field"], info["sha_field"], "updated_at"])
 
                 backup_ok = bool(
                     storage.backup_path

@@ -31,8 +31,8 @@ class ScriptTests(TestCase):
 
     def test_waits_until_the_files_are_written(self):
         s = self.script()
-        self.assertIn(':while ((!$ready) and ($i < 45))', s)
-        self.assertNotIn(':delay 2s; :local sendFile', s)
+        self.assertIn(':while ((!$rd) and ($i < 45))', s)
+        self.assertNotIn(':delay 2s; :local sf', s)
 
     def test_no_redeclared_function_parameters(self):
         s = self.script()
@@ -127,8 +127,9 @@ class BackupHelperTests(TestCase):
     def test_link_command_runs_the_helper_and_fits(self):
         body = bs.link_backup_body({'file': 'taptap-TapTap-K-20261007-003827', 'upload_url': 'https://taptap.example/api/router-backups/9/upload/',
                                     'upload_token': 'ttb_' + 'x' * 43})
-        self.assertIn('/system script run taptap-backup', body)
-        self.assertIn('message=needs-helper', body)
+        self.assertIn('/system script run taptap-backup-local', body)                # saves with the helper's rights
+        self.assertIn(':error "needs-helper"', body)                                 # reported → one clear instruction
+        self.assertIn('/file read file=$f', body)                                    # uploads with Link's own rights
         self.assertNotIn('/system backup save', body)                                 # not with Link's own rights
         self.assertTrue(routeros_balanced(body)); self.assertLess(len(body), agent.MAX_SCRIPT - 700)
 
@@ -164,3 +165,51 @@ class BackupHelperTests(TestCase):
         self.assertTrue(routeros_balanced(s))
         cmd = AgentCommand(router=self.r, kind='backup', params={'file': 'taptap-x'})
         self.assertIn('/system script run taptap-backup-local', agent.command_body(cmd))
+
+
+class ChunkBoundsTests(TestCase):
+    """'failure: chunk out of file bounds (/file/read)': the upload must survive a reported size a little off."""
+
+    def body(self):
+        return bs.link_backup_body({'file': 'taptap-TapTap-K-20261007-010904', 'upload_url': 'https://taptap.example/api/router-backups/9/upload/',
+                                    'upload_token': 'ttb_' + 'x' * 43})
+
+    def test_reader_retries_smaller_and_moves_by_bytes_read(self):
+        b = self.body()
+        self.assertIn(':onerror e in={ :local rr [/file read file=$f offset=$o chunk-size=$n as-value]', b)
+        self.assertIn(':if ($g = 0) do={ :set n ($n / 2) }', b)                     # refused read → half the size
+        self.assertIn(':set o ($o + $g)', b)                                          # advance by what was really read
+        self.assertIn(':set z $o', b)                                                 # an empty read = the real end
+        self.assertIn(':return $o', b)                                                # true length goes to "finish"
+        self.assertNotIn(':for off from=0', b)
+
+    def test_finish_accepts_the_true_length(self):
+        import os, tempfile
+        from django.contrib.auth.models import User
+        from django.utils import timezone
+        from datetime import timedelta
+        from .models import Business, Router
+        owner = User.objects.create_user('o9', 'o9@x.gm', 'pw12345678')
+        b = Business.objects.create(user=owner, business_name='K', owner_name='A', phone='1', trial_ends_at=timezone.now() + timedelta(days=9))
+        r = Router.objects.create(business=b, name='TapTap K', ip_address='10.0.0.1', username='u', password='p')
+        with tempfile.TemporaryDirectory() as root, self.settings(SITE_URL='https://taptap.example'):
+            old = bs.PRIVATE_ROOT
+            bs.PRIVATE_ROOT = __import__('pathlib').Path(root)
+            try:
+                record, storage, token = bs._make_record(r)
+                from django.test import Client
+                c = Client()
+                url = bs._upload_url(record, None)
+                path = url.split('://', 1)[1].split('/', 1)[1]
+                from urllib.parse import urlencode
+                post = lambda data: c.post('/' + path, urlencode(data), content_type='application/x-www-form-urlencoded', HTTP_X_TAPTAP_BACKUP=token)
+                import base64
+                # router said 5000 bytes but could only read 4096 of the backup; the export is 10 bytes
+                post({'kind': 'backup', 'offset': 0, 'total': 5000, 'data': base64.b64encode(b'a' * 3072).decode()})
+                post({'kind': 'backup', 'offset': 3072, 'total': 5000, 'data': base64.b64encode(b'b' * 1024).decode()})
+                post({'kind': 'export', 'offset': 0, 'total': 10, 'data': base64.b64encode(b'/export ok').decode()})
+                resp = post({'kind': 'finish', 'backup_total': 4096, 'export_total': 10, 'version': '7.16'})
+                storage.refresh_from_db()
+                self.assertEqual((resp.status_code, storage.status, storage.backup_size), (200, 'ready', 4096))
+            finally:
+                bs.PRIVATE_ROOT = old

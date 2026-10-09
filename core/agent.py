@@ -42,7 +42,7 @@ SAFE_KINDS = {
     'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'remote_nat', 'remote_close', 'hotspot_kick_mac', 'share_rules', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
-    'hotspot_users_limit', 'admin_password', 'port_blink', 'protection', 'site_probe', 'nettest',
+    'hotspot_users_limit', 'admin_password', 'port_blink', 'protection', 'site_probe', 'nettest', 'cleanup',
 }
 # Delivery order for queued commands: anything about vouchers first (a customer is waiting), then the rest,
 # and the pieces of a full inventory sync last — 61 of them must never hold up a voucher.
@@ -58,7 +58,7 @@ def delivery_order():
 
 
 BATCH_GAP = 45   # seconds: one unanswered command must never freeze the whole queue
-ACK_WAIT = {'nettest': 240, 'portal_install': 300, 'inventory_piece': 600, 'backup': 300, 'hotspot_users': 300, 'self_update': 300}   # seconds before a resend
+ACK_WAIT = {'cleanup': 300, 'nettest': 240, 'portal_install': 300, 'inventory_piece': 600, 'backup': 300, 'hotspot_users': 300, 'self_update': 300}   # seconds before a resend
 NAME_RE = re.compile(r'^[\w.@:+/<>-]{1,64}$')
 MAC_RE = re.compile(r'^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$')
 
@@ -556,6 +556,9 @@ def wrap(cmd, url, check):
     elif cmd.kind == 'nettest':
         from .nettools import link_body
         body = link_body(cmd, url, check, nonce(cmd))
+    elif cmd.kind == 'cleanup':
+        from .router_cleanup import link_body as cleanup_body
+        body = cleanup_body(cmd, url, check, nonce(cmd))
     else:
         body = command_body(cmd)
     result = f'{cmd.params.get("file")}.backup, {cmd.params.get("file")}.rsc' if cmd.kind == 'backup' else ''
@@ -600,6 +603,19 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
             raise ValueError('Only routers on the local network can be checked.')
         if not re.match(r'^(sr:\d+|auto:([0-9A-F]{2}:){5}[0-9A-F]{2})$', str((params or {}).get('key', ''))):
             raise ValueError('Invalid router.')
+    if kind == 'cleanup':
+        from .router_cleanup import NAME_OK, PROTECTED_DIRS, LINK_NAMES_BUDGET
+        p = dict(params or {})
+        files = p.get('files') or []
+        if not isinstance(p.get('job_id'), int) or p.get('action') not in ('scan', 'clean') or not isinstance(files, list):
+            raise ValueError('Invalid cleanup.')
+        if p['action'] == 'scan' and files:
+            raise ValueError('Invalid cleanup.')
+        if sum(len(str(n)) + 3 for n in files) > LINK_NAMES_BUDGET + 200:
+            raise ValueError('Too many files for one command.')
+        for n in files:
+            if not isinstance(n, str) or not NAME_OK.match(n) or PROTECTED_DIRS.match(n):
+                raise ValueError('Invalid file name.')
     if kind == 'nettest':
         from .nettools import clean_params
         p = dict(params or {})

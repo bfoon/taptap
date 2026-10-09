@@ -1313,3 +1313,4 @@ from .models_netdev import NetDevice, RemoteSession, OmadaController  # noqa: E4
 from .models_nettools import NetTest  # noqa: E402,F401
 from .models_member_support import MemberSchedule  # noqa: E402,F401
 from .models_member_charges import MemberCharge  # noqa: E402,F401
+from .models_router_cleanup import RouterCleanup  # noqa: E402,F401
