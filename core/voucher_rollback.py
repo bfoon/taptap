@@ -86,7 +86,8 @@ def rollback(voucher, user=None, reason=''):
     with transaction.atomic():
         # Lock the row and check again here: a page opened earlier must not roll back a voucher that
         # has since crossed the 50% line (or been frozen, disabled or rolled back by someone else).
-        v = Voucher.all_objects.select_for_update().select_related('router', 'business').get(pk=voucher.pk)
+        # of=('self',): PostgreSQL cannot lock the nullable side of the router join, so lock only the voucher row.
+        v = Voucher.all_objects.select_for_update(of=('self',)).select_related('router', 'business').get(pk=voucher.pk)
         state = check(v, now)
         if not state['allowed']:
             raise RollbackError(f'{v.code} cannot be rolled back: {state["why"]}.')
