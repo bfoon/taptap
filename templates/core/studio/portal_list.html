@@ -46,6 +46,7 @@
         <div class="dropdown"><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown" aria-label="More actions"><i class="bi bi-three-dots"></i></button>
           <ul class="dropdown-menu dropdown-menu-end">
             {% if p.is_default %}<li><button class="dropdown-item" type="button" data-dep-all><i class="bi bi-cloud-upload"></i> Put on all routers</button></li>{% endif %}
+            {% if p.kind == 'login' %}<li><a class="dropdown-item" href="{% url 'portal_qr' p.id %}" target="_blank"><i class="bi bi-qr-code"></i> Online sign-in QR (print)</a></li>{% endif %}
             <li><a class="dropdown-item" href="{% url 'portal_export' p.id %}?mode=offline"><i class="bi bi-router"></i> Export for router (manual)</a></li>
             <li><a class="dropdown-item" href="{% url 'portal_export' p.id %}?mode=hosted"><i class="bi bi-cloud"></i> Export hosted redirect</a></li><li><hr class="dropdown-divider"></li>
             {% if not p.is_default %}<li><form method="post" action="{% url 'portal_action' p.id %}">{% csrf_token %}<button class="dropdown-item" name="action" value="default"><i class="bi bi-star"></i> Make default</button></form></li>{% endif %}

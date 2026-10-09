@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{{ business.business_name }} Wi-Fi — sign in</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:#0b1430;color:#0f172a;min-height:100vh;
+  background:radial-gradient(120% 80% at 50% 0,#3b2a73 0,#14163f 55%,#070917 100%)}
+.wrap{max-width:440px;margin:0 auto;padding:28px 18px 40px}
+.brand{text-align:center;color:#fff;margin-bottom:18px}.brand .logo{width:64px;height:64px;border-radius:20px;margin:0 auto 10px;display:grid;place-items:center;
+  background:linear-gradient(135deg,#a78bfa,#60a5fa);font-size:30px;box-shadow:0 10px 30px #6d28d955;animation:float 3s ease-in-out infinite}
+@keyframes float{50%{transform:translateY(-5px)}}
+.brand h1{font-size:22px;margin:0}.brand p{margin:4px 0 0;color:#b9c3e6;font-size:14px}
+.card{background:#fff;border-radius:22px;padding:20px;box-shadow:0 20px 50px #0007}
+.tabs{display:flex;background:#f1f5f9;border-radius:12px;padding:4px;margin-bottom:14px}.tabs button{flex:1;border:0;background:none;padding:9px;border-radius:9px;font-weight:700;color:#64748b;font-size:14px}
+.tabs button.on{background:#fff;color:#0f172a;box-shadow:0 1px 4px #0002}
+label{display:block;font-size:13px;font-weight:700;margin:10px 0 5px}
+input,textarea{width:100%;font-size:18px;padding:12px 14px;border:2px solid #e2e8f0;border-radius:12px;outline:none;font-family:inherit}
+input:focus,textarea:focus{border-color:#7c3aed}#code{font-family:ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;text-align:center;font-weight:800}
+textarea{font-size:15px;min-height:70px}
+.btn{width:100%;border:0;border-radius:14px;padding:14px;font-size:17px;font-weight:800;color:#fff;background:linear-gradient(135deg,#7c3aed,#2563eb);margin-top:14px;cursor:pointer}
+.btn:disabled{opacity:.6}.btn.ghost{background:#f1f5f9;color:#334155;font-size:15px;font-weight:700}
+.msg{margin-top:14px;border-radius:14px;padding:12px 14px;font-size:14px;display:none}.msg.on{display:block;animation:pop .3s}
+@keyframes pop{from{transform:scale(.96);opacity:0}}
+.msg.bad{background:#fdeaea;color:#8f1c1c}.msg.ok{background:#e6f6ee;color:#0d5534}.msg.info{background:#eef2ff;color:#3730a3}
+.msg b{display:block;font-size:15px;margin-bottom:2px}
+.go{text-align:center;padding:10px 0;display:none}.go.on{display:block}
+.go .ring{width:84px;height:84px;margin:6px auto 10px;border-radius:50%;border:5px solid #e9d5ff;border-top-color:#7c3aed;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hint{color:#b9c3e6;font-size:13px;text-align:center;margin-top:16px;line-height:1.5}.hint a{color:#fff}
+.report{display:none;margin-top:14px;border-top:1px dashed #e2e8f0;padding-top:6px}.report.on{display:block;animation:pop .3s}
+.link{background:none;border:0;color:#7c3aed;font-weight:700;font-size:14px;margin-top:12px;width:100%;cursor:pointer}
+</style></head><body>
+<div class="wrap">
+  <div class="brand"><div class="logo">📶</div><h1>{{ business.business_name }} Wi-Fi</h1><p>Sign in online</p></div>
+  <div class="card">
+    <div id="form">
+      <div class="tabs" role="tablist"><button type="button" class="on" data-t="voucher">Voucher</button><button type="button" data-t="member">Member</button></div>
+      <label for="code" id="codeLbl">Voucher code</label>
+      <input id="code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="40" value="{{ prefill }}" placeholder="ABC123">
+      <div id="pwBox" hidden><label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" maxlength="64"></div>
+      <button class="btn" id="signin" type="button">Sign in</button>
+      <div class="msg" id="msg" role="status" aria-live="polite"></div>
+      <button class="link" id="openReport" type="button">Problem with your voucher? Send it to us</button>
+    </div>
+    <div class="go" id="go"><div class="ring"></div><b>Connecting you…</b><p style="color:#64748b;font-size:14px;margin:6px 0 0">If nothing happens in a few seconds, check you are connected to the <b>{{ business.business_name }}</b> Wi-Fi.</p></div>
+    <div class="report" id="report">
+      <p style="font-size:14px;color:#475569;margin:8px 0 0">Send the voucher to our staff — they will check what is wrong and contact you.</p>
+      <label for="rName">Your name</label><input id="rName" maxlength="80" autocomplete="name">
+      <label for="rPhone">Phone number</label><input id="rPhone" maxlength="40" inputmode="tel" autocomplete="tel">
+      <label for="rMsg">What happened? <span style="font-weight:400;color:#64748b">(optional)</span></label><textarea id="rMsg" maxlength="500" placeholder="e.g. It says the voucher is used on another device"></textarea>
+      <button class="btn" id="send" type="button">Send to staff</button>
+      <button class="btn ghost" id="cancelReport" type="button">Back</button>
+    </div>
+  </div>
+  <p class="hint">Connect to the <b>{{ business.business_name }}</b> Wi-Fi first.<br>Router page not opening? This page works when it does not.{% if business.phone %}<br>Help: <a href="tel:{{ business.phone }}">{{ business.phone }}</a>{% endif %}</p>
+</div>
+<script>
+(function(){
+  var CHECK='{% url "portal_check" page.slug %}', REPORT='{% url "portal_online_report" page.slug %}', HOST='{{ login_host|escapejs }}', AFTER='{{ after|escapejs }}';
+  var member=false, lastError='';
+  function $(id){return document.getElementById(id);}
+  function say(kind, title, text){var m=$('msg');m.className='msg on '+kind;m.innerHTML=(title?'<b></b>':'')+'<span></span>';if(title)m.querySelector('b').textContent=title;m.querySelector('span').textContent=text||'';}
+  document.querySelectorAll('[data-t]').forEach(function(b){b.onclick=function(){member=b.dataset.t==='member';document.querySelectorAll('[data-t]').forEach(function(x){x.classList.toggle('on',x===b);});
+    $('pwBox').hidden=!member;$('codeLbl').textContent=member?'Username':'Voucher code';$('code').style.textTransform=member?'none':'uppercase';$('code').placeholder=member?'your username':'ABC123';};});
+  $('signin').onclick=function(){
+    var code=$('code').value.replace(/\s/g,''), pw=$('pw').value;
+    if(!code){say('bad','',member?'Type your username.':'Type the code printed on your voucher.');return;}
+    if(member&&!pw){say('bad','','Type your password.');return;}
+    var b=this;b.disabled=true;b.textContent='Checking…';
+    fetch(CHECK,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code,member:member,password:pw})})
+      .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});})
+      .then(function(x){
+        b.disabled=false;b.textContent='Sign in';
+        if(!x.ok||!x.j.success){lastError=(x.j.title?x.j.title+': ':'')+(x.j.message||'');say('bad',x.j.title||'This voucher cannot sign in',x.j.message||'Please try again.');$('openReport').textContent='Send this voucher to staff';return;}
+        $('form').style.display='none';$('go').classList.add('on');
+        var user=x.j.code||code, pass=member?pw:user, wait=(x.j.wait||0)*1000;
+        setTimeout(function(){location.href='http://'+HOST+'/login?username='+encodeURIComponent(user)+'&password='+encodeURIComponent(pass)+'&dst='+encodeURIComponent(AFTER);},Math.max(600,wait));
+      }).catch(function(){b.disabled=false;b.textContent='Sign in';say('bad','No connection','Connect to the Wi-Fi and try again.');});
+  };
+  $('code').addEventListener('keydown',function(e){if(e.key==='Enter')$('signin').click();});
+  $('openReport').onclick=function(){$('report').classList.add('on');$('openReport').style.display='none';$('rName').focus();};
+  $('cancelReport').onclick=function(){$('report').classList.remove('on');$('openReport').style.display='';};
+  $('send').onclick=function(){
+    var code=$('code').value.replace(/\s/g,'');
+    if(!code){say('bad','','Type the voucher code above first.');return;}
+    var b=this;b.disabled=true;b.textContent='Sending…';
+    fetch(REPORT,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:code,name:$('rName').value,phone:$('rPhone').value,message:$('rMsg').value,error:lastError})})
+      .then(function(r){return r.json();}).then(function(j){
+        b.disabled=false;b.textContent='Send to staff';
+        if(!j.ok){say('bad','',j.message||'Could not send.');return;}
+        $('report').classList.remove('on');say('ok','Sent to staff ✓',(j.title?'We see: '+j.title+'. ':'')+(j.message||'')+' Staff will contact you.');
+      }).catch(function(){b.disabled=false;b.textContent='Send to staff';say('bad','No connection','Try again in a moment.');});
+  };
+})();
+</script>
+</body></html>

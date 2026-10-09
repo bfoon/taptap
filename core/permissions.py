@@ -65,7 +65,7 @@ router_backup_download live_now incident_fix incident_ignore incident_fix_all tr
 traffic_cdn app_control app_rule_save app_rule_global app_rule_action netdev_list netdev_save netdev_action netdev_session remote_proxy_root remote_proxy omada_save omada_action node_devices device_detail device_alert_toggle alerts alert_rule_save alert_rule_action alerts_read event_rule_save event_rule_preset event_rule_action router_link router_link_action
 router_link_status devices device_action topology_routers topology_router_find topology_router_action topology_router_probe
 topology_field topology_field_save topology_geo topology_labels port_blink network_tools network_tools_run network_tools_test network_tools_path network_tools_devices network_tools_verdict network_tools_save_chain network_tools_blob network_tools_sink'''.split()
-_STUDIO = '''portal_studio portal_editor portal_action portal_export portal_deploy portal_deploy_status voucher_designs
+_STUDIO = '''portal_studio portal_editor portal_qr portal_action portal_export portal_deploy portal_deploy_status voucher_designs
 voucher_design_editor voucher_design_action ads ad_save ad_action'''.split()
 
 URL_PERMS = {
@@ -73,7 +73,7 @@ URL_PERMS = {
     'bonanza_list': 'vouchers.view', 'bonanza_spins': 'vouchers.view', 'bonanza_new': 'vouchers.manage', 'bonanza_edit': 'vouchers.manage',
     'bonanza_status': 'vouchers.manage', 'bonanza_payout': 'vouchers.support',
     'sales_daily': ('sales.daily', 'finance.view'),
-    'vouchers': 'vouchers.view', 'voucher_detail': 'vouchers.view', 'voucher_card': 'vouchers.view', 'batches': 'vouchers.view', 'batch_detail': 'vouchers.view', 'plan_detail': ('vouchers.view', 'plans.manage'),
+    'vouchers': 'vouchers.view', 'voucher_detail': 'vouchers.view', 'voucher_reports': ('vouchers.view', 'vouchers.support'), 'voucher_card': 'vouchers.view', 'batches': 'vouchers.view', 'batch_detail': 'vouchers.view', 'plan_detail': ('vouchers.view', 'plans.manage'),
     'generate_vouchers': 'vouchers.create', 'single_voucher': 'vouchers.create', 'batch_assign': 'vouchers.create',
     'voucher_print': 'vouchers.create',
     'disable_voucher': 'vouchers.support', 'enable_voucher': 'vouchers.support', 'reset_mac': 'vouchers.support',

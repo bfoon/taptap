@@ -1,0 +1,43 @@
+{% extends 'core/base.html' %}
+{% block title %}Customer reports — TapTap{% endblock %}
+{% block heading %}Customer reports{% endblock %}
+{% block content %}
+<style>
+.vr-card{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:18px;padding:1rem 1.1rem;margin-bottom:.8rem}
+.vr-top{display:flex;justify-content:space-between;gap:.8rem;flex-wrap:wrap;align-items:flex-start}
+.vr-code{font-family:ui-monospace,Menlo,monospace;font-weight:800;font-size:1.15rem}
+.vr-pill{display:inline-block;border-radius:999px;padding:.12rem .6rem;font-size:.72rem;font-weight:800}
+.vr-pill.ok{background:#e6f6ee;color:#127a4d}.vr-pill.bad,.vr-pill.expired,.vr-pill.disabled,.vr-pill.deleted,.vr-pill.unknown{background:#fdeaea;color:#a12b2b}
+.vr-pill.slots_full,.vr-pill.paused{background:#fff4dc;color:#8a5a00}
+.vr-checks{list-style:none;padding:0;margin:.6rem 0 0}.vr-checks li{font-size:.84rem;padding:.2rem 0 .2rem 1.4rem;position:relative}
+.vr-checks li::before{position:absolute;left:0;font-weight:800}.vr-checks li.ok::before{content:"✓";color:#16a34a}.vr-checks li.bad::before{content:"✕";color:#dc2626}
+.vr-checks li.warn::before{content:"!";color:#d97706}.vr-checks li.info::before{content:"•";color:#64748b}
+.vr-said{background:#f6f9fc;border-radius:12px;padding:.55rem .75rem;font-size:.86rem;margin-top:.6rem}
+</style>
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <p class="text-secondary m-0">Vouchers customers sent from the online sign-in page. TapTap checks each one again when you open this page.</p>
+  <div class="btn-group">
+    <a class="btn btn-sm {% if not show_all %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="?">New ({{ open_count }})</a>
+    <a class="btn btn-sm {% if show_all %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="?show=all">All</a>
+  </div>
+</div>
+{% for r in reports %}
+<div class="vr-card">
+  <div class="vr-top">
+    <div><span class="vr-code">{{ r.code }}</span> <span class="vr-pill {{ r.now.state }}">{{ r.now.title }}</span>
+      {% if r.status == 'resolved' %}<span class="vr-pill ok">Resolved</span>{% endif %}
+      <div class="small text-secondary mt-1">{{ r.created_at|date:'d M Y H:i' }} · {{ r.name|default:'Customer' }} · <a href="tel:{{ r.phone }}">{{ r.phone }}</a>{% if r.mac %} · {{ r.mac }}{% endif %}</div></div>
+    <div class="d-flex gap-2">{% if r.voucher_id %}<a class="btn btn-sm btn-outline-primary" href="{% if r.voucher.is_member %}{% url 'member_detail' r.voucher_id %}{% else %}{% url 'voucher_detail' r.voucher_id %}{% endif %}"><i class="bi bi-ticket-perforated"></i> Open</a>{% endif %}</div>
+  </div>
+  {% if r.message or r.shown_error %}<div class="vr-said">{% if r.message %}<b>Customer:</b> {{ r.message }}{% endif %}{% if r.shown_error %}<div class="text-secondary small mt-1">The page told them: {{ r.shown_error }}</div>{% endif %}</div>{% endif %}
+  <ul class="vr-checks">{% for level, text in r.now.checks %}<li class="{{ level }}">{{ text }}</li>{% endfor %}</ul>
+  {% if r.now.state != r.diagnosis.state %}<p class="small text-secondary mb-0 mt-1">When sent: {{ r.diagnosis.title }}.</p>{% endif %}
+  <form method="post" class="d-flex gap-2 mt-2">{% csrf_token %}<input type="hidden" name="report" value="{{ r.id }}">
+    {% if r.status == 'open' %}<input class="form-control form-control-sm" name="note" placeholder="What you did (optional)"><button class="btn btn-sm btn-success text-nowrap" name="action" value="resolve"><i class="bi bi-check2"></i> Resolved</button>
+    {% else %}<span class="small text-secondary flex-grow-1">{{ r.staff_note|default:'Resolved' }} — {{ r.resolved_by.get_full_name|default:r.resolved_by.username }} {{ r.resolved_at|date:'d M H:i' }}</span><button class="btn btn-sm btn-outline-secondary" name="action" value="reopen">Reopen</button>{% endif %}
+  </form>
+</div>
+{% empty %}
+<div class="text-center text-secondary py-5"><i class="bi bi-inbox fs-1"></i><p class="mt-2">No {% if not show_all %}new {% endif %}reports. Customers send vouchers from the online sign-in page (print its QR in Portal Studio).</p></div>
+{% endfor %}
+{% endblock %}

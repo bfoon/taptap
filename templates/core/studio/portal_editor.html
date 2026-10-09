@@ -14,6 +14,7 @@
     <a class="btn btn-light btn-sm" href="{{ public_url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open</a>
     <div class="dropdown"><button class="btn btn-light btn-sm dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-router"></i> Export</button>
       <ul class="dropdown-menu dropdown-menu-end" style="max-width:320px">
+        {% if page.kind == 'login' %}<li><a class="dropdown-item py-2" href="{% url 'portal_qr' page.id %}" target="_blank"><b class="d-block"><i class="bi bi-qr-code"></i> Online sign-in QR</b><small class="text-secondary text-wrap d-block">Print it: customers scan it to sign in when the router page does not open.</small></a></li>{% endif %}
         <li><a class="dropdown-item py-2" href="{% url 'portal_export' page.id %}?mode=offline"><b class="d-block">Router files (offline)</b><small class="text-secondary text-wrap d-block">Full page runs on the MikroTik. Re-export after price changes.</small></a></li>
         <li><a class="dropdown-item py-2" href="{% url 'portal_export' page.id %}?mode=hosted"><b class="d-block">Hosted redirect</b><small class="text-secondary text-wrap d-block">Router forwards to this TapTap page. Edits go live instantly.</small></a></li></ul></div>
     <button class="btn btn-outline-primary btn-sm" id="publishBtn"></button>

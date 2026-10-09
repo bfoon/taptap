@@ -1317,3 +1317,4 @@ from .models_member_support import MemberSchedule  # noqa: E402,F401
 from .models_member_charges import MemberCharge  # noqa: E402,F401
 from .models_router_cleanup import RouterCleanup  # noqa: E402,F401
 from .models_router_restore import RouterRestore  # noqa: E402,F401
+from .models_voucher_reports import VoucherReport  # noqa: E402,F401

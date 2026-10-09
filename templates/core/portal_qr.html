@@ -1,0 +1,17 @@
+{% load static %}<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Online sign-in QR — {{ business.business_name }}</title>
+<style>body{font-family:-apple-system,Segoe UI,Arial,sans-serif;background:#f4f7fb;margin:0;padding:24px}
+.card{width:360px;margin:0 auto;background:#fff;border-radius:22px;padding:26px 24px;text-align:center;box-shadow:0 10px 30px #0b223722}
+h1{font-size:22px;margin:0 0 4px}p{margin:0;color:#475569}.qr{margin:16px auto;width:260px}.qr svg{width:100%;height:auto}
+.step{font-size:13px;text-align:left;margin:4px 0}.url{font-family:monospace;font-size:11px;color:#64748b;word-break:break-all;margin-top:10px}
+.tools{text-align:center;margin-top:18px}button{border:0;border-radius:12px;padding:10px 18px;font-weight:700;background:#0b2440;color:#fff;cursor:pointer}
+@media print{body{background:#fff;padding:0}.tools{display:none}.card{box-shadow:none}}</style></head><body>
+<div class="card"><h1>{{ business.business_name }} Wi-Fi</h1><p>Scan to sign in</p>
+  <div class="qr" id="qr"></div>
+  <div class="step">1. Connect to the <b>{{ business.business_name }}</b> Wi-Fi</div>
+  <div class="step">2. Scan this code with the camera</div>
+  <div class="step">3. Type your voucher code and tap Sign in</div>
+  <div class="url">{{ url }}</div></div>
+<div class="tools"><button onclick="print()">Print</button></div>
+<script src="{% static 'vendor/qrcode.js' %}"></script>
+<script>var q=qrcode(0,'M');q.addData('{{ url|escapejs }}');q.make();document.getElementById('qr').innerHTML=q.createSvgTag({cellSize:8,margin:2});</script>
+</body></html>

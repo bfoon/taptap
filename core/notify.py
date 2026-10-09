@@ -34,6 +34,7 @@ EVENTS = OrderedDict([
     ('device_online', ('A watched device is back', 'Sent when a device you were told about returns.', 'digest', 'info', 'Network')),
     ('traffic_guard', ('Traffic guard triggers', 'A port reached its speed limit and was slowed down or switched off.', 'instant', 'warning', 'Network')),
     ('rule_alert', ('Business alerts (your rules)', 'Alerts from the rules you set on the Alerts page that have email ticked: stock, sales, routers, agents…', 'instant', 'warning', 'Hotspot')),
+    ('voucher_report', ('A customer sent a voucher to check', 'A customer used “Send this voucher to staff” on the online portal.', 'instant', 'warning', 'Hotspot')),
     ('voucher_shared', ('Voucher used on too many devices', 'A voucher was seen on more devices than its plan allows (and warned, if automatic).', 'instant', 'warning', 'Hotspot')),
     ('session_enforced', ('Expired voucher disconnected', 'Automatic fixes of sessions whose voucher ran out or was disabled.', 'digest', 'info', 'Hotspot')),
     ('sync_failed', ('Router sync fails', 'A full synchronisation could not finish.', 'instant', 'warning', 'Routers')),

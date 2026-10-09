@@ -109,8 +109,19 @@ def expanded_patterns(host, include_subdomains=True):
         if p not in seen: seen.add(p); unique.append((p, c))
     return unique
 
+def _taptap_host():
+    """TapTap itself: the online sign-in page and voucher checks must open before a customer has logged in."""
+    from urllib.parse import urlsplit
+    from django.conf import settings
+    return urlsplit(getattr(settings, 'SITE_URL', '') or '').hostname or ''
+
+
 def _patterns(business):
     seen = set()
+    host = _taptap_host()
+    if host:
+        for pattern, comment in expanded_patterns(host, False):
+            if pattern not in seen: seen.add(pattern); yield pattern, comment
     for row in sites_for_business(business, True):
         for pattern, comment in expanded_patterns(row.host, bool(row.include_subdomains)):
             if pattern not in seen: seen.add(pattern); yield pattern, comment

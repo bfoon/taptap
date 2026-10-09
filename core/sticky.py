@@ -15,12 +15,15 @@ import logging
 logger = logging.getLogger('taptap.sticky')
 
 COOKIE_TIMEOUT = '30d'
+OFF_KEEPALIVE = '20m'   # sticky sessions off: still long enough for a sleeping phone
 
 
 def profile_values(business):
     """Values for a hotspot user profile (RouterOS names)."""
     if not getattr(business, 'sticky_sessions', True):
-        return {'add-mac-cookie': 'no', 'idle-timeout': 'none', 'keepalive-timeout': '2m'}
+        # Not the RouterOS default of 2m: an iPhone (X, XR and others) asleep in a pocket stops answering the
+        # router for several minutes at a time, and 2m logged it out every time the screen went dark.
+        return {'add-mac-cookie': 'no', 'idle-timeout': 'none', 'keepalive-timeout': OFF_KEEPALIVE}
     return {'add-mac-cookie': 'yes', 'mac-cookie-timeout': COOKIE_TIMEOUT, 'idle-timeout': 'none',
             'keepalive-timeout': business.sticky_keepalive or '2h'}
 
