@@ -19,7 +19,39 @@
 </style>
 {% endblock %}
 
-{% block content %}{% with c=current_business.currency %}
+{% block content %}
+<style>
+.ap-bar{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;justify-content:space-between;background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:.5rem .6rem;margin:.2rem 0 .4rem}
+.ap-chips{display:flex;flex-wrap:wrap;gap:.3rem;align-items:center}
+.ap-chips>a,.ap-pick{border-radius:10px;padding:.35rem .75rem;font-size:.82rem;font-weight:700;color:#51667b;text-decoration:none;border:1px solid transparent;display:inline-flex;align-items:center;gap:.35rem}
+.ap-chips>a:hover,.ap-pick:hover{background:#f1f5f9}
+.ap-chips>a.on,.ap-pick.on{background:#0b2440;color:#fff}
+.ap-pick select{border:0;background:transparent;font:inherit;color:inherit;cursor:pointer;padding:0;max-width:150px}.ap-pick.on select option{color:#102033}
+.ap-range{display:flex;align-items:center;gap:.35rem;border-radius:10px;padding:.2rem .3rem}.ap-range.on{background:#e8f0ff}
+.ap-range input{border:1px solid #d8e2ec;border-radius:8px;padding:.25rem .4rem;font-size:.8rem;background:#fff}
+.ap-label{font-size:.8rem;color:#64748b;margin:0 0 .6rem}.ap-label b{color:#102033}
+.ap-now{font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;background:#ffffff26;border-radius:999px;padding:.05rem .4rem;margin-left:.2rem;vertical-align:middle}
+.kpi:not(.hero) .ap-now{background:#eef2f6;color:#64748b}
+.ap-all{display:block;font-size:.7rem;color:#8a9aab;margin-top:.35rem;border-top:1px dashed #e3e9f1;padding-top:.3rem}
+.ap-chg{display:inline-block;font-style:normal;font-weight:800;font-size:.7rem;border-radius:999px;padding:0 .4rem;margin-left:.3rem}.ap-chg.up{background:#e6f6ee;color:#127a4d}.ap-chg.down{background:#fdeaea;color:#a12b2b}
+.ap-trend{margin:.9rem 0 0;padding:1rem 1.1rem}
+.ap-leg{display:flex;gap:.9rem;font-size:.74rem;color:#64748b}.ap-leg i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:.3rem;vertical-align:-1px}
+.ap-leg i.s,.ap-pair i.s{background:#1769e0}.ap-leg i.h,.ap-pair i.h{background:#16a34a}
+.ap-bars{display:flex;align-items:flex-end;gap:6px;height:150px;overflow-x:auto;padding-bottom:.2rem}
+.ap-col{flex:1;min-width:22px;height:100%;display:flex;flex-direction:column;justify-content:flex-end;align-items:center}
+.ap-pair{flex:1;width:100%;display:flex;align-items:flex-end;justify-content:center;gap:2px}
+.ap-pair i{display:block;width:42%;max-width:18px;border-radius:4px 4px 1px 1px;min-height:2px;transition:height .6s ease}
+.ap-col small{font-size:.62rem;color:#8a9aab;margin-top:.25rem;white-space:nowrap}
+.ap-bars.dense .ap-col small{writing-mode:vertical-rl;transform:rotate(180deg);height:2.6em}
+html[data-theme="dark"] .ap-chips>a:hover,html[data-theme="dark"] .ap-pick:hover{background:#1d2229}html[data-theme="dark"] .ap-label b{color:#e6edf5}
+html[data-theme="dark"] .ap-range.on{background:#13233a}html[data-theme="dark"] .ap-range input{background:#1d2229;border-color:#2a313b;color:#e6edf5}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded',function(){
+  document.querySelectorAll('#apBar select[data-range]').forEach(function(sel){sel.addEventListener('change',function(){
+    if(!sel.value)return; var q=new URLSearchParams(); q.set('range',sel.dataset.range); q.set(sel.name,sel.value); location.search=q.toString();});});
+});
+</script>{% with c=current_business.currency %}
 <div class="d-flex flex-wrap gap-2 align-items-center mb-3 no-print">
   {% if 'finance.view' in tt_perms or 'finance.agents' in tt_perms %}
     <a class="btn btn-light btn-sm" href="{% url 'finance' %}?tab=agents"><i class="bi bi-arrow-left"></i> All agents</a>
@@ -88,33 +120,64 @@
   {% endif %}
 </div>
 
+<form class="ap-bar" method="get" id="apBar" aria-label="Period">
+  <div class="ap-chips" role="tablist">
+    {% for key,label in presets.items %}{% if key != 'bymonth' and key != 'byyear' and key != 'custom' %}
+    <a role="tab" class="{% if period.preset == key %}on{% endif %}" href="?range={{ key }}">{{ label }}</a>{% endif %}{% endfor %}
+    <label class="ap-pick {% if period.preset == 'bymonth' %}on{% endif %}"><i class="bi bi-calendar3"></i>
+      <select name="month" aria-label="Month" data-range="bymonth">{% if period.preset != 'bymonth' %}<option value="" selected>Month…</option>{% endif %}{% for v,l in months %}<option value="{{ v }}" {% if period.preset == 'bymonth' and v == q_month %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></label>
+    <label class="ap-pick {% if period.preset == 'byyear' %}on{% endif %}"><i class="bi bi-calendar-range"></i>
+      <select name="year" aria-label="Year" data-range="byyear">{% if period.preset != 'byyear' %}<option value="" selected>Year…</option>{% endif %}{% for y in years %}<option value="{{ y }}" {% if period.preset == 'byyear' and y|stringformat:'s' == q_year %}selected{% endif %}>{{ y }}</option>{% endfor %}</select></label>
+  </div>
+  <div class="ap-range {% if period.preset == 'custom' %}on{% endif %}">
+    <input type="date" name="start" aria-label="From" value="{% if period.preset == 'custom' %}{{ period.as_dict.start }}{% endif %}" max="{{ today }}">
+    <span>–</span>
+    <input type="date" name="end" aria-label="To" value="{% if period.preset == 'custom' %}{{ period.as_dict.end }}{% endif %}" max="{{ today }}">
+    <button class="btn btn-sm btn-dark" name="range" value="custom">Apply</button>
+  </div>
+</form>
+<p class="ap-label"><i class="bi bi-funnel"></i> Showing <b>{{ period.label }}</b>{% if p.best %} · best {% if p.bucket == 'month' %}month{% elif p.bucket == 'day' %}day{% else %}hour{% endif %}: <b>{{ p.best.title }}</b> ({{ p.best.sales|money:c }}){% endif %}</p>
+
 <div class="kpi-row">
   <div class="kpi hero">
-    <small>Still to hand in</small>
+    <small>Still to hand in <span class="ap-now">now</span></small>
     <strong>{{ bal.outstanding|money:c }}</strong>
-    <em>{{ bal.collection_rate }}% of what they owe has been handed in</em>
+    <em>{{ bal.collection_rate }}% of everything they owe has been handed in</em>
   </div>
   <div class="kpi">
-    <small>Holding now</small>
+    <small>Holding <span class="ap-now">now</span></small>
     <strong>{{ bal.holding }}</strong>
     <em>unsold vouchers worth {{ bal.holding_value|money:c }}</em>
   </div>
   <div class="kpi">
     <small>Sold</small>
-    <strong>{{ bal.sold }}</strong>
-    <em>{{ bal.gross|money:c }} in sales</em>
+    <strong>{{ p.sold }}</strong>
+    <em>{{ p.gross|money:c }} in sales{% include 'core/_ap_change.html' with v=p.change_gross %}</em>
+    <span class="ap-all">All time: {{ bal.sold }} · {{ bal.gross|money:c }}</span>
   </div>
   <div class="kpi">
     <small>Commission earned</small>
-    <strong>{{ bal.commission|money:c }}</strong>
-    <em>at {{ agent.commission_percent|pct }}%</em>
+    <strong>{{ p.commission|money:c }}</strong>
+    <em>at {{ agent.commission_percent|pct }}%{% include 'core/_ap_change.html' with v=p.change_comm %}</em>
+    <span class="ap-all">All time: {{ bal.commission|money:c }}</span>
   </div>
   <div class="kpi">
     <small>Handed in</small>
-    <strong>{{ bal.collected|money:c }}</strong>
-    <em>{% if bal.last_collection %}last {{ bal.last_collection|timesince }} ago{% else %}nothing yet{% endif %}</em>
+    <strong>{{ p.handed|money:c }}</strong>
+    <em>{% if p.handed_n %}{{ p.handed_n }} collection{{ p.handed_n|pluralize }}{% if p.handed_rate is not None %} · {{ p.handed_rate|floatformat:0 }}% of this period’s sales{% endif %}{% else %}nothing in this period{% endif %}{% include 'core/_ap_change.html' with v=p.change_handed %}</em>
+    <span class="ap-all">All time: {{ bal.collected|money:c }}{% if bal.last_collection %} · last {{ bal.last_collection|timesince }} ago{% endif %}</span>
   </div>
 </div>
+
+{% if p.points %}<div class="panel ap-trend">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"><h3 class="h6 fw-bold m-0">Sales and cash handed in · {{ period.label }}</h3>
+    <div class="ap-leg"><span><i class="s"></i> Sales</span><span><i class="h"></i> Handed in</span></div></div>
+  <div class="ap-bars {% if p.points|length > 31 %}dense{% endif %}">{% for x in p.points %}
+    <div class="ap-col" title="{{ x.title }}: {{ x.sales|money:c }} sales ({{ x.n }}) · {{ x.handed|money:c }} handed in">
+      <div class="ap-pair"><i class="s" style="height:{{ x.h_sales }}%"></i><i class="h" style="height:{{ x.h_handed }}%"></i></div>
+      <small>{{ x.label }}</small></div>{% endfor %}
+  </div>
+</div>{% endif %}
 
 <div class="row g-3 mt-1">
   <div class="col-xl-9">
@@ -122,7 +185,7 @@
       <div class="panel-head">
         <div>
           <h3>Batches</h3>
-          <p>Stock and cash accountability for everything issued to {{ agent.name }}</p>
+          <p>Issued in this period ({{ period.label }}), plus older batches still open{% if all_batches > batches|length %} · {{ all_batches }} batches in total{% endif %}</p>
         </div>
       </div>
       <div class="table-responsive">
@@ -144,6 +207,7 @@
                   {{ x.plan|default:'' }} ·
                   issued {% if x.issued_at %}{{ x.issued_at|date:'d M Y' }}{% else %}{{ x.created_at|date:'d M Y' }}{% endif %}
                 </small>
+                {% if x.older_open %}<span class="badge text-bg-warning" title="Issued before this period, still has stock or cash to hand in">Older · still open</span>{% endif %}
                 <span class="badge {% if x.settlement == 'prepaid' %}text-bg-success{% else %}text-bg-light{% endif %}">
                   {% if x.settlement == 'prepaid' %}Paid upfront{% else %}On credit{% endif %}
                 </span>
@@ -395,7 +459,7 @@
 
   <div class="col-xl-7">
     <div class="panel h-100">
-      <div class="panel-head"><div><h3>Recent sales</h3><p>Credited to {{ agent.name }}</p></div></div>
+      <div class="panel-head"><div><h3>Sales</h3><p>Credited to {{ agent.name }} · {{ period.label }}</p></div></div>
       <div class="table-responsive"><table class="table table-money">
         <thead><tr><th>When</th><th>Voucher</th><th>Plan</th><th>How</th><th class="num">Commission</th><th class="num">Amount</th></tr></thead>
         <tbody>
@@ -409,7 +473,7 @@
             <td class="num"><b>{{ s.amount|money:c }}</b></td>
           </tr>
         {% empty %}
-          <tr><td colspan="6" class="empty-table">No sales yet. Sales appear when {{ agent.name }}’s vouchers are sold or first used.</td></tr>
+          <tr><td colspan="6" class="empty-table">No sales in this period ({{ period.label }}). Sales appear when {{ agent.name }}’s vouchers are sold or first used.</td></tr>
         {% endfor %}
         </tbody>
       </table></div>
@@ -418,7 +482,7 @@
 
   <div class="col-xl-5">
     <div class="panel h-100">
-      <div class="panel-head"><div><h3>Cash handed in</h3><p>Every collection has a printable cash receipt</p></div></div>
+      <div class="panel-head"><div><h3>Cash handed in</h3><p>{{ period.label }} · every collection has a printable cash receipt</p></div></div>
       <div class="table-responsive"><table class="table table-money">
         <thead><tr><th>When / scope</th><th>How</th><th class="num">Amount</th><th></th></tr></thead>
         <tbody>
@@ -446,7 +510,7 @@
             </td>
           </tr>
         {% empty %}
-          <tr><td colspan="4" class="empty-table">Nothing handed in yet.</td></tr>
+          <tr><td colspan="4" class="empty-table">Nothing handed in during this period ({{ period.label }}).</td></tr>
         {% endfor %}
         </tbody>
       </table></div>

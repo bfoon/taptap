@@ -98,6 +98,12 @@ def batch_assign(request, pk):
     return redirect(nxt if nxt.startswith('/') else 'batches')
 
 
+def _recent_months(n):
+    from .finance import _month_start
+    today = timezone.localdate()
+    return [(m.strftime('%Y-%m'), m.strftime('%B %Y')) for m in (_month_start(today, i) for i in range(n))]
+
+
 @login_required
 def agent_detail(request, pk):
     """Agent dashboard plus general/batch cash collection and printable collection receipts."""
@@ -190,6 +196,9 @@ def agent_detail(request, pk):
         return redirect(f'{fallback}?{query}')
 
     bal = next((r for r in agent_balances(business) if r['agent'].id == agent.id), None)
+    from .finance import AGENT_PRESETS, agent_period, agent_period_stats
+    period = agent_period(request.GET)
+    pstats = agent_period_stats(business, agent, period)
 
     batches = list(
         agent.batches.select_related('plan').annotate(
@@ -212,6 +221,18 @@ def agent_detail(request, pk):
 
     for batch in batches:
         batch.cash = batch_progress(batch, agent)
+    # The period shows batches issued in it — plus any older batch that still has stock or cash to hand in,
+    # so nothing owed ever hides behind a date filter.
+    all_batches = len(batches)
+    shown = []
+    for batch in batches:
+        issued = batch.issued_at or batch.created_at
+        in_period = issued is not None and period.start <= issued < period.end
+        still_open = bool(batch.left) or (batch.cash.get('remaining') or 0) > 0
+        if in_period or still_open:
+            batch.older_open = not in_period
+            shown.append(batch)
+    batches = shown
 
     cash_queue = outstanding_batches(agent)
 
@@ -233,8 +254,9 @@ def agent_detail(request, pk):
 
     collections = (
         agent.collections
+        .filter(collected_at__gte=period.start, collected_at__lt=period.end)
         .select_related('cash_detail__requested_batch')
-        .order_by('-collected_at')[:30]
+        .order_by('-collected_at')[:60]
     )
 
     return render(request, 'core/agent_detail.html', {
@@ -251,7 +273,11 @@ def agent_detail(request, pk):
         'batches': batches,
         'cash_queue': cash_queue,
         'holding': holding,
-        'sales': agent.sales.select_related('router')[:40],
+        'sales': agent.sales.filter(sold_at__gte=period.start, sold_at__lt=period.end).select_related('router')[:60],
+        'period': period, 'p': pstats, 'presets': AGENT_PRESETS, 'all_batches': all_batches,
+        'months': _recent_months(24), 'years': list(range(timezone.localdate().year, pstats['first_year'] - 1, -1)),
+        'q_month': request.GET.get('month') or timezone.localdate().strftime('%Y-%m'),
+        'q_year': str(request.GET.get('year') or timezone.localdate().year),
         'collections': collections,
         'shop_batches': business.batches.filter(agent__isnull=True).select_related('plan').annotate(
             left=Count(

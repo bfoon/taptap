@@ -1,0 +1,1 @@
+{% if v is not None %}<span class="ap-chg {% if v >= 0 %}up{% else %}down{% endif %}" title="Compared with the period before">{% if v >= 0 %}▲{% else %}▼{% endif %} {{ v|floatformat:0 }}%</span>{% endif %}

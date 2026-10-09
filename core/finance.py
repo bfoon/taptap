@@ -244,6 +244,105 @@ def agent_balances(business):
     return sorted(out, key=lambda r: r['outstanding'], reverse=True)
 
 
+AGENT_PRESETS = OrderedDict([
+    ('today', 'Today'), ('7d', '7 days'), ('month', 'This month'), ('last_month', 'Last month'),
+    ('6m', 'Last 6 months'), ('bymonth', 'Month'), ('byyear', 'Year'), ('custom', 'From – to'),
+])
+
+
+def _month_start(day, back=0):
+    """First day of the month ``back`` months before ``day`` (negative = later months)."""
+    total = day.year * 12 + (day.month - 1) - back
+    return day.replace(year=total // 12, month=total % 12 + 1, day=1)
+
+
+def agent_period(params, default='6m'):
+    """Period for an agent's page. Default: the last 6 months (this month and the 5 before it).
+
+    range=today|7d|month|last_month|6m · bymonth&month=YYYY-MM · byyear&year=YYYY · custom&start=…&end=…"""
+    preset = params.get('range') or default
+    today = timezone.localdate()
+    if preset == '6m':
+        s = _month_start(today, 5)
+        return Period(_day_start(s), _day_start(today + timedelta(days=1)), '6m', f'Last 6 months ({s:%b} – {today:%b %Y})')
+    if preset == 'bymonth':
+        try:
+            s = datetime.strptime(str(params.get('month') or ''), '%Y-%m').date()
+        except ValueError:
+            s = today.replace(day=1)
+        if s > today:
+            s = today.replace(day=1)
+        e = _month_start(s, -1)
+        end = min(e, today + timedelta(days=1))
+        return Period(_day_start(s), _day_start(end), 'bymonth', f'{s:%B %Y}')
+    if preset == 'byyear':
+        try:
+            y = int(params.get('year') or today.year)
+        except (TypeError, ValueError):
+            y = today.year
+        y = max(2000, min(today.year, y))
+        s = today.replace(year=y, month=1, day=1)
+        end = min(s.replace(year=y + 1), today + timedelta(days=1))
+        return Period(_day_start(s), _day_start(end), 'byyear', f'{y}' + (' to date' if y == today.year else ''))
+    if preset not in AGENT_PRESETS:
+        preset = default
+        return agent_period({'range': default}, default)
+    return resolve_period({**{k: params.get(k) for k in ('start', 'end')}, 'range': preset}, default='30d')
+
+
+def agent_period_stats(business, agent, period):
+    """What an agent did in a period, against the period before, with a sales trend."""
+    from django.db.models.functions import TruncDay, TruncMonth, TruncHour
+    sales = business.sales.filter(agent=agent, sold_at__gte=period.start, sold_at__lt=period.end)
+    prev = business.sales.filter(agent=agent, sold_at__gte=period.prev_start, sold_at__lt=period.prev_end)
+    cur = sales.aggregate(n=Count('id'), gross=Sum('amount'), comm=Sum('commission'))
+    old = prev.aggregate(n=Count('id'), gross=Sum('amount'), comm=Sum('commission'))
+    cols = business.collections.filter(agent=agent, collected_at__gte=period.start, collected_at__lt=period.end)
+    col = cols.aggregate(v=Sum('amount'), n=Count('id'))
+    col_prev = d(business.collections.filter(agent=agent, collected_at__gte=period.prev_start,
+                                             collected_at__lt=period.prev_end).aggregate(v=Sum('amount'))['v'])
+    gross, comm = d(cur['gross']), d(cur['comm'])
+    owed = gross - comm
+    trunc = {'hour': TruncHour, 'day': TruncDay, 'month': TruncMonth}[period.bucket]
+    rows = {r['b']: r for r in sales.annotate(b=trunc('sold_at')).values('b').annotate(v=Sum('amount'), n=Count('id'))}
+    paid = {r['b']: d(r['v']) for r in cols.annotate(b=trunc('collected_at')).values('b').annotate(v=Sum('amount'))}
+    # Every bucket of the period, so quiet days/months show as gaps rather than disappearing.
+    points, step_start = [], timezone.localtime(period.start)
+    end = timezone.localtime(period.end)
+    guard = 0
+    while step_start < end and guard < 400:
+        guard += 1
+        if period.bucket == 'month':
+            nxt = timezone.make_aware(datetime.combine(_month_start(step_start.date(), -1), time.min))
+            label, key_fmt = f'{step_start:%b}', '%Y-%m'
+        elif period.bucket == 'day':
+            nxt = step_start + timedelta(days=1)
+            label, key_fmt = f'{step_start:%d %b}', '%Y-%m-%d'
+        else:
+            nxt = step_start + timedelta(hours=1)
+            label, key_fmt = f'{step_start:%H}h', '%Y-%m-%d %H'
+        k = step_start.strftime(key_fmt)
+        v = sum((d(r['v']) for b, r in rows.items() if timezone.localtime(b).strftime(key_fmt) == k), ZERO)
+        n = sum((r['n'] for b, r in rows.items() if timezone.localtime(b).strftime(key_fmt) == k), 0)
+        h = sum((x for b, x in paid.items() if timezone.localtime(b).strftime(key_fmt) == k), ZERO)
+        points.append({'label': label, 'sales': v, 'n': n, 'handed': h, 'title': f'{step_start:%d %b %Y}' if period.bucket != 'month' else f'{step_start:%B %Y}'})
+        step_start = nxt
+    top = max([p['sales'] for p in points] + [p['handed'] for p in points] + [ZERO])
+    for p in points:
+        p['h_sales'] = round(float(p['sales'] / top * 100), 1) if top > 0 else 0
+        p['h_handed'] = round(float(p['handed'] / top * 100), 1) if top > 0 else 0
+    best = max(points, key=lambda p: p['sales']) if points and top > 0 else None
+    return {
+        'sold': cur['n'] or 0, 'gross': gross, 'commission': comm, 'owed': owed,
+        'handed': d(col['v']), 'handed_n': col['n'] or 0,
+        'change_sold': pct_change(d(cur['n']), d(old['n'])), 'change_gross': pct_change(gross, d(old['gross'])),
+        'change_comm': pct_change(comm, d(old['comm'])), 'change_handed': pct_change(d(col['v']), col_prev),
+        'handed_rate': round(float(d(col['v']) / owed * 100), 1) if owed > 0 else None,
+        'points': points, 'best': best, 'bucket': period.bucket,
+        'first_year': (business.sales.filter(agent=agent).order_by('sold_at').values_list('sold_at', flat=True).first() or timezone.now()).year,
+    }
+
+
 def agent_overview(business, period, balances=None):
     """Totals and the leaderboard on top of Finance → Agents & cash.
 
