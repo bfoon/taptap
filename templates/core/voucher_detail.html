@@ -96,7 +96,7 @@
           {% else %}<button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#enableModal"><i class="bi bi-check-circle"></i> Enable{% if time_is_up %} &amp; add time{% endif %}</button>{% endif %}
         {% endif %}
         <a class="btn btn-outline-primary" href="{% url 'voucher_card' v.id %}"><i class="bi bi-card-text"></i> Card / share</a>
-        {% if 'vouchers.support' in tt_perms or 'vouchers.manage' in tt_perms or 'vouchers.warn' in tt_perms %}
+        {% if 'vouchers.support' in tt_perms or 'vouchers.manage' in tt_perms or 'vouchers.warn' in tt_perms or rollback %}
         <div class="dropdown">
           <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="bi bi-three-dots"></i> More</button>
           <ul class="dropdown-menu dropdown-menu-end shadow">
@@ -104,6 +104,10 @@
               {% if 'vouchers.support' in tt_perms and v.status == 'active' and not time_is_up %}<li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#freezeModal"><i class="bi bi-snow"></i> Freeze <small class="text-secondary ms-auto">pause the clock</small></button></li>{% endif %}
               {% if 'vouchers.warn' in tt_perms and v.status == 'active' and not time_is_up %}<li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#warnModal"><i class="bi bi-exclamation-octagon"></i> Warn the customer</button></li>{% endif %}
               {% if 'vouchers.support' in tt_perms %}<li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#resetModal"><i class="bi bi-arrow-counterclockwise"></i> Reset devices</button></li>{% endif %}
+              {% if rollback and rollback.pct is not None and not time_is_up %}
+                {% if rollback.allowed %}<li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#rollbackModal"><i class="bi bi-skip-backward-circle"></i> Roll back to full time <small class="text-secondary ms-auto">{{ rollback.pct }}% used</small></button></li>
+                {% else %}<li><span class="dropdown-item disabled" aria-disabled="true" title="Rollback is only possible while less than 50% of the time is used"><i class="bi bi-skip-backward-circle"></i> Roll back to full time <small class="ms-auto">not possible — {{ rollback.why }}</small></span></li>{% endif %}
+              {% endif %}
             {% endif %}
             {% if 'vouchers.manage' in tt_perms %}<li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#codeModal"><i class="bi bi-input-cursor-text"></i> {% if v.is_member %}Change username{% else %}Change code{% endif %}</button></li>{% endif %}
             {% if v.is_member and 'vouchers.support' in tt_perms %}<li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#memberPwModal"><i class="bi bi-key"></i> Change password</button></li>{% endif %}
@@ -123,7 +127,14 @@
   {% if time_pct is not None and not time_is_up %}
   <div class="vd-time" aria-label="{{ time_pct }}% of the time used">
     <div class="bar"><i class="{% if time_pct >= 90 %}end{% elif time_pct >= 70 %}mid{% endif %}" style="width:{{ time_pct }}%"></i></div>
-    <div class="lbl"><span>Started {{ v.used_at|date:'d M Y H:i' }}</span><span><b class="text-body">{{ time_left|duration_short }} left</b> · {{ time_pct }}% used</span><span>Ends {{ ends_at|date:'d M Y H:i' }}</span></div>
+    <div class="lbl"><span>{% if v.rolled_back_at %}Rolled back {{ v.rolled_back_at|date:'d M Y H:i' }}{% else %}Started {{ v.used_at|date:'d M Y H:i' }}{% endif %}</span><span><b class="text-body">{{ time_left|duration_short }} left</b> · {{ time_pct }}% used</span><span>Ends {{ ends_at|date:'d M Y H:i' }}</span></div>
+  </div>
+  {% endif %}
+
+  {% if rollback and rollback.pct is not None and not time_is_up and not v.frozen_at %}
+  <div class="small text-secondary mt-1"><i class="bi bi-skip-backward-circle"></i>
+    {% if rollback.allowed %}Rollback to full time is possible until <b class="text-body">{{ rollback.deadline|date:'d M Y H:i' }}</b> (while less than 50% is used).
+    {% else %}Rollback is no longer possible — {{ rollback.why }}.{% endif %}
   </div>
   {% endif %}
 
@@ -385,6 +396,18 @@ document.querySelectorAll('[data-copy]').forEach(function (b) {
     <input name="reason" class="form-control" maxlength="255" placeholder="e.g. Disabled by mistake, customer paid again, compensation"></div>
   <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success">{% if v.status == 'active' and not time_is_up %}Add time{% else %}Enable{% endif %}</button></div>
 </form></div></div>
+
+{% if rollback.allowed %}
+<div class="modal fade" id="rollbackModal" tabindex="-1" aria-labelledby="rollbackTitle"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'voucher_rollback' v.id %}">{% csrf_token %}
+  <div class="modal-header"><h5 class="modal-title" id="rollbackTitle">Roll back {{ v.code }} to full time</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body">
+    <p class="small">{{ rollback.pct }}% of its time is used ({{ rollback.elapsed|duration_short }} of {{ rollback.period|duration_short }}). The clock restarts <b>now</b> with the full <b>{{ rollback.period|duration_short }}</b>{% if v.router %} and the uptime limit on {{ v.router.name }} is raised to match{% endif %}. Rollback is only possible while less than 50% is used. It is not a sale and does not change finance.</p>
+    <label class="form-label" for="rollbackReason">Reason <span class="text-secondary">(required, kept in the history)</span></label>
+    <input id="rollbackReason" name="reason" class="form-control" maxlength="255" required placeholder="e.g. Network outage, customer could not connect">
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary"><i class="bi bi-skip-backward-circle"></i> Roll back</button></div>
+</form></div></div>
+{% endif %}
 
 {% if 'vouchers.support' in tt_perms and not v.deleted_at %}
 {% if 'vouchers.warn' in tt_perms and not v.frozen_at %}

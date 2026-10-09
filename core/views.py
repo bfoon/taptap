@@ -290,8 +290,9 @@ def _fup_status(v):
 
 def _time_pct(v,end,now):
     """How much of the voucher's period is used, 0–100 (None when not started or no end) — the time bar."""
-    if not v.used_at or not end or end<=v.used_at: return None
-    return max(0,min(100,round((now-v.used_at).total_seconds()*100/(end-v.used_at).total_seconds())))
+    start=v.rolled_back_at or v.used_at   # a rollback restarts the period (core/voucher_rollback.py)
+    if not start or not end or end<=start: return None
+    return max(0,min(100,round((now-start).total_seconds()*100/(end-start).total_seconds())))
 
 @login_required
 def voucher_detail(request,pk):
@@ -299,6 +300,7 @@ def voucher_detail(request,pk):
     from . import voucher_history as vh
     from .shared_use import case_for
     from .voucher_freeze import MANUAL_WARNING
+    from .voucher_rollback import check as vr_check
     from .models import SessionIncident, VoucherSale
     business=b(request)
     v=get_object_or_404(Voucher.all_objects.filter(business=business).select_related('router','batch','agent','deleted_by','frozen_by'),pk=pk)
@@ -323,6 +325,7 @@ def voucher_detail(request,pk):
         'shared_case':case_for(v) if not v.deleted_at else None,
         'fup':_fup_status(v),
         'manual_warning':MANUAL_WARNING,
+        'rollback':vr_check(v,now) if 'vouchers.rollback' in getattr(request,'tt_perms',()) else None,
     })
 
 

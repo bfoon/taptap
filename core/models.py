@@ -269,6 +269,8 @@ class Voucher(models.Model):
     freeze_reason=models.CharField(max_length=255,blank=True)
     frozen_left=models.PositiveIntegerField(null=True,blank=True,help_text='Seconds left when frozen (empty: clock had not started)')
     warning_message=models.TextField(blank=True,help_text='What the customer reads on the warning page (manual warning). Empty = the shared-use text')
+    # Rollback (core/voucher_rollback.py): the clock restarted at full time. The current period starts here instead of used_at.
+    rolled_back_at=models.DateTimeField(null=True,blank=True)
     # Members — see core/members.py. A member logs in with a username (stored in `code`, so every
     # voucher feature works for members too) and a password. An empty password means the password
     # is the same as the username, exactly like a voucher code.
@@ -344,7 +346,7 @@ class VoucherEvent(models.Model):
             ('router_enabled','Enabled on the router'),('sale_voided','Sale voided'),('deleted','Deleted'),('note','Note'),
             ('code_changed','Code changed'),('fup_slowed','Slowed down (fair usage)'),('fup_restored','Back to full speed'),('fup_lifted','Full speed given back'),('frozen','Frozen'),('unfrozen','Unfrozen'),('warned','Warning sent'),
             ('warning_accepted','Warning accepted by the customer'),('shared_resolved','Shared use resolved'),
-            ('password_changed','Password changed'),('time_up','Time ran out — switched off')]
+            ('password_changed','Password changed'),('time_up','Time ran out — switched off'),('rolled_back','Rolled back to full time')]
     SOURCES=[('user','User'),('auto','Automatic'),('router','Router')]
     business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='voucher_events')
     voucher=models.ForeignKey(Voucher,on_delete=models.SET_NULL,null=True,blank=True,related_name='events')

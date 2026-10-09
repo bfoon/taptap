@@ -279,7 +279,7 @@ ICONS = {
     'router_enabled': ('bi-router', 'success'), 'sale_voided': ('bi-x-circle', 'warning'),
     'deleted': ('bi-trash', 'danger'), 'code_changed': ('bi-input-cursor-text', 'primary'), 'frozen': ('bi-snow', 'info'), 'unfrozen': ('bi-play-circle', 'success'),
     'fup_slowed': ('bi-speedometer', 'warning'), 'fup_restored': ('bi-speedometer2', 'success'), 'fup_lifted': ('bi-lightning-charge', 'info'),
-    'warned': ('bi-exclamation-octagon', 'danger'), 'warning_accepted': ('bi-hand-thumbs-up', 'success'), 'shared_resolved': ('bi-people', 'secondary'), 'note': ('bi-chat-left-text', 'secondary'), 'legacy': ('bi-journal-text', 'secondary'),
+    'rolled_back': ('bi-arrow-counterclockwise', 'primary'), 'warned': ('bi-exclamation-octagon', 'danger'), 'warning_accepted': ('bi-hand-thumbs-up', 'success'), 'shared_resolved': ('bi-people', 'secondary'), 'note': ('bi-chat-left-text', 'secondary'), 'legacy': ('bi-journal-text', 'secondary'),
 }
 
 

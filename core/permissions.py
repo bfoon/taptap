@@ -19,6 +19,7 @@ PERMISSIONS = {
     'vouchers.create': 'Generate vouchers, single vouchers, assign batches, print',
     'vouchers.support': 'Voucher support: enable/disable, reset MAC, active users, missing-voucher reports',
     'vouchers.warn': 'Warn a customer / device: pause the internet until they read a message and press "I agree" — Owner and Admin only',
+    'vouchers.rollback': 'Roll a voucher back to its full time while less than half of it is used — Owner and Admin only',
     'vouchers.manage': 'Change voucher codes, delete unused vouchers and batches (to the bin) and expired vouchers',
     'plans.manage': 'Create and edit plans and prices; delete plans whose vouchers were never used (to the bin)',
     'plans.delete_used': 'Delete plans whose vouchers have been used (to the bin) — Owner and Admin only',
@@ -36,7 +37,7 @@ PERMISSIONS = {
 }
 ALL_PERMISSIONS = frozenset(PERMISSIONS)
 # Permissions that only come with a role, never as an extra on top of one.
-NEVER_EXTRA = frozenset({'plans.delete_used', 'vouchers.warn'})
+NEVER_EXTRA = frozenset({'plans.delete_used', 'vouchers.warn', 'vouchers.rollback'})
 
 # ── roles ───────────────────────────────────────────────────────────────────
 # (label, description, permissions, landing url name)
@@ -82,7 +83,7 @@ URL_PERMS = {
     'mark_voucher_missing': ('vouchers.support', 'vouchers.create'),
     'delete_expired': 'vouchers.manage',
     'voucher_delete': 'vouchers.manage', 'voucher_set_profile': 'vouchers.support', 'voucher_archive_now': 'vouchers.support', 'batch_health_action': 'vouchers.support', 'change_voucher_code': 'vouchers.manage',
-    'voucher_freeze': 'vouchers.support', 'voucher_warn': 'vouchers.warn', 'session_warn': 'vouchers.warn', 'vouchers_freeze': 'vouchers.manage', 'batch_freeze': 'vouchers.manage',
+    'voucher_freeze': 'vouchers.support', 'voucher_warn': 'vouchers.warn', 'voucher_rollback': 'vouchers.rollback', 'session_warn': 'vouchers.warn', 'vouchers_freeze': 'vouchers.manage', 'batch_freeze': 'vouchers.manage',
     'shared_resolve': 'vouchers.support', 'shared_settings': 'vouchers.manage', 'vouchers_delete': 'vouchers.manage', 'batch_delete': 'vouchers.manage',
     'voucher_bin': 'vouchers.view',
     'fup_new': 'network.manage', 'fup_edit': 'network.manage', 'fup_action': 'network.manage',

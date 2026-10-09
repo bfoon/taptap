@@ -43,6 +43,7 @@ def _extras_you_can_grant(request):
         'subscription.manage',
         'plans.delete_used',
         'vouchers.warn',
+        'vouchers.rollback',
     } | (set() if _is_owner(request) else {'team.manage'})
 
     return [
