@@ -261,6 +261,7 @@
       <div class="modal-body">
         <div class="backup-toolbar">
           <button class="btn btn-success" type="button" id="backupNowInModal"><i class="bi bi-cloud-arrow-down"></i> Back up now</button>
+          <button class="btn btn-dark" type="button" id="restoreOpen"><i class="bi bi-arrow-counterclockwise"></i> Restore…</button>
           <label class="form-check form-switch ms-auto mb-0">
             <input class="form-check-input" type="checkbox" id="autoBackupToggle">
             <span class="form-check-label">Nightly automatic backup</span>
@@ -313,6 +314,21 @@
       </div>
     </div>
   </div>
+</div>
+<div class="modal fade" id="restoreModal" tabindex="-1" aria-labelledby="rsTitle" data-upload="{% url 'router_restore_upload' router.id %}" data-prepare="{% url 'router_restore_prepare' router.id %}" data-start="{% url 'router_restore_start' router.id 0 %}" data-status="{% url 'router_restore_status' router.id 0 %}" data-helper="{% url 'router_restore_helper' router.id %}" data-backups="{% url 'router_backups' router.id %}" data-scan="{% url 'router_cleanup_scan' router.id %}" data-job="{% url 'router_cleanup_job' router.id 0 %}" data-router="{{ router.name }}" data-via="{% if router.connection_mode == 'agent' %}link{% else %}api{% endif %}">
+ <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content rs">
+  <div class="rs-hero" id="rsHero" data-step="source">
+    <button type="button" class="btn-close btn-close-white rs-x" data-bs-dismiss="modal" aria-label="Close"></button>
+    <div class="rs-trip" aria-hidden="true">
+      <div class="rs-node from" id="rsFrom"><i class="bi bi-archive"></i><small id="rsFromLbl">Backup</small></div>
+      <div class="rs-path"><span class="rs-file"><i class="bi bi-file-earmark-zip"></i></span><i class="rs-dot"></i><i class="rs-dot"></i><i class="rs-dot"></i></div>
+      <div class="rs-node to"><span class="rs-spin"></span><i class="bi bi-router"></i><small>{{ router.name|truncatechars:16 }}</small></div>
+    </div>
+    <div class="rs-info"><h2 id="rsTitle">Restore {{ router.name }}</h2><p id="rsText">Bring back a saved configuration — from your computer, from the TapTap server, or from a backup already on the router.</p>
+      <ol class="rs-steps" id="rsSteps"><li data-s="source">Choose</li><li data-s="pick">Backup</li><li data-s="review">Confirm</li><li data-s="run">Restore</li></ol></div>
+  </div>
+  <div class="modal-body rs-body" id="rsBody"></div>
+ </div></div>
 </div>
 <div class="modal fade" id="cleanModal" tabindex="-1" aria-labelledby="rcTitle"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content rc">
   <div class="rc-hero" data-phase="idle" id="rcHero">
@@ -791,6 +807,7 @@
           <div class="backup-downloads">
             ${b.download_backup_url?`<a class="btn btn-sm btn-outline-success" href="${esc(b.download_backup_url)}"><i class="bi bi-download"></i> .backup</a>`:''}
             ${b.download_export_url?`<a class="btn btn-sm btn-outline-primary" href="${esc(b.download_export_url)}"><i class="bi bi-download"></i> .rsc</a>`:''}
+            ${b.saved_on_server?`<button type="button" class="btn btn-sm btn-dark" data-restore-server="${b.id}" data-restore-name="${esc(b.name)}"><i class="bi bi-arrow-counterclockwise"></i> Restore</button>`:''}
             ${!b.download_backup_url&&!b.download_export_url?`<span class="small text-secondary">${esc(st.label)}</span>`:''}
           </div>
         </div>`;
@@ -847,4 +864,6 @@
 </script>
 <script src="{% static 'js/control-studio-fx.js' %}?v=1" defer></script>
 <script src="{% static 'js/router_cleanup.js' %}?v=1" defer></script>
+<link rel="stylesheet" href="{% static 'css/router_restore.css' %}?v=1">
+<script src="{% static 'js/router_restore.js' %}?v=1" defer></script>
 {% endblock %}
