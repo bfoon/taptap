@@ -511,6 +511,12 @@ def watch_all():
             if not business.has_access:
                 continue
             results += watch_business(business)
+        # Freezes planned on the voucher time bar (core/voucher_schedule.py): fire the ones whose moment has come.
+        try:
+            from .voucher_schedule import run_due
+            run_due()
+        except Exception:
+            logger.exception('planned voucher freezes')
         # Strict expiry for EVERY business (live sync on or off, with or without routers): mark vouchers whose
         # time is up and make sure their router switched them off. Routers just watched were handled above.
         try:

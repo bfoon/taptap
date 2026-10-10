@@ -24,6 +24,26 @@
 .vd-time .bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#22c55e,#16a34a)}
 .vd-time .bar i.mid{background:linear-gradient(90deg,#f59e0b,#d97706)}.vd-time .bar i.end{background:linear-gradient(90deg,#ef4444,#dc2626)}
 .vd-time .lbl{display:flex;justify-content:space-between;flex-wrap:wrap;gap:.3rem;font-size:.8rem;color:#51667b;margin-top:.35rem}
+/* clickable time bar — core/voucher_schedule.py */
+.vd-time.tb-live{position:relative}
+.tb-track{position:relative;height:16px;border-radius:99px;background:#eef2f6;cursor:crosshair;touch-action:none;outline:none}
+.tb-track:focus-visible{box-shadow:0 0 0 3px #93c5fd}
+.tb-fill{position:absolute;left:0;top:0;bottom:0;border-radius:99px;background:linear-gradient(90deg,#22c55e,#16a34a)}
+.tb-fill.mid{background:linear-gradient(90deg,#f59e0b,#d97706)}.tb-fill.end{background:linear-gradient(90deg,#ef4444,#dc2626)}
+.tb-extend{position:absolute;top:0;bottom:0;right:0;border-radius:0 99px 99px 0;background:repeating-linear-gradient(135deg,#e2e8f0 0 6px,#f8fafc 6px 12px);border-left:2px dashed #94a3b8}
+.tb-extend span{position:absolute;right:6px;top:50%;transform:translateY(-50%);font-size:.6rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em;pointer-events:none}
+.tb-mark{position:absolute;top:-4px;bottom:-4px;width:2px;transform:translateX(-1px);pointer-events:none}
+.tb-now{background:#0f172a}.tb-now:after{content:'now';position:absolute;top:-15px;left:50%;transform:translateX(-50%);font-size:.6rem;font-weight:700;color:#0f172a}
+.tb-end{background:#475569}
+.tb-plan{background:#0891b2;width:3px;pointer-events:auto;cursor:pointer}.tb-plan b{position:absolute;top:-17px;left:50%;transform:translateX(-50%);font-size:.75rem;color:#0891b2}
+.tb-cursor{position:absolute;top:-6px;bottom:-6px;width:3px;background:#2563eb;border-radius:2px;transform:translateX(-1.5px);pointer-events:none;box-shadow:0 0 0 2px #fff}
+.tb-tip{position:absolute;bottom:calc(100% + 18px);transform:translateX(-50%);background:#0f172a;color:#fff;font-size:.72rem;padding:.2rem .5rem;border-radius:6px;white-space:nowrap;pointer-events:none;z-index:5}
+.tb-card{position:absolute;z-index:20;top:calc(100% + 4px);width:min(340px,100%);background:#fff;border:1px solid #e3e9f1;border-radius:14px;box-shadow:0 14px 36px #0b223740;padding:.75rem .85rem}
+.tb-card-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:.4rem}.tb-card-head small{display:block;color:#64748b;font-size:.72rem}.tb-card-head b{font-size:.95rem}
+.tb-planned{display:flex;align-items:center;gap:.6rem;background:#ecfeff;border:1px solid #a5f3fc;border-radius:12px;padding:.5rem .75rem;color:#155e75}.tb-planned>i{font-size:1.1rem}
+html[data-theme="dark"] .tb-track{background:#2d353e}html[data-theme="dark"] .tb-card{background:#1f2933;border-color:#2d3b4a}
+html[data-theme="dark"] .tb-extend{background:repeating-linear-gradient(135deg,#334155 0 6px,#1e293b 6px 12px)}html[data-theme="dark"] .tb-now{background:#e2e8f0}html[data-theme="dark"] .tb-now:after{color:#e2e8f0}
+html[data-theme="dark"] .tb-planned{background:#083344;border-color:#155e75;color:#a5f3fc}
 .vd-channel{font-size:.8rem;color:#64748b;margin:.8rem 0 0}
 /* key figures */
 .vd-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.75rem;margin-bottom:1rem}
@@ -125,12 +145,48 @@
 
   {# time bar: first use → end #}
   {% if time_pct is not None and not time_is_up %}
-  <div class="vd-time" aria-label="{{ time_pct }}% of the time used">
+  <div class="vd-time{% if time_bar.can %} tb-live{% endif %}" aria-label="{{ time_pct }}% of the time used">
+    {% if time_bar.can %}
+    {# Clickable time bar (core/voucher_schedule.py): click a point → end the time there, or freeze the voucher there. #}
+    <div class="tb-track" id="tbTrack" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ time_pct }}"
+         aria-label="Time bar. Use the arrow keys to pick a moment, Enter to choose what happens then.">
+      <div class="tb-fill {% if time_pct >= 90 %}end{% elif time_pct >= 70 %}mid{% endif %}" id="tbFill"></div>
+      <div class="tb-extend" id="tbExtend" title="Past the current end: click here to add time"><span>extend</span></div>
+      <i class="tb-mark tb-now" id="tbNow" title="Now"></i>
+      <i class="tb-mark tb-end" id="tbEnd" title="Ends {{ ends_at|date:'d M Y H:i' }}"></i>
+      {% if time_bar.plan %}<i class="tb-mark tb-plan" id="tbPlan" title="Freeze planned"><b class="bi bi-snow"></b></i>{% endif %}
+      <i class="tb-cursor" id="tbCursor" hidden></i>
+      <span class="tb-tip" id="tbTip" hidden></span>
+    </div>
+    <div class="tb-card" id="tbCard" hidden role="dialog" aria-labelledby="tbWhen">
+      <form method="post" action="{{ time_bar.url }}" id="tbForm">{% csrf_token %}
+        <input type="hidden" name="at" id="tbAt"><input type="hidden" name="action" id="tbAction">
+        <div class="tb-card-head"><div><small id="tbRel"></small><b id="tbWhen"></b></div><button type="button" class="btn-close" id="tbClose" aria-label="Close"></button></div>
+        <label class="form-label small mb-1" for="tbExact">Exact time</label>
+        <input type="datetime-local" class="form-control form-control-sm mb-2" id="tbExact" step="60">
+        <p class="small mb-2" id="tbEffect"></p>
+        <input class="form-control form-control-sm mb-2" name="reason" id="tbReason" maxlength="255" placeholder="Reason (kept in the history)">
+        <div class="d-flex gap-2 flex-wrap">
+          <button type="button" class="btn btn-sm btn-warning" data-tb="end"><i class="bi bi-hourglass-bottom"></i> <span id="tbEndLbl">End the time here</span></button>
+          <button type="button" class="btn btn-sm btn-info text-white" data-tb="freeze"><i class="bi bi-snow"></i> <span id="tbFreezeLbl">Freeze here</span></button>
+        </div>
+        <small class="tb-err text-danger d-block mt-1" id="tbErr" aria-live="polite"></small>
+      </form>
+    </div>
+    {{ time_bar|json_script:"tbData" }}
+    {% else %}
     <div class="bar"><i class="{% if time_pct >= 90 %}end{% elif time_pct >= 70 %}mid{% endif %}" style="width:{{ time_pct }}%"></i></div>
+    {% endif %}
     <div class="lbl"><span>{% if v.rolled_back_at %}Rolled back {{ v.rolled_back_at|date:'d M Y H:i' }}{% else %}Started {{ v.used_at|date:'d M Y H:i' }}{% endif %}</span><span><b class="text-body">{{ time_left|duration_short }} left</b> · {{ time_pct }}% used</span><span>Ends {{ ends_at|date:'d M Y H:i' }}</span></div>
   </div>
   {% endif %}
 
+  {% if v.freeze_planned_at and not v.frozen_at %}
+  <div class="tb-planned mt-2"><i class="bi bi-alarm"></i>
+    <div><b>Freezes at {{ v.freeze_planned_at|date:'d M Y H:i' }}</b>{% if v.freeze_planned_by %} · planned by {% firstof v.freeze_planned_by.get_full_name v.freeze_planned_by.username %}{% endif %}{% if v.freeze_planned_reason %}<small class="d-block">{{ v.freeze_planned_reason }}</small>{% endif %}</div>
+    {% if 'vouchers.support' in tt_perms %}<form method="post" action="{% url 'voucher_time_point' v.id %}" class="ms-auto">{% csrf_token %}<input type="hidden" name="action" value="cancel_freeze"><button class="btn btn-sm btn-outline-secondary">Cancel</button></form>{% endif %}
+  </div>
+  {% endif %}
   {% if rollback and rollback.pct is not None and not time_is_up and not v.frozen_at %}
   <div class="small text-secondary mt-1"><i class="bi bi-skip-backward-circle"></i>
     {% if rollback.allowed %}Rollback to full time is possible until <b class="text-body">{{ rollback.deadline|date:'d M Y H:i' }}</b> (while less than 50% is used).
@@ -523,6 +579,90 @@ document.querySelectorAll('[data-copy]').forEach(function (b) {
     if(el&&window.bootstrap){bootstrap.Modal.getOrCreateInstance(el).show();}
     history.replaceState(null,'',location.pathname);
   });
+})();
+</script>
+<script>
+/* Clickable time bar: pick a moment → end the time there, or freeze the voucher there (core/voucher_schedule.py). */
+(function(){
+  const data=document.getElementById('tbData'); if(!data) return;
+  const T=JSON.parse(data.textContent), $=id=>document.getElementById(id);
+  const track=$('tbTrack'), card=$('tbCard'), tip=$('tbTip'), cursor=$('tbCursor'), wrap=track.closest('.vd-time');
+  const t0=performance.now(), now=()=>T.now+(performance.now()-t0), span=T.max-T.start, SLACK=45000;
+  const pct=t=>Math.max(0,Math.min(100,(t-T.start)*100/span));
+  const pad=n=>String(n).padStart(2,'0');
+  const fmt=t=>new Date(t).toLocaleString([], {weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+  const local=t=>{const d=new Date(t);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;};
+  function dur(ms){ms=Math.max(0,ms);const m=Math.round(ms/60000),d=Math.floor(m/1440),h=Math.floor(m%1440/60),mm=m%60;
+    return [d?d+' day'+(d>1?'s':''):'',h?h+' h':'',(!d&&mm)||(!d&&!h)?mm+' min':''].filter(Boolean).join(' ');}
+  const rel=t=>{const x=t-now();return Math.abs(x)<SLACK?'now':x>0?'in '+dur(x):dur(-x)+' ago';};
+  let sel=null, kb=null;
+
+  function layout(){
+    $('tbFill').style.width=pct(now())+'%';
+    const e=pct(T.end); $('tbExtend').style.left=e+'%';
+    $('tbNow').style.left=pct(now())+'%'; $('tbEnd').style.left=e+'%';
+    if($('tbPlan')) $('tbPlan').style.left=pct(T.plan)+'%';
+    track.setAttribute('aria-valuetext', (kb?fmt(kb)+' — ':'')+'ends '+fmt(T.end));
+  }
+  const at=x=>{const r=track.getBoundingClientRect(),f=Math.max(0,Math.min(1,(x-r.left)/r.width));return Math.round((T.start+f*span)/60000)*60000;};
+  function showCursor(t,withTip){
+    cursor.hidden=false; cursor.style.left=pct(t)+'%';
+    if(withTip){tip.hidden=false; tip.style.left=pct(t)+'%'; tip.textContent=fmt(t)+' · '+rel(t)+(t>T.end?' · adds time':'');}
+  }
+  function hideHover(){ if(card.hidden){cursor.hidden=true;} tip.hidden=true; }
+
+  function open(t){
+    sel=t; card.hidden=false; $('tbErr').textContent='';
+    const r=track.getBoundingClientRect(), w=card.offsetWidth, x=(pct(t)/100)*r.width;
+    card.style.left=Math.max(0,Math.min(x-24,r.width-w))+'px';
+    $('tbExact').value=local(t); update(); showCursor(t,false); $('tbExact').focus({preventScroll:true});
+  }
+  function close(){card.hidden=true; cursor.hidden=true; sel=null; track.focus({preventScroll:true});}
+  function update(){
+    const t=sel, n=now();
+    $('tbWhen').textContent=fmt(t); $('tbRel').textContent=rel(t).replace(/^./,c=>c.toUpperCase());
+    let eff, endL, frL, frOk=true;
+    if(t<=n+SLACK){ eff='That moment is now (or has passed): it happens straight away.'; endL='End now'; frL='Freeze now'; }
+    else if(t<T.end){ eff=`<b>End here</b> cuts ${dur(T.end-t)} off (it ends ${fmt(T.end)} now). <b>Freeze here</b> stops the clock then and keeps ${dur(T.end-t)} for later.`; endL='End the time here'; frL='Freeze here'; }
+    else { eff=`Adds <b>${dur(t-T.end)}</b> — it ends ${fmt(T.end)} now.`; endL='Extend to here'; frL='Freeze here'; frOk=false; }
+    $('tbEffect').innerHTML=eff; $('tbEndLbl').textContent=endL; $('tbFreezeLbl').textContent=frL;
+    const fb=card.querySelector('[data-tb=freeze]'); fb.disabled=!frOk; fb.title=frOk?'':'A freeze has to be before the time runs out';
+    cursor.style.left=pct(t)+'%';
+  }
+
+  // mouse / touch: hover shows the moment, a click (or tap) picks it
+  let down=null;
+  track.addEventListener('pointermove',e=>{ if(card.hidden||down) showCursor(at(e.clientX),true); });
+  track.addEventListener('pointerleave',hideHover);
+  track.addEventListener('pointerdown',e=>{down={x:e.clientX}; track.setPointerCapture(e.pointerId); showCursor(at(e.clientX),true);});
+  track.addEventListener('pointerup',e=>{ if(!down) return; down=null; tip.hidden=true; open(at(e.clientX)); });
+  track.addEventListener('pointercancel',()=>{down=null;hideHover();});
+  if($('tbPlan')) $('tbPlan').addEventListener('pointerdown',e=>{e.stopPropagation();document.querySelector('.tb-planned')?.scrollIntoView({block:'center'});});
+
+  // keyboard: arrows move, Home = now, End = the current end, Enter picks
+  track.addEventListener('keydown',e=>{
+    const step=span/(e.shiftKey?20:100);
+    if(kb===null) kb=Math.round(now()/60000)*60000;
+    if(e.key==='ArrowRight'||e.key==='ArrowUp') kb=Math.min(T.max,kb+step);
+    else if(e.key==='ArrowLeft'||e.key==='ArrowDown') kb=Math.max(T.start,kb-step);
+    else if(e.key==='Home') kb=now(); else if(e.key==='End') kb=T.end;
+    else if(e.key==='Enter'||e.key===' '){e.preventDefault();open(Math.round(kb/60000)*60000);return;}
+    else if(e.key==='Escape'){close();return;} else return;
+    e.preventDefault(); showCursor(kb,true); layout();
+  });
+  $('tbExact').addEventListener('input',()=>{const d=new Date($('tbExact').value); if(!isNaN(d)){sel=d.getTime(); update();}});
+  $('tbClose').addEventListener('click',close);
+  card.addEventListener('keydown',e=>{if(e.key==='Escape'){e.stopPropagation();close();}});
+  document.addEventListener('pointerdown',e=>{ if(!card.hidden&&!card.contains(e.target)&&!track.contains(e.target)) close(); });
+  card.querySelectorAll('[data-tb]').forEach(b=>b.addEventListener('click',()=>{
+    const what=b.dataset.tb, reason=$('tbReason').value.trim();
+    if(what==='freeze'&&!reason){$('tbErr').textContent='Give a reason for the freeze — it is kept in the history.';$('tbReason').focus();return;}
+    const n=now();
+    if(what==='end'&&sel<T.end&&!confirm(sel<=n+SLACK?'End this voucher now? Its internet is switched off at once.':`Cut ${dur(T.end-sel)} off? It will end ${fmt(sel)}.`)) return;
+    $('tbAt').value=String(sel); $('tbAction').value=what; b.disabled=true; $('tbForm').submit();
+  }));
+  layout(); setInterval(()=>{layout(); if(sel!==null&&!card.hidden) update();},30000);
+  window.addEventListener('resize',()=>{if(!card.hidden&&sel!==null) open(sel);});
 })();
 </script>
 {% endblock %}

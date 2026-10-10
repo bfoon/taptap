@@ -431,10 +431,50 @@ def device_detail(request, pk):
     counted = UsageRecord.objects.filter(business=business, hour__gte=start, mac_address__in=macs).aggregate(
         dn=Sum('download'), up=Sum('upload')) if macs else {'dn': 0, 'up': 0}
     counted_total = (counted['dn'] or 0) + (counted['up'] or 0)
+    device_vouchers = _device_vouchers(business, d)
     return render(request, 'core/device_detail.html', {
         'd': d, 'period': period, 'periods': DEVICE_PERIODS, 'period_label': label, 'macs': macs,
+        'device_vouchers': device_vouchers, 'latest_voucher': device_vouchers[0] if device_vouchers else None,
         'down': down, 'up': up, 'total': total, 'apps': apps[:15], 'sites': sites[:20], 'top_app': apps[0] if apps else None,
         'categories': categories, 'timeline': timeline, 'busiest': busiest.strftime('%d %b %H:00' if step == 'hour' else '%a %d %b') if busiest and grid[busiest] else '',
         'counted_total': counted_total, 'coverage': round(total * 100 / counted_total) if counted_total else None,
         'chart_data': {'timeline': timeline, 'categories': categories, 'step': step},
     })
+
+
+def _device_vouchers(business, d, limit=8):
+    """The vouchers this device used, newest first (core/ads.py keeps the codes newest first), as links.
+
+    A code that was changed later still finds its voucher (VoucherCodeAlias); one in the bin still opens.
+    Codes TapTap no longer knows stay in the list without a link."""
+    from django.db.models import Q
+    from django.utils import timezone
+    from .models import Voucher, VoucherCodeAlias
+    from .voucher_history import display_state, ends_at
+    codes = [str(c) for c in (d.vouchers or []) if str(c).strip()][:limit]
+    if not codes:
+        return []
+    q = Q()
+    for c in codes:
+        q |= Q(code__iexact=c)
+    found = {v.code.upper(): v for v in Voucher.all_objects.filter(business=business).filter(q)}
+    missing = [c for c in codes if c.upper() not in found]
+    if missing:
+        aq = Q()
+        for c in missing:
+            aq |= Q(code__iexact=c)
+        for a in VoucherCodeAlias.objects.filter(voucher__business=business).filter(aq).select_related('voucher'):
+            found.setdefault(a.code.upper(), a.voucher)
+    now = timezone.now()
+    out = []
+    for c in codes:
+        v = found.get(c.upper())
+        if v is None:
+            out.append({'code': c, 'voucher': None})
+            continue
+        key, label = display_state(v, now)
+        end = ends_at(v)
+        out.append({'code': c, 'voucher': v, 'state': key, 'state_label': 'In the bin' if v.deleted_at else label,
+                    'ends_at': end, 'left': (end - now) if end and end > now else None,
+                    'renamed': v.code.upper() != c.upper()})
+    return out

@@ -95,3 +95,30 @@ def session_warn(request):
                                 'You can disconnect it instead.')
         return _back(request, 'active_users')
     return _warn(request, [v], 'active_users')
+
+
+@login_required
+@require_POST
+def voucher_time_point(request, pk):
+    """The voucher time bar was clicked: end the time at that point, plan a freeze there, or cancel a planned freeze."""
+    from .voucher_schedule import TimePointError, cancel_plan, end_at, parse_point, plan_freeze
+    from .voucher_freeze import FreezeError
+    from .voucher_history import VoucherActionError
+    v = get_object_or_404(request.user.business.vouchers.select_related('router', 'business'), pk=pk)
+    action = request.POST.get('action', '')
+    try:
+        if action == 'cancel_freeze':
+            msg = cancel_plan(v, request.user)
+        else:
+            when = parse_point(request.POST.get('at', ''))
+            reason = request.POST.get('reason', '')
+            if action == 'end':
+                msg = end_at(v, when, request.user, reason)
+            elif action == 'freeze':
+                msg = plan_freeze(v, when, request.user, reason)
+            else:
+                raise TimePointError('Choose what should happen at that point.')
+        messages.success(request, msg)
+    except (TimePointError, FreezeError, VoucherActionError) as exc:
+        messages.error(request, str(exc))
+    return redirect('voucher_detail', pk=v.pk)

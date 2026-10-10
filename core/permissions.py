@@ -84,7 +84,7 @@ URL_PERMS = {
     'mark_voucher_missing': ('vouchers.support', 'vouchers.create'),
     'delete_expired': 'vouchers.manage',
     'voucher_delete': 'vouchers.manage', 'voucher_set_profile': 'vouchers.support', 'voucher_archive_now': 'vouchers.support', 'batch_health_action': 'vouchers.support', 'change_voucher_code': 'vouchers.manage',
-    'voucher_freeze': 'vouchers.support', 'voucher_warn': 'vouchers.warn', 'voucher_rollback': 'vouchers.rollback', 'session_warn': 'vouchers.warn', 'vouchers_freeze': 'vouchers.manage', 'batch_freeze': 'vouchers.manage',
+    'voucher_freeze': 'vouchers.support', 'voucher_time_point': 'vouchers.support', 'voucher_warn': 'vouchers.warn', 'voucher_rollback': 'vouchers.rollback', 'session_warn': 'vouchers.warn', 'vouchers_freeze': 'vouchers.manage', 'batch_freeze': 'vouchers.manage',
     'shared_resolve': 'vouchers.support', 'shared_settings': 'vouchers.manage', 'vouchers_delete': 'vouchers.manage', 'batch_delete': 'vouchers.manage',
     'voucher_bin': 'vouchers.view',
     'fup_new': 'network.manage', 'fup_edit': 'network.manage', 'fup_action': 'network.manage',

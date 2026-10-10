@@ -271,6 +271,10 @@ class Voucher(models.Model):
     warning_message=models.TextField(blank=True,help_text='What the customer reads on the warning page (manual warning). Empty = the shared-use text')
     # Rollback (core/voucher_rollback.py): the clock restarted at full time. The current period starts here instead of used_at.
     rolled_back_at=models.DateTimeField(null=True,blank=True)
+    # A freeze set for later by clicking the time bar (core/voucher_schedule.py); the live loop fires it.
+    freeze_planned_at=models.DateTimeField(null=True,blank=True,db_index=True)
+    freeze_planned_reason=models.CharField(max_length=255,blank=True)
+    freeze_planned_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
     # Members — see core/members.py. A member logs in with a username (stored in `code`, so every
     # voucher feature works for members too) and a password. An empty password means the password
     # is the same as the username, exactly like a voucher code.
@@ -346,7 +350,8 @@ class VoucherEvent(models.Model):
             ('router_enabled','Enabled on the router'),('sale_voided','Sale voided'),('deleted','Deleted'),('note','Note'),
             ('code_changed','Code changed'),('fup_slowed','Slowed down (fair usage)'),('fup_restored','Back to full speed'),('fup_lifted','Full speed given back'),('frozen','Frozen'),('unfrozen','Unfrozen'),('warned','Warning sent'),
             ('warning_accepted','Warning accepted by the customer'),('shared_resolved','Shared use resolved'),
-            ('password_changed','Password changed'),('time_up','Time ran out — switched off'),('rolled_back','Rolled back to full time')]
+            ('password_changed','Password changed'),('time_up','Time ran out — switched off'),('rolled_back','Rolled back to full time'),
+            ('time_shortened','End time moved earlier'),('freeze_planned','Freeze planned'),('freeze_plan_cancelled','Planned freeze cancelled')]
     SOURCES=[('user','User'),('auto','Automatic'),('router','Router')]
     business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='voucher_events')
     voucher=models.ForeignKey(Voucher,on_delete=models.SET_NULL,null=True,blank=True,related_name='events')

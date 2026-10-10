@@ -17,6 +17,7 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
+from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 
 from .models import PAYMENT_METHODS
@@ -326,7 +327,22 @@ def voucher_detail(request,pk):
         'fup':_fup_status(v),
         'manual_warning':MANUAL_WARNING,
         'rollback':vr_check(v,now) if 'vouchers.rollback' in getattr(request,'tt_perms',()) else None,
+        'time_bar':_time_bar(v,end,now,request),
     })
+
+
+def _time_bar(v,end,now,request):
+    """Data for the clickable time bar (core/voucher_schedule.py): click a point to end the time there or freeze there."""
+    start=v.rolled_back_at or v.used_at
+    if not start or not end or end<=now or v.frozen_at or v.deleted_at: return None
+    period=end-start
+    # Past the end, a faint "extend" zone: a click there adds time up to that point.
+    extra=min(max(period*0.25,timedelta(minutes=30)),timedelta(days=30))
+    ms=lambda t:int(t.timestamp()*1000)
+    can='vouchers.support' in getattr(request,'tt_perms',()) and v.status=='active'
+    return {'start':ms(start),'end':ms(end),'now':ms(now),'max':ms(end+extra),'can':can,
+            'plan':ms(v.freeze_planned_at) if v.freeze_planned_at else None,
+            'url':reverse('voucher_time_point',args=[v.pk]) if can else ''}
 
 
 @login_required

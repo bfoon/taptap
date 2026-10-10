@@ -12,14 +12,33 @@
 .dd-guard{border-left:4px solid var(--border,#e3e9f1)}.dd-guard.blk{border-left-color:#dc2626;background:#fef2f2}.dd-guard.flg-watch{border-left-color:#1769e0}.dd-guard.flg-suspect{border-left-color:#d97706}.dd-guard.flg-danger{border-left-color:#dc2626}
 html[data-theme="dark"] .dd-guard.blk{background:#2a1214}
 .dd-lvls{display:grid;grid-template-columns:1fr 1fr;gap:.4rem}.dd-lvls input{position:absolute;opacity:0}.dd-lvls span{display:block;border:1px solid var(--border,#dbe4ef);border-radius:10px;padding:.5rem;text-align:center;font-weight:700;cursor:pointer}.dd-lvls input:checked+span{background:#102033;color:#fff}
+.dd-latest{display:flex;align-items:center;gap:.8rem;margin-bottom:1rem;padding:.7rem .9rem;border-radius:14px;border:1px solid var(--border,#e3e9f1);background:var(--panel,#fff);color:inherit;text-decoration:none;transition:border-color .15s,box-shadow .15s,transform .15s}
+a.dd-latest:hover{border-color:#1769e0;box-shadow:0 6px 18px #1769e022;transform:translateY(-1px)}a.dd-latest:focus-visible{outline:3px solid #93c5fd;outline-offset:2px}
+.dd-latest-ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:#e8f0fe;color:#1769e0;font-size:1.2rem;flex:0 0 auto}
+.dd-latest-tx{flex:1;min-width:0}.dd-latest-tx small{display:block;font-size:.7rem;font-weight:700;color:#8a9aab;text-transform:uppercase;letter-spacing:.04em}
+.dd-latest-tx b{display:block;font-size:1.05rem}.dd-latest-tx em{display:block;font-style:normal;font-size:.8rem;color:#6b7c8f}
+.dd-latest-go{font-weight:700;color:#1769e0;font-size:.85rem;white-space:nowrap}
+.dd-latest.st-used .dd-latest-ic{background:#e7f8ee;color:#16a34a}.dd-latest.st-frozen .dd-latest-ic,.dd-latest.st-warned .dd-latest-ic{background:#ecfeff;color:#0891b2}
+.dd-latest.st-expired .dd-latest-ic,.dd-latest.st-disabled .dd-latest-ic,.dd-latest.st-archived .dd-latest-ic{background:#fef2f2;color:#dc2626}.dd-latest.st-gone{opacity:.75}
+html[data-theme="dark"] .dd-latest-ic{background:#14243a}
 </style>{% endblock %}
 {% block content %}
 <div class="dd-head">
   <div><a class="small text-decoration-none" href="{% url 'devices' %}"><i class="bi bi-arrow-left"></i> Devices</a>
     <h2>{% firstof d.label d.model d.os 'Unknown device' %}</h2>
-    <small class="text-secondary">{{ d.os }} {{ d.os_version }}{% if d.browser %} · {{ d.browser }}{% endif %} · {% for m in macs|slice:':3' %}<span class="font-monospace">{{ m }}</span>{% if not forloop.last %}, {% endif %}{% empty %}no MAC known{% endfor %}{% if macs|length > 3 %} +{{ macs|length|add:'-3' }}{% endif %}{% if d.vouchers %} · vouchers {{ d.vouchers|slice:':3'|join:', ' }}{% endif %}</small></div>
+    <small class="text-secondary">{{ d.os }} {{ d.os_version }}{% if d.browser %} · {{ d.browser }}{% endif %} · {% for m in macs|slice:':3' %}<span class="font-monospace">{{ m }}</span>{% if not forloop.last %}, {% endif %}{% empty %}no MAC known{% endfor %}{% if macs|length > 3 %} +{{ macs|length|add:'-3' }}{% endif %}{% if device_vouchers|length > 1 %} · also used {% for x in device_vouchers|slice:'1:4' %}{% if x.voucher %}<a class="font-monospace" href="{% url 'voucher_detail' x.voucher.id %}">{{ x.code }}</a>{% else %}<span class="font-monospace">{{ x.code }}</span>{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}{% if device_vouchers|length > 4 %} +{{ device_vouchers|length|add:'-4' }}{% endif %}{% endif %}</small></div>
   <nav class="period d-flex gap-1" aria-label="Period">{% for k,p in periods.items %}<a href="?period={{ k }}" class="{% if k == period %}on{% endif %}">{{ p.0 }}</a>{% endfor %}</nav>
 </div>
+{% if latest_voucher %}{% with x=latest_voucher %}
+{# The device's newest voucher: one click to its detail page (core/views_ads.py _device_vouchers). #}
+{% if x.voucher %}<a class="dd-latest st-{{ x.state }}" href="{% url 'voucher_detail' x.voucher.id %}" aria-label="Open latest voucher {{ x.voucher.code }}">
+{% else %}<div class="dd-latest st-gone">{% endif %}
+  <span class="dd-latest-ic"><i class="bi bi-ticket-perforated"></i></span>
+  <span class="dd-latest-tx"><small>Latest voucher</small><b class="font-monospace">{% if x.voucher %}{{ x.voucher.code }}{% else %}{{ x.code }}{% endif %}</b>
+    <em>{% if x.voucher %}{{ x.voucher.plan_name|default:'No plan' }} · {{ x.state_label }}{% if x.left %} · {{ x.left|duration_short }} left{% elif x.ends_at and not x.voucher.frozen_at %} · ended {{ x.ends_at|date:'d M Y H:i' }}{% endif %}{% if x.renamed %} · was {{ x.code }}{% endif %}{% else %}No longer in TapTap{% endif %}</em></span>
+  {% if x.voucher %}<span class="dd-latest-go">Open <i class="bi bi-arrow-right"></i></span>{% endif %}
+{% if x.voucher %}</a>{% else %}</div>{% endif %}
+{% endwith %}{% endif %}
 <div class="panel mb-3 dd-guard {% if d.blacklisted_at %}blk{% elif d.flagged %}flg-{{ d.flag_level|default:'watch' }}{% endif %}">
   <div class="d-flex flex-wrap gap-3 align-items-center justify-content-between">
     <div>
