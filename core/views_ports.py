@@ -3,6 +3,7 @@
 GET /routers/<id>/port/?name=ether2          → everything TapTap has saved (instant)
 GET /routers/<id>/port/?name=ether2&live=1   → plus live speed, link rate and fresh counters from the router
 """
+import ipaddress
 import re
 
 from django.conf import settings
@@ -61,6 +62,26 @@ def _related_config(snap, name, bridge):
                               or name in str(r.get('current-tagged', '')).split(',') or name in str(r.get('current-untagged', '')).split(',')])
     add('DHCP server', [_clean(r) for r in _rows(snap, 'DHCP servers') if str(r.get('interface', '')) in names])
     add('DHCP client', [_clean(r) for r in _rows(snap, 'DHCP clients') if str(r.get('interface', '')) in names])
+    servers = [r for r in _rows(snap, 'DHCP servers') if str(r.get('interface', '')) in names]
+    snames = {str(r.get('name', '')) for r in servers}
+    pools = {str(r.get('address-pool', '')) for r in servers}
+    add('DHCP address pool', [_clean(r) for r in _rows(snap, 'IP pools') if str(r.get('name', '')) in pools])
+    nets = []
+    for r in _rows(snap, 'IP addresses'):
+        if str(r.get('interface', '')) in names:
+            try:
+                nets.append(ipaddress.ip_interface(str(r.get('address', ''))).network)
+            except ValueError:
+                pass
+    def _in_nets(addr):
+        try:
+            return any(ipaddress.ip_network(str(addr), strict=False).overlaps(n) for n in nets)
+        except ValueError:
+            return False
+    add('DHCP network', [_clean(r) for r in _rows(snap, 'DHCP networks') if _in_nets(r.get('address', ''))])
+    leases = [_clean(r) for r in _rows(snap, 'DHCP leases') if str(r.get('server', '')) in snames]
+    leases.sort(key=lambda r: (str(r.get('dynamic', '')).lower() == 'true', str(r.get('address', ''))))
+    add('DHCP leases' + (f' ({len(leases)}, first 50)' if len(leases) > 50 else f' ({len(leases)})' if leases else ''), leases[:50])
     add('HotSpot server', [_clean(r) for r in _rows(snap, 'HotSpot servers') if str(r.get('interface', '')) in names])
     add('Interface lists', [_clean(r) for r in _rows(snap, 'Interface list members') if str(r.get('interface', '')) in names])
     add('Queues', [_clean(r) for r in _rows(snap, 'Simple queues') if str(r.get('target', '')) in names])

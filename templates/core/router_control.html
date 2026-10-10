@@ -465,9 +465,22 @@
       if(meta&&meta.scope==='router'&&zone.dataset.scope==='port')return;
       if(!meta||meta.scope!==zone.dataset.scope){e.stopPropagation();showToast('That block belongs on '+(meta?.scope||'another target')+'.','warning');return;}
       e.stopPropagation();
-      openRecipe(meta,zone.dataset.target||'');
+      openWithCurrent(meta,zone.dataset.target||'');
     });
   });
+
+  // A block dropped on a target opens with what that target has now (e.g. its DHCP server), so a change edits
+  // the real configuration instead of starting again from the defaults.
+  async function openWithCurrent(meta,target){
+    let preset={};
+    try{
+      const r=await fetch(inspectUrl+'?scope='+encodeURIComponent(meta.scope)+'&target='+encodeURIComponent(target),{credentials:'same-origin',cache:'no-store'});
+      const d=await r.json();
+      const a=(d.adjustments||[]).find(x=>x.recipe===meta.key);
+      if(a&&a.parameters) preset=Object.fromEntries(Object.entries(a.parameters).filter(([,v])=>v!==''&&v!==null&&v!==undefined));
+    }catch(err){ /* offline or not synced yet: the block's defaults */ }
+    openRecipe(meta,target,preset);
+  }
 
   function openRecipe(meta,target,preset={}){
     current={meta,target,parameters:{...preset}};
@@ -493,7 +506,23 @@
       return `<div class="col-md-6"><label>${esc(f.label)}</label>${input}</div>`;
     }).join('') || '<div class="col-12"><div class="empty-mini">No extra parameters needed.</div></div>';
     document.getElementById('planPreview').innerHTML='<div class="empty-mini">Press Refresh preview to review the exact plan.</div>';
+    if(meta.key==='dhcp_server') dhcpRangeFollowsAddress(host);
     modal.show(); previewCurrent();
+  }
+
+  // DHCP server form: change the router address and the range to hand out follows it (.10 … last usable),
+  // unless you typed your own range.
+  function dhcpRangeFollowsAddress(host){
+    const f=n=>host.querySelector(`.recipe-param[data-name="${n}"]`), gw=f('gateway'), a=f('pool_start'), b=f('pool_end');
+    if(!gw||!a||!b) return;
+    const toInt=ip=>ip.split('.').reduce((t,o)=>t*256+(+o),0)>>>0, toIp=n=>[24,16,8,0].map(s=>(n>>>s)&255).join('.');
+    const range=v=>{const m=/^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$/.exec(v.trim()); if(!m) return null; const p=+m[2]; if(p<16||p>30||m[1].split('.').some(o=>+o>255)) return null;
+      const ip=toInt(m[1]), mask=p?(0xFFFFFFFF<<(32-p))>>>0:0, net=(ip&mask)>>>0, bc=(net|(~mask>>>0))>>>0, size=bc-net+1;
+      let start=net+Math.min(10,Math.floor(size/4)); if(start<=ip&&ip<bc-1) start=Math.max(start,ip+1); return [toIp(start),toIp(bc-1)];};
+    let auto=range(gw.value); const mine=()=>!auto||a.value!==auto[0]||b.value!==auto[1];
+    let custom=auto?mine():true;
+    [a,b].forEach(x=>x.addEventListener('input',()=>{custom=true;}));
+    gw.addEventListener('input',()=>{const r=range(gw.value); if(r&&!custom){a.value=r[0];b.value=r[1];} auto=r;});
   }
 
   function collectParams(){

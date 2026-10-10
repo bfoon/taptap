@@ -90,6 +90,49 @@ CATALOG = {
             {"name":"gateway","label":"Gateway","type":"text","default":"192.0.2.1"},
         ],
     },
+    # ── DHCP server (core/control_designer.py build_plan; checks against the live router in _router_checks) ──
+    "dhcp_server": {
+        "label": "DHCP server",
+        "icon": "bi-ui-radios-grid",
+        "scope": "port",
+        "risk": "advanced",
+        "summary": "Hand out addresses on this bridge, VLAN or port: router address, pool, DNS, lease time. "
+                   "Drop it on a target that already has one to change it.",
+        "fields": [
+            {"name": "gateway", "label": "Router address / prefix (customers' gateway)", "type": "text", "default": "192.168.88.1/24"},
+            {"name": "pool_start", "label": "First address to hand out", "type": "text", "default": "192.168.88.10"},
+            {"name": "pool_end", "label": "Last address to hand out", "type": "text", "default": "192.168.88.254"},
+            {"name": "dns", "label": "DNS for customers (blank = the router)", "type": "text", "default": ""},
+            {"name": "lease_time", "label": "Lease time (e.g. 30m, 1h, 1d)", "type": "text", "default": "1h"},
+            {"name": "enabled", "label": "Server", "type": "select",
+             "options": [["yes", "On — hand out addresses"], ["no", "Off — keep the settings, stop handing out"]], "default": "yes"},
+            {"name": "server", "label": "Server name (blank = automatic)", "type": "text", "default": ""},
+            {"name": "pool", "label": "Address pool name (blank = automatic)", "type": "text", "default": ""},
+        ],
+    },
+    "dhcp_lease": {
+        "label": "Fixed IP for a device",
+        "icon": "bi-pin-angle",
+        "scope": "port",
+        "risk": "normal",
+        "summary": "Always give one device (by MAC address) the same IP from this DHCP server.",
+        "fields": [
+            {"name": "mac", "label": "Device MAC address", "type": "text", "default": ""},
+            {"name": "address", "label": "IP address to give it", "type": "text", "default": ""},
+            {"name": "server", "label": "DHCP server name", "type": "text", "default": ""},
+        ],
+    },
+    "dhcp_remove": {
+        "label": "Remove DHCP server",
+        "icon": "bi-x-octagon",
+        "scope": "port",
+        "risk": "high",
+        "summary": "Delete the DHCP server on this target, with its network and address pool. Devices stop getting addresses.",
+        "fields": [
+            {"name": "network", "label": "DHCP network to delete (blank = keep)", "type": "text", "default": ""},
+            {"name": "pool", "label": "Address pool to delete (blank = keep)", "type": "text", "default": ""},
+        ],
+    },
     "identity": {
         "label": "Router identity",
         "icon": "bi-router",
@@ -187,6 +230,82 @@ def _vlans(value):
     return out
 
 
+DURATION = re.compile(r"^(?:(\d+)w)?(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$")
+CLOCK = re.compile(r"^(?:(\d+)d)?(\d{1,2}):(\d{2}):(\d{2})$")
+MAC = re.compile(r"^[0-9A-F]{2}([:-]?)[0-9A-F]{2}(\1[0-9A-F]{2}){4}$")
+
+
+def _lease_time(value):
+    """A RouterOS duration for the lease: 30m, 1h, 1d12h or 00:10:00. Between 1 minute and 1 year."""
+    v = str(value or "").strip().lower().replace(" ", "") or "1h"
+    m, c = DURATION.fullmatch(v), CLOCK.fullmatch(v)
+    if m and any(m.groups()):
+        w, d, h, mi, sec = (int(x or 0) for x in m.groups())
+        seconds = w * 604800 + d * 86400 + h * 3600 + mi * 60 + sec
+    elif c:
+        d, h, mi, sec = (int(x or 0) for x in c.groups())
+        seconds = d * 86400 + h * 3600 + mi * 60 + sec
+    else:
+        raise ValueError("Lease time: write it like 30m, 1h, 12h or 1d.")
+    if not 60 <= seconds <= 366 * 86400:
+        raise ValueError("Lease time must be between 1 minute and 1 year.")
+    return v
+
+
+def _mac(value):
+    v = str(value or "").strip().upper()
+    if not MAC.fullmatch(v):
+        raise ValueError("Enter the device MAC address, e.g. AA:BB:CC:11:22:33.")
+    hexes = re.sub(r"[^0-9A-F]", "", v)
+    return ":".join(hexes[i:i + 2] for i in range(0, 12, 2))
+
+
+def _auto_name(prefix, target):
+    return _name(f"{prefix}-{re.sub(r'[^A-Za-z0-9_.-]', '-', target)}"[:60], "name")
+
+
+def dhcp_numbers(params, target):
+    """Validated numbers for a DHCP server form → dict. Raises ValueError with a plain message."""
+    raw_gw = str(params.get("gateway") or "").strip()
+    if raw_gw and "/" not in raw_gw:
+        raise ValueError(f"Router address: add the prefix, e.g. {raw_gw}/24.")
+    try:
+        gw = ipaddress.ip_interface(raw_gw)
+    except ValueError:
+        raise ValueError("Router address: write it with its prefix, e.g. 192.168.88.1/24.")
+    if gw.version != 4:
+        raise ValueError("Router address: only IPv4 DHCP servers can be set up here.")
+    net = gw.network
+    if net.prefixlen > 30 or net.prefixlen < 16:
+        raise ValueError("Router address: use a network between /16 and /30 (a /24 is usual).")
+    if gw.ip in (net.network_address, net.broadcast_address):
+        raise ValueError(f"Router address: {gw.ip} is the network's own address — use one inside it, e.g. {net.network_address + 1}.")
+    try:
+        start = ipaddress.ip_address(str(params.get("pool_start") or "").strip())
+        end = ipaddress.ip_address(str(params.get("pool_end") or "").strip())
+    except ValueError:
+        raise ValueError("Enter the first and last address to hand out, e.g. 192.168.88.10 and 192.168.88.254.")
+    for label, ip in (("First", start), ("Last", end)):
+        if ip not in net or ip in (net.network_address, net.broadcast_address):
+            raise ValueError(f"{label} address {ip} is not a usable address in {net}.")
+    if int(start) > int(end):
+        raise ValueError("The first address must come before the last one.")
+    if int(start) <= int(gw.ip) <= int(end):
+        raise ValueError(f"The range {start}–{end} includes the router's own address {gw.ip}. "
+                         f"Start after it, e.g. {gw.ip + 9}.")
+    dns_raw = str(params.get("dns") or "").replace(" ", "")
+    dns = [_ip(x, "DNS server") for x in dns_raw.split(",") if x] or [str(gw.ip)]
+    if len(dns) > 3:
+        raise ValueError("Enter at most 3 DNS servers.")
+    return {
+        "gateway": gw, "network": net, "start": start, "end": end, "size": int(end) - int(start) + 1, "dns": dns,
+        "lease_time": _lease_time(params.get("lease_time")),
+        "enabled": str(params.get("enabled", "yes")) != "no",
+        "server": _name(params.get("server"), "server name") if str(params.get("server") or "").strip() else _auto_name("dhcp", target),
+        "pool": _name(params.get("pool"), "pool name") if str(params.get("pool") or "").strip() else _auto_name("pool", target),
+    }
+
+
 def _op(resource, action="ensure", find=None, values=None, label=""):
     return {
         "resource": resource,
@@ -278,6 +397,46 @@ def build_plan(recipe, target, params):
                 {"chain": "srcnat", "action": "masquerade", "out_interface": target},
                 {"comment": comment}, "WAN masquerade"),
         ]
+
+    if recipe == "dhcp_server":
+        n = dhcp_numbers(params, target)
+        return [
+            _op("/ip/address", "ensure", {"interface": target, "address": str(n["gateway"])},
+                {"comment": comment}, f"Router address {n['gateway']} on {target}"),
+            _op("/ip/pool", "ensure", {"name": n["pool"]},
+                {"ranges": f"{n['start']}-{n['end']}", "comment": comment},
+                f"Address pool {n['pool']}: {n['start']}–{n['end']} ({n['size']} addresses)"),
+            _op("/ip/dhcp-server", "ensure", {"interface": target},
+                {"name": n["server"], "address_pool": n["pool"], "lease_time": n["lease_time"],
+                 "disabled": "no" if n["enabled"] else "yes", "comment": comment},
+                f"DHCP server {n['server']} ({'on' if n['enabled'] else 'off'}, lease {n['lease_time']})"),
+            _op("/ip/dhcp-server/network", "ensure", {"address": str(n["network"])},
+                {"gateway": str(n["gateway"].ip), "dns_server": ",".join(n["dns"]), "comment": comment},
+                f"DHCP network {n['network']} → gateway {n['gateway'].ip}, DNS {', '.join(n['dns'])}"),
+        ]
+
+    if recipe == "dhcp_lease":
+        mac = _mac(params.get("mac"))
+        ip = _ip(params.get("address"), "IP address")
+        server = _name(params.get("server"), "server name") if str(params.get("server") or "").strip() else _auto_name("dhcp", target)
+        key = f"{MANAGED}dhcp_lease:{mac}"
+        return [
+            # A temporary (dynamic) lease for the same device would block the fixed one: drop it first.
+            _op("/ip/dhcp-server/lease", "remove_matching", {"mac_address": mac, "dynamic": "true"}, {},
+                f"Drop the temporary lease of {mac}"),
+            _op("/ip/dhcp-server/lease", "ensure", {"mac_address": mac, "comment": key},
+                {"address": ip, "server": server, "disabled": "no"}, f"Fixed IP {ip} for {mac} on {server}"),
+        ]
+
+    if recipe == "dhcp_remove":
+        ops = [_op("/ip/dhcp-server", "remove_matching", {"interface": target}, {}, f"Delete the DHCP server on {target}")]
+        if str(params.get("network") or "").strip():
+            ops.append(_op("/ip/dhcp-server/network", "remove_matching", {"address": _network(params.get("network"))}, {},
+                           "Delete its DHCP network"))
+        if str(params.get("pool") or "").strip():
+            ops.append(_op("/ip/pool", "remove_matching", {"name": _name(params.get("pool"), "pool name")}, {},
+                           "Delete its address pool"))
+        return ops
 
     if recipe == "identity":
         identity = _name(params.get("identity"), "identity")
@@ -399,6 +558,8 @@ def _rollback_from(before_state, plan):
     out = []
     for old, op in zip(before_state, plan):
         rows = old.get("rows") or []
+        if op["action"] == "remove_matching" and str(op["find"].get("dynamic")) == "true":
+            continue
         if not rows:
             # Item did not exist before. Remove the item matching the original selector
             # plus a TapTap comment when one was created.
@@ -419,6 +580,8 @@ def _rollback_from(before_state, plan):
                 values[key] = prior[key]
             elif hy in prior:
                 values[key] = prior[hy]
+        if op["action"] == "remove_matching" and str(op["find"].get("dynamic")) == "true":
+            continue        # a temporary DHCP lease: the device simply asks again, nothing to restore
         if op["action"] == "remove_matching":
             # Re-create removed rows from their safe visible fields is risky and device-version
             # dependent, so the rollback preview explicitly reports manual restore required.
@@ -441,7 +604,10 @@ def _selector(find):
     bits = []
     for k, v in find.items():
         key = k.replace("_", "-")
-        bits.append(f"{key}={_rosq(v)}")
+        if key in ("dynamic", "disabled", "invalid") and str(v).lower() in ("true", "false", "yes", "no"):
+            bits.append(f"{key}={'yes' if str(v).lower() in ('true', 'yes') else 'no'}")
+        else:
+            bits.append(f"{key}={_rosq(v)}")
     return " ".join(bits)
 
 
@@ -769,6 +935,129 @@ def _latest_recipe_parameters(router, scope, target):
     return out
 
 
+# ───────────────────────── DHCP: what the router has now, and checks before a change ─────────────────────────
+
+DHCP_RECIPES = ("dhcp_server", "dhcp_lease", "dhcp_remove")
+
+
+def _sec(snapshot, title):
+    return list(((getattr(snapshot, "sections", None) or {}).get(title) or {}).get("rows") or []) if snapshot else []
+
+
+def _on(row):
+    return str(row.get("disabled", "")).lower() not in ("true", "yes")
+
+
+def dhcp_current(snapshot, iface):
+    """Current DHCP settings of one interface from the snapshot → parameters for the three DHCP recipes."""
+    server = next((r for r in _sec(snapshot, "DHCP servers") if str(r.get("interface", "")) == iface), None)
+    addrs = [r for r in _sec(snapshot, "IP addresses") if str(r.get("interface", "")) == iface and _on(r)]
+    gw = None
+    for r in addrs:
+        try:
+            gw = ipaddress.ip_interface(str(r.get("address", "")))
+            if gw.version == 4:
+                break
+        except ValueError:
+            gw = None
+    out = {}
+    if server or gw:
+        net = gw.network if gw else None
+        pool_name = str(server.get("address-pool", "")) if server else ""
+        pool = next((r for r in _sec(snapshot, "IP pools") if str(r.get("name", "")) == pool_name), None) if pool_name else None
+        start = end = ""
+        if pool and pool.get("ranges"):
+            first = str(pool["ranges"]).split(",")[0]
+            start, _, end = first.partition("-")
+            end = end or start
+        elif net and net.num_addresses >= 8:
+            hosts = net.num_addresses
+            start = str(net.network_address + min(10, hosts // 4)); end = str(net.broadcast_address - 1)
+        network = next((r for r in _sec(snapshot, "DHCP networks")
+                        if net and str(r.get("address", "")) == str(net)), None)
+        dns = str(network.get("dns-server", "")) if network else ""
+        if gw and dns == str(gw.ip):
+            dns = ""
+        out["dhcp_server"] = {
+            "gateway": str(gw) if gw else "", "pool_start": start, "pool_end": end, "dns": dns,
+            "lease_time": str(server.get("lease-time", "1h")) if server else "1h",
+            "enabled": "no" if server and not _on(server) else "yes",
+            "server": str(server.get("name", "")) if server else "", "pool": pool_name,
+        }
+        if server:
+            out["dhcp_lease"] = {"server": str(server.get("name", "")), "mac": "", "address": ""}
+            out["dhcp_remove"] = {"network": str(net) if net else "", "pool": pool_name}
+    return out
+
+
+def _bridge_of(router, iface):
+    obj = router.interfaces.filter(name=iface).first()
+    bp = ((obj.raw_data or {}).get("bridge_port") or {}) if obj else {}
+    return str(bp.get("bridge", "") or "") if isinstance(bp, dict) else ""
+
+
+def _router_checks(router, recipe, target, params):
+    """Checks a recipe against what the router really has. Raises ValueError with what to do instead."""
+    if recipe not in DHCP_RECIPES:
+        return
+    snap = _snapshot(router)
+    bridge = _bridge_of(router, target)
+    if bridge:
+        raise ValueError(f"{target} is part of {bridge}. A DHCP server belongs on the bridge — drop it on {bridge} "
+                         "(in the RouterOS block) instead.")
+    if recipe == "dhcp_server":
+        lb = getattr(snap, "load_balancing", None) or {}
+        wans = {l.get("interface") for l in lb.get("wan_links", []) if l.get("interface")}
+        wans |= set(router.interface_roles.filter(role="wan").values_list("interface_name", flat=True))
+        if target in wans:
+            raise ValueError(f"{target} is an Internet (WAN) port. A DHCP server there would hand out addresses to your "
+                             "provider's network. Put it on your customers' bridge or port.")
+        existing = next((r for r in _sec(snap, "DHCP servers") if str(r.get("interface", "")) == target), None)
+        if existing:      # blank names keep the server's own names: never rename it or orphan its pool by accident
+            if not str(params.get("server") or "").strip():
+                params["server"] = str(existing.get("name", ""))
+            if not str(params.get("pool") or "").strip() and existing.get("address-pool"):
+                params["pool"] = str(existing.get("address-pool", ""))
+        n = dhcp_numbers(params, target)
+        for r in _sec(snap, "IP addresses"):
+            other = str(r.get("interface", ""))
+            if other == target or not _on(r):
+                continue
+            try:
+                theirs = ipaddress.ip_interface(str(r.get("address", ""))).network
+            except ValueError:
+                continue
+            if theirs.version == 4 and theirs.overlaps(n["network"]):
+                raise ValueError(f"{n['network']} overlaps {theirs}, which is already on {other}. "
+                                 "Use another network, e.g. 192.168.89.1/24.")
+        server = next((r for r in _sec(snap, "DHCP servers") if str(r.get("name", "")) == n["server"]
+                       and str(r.get("interface", "")) != target), None)
+        if server:
+            raise ValueError(f"A DHCP server called {n['server']} already runs on {server.get('interface')}. "
+                             "Choose another name, or leave the name blank.")
+    if recipe == "dhcp_lease":
+        servers = {str(r.get("name", "")): r for r in _sec(snap, "DHCP servers")}
+        name = str(params.get("server") or "").strip()
+        mine = [r for r in servers.values() if str(r.get("interface", "")) == target]
+        if not name and mine:
+            params["server"] = name = str(mine[0].get("name", ""))
+        if servers and name not in servers:
+            raise ValueError(f"There is no DHCP server called “{name or '(blank)'}”. "
+                             + (f"The one on {target} is {mine[0].get('name')}." if mine else
+                                f"Set up a DHCP server on {target} first."))
+        ip = ipaddress.ip_address(_ip(params.get("address"), "IP address"))
+        cur = dhcp_current(snap, target).get("dhcp_server") or {}
+        if cur.get("gateway"):
+            gw = ipaddress.ip_interface(cur["gateway"])
+            if ip not in gw.network or ip in (gw.network.network_address, gw.network.broadcast_address):
+                raise ValueError(f"{ip} is not in this server's network {gw.network}.")
+            if ip == gw.ip:
+                raise ValueError(f"{ip} is the router's own address.")
+    if recipe == "dhcp_remove":
+        if not any(str(r.get("interface", "")) == target for r in _sec(snap, "DHCP servers")) and snap and snap.sections:
+            raise ValueError(f"There is no DHCP server on {target} in the latest configuration. Refresh Config if you just added one.")
+
+
 def _port_adjustments(router, obj, raw, bridge_port, related):
     current = _latest_recipe_parameters(router, "port", obj.name)
     bridge = str((bridge_port or {}).get("bridge") or "")
@@ -803,6 +1092,14 @@ def _port_adjustments(router, obj, raw, bridge_port, related):
             "vlans": ",".join(dict.fromkeys(x.strip() for x in trunk if x.strip())),
         }
 
+    # DHCP: offered on a bridge, VLAN or standalone port — never on a port inside a bridge.
+    keys = ["port_enabled", "bridge_member", "access_vlan", "trunk_vlan", "wan_dhcp", "static_wan"]
+    if not bridge:
+        dhcp = dhcp_current(_snapshot(router), obj.name)
+        current.update(dhcp)
+        keys = (["dhcp_server", "dhcp_lease", "dhcp_remove"] if "dhcp_remove" in dhcp else ["dhcp_server"]) + keys
+        if obj.interface_type == "bridge":
+            keys = [k for k in keys if k not in ("bridge_member", "access_vlan", "trunk_vlan", "wan_dhcp", "static_wan")]
     return [
         {
             "recipe": key,
@@ -810,7 +1107,7 @@ def _port_adjustments(router, obj, raw, bridge_port, related):
             "risk": CATALOG[key]["risk"],
             "parameters": current.get(key, {}),
         }
-        for key in ("port_enabled", "bridge_member", "access_vlan", "trunk_vlan", "wan_dhcp", "static_wan")
+        for key in keys
     ]
 
 
@@ -1190,6 +1487,8 @@ def designer_preview(request, pk):
         params = data.get("parameters") or {}
         meta = CATALOG[recipe]
         plan = build_plan(recipe, target, params)
+        _router_checks(router, recipe, target, params)
+        plan = build_plan(recipe, target, params)         # checks may fill in a missing server name
         impact = link_impact(router, recipe, target, params, plan)
         return JsonResponse({
             "success": True,
@@ -1213,6 +1512,8 @@ def designer_apply(request, pk):
         meta = CATALOG[recipe]
         if meta["risk"] == "high" and str(data.get("confirm") or "") != "APPLY":
             raise ValueError("High-risk configuration requires typing APPLY.")
+        plan = build_plan(recipe, target, params)
+        _router_checks(router, recipe, target, params)
         plan = build_plan(recipe, target, params)
         impact = link_impact(router, recipe, target, params, plan)
         if impact["affects"] and str(data.get("link_confirm") or "") != "LINK":
