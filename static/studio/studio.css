@@ -11,7 +11,7 @@
 .page-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:1rem}
 .page-card{background:#fff;border:1px solid var(--border);border-radius:18px;overflow:hidden;display:flex;flex-direction:column}
 .page-thumb{position:relative;height:280px;overflow:hidden;background:#e9eef5;display:block}
-.page-thumb iframe{position:absolute;left:50%;top:0;width:390px;height:700px;border:0;transform:translateX(-50%) scale(.4);transform-origin:50% 0;pointer-events:none}
+.page-thumb iframe{position:absolute;left:0;top:0;width:390px;height:900px;border:0;transform:scale(var(--s,.65));transform-origin:0 0;pointer-events:none}
 .page-card .badges{position:absolute;left:.6rem;top:.6rem;display:flex;gap:.3rem}
 .page-card .badges span{font-size:.64rem;font-weight:800;border-radius:99px;padding:.2rem .5rem;background:#fff;color:#4d6075;box-shadow:0 2px 8px #0002}
 .page-card .badges .def{background:var(--primary);color:#fff}.page-card .badges .draft{background:#fff4df;color:#9a5b00}
@@ -31,7 +31,7 @@
 /* In a scrolling dialog only the dialog scrolls (no second scrollbar inside it). */
 .modal-dialog-scrollable .modal-body .gallery{max-height:none;overflow:visible}
 .gallery .g-thumb{height:250px;border-radius:12px;overflow:hidden;position:relative;background:#e9eef5}
-.gallery .g-thumb iframe{position:absolute;left:50%;top:0;width:390px;height:700px;border:0;transform:translateX(-50%) scale(.36);transform-origin:50% 0;pointer-events:none}
+.gallery .g-thumb iframe{position:absolute;left:0;top:0;width:390px;height:900px;border:0;transform:scale(var(--s,.55));transform-origin:0 0;pointer-events:none}
 .gallery b{display:block;font-size:.84rem;margin:.45rem .2rem 0}.gallery small{display:block;color:var(--muted);font-size:.72rem;margin:0 .2rem}
 .kind-tabs{display:flex;gap:.3rem;margin-bottom:.8rem}.kind-tabs button{border:1px solid var(--border);background:#fff;border-radius:99px;padding:.35rem .8rem;font-size:.8rem;font-weight:700;color:#5b6d82}.kind-tabs button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
 
@@ -128,4 +128,6 @@ body:has(.ed) .main-content>.mb-3{position:fixed;top:12px;right:16px;z-index:200
 
 @media(hover:hover){.blk .act{opacity:0;transition:opacity .12s}.blk:hover .act,.blk.sel .act,.blk:focus-within .act{opacity:1}}
 .page-thumb iframe,.gallery .g-thumb iframe,.tpl-list .t-thumb iframe{left:0;transform-origin:0 0;transform:scale(var(--s,.4))}
+/* responsive.css caps every iframe at 100% of its box — that squeezed the 390px phone previews before scaling them */
+.page-thumb iframe,.gallery .g-thumb iframe,.tpl-list .t-thumb iframe,.studio-hero .phone-peek iframe{max-width:none!important;width:390px!important}
 .studio-hero{padding-right:clamp(1.6rem,22%,240px)}

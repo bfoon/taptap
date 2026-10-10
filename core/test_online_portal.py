@@ -16,6 +16,16 @@ from .models import Business, PortalPage, Voucher, VoucherDeviceBinding
 from .models_voucher_reports import VoucherReport
 
 
+def portal_ctx(html):
+    """The context the Studio design is rendered with (TapPortal.render(el, config, ctx))."""
+    import re as _re
+    tail = _re.search(r"TapPortal\.render\(document\.getElementById\('tp'\), (.+)\);</script>", html, _re.S).group(1)
+    dec = json.JSONDecoder()
+    _cfg, end = dec.raw_decode(tail)
+    ctx, _ = dec.raw_decode(tail[end:].lstrip(', '))
+    return ctx
+
+
 @override_settings(AUTH_EMAIL_OTP=False, SITE_URL='https://taptapnetwork.com')
 class OnlinePortalTests(TestCase):
     def setUp(self):
@@ -49,12 +59,19 @@ class OnlinePortalTests(TestCase):
         r = self.client.get(reverse('portal_online', args=['kairaba-login']) + '?code=GOOD12')
         html = r.content.decode()
         self.assertEqual(r.status_code, 200)
-        for text in ('Kairaba Net Wi-Fi', "HOST='login.wifi'", '/p/kairaba-login/check/', '/p/kairaba-login/report/', 'value="GOOD12"',
-                     'Send it to us'):
-            self.assertIn(text, html, text)
+        self.assertIn('studio/portal-render.js', html)                       # the page designed in Portal Studio
+        ctx = portal_ctx(html)
+        self.assertEqual(ctx['mode'], 'hosted')
+        self.assertEqual(ctx['mt']['linkLoginOnly'], 'http://login.wifi/login')   # no router known: the easy name
+        self.assertEqual(ctx['autoLogin'], {'code': 'GOOD12', 'member': False, 'password': ''})
+        self.assertEqual(ctx['reportUrl'], '/p/kairaba-login/report/')
         self.assertEqual(self.client.get(reverse('portal_online', args=['nope'])).status_code, 404)
         qr = self.client.get(reverse('portal_qr', args=[self.page.pk])).content.decode()
         self.assertIn('https://taptapnetwork.com/p/kairaba-login/go/', qr); self.assertIn('vendor/qrcode.js', qr)
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse('portal_online', args=['kairaba-login'])).status_code, 404)    # draft: owner only
+        PortalPage.objects.filter(pk=self.page.pk).update(is_published=True)
+        self.assertEqual(self.client.get(reverse('portal_online', args=['kairaba-login'])).status_code, 200)
 
     def test_expired_message_says_when(self):
         r = self.client.post(reverse('portal_check', args=['kairaba-login']), json.dumps({'code': 'OLD123'}), content_type='application/json')
@@ -87,6 +104,7 @@ class OnlinePortalTests(TestCase):
                                               'error': 'Voucher expired: ...', 'mac': 'aa:bb:cc:dd:ee:ff'}), content_type='application/json')
         j = r.json()
         self.assertEqual((r.status_code, j['title']), (200, 'Expired'))
+        self.assertEqual(r['Access-Control-Allow-Origin'], '*')                  # the router's own page can read it
         rep = VoucherReport.objects.get()
         self.assertEqual((rep.code, rep.voucher_id, rep.phone, rep.mac, rep.diagnosis['state']), ('OLD123', self.old.pk, '+220 777 1111', 'AA:BB:CC:DD:EE:FF', 'expired'))
         from .models import Notification
@@ -127,15 +145,13 @@ class QuickLoginLinkTests(TestCase):
         r = self.client.get('/p/taptap-kerrsering-login-8d89/login?username=G2UZG&password=G2UZG')
         html = r.content.decode()
         self.assertEqual(r.status_code, 200)
-        self.assertIn('value="G2UZG"', html)
-        self.assertIn("setTimeout(function(){$('signin').click();},400)", html)          # signs in by itself
-        self.assertNotIn('document.querySelector(\'[data-t="member"]\').click()', html)  # a voucher, not a member
+        self.assertEqual(portal_ctx(html)['autoLogin'], {'code': 'G2UZG', 'member': False, 'password': ''})   # signs in by itself
 
     def test_member_link_and_no_parameters(self):
         html = self.client.get('/p/taptap-kerrsering-login-8d89/login/?username=jimmy&password=s3cret').content.decode()
-        self.assertIn('document.querySelector(\'[data-t="member"]\').click()', html); self.assertIn("$('pw').value='s3cret'", html)
+        self.assertEqual(portal_ctx(html)['autoLogin'], {'code': 'jimmy', 'member': True, 'password': 's3cret'})
         plain = self.client.get('/p/taptap-kerrsering-login-8d89/login').content.decode()
-        self.assertNotIn("$('signin').click();},400", plain)
+        self.assertNotIn('autoLogin', portal_ctx(plain))
         self.assertEqual(self.client.get('/p/no-such-portal/login?username=A&password=A').status_code, 404)
 
     def test_voucher_card_link_resolves(self):
@@ -181,7 +197,7 @@ class RouterLoginAddressTests(TestCase):
 
     def test_page_sends_the_phone_to_the_ip(self):
         html = self.client.get('/p/kk-login/login?username=G2UZG&password=G2UZG').content.decode()
-        self.assertIn("HOST='10.5.50.1'", html)                          # only router → its IP, not login.wifi
+        self.assertEqual(portal_ctx(html)['mt']['linkLoginOnly'], 'http://10.5.50.1/login')                          # only router → its IP, not login.wifi
 
     def test_choosing_the_router(self):
         from .models import Router
@@ -189,11 +205,11 @@ class RouterLoginAddressTests(TestCase):
         self.snap(b2, '172.16.0.1')
         # two routers, different networks: the phone's public address picks one
         html = self.client.get('/p/kk-login/go/', REMOTE_ADDR='41.223.9.9').content.decode()
-        self.assertIn("HOST='172.16.0.1'", html)
+        self.assertEqual(portal_ctx(html)['mt']['linkLoginOnly'], 'http://172.16.0.1/login')
         html = self.client.get('/p/kk-login/go/?r=%d' % self.k.pk, REMOTE_ADDR='8.8.8.8').content.decode()
-        self.assertIn("HOST='10.5.50.1'", html)                          # a router-specific QR
+        self.assertEqual(portal_ctx(html)['mt']['linkLoginOnly'], 'http://10.5.50.1/login')                          # a router-specific QR
         html = self.client.get('/p/kk-login/go/', REMOTE_ADDR='8.8.8.8').content.decode()
-        self.assertIn("HOST='login.wifi'", html)                         # cannot tell which: the easy name
+        self.assertEqual(portal_ctx(html)['mt']['linkLoginOnly'], 'http://login.wifi/login')                         # cannot tell which: the easy name
         qr = self.client.get(reverse('portal_qr', args=[PortalPage.objects.get().pk]) + '?r=%d' % b2.pk).content.decode()
         self.assertIn('/p/kk-login/go/?r=%d' % b2.pk, qr); self.assertIn('172.16.0.1', qr)
 
@@ -202,7 +218,7 @@ class RouterLoginAddressTests(TestCase):
         b2 = Router.objects.create(business=self.b, name='Brikama', ip_address='41.223.9.9', username='u', password='p')
         self.snap(b2, '10.5.50.1')
         html = self.client.get('/p/kk-login/go/', REMOTE_ADDR='8.8.8.8').content.decode()
-        self.assertIn("HOST='10.5.50.1'", html)
+        self.assertEqual(portal_ctx(html)['mt']['linkLoginOnly'], 'http://10.5.50.1/login')
 
 
 @override_settings(AUTH_EMAIL_OTP=False, SITE_URL='https://taptapnetwork.com')
@@ -241,3 +257,40 @@ class PrepareRoutersTests(TestCase):
         self.assertIn('taptapnetwork.com', wrap(cmd, 'https://taptapnetwork.com', 'no'))
         with self.assertRaises(ValueError):
             queue(self.link, 'online_signin', {'host': 'x"; /system reset'})
+
+
+@override_settings(AUTH_EMAIL_OTP=False, SITE_URL='https://taptapnetwork.com')
+class ReportBlockTests(TestCase):
+    """The "Problem with your voucher? Send it to us" block, designed in Portal Studio, on the router page and online."""
+
+    def setUp(self):
+        owner = User.objects.create_user('o', 'o@x.gm', 'pw12345678')
+        self.b = Business.objects.create(user=owner, business_name='K', owner_name='A', phone='1',
+                                         trial_ends_at=timezone.now() + timedelta(days=9), is_unlimited=True)
+        cfg = {'theme': {}, 'settings': {}, 'blocks': [{'id': 'v1', 'type': 'voucher'}, {'id': 'r1', 'type': 'report', 'title': 'Voucher not working? Tell us'}]}
+        self.page = PortalPage.objects.create(business=self.b, name='Login', kind='login', slug='k-login', config=cfg, is_published=True)
+        self.client.force_login(owner)
+
+    def test_router_export_carries_the_report_address(self):
+        from .views_studio import _export_html
+        html = _export_html(self.page, 'https://taptapnetwork.com')
+        self.assertIn('"reportUrl":"https://taptapnetwork.com/p/k-login/report/"', html)
+
+    def test_post_from_the_router_page(self):
+        self.client.logout()
+        url = reverse('portal_online_report', args=['k-login'])
+        pre = self.client.options(url, HTTP_ORIGIN='http://10.5.50.1')
+        self.assertEqual(pre['Access-Control-Allow-Origin'], '*')
+        r = self.client.post(url, json.dumps({'code': 'ABC', 'phone': '777'}), content_type='text/plain', HTTP_ORIGIN='http://10.5.50.1')
+        self.assertEqual((r.status_code, r['Access-Control-Allow-Origin']), (200, '*'))
+        bad = self.client.post(url, json.dumps({'code': 'ABC'}), content_type='text/plain')
+        self.assertEqual((bad.status_code, bad['Access-Control-Allow-Origin']), (400, '*'))
+
+    def test_block_in_the_studio(self):
+        from pathlib import Path
+        from django.conf import settings
+        root = Path(settings.BASE_DIR) / 'static' / 'studio'
+        editor, render = (root / 'portal-editor.js').read_text(), (root / 'portal-render.js').read_text()
+        self.assertIn("report: { n: 'Send voucher to staff'", editor)
+        self.assertIn('B.report = function', render); self.assertIn('function autoLogin', render)
+        self.assertIn("location.protocol === 'https:' && /^http:/i.test(action)", render)

@@ -176,17 +176,24 @@ def login_host(request, business):
 
 
 def online_page(request, slug, auto=None):
-    """The online sign-in page customers open from the QR code."""
+    """Online sign-in: the login page designed in Portal Studio, served by TapTap, signing in through the router.
+
+    The design gets the router's login address (link-login-only) when the router did not pass one — the hotspot IP
+    when TapTap can tell, else the easy name — and, from a voucher QR / quick-login link, the code to sign in with."""
+    from .views_studio import _public_ctx, _safe_json
     page = _page(slug)
-    b = page.business
-    login_host_ = login_host(request, b)
+    owner_preview = request.user.is_authenticated and getattr(request.user, 'business', None) == page.business
+    if not page.is_published and not owner_preview:
+        raise Http404
+    ctx = _public_ctx(request, page, 'hosted')
+    if not ctx['mt'].get('linkLoginOnly'):
+        ctx['mt']['linkLoginOnly'] = f'http://{login_host(request, page.business)}/login'
     code = re.sub(r'[^A-Za-z0-9._@-]', '', request.GET.get('code', '') or (auto or {}).get('user', ''))[:40]
-    return render(request, 'core/portal_online.html', {
-        'page': page, 'business': b, 'login_host': login_host_,
-        'after': (getattr(b, 'portal_redirect_url', '') or 'http://neverssl.com/'),
-        'prefill': code, 'auto': bool(auto and code), 'member': bool(auto and auto.get('member')),
-        'prefill_pw': (auto or {}).get('pw', '') if auto and auto.get('member') else '',
-    })
+    if code:
+        ctx['autoLogin'] = {'code': code, 'member': bool(auto and auto.get('member')),
+                            'password': (auto or {}).get('pw', '') if auto and auto.get('member') else ''}
+    return render(request, 'core/studio/portal_public.html', {'page': page, 'config_json': _safe_json(page.config),
+                                                              'ctx_json': _safe_json(ctx), 'draft': not page.is_published})
 
 
 def online_login(request, slug):
@@ -203,25 +210,41 @@ def online_login(request, slug):
     return online_page(request, slug, auto={'user': user, 'pw': pw[:64], 'member': member})
 
 
+def _cors(resp):
+    resp['Access-Control-Allow-Origin'] = '*'
+    return resp
+
+
 @csrf_exempt
-@require_POST
 def online_report(request, slug):
-    """A customer sends a voucher to staff."""
+    """A customer sends a voucher to staff — from the online page or the router's own page (cross-site, text/plain)."""
+    if request.method == 'OPTIONS':
+        resp = JsonResponse({'ok': True})
+        resp['Access-Control-Allow-Origin'] = '*'
+        resp['Access-Control-Allow-Methods'] = 'POST'
+        resp['Access-Control-Allow-Headers'] = 'Content-Type'
+        return resp
+    if request.method != 'POST':
+        return JsonResponse({'ok': False}, status=405)
     page = _page(slug)
     ip = _client_ip(request)
     key = f'tt:vreport:{page.pk}:{ip}'
-    if cache.get(key, 0) >= 5:
-        return JsonResponse({'ok': False, 'message': 'You have sent several already — staff will look at them soon.'}, status=429)
+    try:
+        sent = cache.get(key, 0)
+    except Exception:                        # cache down: still take the report
+        sent = 0
+    if sent >= 5:
+        return _cors(JsonResponse({'ok': False, 'message': 'You have sent several already — staff will look at them soon.'}, status=429))
     try:
         data = json.loads(request.body or b'{}')
     except ValueError:
         data = {}
     code = re.sub(r'\s', '', str(data.get('code') or ''))[:80]
     if not code:
-        return JsonResponse({'ok': False, 'message': 'Type the voucher code.'}, status=400)
+        return _cors(JsonResponse({'ok': False, 'message': 'Type the voucher code.'}, status=400))
     phone = re.sub(r'[^0-9+ ]', '', str(data.get('phone') or ''))[:40].strip()
     if not phone:
-        return JsonResponse({'ok': False, 'message': 'Add a phone number so staff can reach you.'}, status=400)
+        return _cors(JsonResponse({'ok': False, 'message': 'Add a phone number so staff can reach you.'}, status=400))
     d = diagnose(page.business, code)
     mac = str(data.get('mac') or '').upper()[:20]
     report = VoucherReport.objects.create(
@@ -229,13 +252,22 @@ def online_report(request, slug):
         phone=phone, message=str(data.get('message') or '')[:500].strip(), shown_error=str(data.get('error') or '')[:300],
         diagnosis=d, mac=mac if re.fullmatch(r'([0-9A-F]{2}:){5}[0-9A-F]{2}', mac) else '', ip=ip,
         user_agent=request.META.get('HTTP_USER_AGENT', '')[:300], portal_slug=page.slug)
-    cache.set(key, cache.get(key, 0) + 1, 600)
+    try:
+        cache.set(key, sent + 1, 600)
+    except Exception:
+        pass
     from django.urls import reverse
-    from .notify import notify
-    notify(page.business, 'voucher_report', f'Voucher {code} sent to staff — {d["title"]}',
-           f'{report.name or "A customer"} ({phone}) says: {report.message or "the voucher does not work"}.\nTapTap found: {d["title"]}.',
-           link=reverse('voucher_reports'), key=f'vreport:{report.pk}')
-    return JsonResponse({'ok': True, 'title': d['title'], 'message': d['customer']})
+    try:                                     # the report is saved either way; a notification hiccup must not lose it
+        from .notify import notify
+        notify(page.business, 'voucher_report', f'Voucher {code} sent to staff — {d["title"]}',
+               f'{report.name or "A customer"} ({phone}) says: {report.message or "the voucher does not work"}.\nTapTap found: {d["title"]}.',
+               link=reverse('voucher_reports'), key=f'vreport:{report.pk}')
+    except Exception:
+        import logging
+        logging.getLogger('taptap.portal').exception('voucher report %s: notification failed', report.pk)
+    resp = JsonResponse({'ok': True, 'title': d['title'], 'message': d['customer']})
+    resp['Access-Control-Allow-Origin'] = '*'
+    return resp
 
 
 # ─────────────────────────────── staff ───────────────────────────────

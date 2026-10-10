@@ -3,6 +3,6 @@
 <meta name="robots" content="noindex"><title>{{ page.business.business_name }} Wi-Fi</title>
 {% if draft %}<style>.tp-draft{position:fixed;left:50%;top:10px;transform:translateX(-50%);z-index:99;background:#102033;color:#fff;font:600 12px system-ui,sans-serif;padding:7px 12px;border-radius:99px;box-shadow:0 6px 20px #0003}</style>{% endif %}
 </head><body>{% if draft %}<div class="tp-draft">Draft preview — only you can see this page</div>{% endif %}<div id="tp"></div>
-<script src="{% static 'studio/portal-render.js' %}"></script>
+<script src="{% static 'studio/portal-render.js' %}?v=5"></script>
 <script>TapPortal.render(document.getElementById('tp'), {{ config_json|safe }}, {{ ctx_json|safe }});</script>
 </body></html>

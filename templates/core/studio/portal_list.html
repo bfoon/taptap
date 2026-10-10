@@ -1,6 +1,6 @@
 {% extends 'core/base.html' %}{% load static %}
 {% block title %}Portal Studio — TapTap{% endblock %}{% block heading %}Portal Studio{% endblock %}
-{% block extra_head %}<link href="{% static 'studio/studio.css' %}" rel="stylesheet">{% endblock %}
+{% block extra_head %}<link href="{% static 'studio/studio.css' %}?v=5" rel="stylesheet">{% endblock %}
 {% block content %}
 <div class="studio-intro">
   <div class="studio-hero">
@@ -105,7 +105,7 @@
   load();
 })();
 </script>
-<script src="{% static 'studio/thumbs.js' %}" data-renderer="{% static 'studio/portal-render.js' %}"></script>
+<script src="{% static 'studio/thumbs.js' %}" data-renderer="{% static 'studio/portal-render.js' %}?v=5"></script>
 <script>
 (function(){
   const g=JSON.parse(document.getElementById('galleryData').textContent);

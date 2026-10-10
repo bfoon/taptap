@@ -187,7 +187,7 @@ def _public_ctx(request, page, mode):
     base = request.build_absolute_uri('/').rstrip('/')
     return {'mode': mode, 'kind': page.kind, 'business': business_ctx(business), 'plans': plans_ctx(business),
             'mt': mt, 'checkUrl': f'/p/{page.slug}/check/', 'deviceUrl': f'/p/device/{page.slug}/',
-            'acceptUrl': f'/p/{page.slug}/accept/',
+            'acceptUrl': f'/p/{page.slug}/accept/', 'reportUrl': f'/p/{page.slug}/report/',
             'bonanza': bonanza_ctx(business),
             'qrLib': static('vendor/jsqr.js'),          # QR decoder, loaded only when a customer taps "Scan"
             'ads': {page.kind: ads_for(business, page.kind, base)}}
@@ -287,7 +287,8 @@ def _export_html(page, base=''):
            'ads': {page.kind: ads_for(business, page.kind, base)}, 'deviceUrl': f'{base}/p/device/{page.slug}/' if base else '',
            'bonanza': bonanza_ctx(business, base) if base else None,
            # frozen / warned vouchers: the page asks TapTap first and shows the warning instead of logging in
-           'stateUrl': f'{base}/p/{page.slug}/state/' if base else '', 'acceptUrl': f'{base}/p/{page.slug}/accept/' if base else ''}
+           'stateUrl': f'{base}/p/{page.slug}/state/' if base else '', 'acceptUrl': f'{base}/p/{page.slug}/accept/' if base else '',
+           'reportUrl': f'{base}/p/{page.slug}/report/' if base else ''}
     # Values that may contain quotes go through the DOM, not a JS string literal.
     hidden = '<div id="tp-err" hidden>$(error)</div><div id="tp-orig" hidden>$(link-orig)</div>' if page.kind == 'login' else ''
     if page.kind == 'login' and _wants_scan(page.config):

@@ -185,6 +185,9 @@
       '.tp-block h2{margin:0 0 10px;font-size:22px}.tp-block p{margin:0 0 10px;font-size:15px;line-height:1.5}.tp-block small{display:block;color:#5c6b7d;font-size:13px;margin-top:6px}',
       '.tp-block-code{font-family:monospace;font-weight:700;letter-spacing:.12em;background:#f1f4f8;border-radius:8px;padding:4px 10px;display:inline-block;margin-bottom:12px}',
       '.tp-block .tp-btn{margin-top:14px;width:100%}',
+      '.tp-report{text-align:center;margin-top:4px}.tp-report .tp-rp-open{background:none;border:0;color:inherit;opacity:.85;font:inherit;font-weight:700;text-decoration:underline;cursor:pointer;padding:6px}' +
+      '.tp-rp-form{text-align:left;margin-top:8px;padding:12px;border-radius:14px;background:rgba(127,127,127,.08)}.tp-rp-form .tp-input{margin-bottom:8px}.tp-rp-form textarea.tp-input{min-height:64px;resize:vertical}' +
+      '.tp-rp-form p{font-size:13px;opacity:.8;margin:0 0 8px}' +
       '.tp-note{display:flex;gap:10px;align-items:flex-start;text-align:left;padding:13px 14px;border-radius:' + Math.max(4, r * .5) + 'px;font-size:14px;line-height:1.45;background:' + hexA(t.accent, .1) + ';color:' + t.text + '}',
       '.tp-note.promo{background:' + t.accent + ';color:' + t.accent_text + '}.tp-note.warning{background:#fff4d6;color:#7a5200}',
       '.tp-note .tp-ico{flex:none;margin-top:1px}',
@@ -354,6 +357,17 @@
     var cls = b.style === 'list' ? 'tp-plans-list' : (b.style === 'chips' ? 'tp-chips' : 'tp-plans-cards');
     return t + '<div class="' + cls + '">' + inner + '</div>';
   };
+  /* "Problem with your voucher? Send it to us" — the customer sends the code to staff (TapTap → Customer reports). */
+  B.report = function (b, ctx) {
+    if (!ctx.reportUrl && ctx.mode !== 'preview' && ctx.mode !== 'thumb') return '';
+    return '<div class="tp-report" data-report><button type="button" class="tp-rp-open">' + esc(b.title || 'Problem with your voucher? Send it to us') + '</button>' +
+      '<div class="tp-rp-form" hidden><p>' + esc(b.intro || 'Our staff will check what is wrong and contact you.') + '</p>' +
+      '<input class="tp-input" name="rp_code" maxlength="40" autocapitalize="characters" spellcheck="false" placeholder="Voucher code">' +
+      '<input class="tp-input" name="rp_name" maxlength="80" autocomplete="name" placeholder="Your name">' +
+      '<input class="tp-input" name="rp_phone" maxlength="40" inputmode="tel" autocomplete="tel" placeholder="Phone number">' +
+      '<textarea class="tp-input" name="rp_msg" maxlength="500" placeholder="What happened? (optional)"></textarea>' +
+      '<button type="button" class="tp-btn tp-rp-send">' + esc(b.button || 'Send to staff') + '</button><div class="tp-rp-out" aria-live="polite"></div></div></div>';
+  };
   B.notice = function (b, ctx) { return '<div class="tp-note ' + (b.tone || 'info') + '">' + icon(b.icon || 'info') + '<span>' + esc(tok(b.text, ctx)) + '</span></div>'; };
   B.image = function (b, ctx) {
     if (!b.src) return ctx.mode === 'preview' ? '<div class="tp-ph">Add a promo image in the block settings</div>' : '';
@@ -454,6 +468,10 @@
   }
 
   function postForm(action, fields) {
+    if (location.protocol === 'https:' && /^http:/i.test(action) && !fields.chap) {
+      var q = []; for (var key in fields) q.push(encodeURIComponent(key) + '=' + encodeURIComponent(fields[key]));
+      location.href = action + (action.indexOf('?') < 0 ? '?' : '&') + q.join('&'); return;
+    }
     var f = document.createElement('form'); f.method = 'post'; f.action = action; f.style.display = 'none';
     for (var k in fields) { var i = document.createElement('input'); i.type = 'hidden'; i.name = k; i.value = fields[k]; f.appendChild(i); }
     document.body.appendChild(f); f.submit();
@@ -481,9 +499,18 @@
       '<p>' + esc(d.message || '') + '</p>' + (d.keep ? '<small>' + esc(d.keep) + '</small>' : '') +
       (d.contact ? '<small>Help: ' + esc(d.contact) + '</small>' : '') +
       (warn && d.can_accept ? '<button class="tp-btn" type="button">' + icon('check') + '<span>' + esc(d.button || 'I agree') + '</span></button>' : '<button class="tp-btn" type="button" data-close="1"><span>Close</span></button>') +
+      (document.querySelector('[data-report]') ? '<button class="tp-btn outline tp-block-report" type="button" style="margin-top:8px"><span>Send this voucher to our staff</span></button>' : '') +
       '<div class="tp-block-out"></div></div>';
     document.body.appendChild(w);
     var btn = w.querySelector('button'), out = w.querySelector('.tp-block-out');
+    var rpb = w.querySelector('.tp-block-report');
+    if (rpb) rpb.addEventListener('click', function () {      // close the notice and go to "send it to us", code already in
+      w.parentNode.removeChild(w);
+      var r = document.querySelector('[data-report]'); if (!r) return;
+      var f = r.querySelector('.tp-rp-form'); f.hidden = false;
+      var c = r.querySelector('[name=rp_code]'); if (c && d.code && !c.value) c.value = d.code;
+      r.scrollIntoView({ behavior: 'smooth', block: 'center' }); var n = r.querySelector('[name=rp_name]'); if (n) n.focus();
+    });
     btn.focus();
     btn.addEventListener('click', function () {
       if (btn.getAttribute('data-close')) { w.parentNode.removeChild(w); return; }
@@ -609,6 +636,7 @@
         var xhr = new XMLHttpRequest(); xhr.open('POST', ctx.checkUrl, true); xhr.setRequestHeader('Content-Type', 'application/json');
         xhr.onload = function () {
           var d = {}; try { d = JSON.parse(xhr.responseText); } catch (e) {}
+          if (!d.success) reportOffer(root, code, (d.title ? d.title + ': ' : '') + (d.message || ''));   // any refusal: offer "send it to us"
           if (d.blocked) {
             btn.disabled = false; out.innerHTML = '';
             showBlock(ctx, d, function (c) {
@@ -618,7 +646,7 @@
             return;
           }
           if (!d.success && security(d)) return;
-          if (!d.success) { btn.disabled = false; say('err', esc(d.message || (member ? 'Username or password is wrong.' : 'That code was not recognised. Check it and try again.'))); return; }
+          if (!d.success) { btn.disabled = false; say('err', esc(d.message || (member ? 'Username or password is wrong.' : 'That code was not recognised. Check it and try again.'))); reportOffer(root, code, (d.title ? d.title + ': ' : '') + (d.message || '')); return; }
           var real = d.code || code;
           if (ctx.mt && ctx.mt.linkLoginOnly) {
             var go = function () { postForm(ctx.mt.linkLoginOnly, { username: real, password: passFor(real), dst: dst, popup: 'true' }); };
@@ -749,7 +777,9 @@
     if (ctx.kind === 'login' && ctx.settings.collect_device !== false && ctx.settings.device_notice !== '' && root.querySelector('.tp-vform')) {
       root.querySelector('.tp-vform').insertAdjacentHTML('beforeend', '<p class="tp-privacy">' + esc(ctx.settings.device_notice || 'We note basic details of your device to keep your voucher safe from misuse.') + '</p>');
     }
-    wireBoxes(root); wireVoucher(root, cfg, ctx); wireCountdown(root, cfg, ctx); wireAds(root, ctx); wireTrial(root, ctx);
+    wireBoxes(root); wireVoucher(root, cfg, ctx); wireCountdown(root, cfg, ctx); wireAds(root, ctx); wireTrial(root, ctx); wireReport(root, ctx);
+    if (ctx.mt && ctx.mt.error && ctx.mode === 'mikrotik') reportOffer(root, ctx.mt.username || '', ctx.mt.error, true);
+    if (ctx.autoLogin && ctx.autoLogin.code && ctx.mode === 'hosted') autoLogin(root, ctx.autoLogin);
     if (ctx.kind === 'login') sendDevice(ctx, '');
     if (ctx.mode === 'preview') {
       root.addEventListener('click', function (e) {
@@ -758,6 +788,51 @@
         e.preventDefault(); parent.postMessage({ tp: 'select', id: el.getAttribute('data-bid') }, '*');
       });
     }
+  }
+
+  function reportOffer(root, code, error, quiet) {
+    var r = root.querySelector('[data-report]'); if (!r) return;
+    r.setAttribute('data-error', String(error || '').slice(0, 300));
+    var c = r.querySelector('[name=rp_code]'); if (c && code && !c.value) c.value = code;
+    if (!quiet) { r.querySelector('.tp-rp-form').hidden = false; r.querySelector('.tp-rp-open').textContent = 'Send this voucher to our staff'; }
+  }
+  function wireReport(root, ctx) {
+    var r = root.querySelector('[data-report]'); if (!r) return;
+    var form = r.querySelector('.tp-rp-form'), out = r.querySelector('.tp-rp-out');
+    r.querySelector('.tp-rp-open').addEventListener('click', function () {
+      form.hidden = !form.hidden;
+      var c = form.querySelector('[name=rp_code]'), typed = root.querySelector('.tp-vform [name=code]');
+      if (c && !c.value && typed && typed.value) c.value = typed.value.replace(/\s+/g, '').toUpperCase();
+    });
+    r.querySelector('.tp-rp-send').addEventListener('click', function () {
+      var get = function (n) { var e = form.querySelector('[name=' + n + ']'); return e ? String(e.value || '').trim() : ''; };
+      var say2 = function (k, t) { out.innerHTML = '<div class="tp-msg ' + k + '">' + t + '</div>'; };
+      if (!get('rp_code')) { say2('err', 'Type the voucher code.'); return; }
+      if (!get('rp_phone')) { say2('err', 'Add a phone number so our staff can reach you.'); return; }
+      if (ctx.mode === 'preview' || ctx.mode === 'thumb') { say2('ok', 'Preview: this goes to TapTap → Customer reports, with what TapTap finds about the voucher.'); return; }
+      var btn = this; btn.disabled = true;
+      var xhr = new XMLHttpRequest(); xhr.open('POST', ctx.reportUrl, true); xhr.setRequestHeader('Content-Type', 'text/plain');   // no CORS pre-check from the router page
+      xhr.onload = function () {
+        btn.disabled = false; var d = {}; try { d = JSON.parse(xhr.responseText); } catch (e) {}
+        if (!d.ok) { say2('err', esc(d.message || 'Could not send. Try again in a moment.')); return; }
+        say2('ok', '<b>Sent to our staff ✓</b><br>' + (d.title ? 'We see: ' + esc(d.title) + '. ' : '') + esc(d.message || '') + ' We will contact you.');
+      };
+      xhr.onerror = function () { btn.disabled = false; say2('err', 'Could not reach our server. Check you are connected to the Wi-Fi.'); };
+      xhr.send(JSON.stringify({ code: get('rp_code'), name: get('rp_name'), phone: get('rp_phone'), message: get('rp_msg'),
+                                error: r.getAttribute('data-error') || '', mac: (ctx.mt && ctx.mt.mac) || '' }));
+    });
+  }
+  // Opened from a voucher QR / "Quick login" link: fill the code in and sign in straight away.
+  function autoLogin(root, a) {
+    var form = root.querySelector('.tp-vform'); if (!form) return;
+    if (a.member) {
+      var tab = form.querySelector('[data-tab=member]'); if (tab) tab.click();
+      var u = form.querySelector('[name=m_user]'), p = form.querySelector('[name=m_pass]'); if (u) u.value = a.code; if (p) p.value = a.password || '';
+    } else {
+      var i = form.querySelector('[name=code]'); if (i) { i.value = a.code; i.dispatchEvent(new Event('input', { bubbles: true })); }
+    }
+    var terms = root.querySelector('.tp-terms-cb[data-req]'); if (terms && !terms.checked) return;   // the customer must tick it themselves
+    setTimeout(function () { if (form.requestSubmit) form.requestSubmit(); else form.dispatchEvent(new Event('submit', { cancelable: true })); }, 350);
   }
 
   function select(root, id) { [].forEach.call(root.querySelectorAll('[data-bid]'), function (e) { e.classList.toggle('sel', e.getAttribute('data-bid') === id); }); }
