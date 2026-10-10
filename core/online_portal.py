@@ -116,14 +116,73 @@ def _left(delta):
 
 # ─────────────────────────────── public pages ───────────────────────────────
 
+# ─────────────────────────────── where the router's login page is ───────────────────────────────
+
+def hotspot_ips(router):
+    """The address(es) the router's hotspot login answers on, from its stored configuration.
+
+    An IP needs no name lookup, so it works even when the phone uses Private DNS / Secure DNS (common on Android and in
+    Chrome) or when the router never got the easy name (login.wifi) — both make "http://login.wifi" unreachable."""
+    import ipaddress
+    try:
+        sections = router.config_snapshot.sections or {}
+    except Exception:
+        return []
+    rows = lambda label: ((sections.get(label) or {}).get('rows') or [])
+    get = lambda row, *keys: next((str(row.get(k)) for k in keys if row.get(k) not in (None, '')), '')
+    profiles = {get(p, 'name'): p for p in rows('HotSpot server profiles')}
+    addrs = rows('IP addresses')
+    out = []
+    for srv in rows('HotSpot servers'):
+        if get(srv, 'disabled').lower() in ('true', 'yes'):
+            continue
+        prof = profiles.get(get(srv, 'profile'), {})
+        ip = get(prof, 'hotspot-address', 'hotspot_address')
+        if not ip:
+            iface = get(srv, 'interface')
+            hit = next((a for a in addrs if get(a, 'interface') == iface and get(a, 'disabled').lower() not in ('true', 'yes')), None)
+            ip = get(hit, 'address').split('/')[0] if hit else ''
+        try:
+            ipaddress.IPv4Address(ip)
+        except ValueError:
+            continue
+        if ip not in out:
+            out.append(ip)
+    return out
+
+
+def login_host(request, business):
+    """Where to send the phone to sign in: the router's hotspot IP when TapTap can tell, else the easy name."""
+    from . import geomap
+    routers = []
+    rid = str(request.GET.get('r') or '')
+    if rid.isdigit():
+        routers = list(business.routers.filter(pk=rid))
+    if not routers:
+        try:
+            routers = geomap.sites_from_ip(business, _client_ip(request))
+        except Exception:
+            routers = []
+    if not routers:                          # not matched: every router — fine when they share one hotspot IP
+        routers = list(business.routers.all()[:20])
+    ips = []
+    for r in routers:
+        for ip in hotspot_ips(r):
+            if ip not in ips:
+                ips.append(ip)
+    if len(ips) == 1:                        # one answer for every router that could be serving this phone
+        return ips[0]
+    return (getattr(business, 'hotspot_dns_name', '') or 'login.wifi').strip()
+
+
 def online_page(request, slug, auto=None):
     """The online sign-in page customers open from the QR code."""
     page = _page(slug)
     b = page.business
-    login_host = (getattr(b, 'hotspot_dns_name', '') or 'login.wifi').strip()
+    login_host_ = login_host(request, b)
     code = re.sub(r'[^A-Za-z0-9._@-]', '', request.GET.get('code', '') or (auto or {}).get('user', ''))[:40]
     return render(request, 'core/portal_online.html', {
-        'page': page, 'business': b, 'login_host': login_host,
+        'page': page, 'business': b, 'login_host': login_host_,
         'after': (getattr(b, 'portal_redirect_url', '') or 'http://neverssl.com/'),
         'prefill': code, 'auto': bool(auto and code), 'member': bool(auto and auto.get('member')),
         'prefill_pw': (auto or {}).get('pw', '') if auto and auto.get('member') else '',
@@ -209,4 +268,64 @@ def portal_qr(request, pk):
     page = get_object_or_404(PortalPage, business=request.user.business, pk=pk)
     from django.conf import settings
     base = (getattr(settings, 'SITE_URL', '') or request.build_absolute_uri('/')).rstrip('/')
-    return render(request, 'core/portal_qr.html', {'page': page, 'url': f'{base}/p/{page.slug}/go/', 'business': page.business})
+    routers = list(page.business.routers.order_by('name'))
+    rid = str(request.GET.get('r') or '')
+    chosen = next((r for r in routers if str(r.pk) == rid), None)
+    url = f'{base}/p/{page.slug}/go/' + (f'?r={chosen.pk}' if chosen else '')
+    return render(request, 'core/portal_qr.html', {'page': page, 'url': url, 'business': page.business, 'routers': routers,
+                                                   'chosen': chosen,
+                                                   'ips': {r.pk: ', '.join(hotspot_ips(r)) or 'unknown' for r in routers}})
+
+
+# ─────────────────────────────── prepare routers for online sign-in ───────────────────────────────
+
+SETUP_COMMENT = 'TapTap online sign-in'
+
+
+def setup_script(host):
+    """RouterOS: let phones reach TapTap over HTTPS before login, and accept the plain-password login the online page
+    uses (http-pap is ADDED to each hotspot profile's login methods; nothing is removed)."""
+    from .agent import rs
+    h, c = rs(host), rs(SETUP_COMMENT)
+    return (f':do {{ /ip hotspot walled-garden ip remove [find where comment={c}] }} on-error={{}}; '
+            f':do {{ /ip hotspot walled-garden ip add dst-host={h} action=accept comment={c} }} on-error={{}}; '
+            f':do {{ /ip hotspot walled-garden remove [find where comment={c}] }} on-error={{}}; '
+            f':do {{ /ip hotspot walled-garden add dst-host={h} action=allow comment={c} }} on-error={{}}; '
+            ':foreach p in=[/ip hotspot profile find] do={ :local s ""; '
+            ':foreach x in=[/ip hotspot profile get $p login-by] do={ :set s ($s . $x . ",") }; '
+            ':if ([:typeof [:find $s "http-pap"]] = "nil") do={ /ip hotspot profile set $p login-by=($s . "http-pap") } }')
+
+
+def link_body(cmd, url, check, nonce_value):
+    return '{ ' + setup_script(cmd.params['host']) + ' }'
+
+
+@login_required
+@require_POST
+def prepare_routers(request):
+    """Send every router the online sign-in setup."""
+    from urllib.parse import urlsplit
+    from django.conf import settings
+    from .voucher_history import channel
+    host = urlsplit(getattr(settings, 'SITE_URL', '') or request.build_absolute_uri('/')).hostname or ''
+    if not re.fullmatch(r'[A-Za-z0-9.-]{3,253}', host):
+        return JsonResponse({'ok': False, 'message': 'SITE_URL is not set.'}, status=400)
+    results = []
+    for r in request.user.business.routers.order_by('name'):
+        try:
+            if channel(r) == 'TapTap Link':
+                from .linkops import send
+                send(r, 'online_signin', {'host': host}, label='Prepare online sign-in', user=request.user, minutes=60 * 24)
+                results.append({'router': r.name, 'ok': True, 'text': 'sent — applied at the next check-in'})
+            else:
+                from .mikrotik import MikroTikService
+                from .portctl import schedule_on_router
+                svc = MikroTikService(r, timeout=20).connect()
+                try:
+                    schedule_on_router(svc, 'taptap-online-signin', 3, setup_script(host))
+                finally:
+                    svc.close()
+                results.append({'router': r.name, 'ok': True, 'text': 'done'})
+        except Exception as exc:  # noqa: BLE001
+            results.append({'router': r.name, 'ok': False, 'text': str(exc)[:160]})
+    return JsonResponse({'ok': True, 'results': results})

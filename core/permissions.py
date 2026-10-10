@@ -65,7 +65,7 @@ router_backup_download live_now incident_fix incident_ignore incident_fix_all tr
 traffic_cdn app_control app_rule_save app_rule_global app_rule_action netdev_list netdev_save netdev_action netdev_session remote_proxy_root remote_proxy omada_save omada_action node_devices device_detail device_alert_toggle alerts alert_rule_save alert_rule_action alerts_read event_rule_save event_rule_preset event_rule_action router_link router_link_action
 router_link_status devices device_action topology_routers topology_router_find topology_router_action topology_router_probe
 topology_field topology_field_save topology_geo topology_labels port_blink network_tools network_tools_run network_tools_test network_tools_path network_tools_devices network_tools_verdict network_tools_save_chain network_tools_blob network_tools_sink'''.split()
-_STUDIO = '''portal_studio portal_editor portal_qr portal_action portal_export portal_deploy portal_deploy_status voucher_designs
+_STUDIO = '''portal_studio portal_editor portal_qr portal_online_prepare portal_action portal_export portal_deploy portal_deploy_status voucher_designs
 voucher_design_editor voucher_design_action ads ad_save ad_action'''.split()
 
 URL_PERMS = {

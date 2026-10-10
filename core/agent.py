@@ -42,7 +42,7 @@ SAFE_KINDS = {
     'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'remote_nat', 'remote_close', 'hotspot_kick_mac', 'share_rules', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
-    'hotspot_users_limit', 'admin_password', 'port_blink', 'protection', 'site_probe', 'nettest', 'cleanup', 'filecopy', 'restore',
+    'hotspot_users_limit', 'admin_password', 'port_blink', 'protection', 'site_probe', 'nettest', 'cleanup', 'filecopy', 'restore', 'online_signin',
 }
 # Delivery order for queued commands: anything about vouchers first (a customer is waiting), then the rest,
 # and the pieces of a full inventory sync last — 61 of them must never hold up a voucher.
@@ -566,6 +566,9 @@ def wrap(cmd, url, check):
     elif cmd.kind == 'restore':
         from .router_restore import link_body as restore_body
         body = restore_body(cmd, url, check, nonce(cmd))
+    elif cmd.kind == 'online_signin':
+        from .online_portal import link_body as signin_body
+        body = signin_body(cmd, url, check, nonce(cmd))
     else:
         body = command_body(cmd)
     result = f'{cmd.params.get("file")}.backup, {cmd.params.get("file")}.rsc' if cmd.kind == 'backup' else ''
@@ -610,6 +613,8 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
             raise ValueError('Only routers on the local network can be checked.')
         if not re.match(r'^(sr:\d+|auto:([0-9A-F]{2}:){5}[0-9A-F]{2})$', str((params or {}).get('key', ''))):
             raise ValueError('Invalid router.')
+    if kind == 'online_signin' and not re.fullmatch(r'[A-Za-z0-9.-]{3,253}', str((params or {}).get('host') or '')):
+        raise ValueError('Invalid host.')
     if kind == 'restore':
         p = dict(params or {})
         urls_ok = all(re.fullmatch(r'https?://[^\s"$\\]+/api/router-restore/\d+/(file|report)/', str(p.get(k) or ''))

@@ -146,3 +146,98 @@ class QuickLoginLinkTests(TestCase):
         self.assertEqual(link, 'https://taptapnetwork.com/p/taptap-kerrsering-login-8d89/login?username=G2UZG&password=G2UZG')
         path = link.split('taptapnetwork.com', 1)[1]
         self.assertEqual(self.client.get(path).status_code, 200)
+
+
+@override_settings(AUTH_EMAIL_OTP=False, SITE_URL='https://taptapnetwork.com')
+class RouterLoginAddressTests(TestCase):
+    """The phone is sent to the router's hotspot IP — "login.wifi" fails with Private DNS or when the name was never set."""
+
+    def setUp(self):
+        from .models import Router, RouterConfigSnapshot
+        owner = User.objects.create_user('o', 'o@x.gm', 'pw12345678')
+        self.b = Business.objects.create(user=owner, business_name='TapTap KerrSering', owner_name='A', phone='1',
+                                         trial_ends_at=timezone.now() + timedelta(days=9), is_unlimited=True, hotspot_dns_name='login.wifi')
+        PortalPage.objects.create(business=self.b, name='Login', kind='login', slug='kk-login')
+        self.k = Router.objects.create(business=self.b, name='TapTap K', ip_address='41.223.1.10', username='u', password='p')
+        RouterConfigSnapshot.objects.create(router=self.k, sections={
+            'HotSpot servers': {'rows': [{'name': 'hs1', 'interface': 'bridge-hotspot', 'profile': 'hsprof1', 'disabled': 'false'},
+                                         {'name': 'old', 'interface': 'ether5', 'profile': 'default', 'disabled': 'true'}]},
+            'HotSpot server profiles': {'rows': [{'name': 'hsprof1', 'hotspot-address': '', 'dns-name': ''}]},
+            'IP addresses': {'rows': [{'address': '10.5.50.1/24', 'interface': 'bridge-hotspot'}, {'address': '192.168.88.1/24', 'interface': 'ether5'}]}})
+        self.client.force_login(owner)
+
+    def snap(self, router, ip):
+        from .models import RouterConfigSnapshot
+        RouterConfigSnapshot.objects.create(router=router, sections={
+            'HotSpot servers': {'rows': [{'name': 'hs1', 'interface': 'bridge', 'profile': 'p1'}]},
+            'HotSpot server profiles': {'rows': [{'name': 'p1', 'hotspot-address': ip}]}, 'IP addresses': {'rows': []}})
+
+    def test_ip_from_the_configuration(self):
+        self.assertEqual(op.hotspot_ips(self.k), ['10.5.50.1'])          # interface address; the disabled server is ignored
+        from .models import Router
+        b2 = Router.objects.create(business=self.b, name='Brikama', ip_address='41.223.9.9', username='u', password='p')
+        self.snap(b2, '172.16.0.1')
+        self.assertEqual(op.hotspot_ips(b2), ['172.16.0.1'])             # profile hotspot-address wins
+
+    def test_page_sends_the_phone_to_the_ip(self):
+        html = self.client.get('/p/kk-login/login?username=G2UZG&password=G2UZG').content.decode()
+        self.assertIn("HOST='10.5.50.1'", html)                          # only router → its IP, not login.wifi
+
+    def test_choosing_the_router(self):
+        from .models import Router
+        b2 = Router.objects.create(business=self.b, name='Brikama', ip_address='41.223.9.9', username='u', password='p')
+        self.snap(b2, '172.16.0.1')
+        # two routers, different networks: the phone's public address picks one
+        html = self.client.get('/p/kk-login/go/', REMOTE_ADDR='41.223.9.9').content.decode()
+        self.assertIn("HOST='172.16.0.1'", html)
+        html = self.client.get('/p/kk-login/go/?r=%d' % self.k.pk, REMOTE_ADDR='8.8.8.8').content.decode()
+        self.assertIn("HOST='10.5.50.1'", html)                          # a router-specific QR
+        html = self.client.get('/p/kk-login/go/', REMOTE_ADDR='8.8.8.8').content.decode()
+        self.assertIn("HOST='login.wifi'", html)                         # cannot tell which: the easy name
+        qr = self.client.get(reverse('portal_qr', args=[PortalPage.objects.get().pk]) + '?r=%d' % b2.pk).content.decode()
+        self.assertIn('/p/kk-login/go/?r=%d' % b2.pk, qr); self.assertIn('172.16.0.1', qr)
+
+    def test_routers_sharing_one_ip(self):
+        from .models import Router
+        b2 = Router.objects.create(business=self.b, name='Brikama', ip_address='41.223.9.9', username='u', password='p')
+        self.snap(b2, '10.5.50.1')
+        html = self.client.get('/p/kk-login/go/', REMOTE_ADDR='8.8.8.8').content.decode()
+        self.assertIn("HOST='10.5.50.1'", html)
+
+
+@override_settings(AUTH_EMAIL_OTP=False, SITE_URL='https://taptapnetwork.com')
+class PrepareRoutersTests(TestCase):
+    def setUp(self):
+        from .models import Router
+        owner = User.objects.create_user('o', 'o@x.gm', 'pw12345678')
+        self.b = Business.objects.create(user=owner, business_name='K', owner_name='A', phone='1',
+                                         trial_ends_at=timezone.now() + timedelta(days=9), is_unlimited=True)
+        self.api = Router.objects.create(business=self.b, name='A-api', ip_address='10.0.0.1', username='u', password='p')
+        self.link = Router.objects.create(business=self.b, name='B-link', ip_address='', username='u', password='p', connection_mode='agent')
+        self.client.force_login(owner)
+
+    def test_script(self):
+        from .test_link_install import routeros_balanced
+        s = op.setup_script('taptapnetwork.com')
+        self.assertTrue(routeros_balanced(s))
+        self.assertIn('/ip hotspot walled-garden ip add dst-host="taptapnetwork.com" action=accept', s)   # HTTPS before login
+        self.assertIn('login-by=($s . "http-pap")', s)                                                 # added, never replaced
+        self.assertIn(':if ([:typeof [:find $s "http-pap"]] = "nil")', s)
+
+    def test_prepare_all_routers(self):
+        from unittest import mock
+        from .models import AgentCommand
+        scripts = []
+        chan = lambda r: 'TapTap Link' if r.connection_mode == 'agent' else 'Direct API'
+        with mock.patch('core.voucher_history.channel', side_effect=chan), mock.patch('core.linkops.ensure_online'), \
+                mock.patch('core.mikrotik.MikroTikService') as svc, \
+                mock.patch('core.portctl.schedule_on_router', side_effect=lambda s, n, d, script: scripts.append(script)):
+            svc.return_value.connect.return_value = svc.return_value
+            j = self.client.post(reverse('portal_online_prepare')).json()
+        self.assertEqual([(x['router'], x['ok']) for x in j['results']], [('A-api', True), ('B-link', True)])
+        self.assertIn('http-pap', scripts[0])
+        cmd = AgentCommand.objects.get(kind='online_signin')
+        from .agent import queue, wrap
+        self.assertIn('taptapnetwork.com', wrap(cmd, 'https://taptapnetwork.com', 'no'))
+        with self.assertRaises(ValueError):
+            queue(self.link, 'online_signin', {'host': 'x"; /system reset'})
