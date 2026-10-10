@@ -77,6 +77,8 @@ textarea{font-size:15px;min-height:70px}
       }).catch(function(){b.disabled=false;b.textContent='Sign in';say('bad','No connection','Connect to the Wi-Fi and try again.');});
   };
   $('code').addEventListener('keydown',function(e){if(e.key==='Enter')$('signin').click();});
+  {% if member %}document.querySelector('[data-t="member"]').click();$('pw').value='{{ prefill_pw|escapejs }}';{% endif %}
+  {% if auto %}setTimeout(function(){$('signin').click();},400);   /* opened from a voucher QR / quick-login link */{% endif %}
   $('openReport').onclick=function(){$('report').classList.add('on');$('openReport').style.display='none';$('rName').focus();};
   $('cancelReport').onclick=function(){$('report').classList.remove('on');$('openReport').style.display='';};
   $('send').onclick=function(){

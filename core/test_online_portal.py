@@ -108,3 +108,41 @@ class OnlinePortalTests(TestCase):
         self.client.force_login(other)
         self.assertNotIn('OLD123', self.client.get(reverse('voucher_reports') + '?show=all').content.decode())
         self.assertEqual(self.client.get(reverse('portal_qr', args=[self.page.pk])).status_code, 404)
+
+
+@override_settings(AUTH_EMAIL_OTP=False, SITE_URL='https://taptapnetwork.com')
+class QuickLoginLinkTests(TestCase):
+    """Voucher QR / WhatsApp "Quick login": <login address>/login?username=CODE&password=CODE. When the login address is
+    the online portal, that is /p/<slug>/login — it used to answer "Not Found"."""
+
+    def setUp(self):
+        owner = User.objects.create_user('o', 'o@x.gm', 'pw12345678')
+        self.b = Business.objects.create(user=owner, business_name='TapTap KerrSering', owner_name='A', phone='1',
+                                         trial_ends_at=timezone.now() + timedelta(days=9), is_unlimited=True,
+                                         hotspot_url='https://taptapnetwork.com/p/taptap-kerrsering-login-8d89')
+        PortalPage.objects.create(business=self.b, name='Login', kind='login', slug='taptap-kerrsering-login-8d89')
+        self.client.force_login(owner)
+
+    def test_the_link_on_the_card_opens_and_signs_in(self):
+        r = self.client.get('/p/taptap-kerrsering-login-8d89/login?username=G2UZG&password=G2UZG')
+        html = r.content.decode()
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('value="G2UZG"', html)
+        self.assertIn("setTimeout(function(){$('signin').click();},400)", html)          # signs in by itself
+        self.assertNotIn('document.querySelector(\'[data-t="member"]\').click()', html)  # a voucher, not a member
+
+    def test_member_link_and_no_parameters(self):
+        html = self.client.get('/p/taptap-kerrsering-login-8d89/login/?username=jimmy&password=s3cret').content.decode()
+        self.assertIn('document.querySelector(\'[data-t="member"]\').click()', html); self.assertIn("$('pw').value='s3cret'", html)
+        plain = self.client.get('/p/taptap-kerrsering-login-8d89/login').content.decode()
+        self.assertNotIn("$('signin').click();},400", plain)
+        self.assertEqual(self.client.get('/p/no-such-portal/login?username=A&password=A').status_code, 404)
+
+    def test_voucher_card_link_resolves(self):
+        import re
+        v = Voucher.objects.create(business=self.b, code='G2UZG', plan_name='Zero voucher', status='active')
+        html = self.client.get(reverse('voucher_card', args=[v.pk])).content.decode()
+        link = re.search(r'Quick login: (\S+)', html).group(1).replace('&amp;', '&')
+        self.assertEqual(link, 'https://taptapnetwork.com/p/taptap-kerrsering-login-8d89/login?username=G2UZG&password=G2UZG')
+        path = link.split('taptapnetwork.com', 1)[1]
+        self.assertEqual(self.client.get(path).status_code, 200)

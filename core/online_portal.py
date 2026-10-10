@@ -116,16 +116,32 @@ def _left(delta):
 
 # ─────────────────────────────── public pages ───────────────────────────────
 
-def online_page(request, slug):
+def online_page(request, slug, auto=None):
     """The online sign-in page customers open from the QR code."""
     page = _page(slug)
     b = page.business
     login_host = (getattr(b, 'hotspot_dns_name', '') or 'login.wifi').strip()
+    code = re.sub(r'[^A-Za-z0-9._@-]', '', request.GET.get('code', '') or (auto or {}).get('user', ''))[:40]
     return render(request, 'core/portal_online.html', {
         'page': page, 'business': b, 'login_host': login_host,
         'after': (getattr(b, 'portal_redirect_url', '') or 'http://neverssl.com/'),
-        'prefill': re.sub(r'[^A-Za-z0-9-]', '', request.GET.get('code', ''))[:40],
+        'prefill': code, 'auto': bool(auto and code), 'member': bool(auto and auto.get('member')),
+        'prefill_pw': (auto or {}).get('pw', '') if auto and auto.get('member') else '',
     })
+
+
+def online_login(request, slug):
+    """/p/<slug>/login?username=CODE&password=CODE — the "Quick login" link and the QR printed on vouchers.
+
+    That address is the MikroTik login format; when a business's login address is its online portal the link points
+    here. TapTap opens the online sign-in page with the code filled in and signs in straight away (vouchers: the code
+    is username and password; members: their own password)."""
+    user = str(request.GET.get('username') or '').strip()
+    pw = str(request.GET.get('password') or '')
+    if not user:
+        return online_page(request, slug)
+    member = bool(pw) and pw != user
+    return online_page(request, slug, auto={'user': user, 'pw': pw[:64], 'member': member})
 
 
 @csrf_exempt
