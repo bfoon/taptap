@@ -586,11 +586,13 @@ def router_control(request,pk):
     role_map={x.interface_name:x for x in router.interface_roles.all()}
     for iface in interfaces:
         role=role_map.get(iface.name);iface.ui_role=role.role if role else 'unused';iface.ui_label=role.label if role else ''
+    from .port_panel import panel
+    panel_ports,panel_virtual=panel(interfaces,snapshot)   # physical jacks + radios on the panel; bridges, wg, lo… in RouterOS
     bridges=[]
     if snapshot and snapshot.sections.get('Bridges'): bridges=snapshot.sections['Bridges'].get('rows',[])
     changes=router.config_changes.select_related('actor').order_by('-created_at')[:20]
     sections=[(label,sec) for label,sec in (snapshot.sections.items() if snapshot and snapshot.sections else []) if not str(label).startswith('_')]
-    return render(request,'core/router_control.html',{'router':router,'snapshot':snapshot,'sections':sections,'interfaces':interfaces,'bridges':bridges,'changes':changes,'role_choices':RouterInterfaceRole.ROLES,'catalog':MikroTikService.CONFIG_CATALOG,'lb_config':_lb_config(router,snapshot,request)})
+    return render(request,'core/router_control.html',{'router':router,'snapshot':snapshot,'sections':sections,'interfaces':interfaces,'panel_ports':panel_ports,'panel_virtual':panel_virtual,'bridges':bridges,'changes':changes,'role_choices':RouterInterfaceRole.ROLES,'catalog':MikroTikService.CONFIG_CATALOG,'lb_config':_lb_config(router,snapshot,request)})
 
 
 @login_required

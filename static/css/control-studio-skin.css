@@ -94,3 +94,27 @@ body.designer-dragging .designer-port.compatible,body.designer-dragging .router-
 
 @media (max-width:991px){.cs-panel .router-board{grid-template-columns:minmax(0,1fr)}.cs-panel .designer-port{width:84px}}
 @media (prefers-reduced-motion:reduce){.cs-panel *,.cs-panel *::before,.cs-panel *::after,.cs-packet,.mikrotik-shell::after,.recipe-tile::after{animation:none!important;transition:none!important}}
+
+/* ── RouterOS interfaces (bridges, loopback, WireGuard, VLANs…) as chips in the RouterOS block — core/port_panel.py ── */
+.cs-panel .router-board:has(.vif-list){grid-template-columns:minmax(190px,250px) minmax(0,1fr)}
+.router-cpu:has(.vif-list){justify-content:flex-start}
+.vif-list{display:flex;flex-direction:column;gap:.35rem;width:100%;margin-top:.8rem;max-height:260px;overflow:auto;padding:2px}
+.vif{position:relative;display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:.15rem .5rem;text-align:left;
+  background:#151a20;border:1px solid rgba(255,255,255,.1);border-radius:11px;padding:.4rem .55rem;cursor:pointer;color:#e5e7eb;transition:border-color .15s,transform .15s}
+.vif:hover{border-color:#475569;transform:translateX(2px)}.vif:focus-visible{outline:2px solid #38bdf8;outline-offset:2px}
+.vif>i{font-size:1rem;color:#94a3b8;margin:0!important}.vif.vif-bridge>i{color:#38bdf8}.vif.vif-wg>i{color:#a78bfa}
+.vif-tx{min-width:0}.vif-tx b{display:block;font-size:.76rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vif-tx small{display:block;font-size:.62rem;opacity:.6!important;white-space:nowrap}
+.vif-tags{display:flex;gap:.2rem;font-size:.66rem;color:#7dd3fc}
+.vif-dot{width:7px;height:7px;border-radius:50%;background:#475569}.vif.up .vif-dot{background:#22c55e;box-shadow:0 0 6px #22c55e}
+.vif.off{opacity:.55}
+.vif-badges{grid-column:1/-1;margin-top:0!important}.vif-badges:empty{display:none}
+.vif .cs-count{position:absolute;top:-6px;right:-6px}
+body.designer-dragging .vif.compatible{outline:2px dashed #38bdf8;outline-offset:2px}
+.vif.drag-over{border-color:#38bdf8!important;box-shadow:0 0 0 3px #38bdf866;transform:scale(1.03)}
+/* what a physical port carries: its bridge, and the configuration on it or reaching it through the bridge */
+.port-carries{display:flex;flex-direction:column;align-items:center;gap:.15rem;margin-top:.1rem}
+.port-via{display:inline-flex;align-items:center;gap:.2rem;font-size:.58rem;font-weight:700;color:#7dd3fc;background:#0c2a3a;border:1px solid #155e75;border-radius:99px;padding:0 .4rem;max-width:84px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.port-tags{display:flex;gap:.2rem;font-size:.62rem;color:#e5e7eb}.port-tags .via{color:#7dd3fc;opacity:.85}
+.cs-panel .designer-port.via-hover{border-color:#38bdf8!important;box-shadow:0 0 0 2px #38bdf855}
+.config-detail.via>summary span{color:#0e7490}.config-detail.via>summary i{color:#0891b2}

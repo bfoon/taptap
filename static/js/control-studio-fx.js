@@ -21,16 +21,26 @@
   });
   function counts() {
     document.querySelectorAll('[data-port-badges]').forEach(box => {
-      const port = box.closest('.designer-port'); if (!port) return;
+      const port = box.closest('.designer-port, .vif'); if (!port) return;
       const n = box.children.length; let c = port.querySelector('.cs-count');
       if (!n) { if (c) c.remove(); return; }
       if (!c) { c = document.createElement('span'); c.className = 'cs-count'; port.appendChild(c); }
-      if (c.textContent !== String(n)) { c.textContent = n; c.title = n + ' configuration' + (n > 1 ? 's' : '') + ' on this port'; }
+      if (c.textContent !== String(n)) { c.textContent = n; c.title = n + ' configuration' + (n > 1 ? 's' : '') + ' on ' + (port.dataset.target || 'this port'); }
     });
   }
   const mo = new MutationObserver(counts);
   document.querySelectorAll('[data-port-badges], #routerConfigBadges').forEach(b => mo.observe(b, { childList: true }));
   counts();
+
+  // ── hover / focus a bridge in the RouterOS block: the ports that belong to it light up ──
+  document.querySelectorAll('.vif').forEach(v => {
+    const name = v.dataset.target || '';
+    const mark = on => document.querySelectorAll('.designer-port').forEach(p => {
+      if (p.querySelector(`[data-via="${CSS.escape(name)}"]`)) p.classList.toggle('via-hover', on);
+    });
+    v.addEventListener('mouseenter', () => mark(true)); v.addEventListener('mouseleave', () => mark(false));
+    v.addEventListener('focus', () => mark(true)); v.addEventListener('blur', () => mark(false));
+  });
 
   // ── "Flash" a port: its lights blink on the real router (core/port_blink.py) and here, with a countdown ──
   const blinkUrl = shell.dataset.blinkUrl;
@@ -72,8 +82,8 @@
   let fromEl = null, toEl = null;
   document.addEventListener('dragstart', e => { const t = e.target.closest && e.target.closest('.recipe-tile'); if (t) { fromEl = t; t.classList.add('cs-picked'); } }, true);
   document.addEventListener('dragend', () => { document.querySelectorAll('.cs-picked').forEach(t => t.classList.remove('cs-picked')); }, true);
-  document.addEventListener('drop', e => { const z = e.target.closest && e.target.closest('.designer-port, .router-dropzone'); if (z) toEl = z.classList.contains('router-dropzone') ? (z.querySelector('.router-cpu') || z) : z; }, true);
-  document.addEventListener('click', e => { const z = e.target.closest && e.target.closest('.designer-port, .router-inspect-trigger'); if (z) { toEl = z.classList.contains('designer-port') ? z : (shell.querySelector('.router-cpu') || shell); fromEl = null; } }, true);
+  document.addEventListener('drop', e => { const z = e.target.closest && e.target.closest('.designer-port, .vif, .router-dropzone'); if (z) toEl = z.classList.contains('router-dropzone') ? (z.querySelector('.router-cpu') || z) : z; }, true);
+  document.addEventListener('click', e => { const z = e.target.closest && e.target.closest('.designer-port, .vif, .router-inspect-trigger'); if (z) { toEl = z.classList.contains('designer-port') || z.classList.contains('vif') ? z : (shell.querySelector('.router-cpu') || shell); fromEl = null; } }, true);
 
   // ── when the designer reports a successful apply: a packet flies onto the target and it flashes ──
   function fly() {

@@ -5,7 +5,7 @@
 {% block extra_head %}
 <link href="{% static 'css/netviz.css' %}?v=7" rel="stylesheet">
 <link href="{% static 'css/control-designer.css' %}?v=1" rel="stylesheet">
-<link href="{% static 'css/control-studio-skin.css' %}?v=1" rel="stylesheet">
+<link href="{% static 'css/control-studio-skin.css' %}?v=2" rel="stylesheet">
 {% endblock %}
 {% block content %}
 <form class="d-none" id="csrf-holder">{% csrf_token %}</form>
@@ -74,11 +74,28 @@
             <b>RouterOS</b>
             <small>Drop router-wide configuration here</small>
             <div id="routerConfigBadges" class="active-config-badges"></div>
+            {% if panel_virtual %}
+            {# Bridges, loopback, WireGuard, VLANs… live in RouterOS, not on the panel (core/port_panel.py). Still clickable and droppable. #}
+            <div class="vif-list" aria-label="RouterOS interfaces">
+              {% for v in panel_virtual %}
+              <div class="vif vif-{{ v.ui_kind }} {% if v.running and not v.disabled %}up{% endif %} {% if v.disabled %}off{% endif %}"
+                   data-scope="port" data-target="{{ v.name }}" role="button" tabindex="0"
+                   title="{{ v.name }} — {{ v.ui_kind_label }}{% if v.ui_members %}: {{ v.ui_members|join:', ' }}{% endif %}{% for icon,label in v.ui_tags %} · {{ label }}{% endfor %}. Click to inspect, drop a block to configure.">
+                <i class="bi {{ v.ui_icon }}" aria-hidden="true"></i>
+                <span class="vif-tx"><b>{{ v.name }}</b><small>{{ v.ui_kind_label }}{% if v.ui_members %} · {{ v.ui_members|length }} port{{ v.ui_members|length|pluralize }}{% elif v.disabled %} · disabled{% endif %}</small></span>
+                {% if v.ui_tags %}<span class="vif-tags" aria-hidden="true">{% for icon,label in v.ui_tags %}<i class="bi {{ icon }}"></i>{% endfor %}</span>{% endif %}
+                <span class="vif-dot" aria-hidden="true"></span>
+                <div class="active-config-badges vif-badges" data-port-badges="{{ v.name }}"></div>
+              </div>
+              {% endfor %}
+            </div>
+            {% endif %}
           </div>
           <div class="port-bank">
-            {% for iface in interfaces %}
+            {% for iface in panel_ports %}
             <div class="designer-port {% if iface.running and not iface.disabled %}link-up{% endif %} {% if iface.disabled %}port-disabled{% endif %}"
-                 data-scope="port" data-target="{{ iface.name }}" title="Click {{ iface.name }} to inspect current configuration" role="button" tabindex="0">
+                 data-scope="port" data-target="{{ iface.name }}" role="button" tabindex="0"
+                 title="Click {{ iface.name }} to inspect current configuration{% if iface.ui_bridge %}. Member of {{ iface.ui_bridge }}{% if iface.ui_via %} — gets {% for icon,label in iface.ui_via %}{{ label }}{% if not forloop.last %}, {% endif %}{% endfor %} from it{% endif %}{% endif %}">
               <div class="port-jack">
                 <span></span><span></span><span></span><span></span>
               </div>
@@ -86,11 +103,15 @@
                 <b>{{ iface.name }}</b>
                 <small>{% if iface.disabled %}Disabled{% elif iface.running %}Link up{% else %}No link{% endif %}</small>
               </div>
+              {% if iface.ui_bridge or iface.ui_tags %}<div class="port-carries">
+                {% if iface.ui_bridge %}<span class="port-via" data-via="{{ iface.ui_bridge }}"><i class="bi bi-diagram-2" aria-hidden="true"></i>{{ iface.ui_bridge }}</span>{% endif %}
+                {% if iface.ui_tags or iface.ui_via %}<span class="port-tags" aria-hidden="true">{% for icon,label in iface.ui_tags %}<i class="bi {{ icon }}" title="{{ label }}"></i>{% endfor %}{% for icon,label in iface.ui_via %}<i class="bi {{ icon }} via" title="{{ label }} (from {{ iface.ui_bridge }})"></i>{% endfor %}</span>{% endif %}
+              </div>{% endif %}
               <div class="port-configs active-config-badges" data-port-badges="{{ iface.name }}"></div>
               <div class="traffic-spark {% if iface.running and not iface.disabled %}active{% endif %}"><i></i><i></i><i></i></div>
             </div>
             {% empty %}
-            <div class="empty-mini">No interfaces have been synchronized yet. Run Full Sync first.</div>
+            <div class="empty-mini">{% if panel_virtual %}No physical ports found yet.{% else %}No interfaces have been synchronized yet.{% endif %} Run Full Sync first.</div>
             {% endfor %}
           </div>
         </div>
@@ -419,18 +440,18 @@
         e.dataTransfer.effectAllowed='copy';
         e.dataTransfer.setData('application/x-taptap-recipe',tile.dataset.recipe);
         document.body.classList.add('designer-dragging');
-        document.querySelectorAll(`.router-dropzone,.designer-port`).forEach(z=>{
+        document.querySelectorAll(`.router-dropzone,.designer-port,.vif`).forEach(z=>{
           z.classList.toggle('compatible',z.dataset.scope===tile.dataset.scope);
         });
       });
       tile.addEventListener('dragend',()=>{
         document.body.classList.remove('designer-dragging');
-        document.querySelectorAll('.router-dropzone,.designer-port').forEach(z=>z.classList.remove('compatible','drag-over'));
+        document.querySelectorAll('.router-dropzone,.designer-port,.vif').forEach(z=>z.classList.remove('compatible','drag-over'));
       });
     });
   }
 
-  document.querySelectorAll('.router-dropzone,.designer-port').forEach(zone=>{
+  document.querySelectorAll('.router-dropzone,.designer-port,.vif').forEach(zone=>{
     zone.addEventListener('dragover',e=>{
       if(!e.dataTransfer.types.includes('application/x-taptap-recipe'))return;
       e.preventDefault(); zone.classList.add('drag-over');
@@ -440,7 +461,10 @@
       const recipe=e.dataTransfer.getData('application/x-taptap-recipe'); if(!recipe)return;
       e.preventDefault(); zone.classList.remove('drag-over');
       const meta=designerState.catalog.find(x=>x.key===recipe);
-      if(!meta||meta.scope!==zone.dataset.scope){showToast('That block belongs on '+(meta?.scope||'another target')+'.','warning');return;}
+      // Ports and RouterOS chips sit inside the router drop zone: a router block dropped on them belongs to the router.
+      if(meta&&meta.scope==='router'&&zone.dataset.scope==='port')return;
+      if(!meta||meta.scope!==zone.dataset.scope){e.stopPropagation();showToast('That block belongs on '+(meta?.scope||'another target')+'.','warning');return;}
+      e.stopPropagation();
       openRecipe(meta,zone.dataset.target||'');
     });
   });
@@ -524,7 +548,7 @@
   }
 
   function animateTarget(scope,target,queued){
-    const el=scope==='port'?document.querySelector(`.designer-port[data-target="${CSS.escape(target)}"]`):document.querySelector('.mikrotik-shell');
+    const el=scope==='port'?document.querySelector(`.designer-port[data-target="${CSS.escape(target)}"],.vif[data-target="${CSS.escape(target)}"]`):document.querySelector('.mikrotik-shell');
     if(!el)return;el.classList.add(queued?'config-queued':'config-success');setTimeout(()=>el.classList.remove('config-queued','config-success'),1800);
   }
 
@@ -672,8 +696,8 @@
       }));
 
       sections.innerHTML=(data.sections||[]).map((section,idx)=>`
-        <details class="config-detail" ${idx<3?'open':''}>
-          <summary><span>${esc(section.title)}</span><small>${section.count!==undefined?esc(section.count)+' item(s)':esc((section.rows||[]).length)+' row(s)'} ${section.truncated?'• showing first 12':''}</small></summary>
+        <details class="config-detail${section.via?' via':''}" ${idx<3||section.via?'open':''}>
+          <summary><span>${section.via?'<i class="bi bi-diagram-2"></i> ':''}${esc(section.title)}</span><small>${section.count!==undefined?esc(section.count)+' item(s)':esc((section.rows||[]).length)+' row(s)'} ${section.truncated?'• showing first 12':''}</small></summary>
           <div class="config-detail-body">${renderConfigRows(section.rows||[])}</div>
         </details>`).join('')||'<div class="empty-mini">No captured configuration exists yet. Use Refresh Config / Full Sync first.</div>';
     }catch(e){
@@ -690,13 +714,13 @@
   let dragRecently=false;
   document.addEventListener('dragstart',()=>{dragRecently=true;});
   document.addEventListener('dragend',()=>setTimeout(()=>{dragRecently=false;},120));
-  document.querySelectorAll('.designer-port').forEach(port=>{
-    port.addEventListener('click',e=>{if(!dragRecently)openInspector('port',port.dataset.target);});
+  document.querySelectorAll('.designer-port,.vif').forEach(port=>{
+    port.addEventListener('click',e=>{e.stopPropagation();if(!dragRecently)openInspector('port',port.dataset.target);});
     port.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openInspector('port',port.dataset.target);}});
   });
   document.querySelectorAll('.router-inspect-trigger').forEach(node=>{
-    node.addEventListener('click',e=>{if(e.target.closest('.designer-port'))return;if(!dragRecently)openInspector('router','');});
-    node.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openInspector('router','');}});
+    node.addEventListener('click',e=>{if(e.target.closest('.designer-port,.vif'))return;if(!dragRecently)openInspector('router','');});
+    node.addEventListener('keydown',e=>{if(e.target.closest('.designer-port,.vif'))return;if(e.key==='Enter'||e.key===' '){e.preventDefault();openInspector('router','');}});
   });
   document.getElementById('inspectorRefreshBtn').addEventListener('click',async e=>{
     if(!inspectorCurrent)return;
@@ -862,7 +886,7 @@
   loadDesigner();
 })();
 </script>
-<script src="{% static 'js/control-studio-fx.js' %}?v=1" defer></script>
+<script src="{% static 'js/control-studio-fx.js' %}?v=2" defer></script>
 <script src="{% static 'js/router_cleanup.js' %}?v=1" defer></script>
 <link rel="stylesheet" href="{% static 'css/router_restore.css' %}?v=1">
 <script src="{% static 'js/router_restore.js' %}?v=1" defer></script>

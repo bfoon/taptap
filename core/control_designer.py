@@ -924,11 +924,14 @@ def designer_inspect(request, pk):
         ethernet = _clean_row(raw.get("ethernet") or {})
         bridge_port = _clean_row(raw.get("bridge_port") or {})
 
+        bridge = str(bridge_port.get("bridge", "") or "")
         try:
             from .views_ports import _related_config
-            related = _related_config(snap, target, bridge_port.get("bridge", ""))
+            related = _related_config(snap, target, bridge)          # everything, for the adjustments below
+            own = _related_config(snap, target, "")                  # set on this port itself
+            via = _related_config(snap, bridge, "") if bridge else []  # what it gets from its bridge
         except Exception:
-            related = []
+            related, own, via = [], [], []
 
         sections = []
         for title, rows in (
@@ -938,7 +941,19 @@ def designer_inspect(request, pk):
         ):
             if rows:
                 sections.append({"title": title, "rows": _redact(rows)})
-        sections.extend(_redact(related))
+        sections.extend(_redact(own))
+        # Configuration on the bridge reaches this port: show it here, labelled with where it lives.
+        sections.extend({**sec, "title": f"From {bridge}: {sec['title']}", "via": bridge} for sec in _redact(via))
+        # A bridge (or any RouterOS interface) lists the physical ports it carries.
+        members = [
+            {"port": i.name, "running": i.running, "disabled": i.disabled, "pvid": str((i.raw_data or {}).get("bridge_port", {}).get("pvid", ""))}
+            for i in router.interfaces.filter(is_present=True)
+            if isinstance((i.raw_data or {}).get("bridge_port"), dict) and str((i.raw_data or {})["bridge_port"].get("bridge", "")) == target
+        ]
+        if members:
+            from .port_panel import _natural
+            members.sort(key=lambda m: _natural(m["port"]))
+            sections.insert(1, {"title": f"Ports in {target}", "rows": members})
 
         risk, risk_text = _port_link_risk(router, target)
         return JsonResponse(
@@ -955,8 +970,9 @@ def designer_inspect(request, pk):
                     "mtu": obj.mtu,
                     "running": obj.running,
                     "disabled": obj.disabled,
-                    "bridge": bridge_port.get("bridge", ""),
+                    "bridge": bridge,
                     "pvid": bridge_port.get("pvid", ""),
+                    **({"ports_in_it": ", ".join(m["port"] for m in members)} if members else {}),
                 },
                 "sections": sections,
                 "adjustments": _port_adjustments(router, obj, raw, bridge_port, related),
