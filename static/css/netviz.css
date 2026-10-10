@@ -246,3 +246,36 @@
 .nm-node .nm-brand{position:absolute;top:-9px;right:10px;font-style:normal;font-size:.62rem;font-weight:800;letter-spacing:.03em;background:#14a3b3;color:#fff;border-radius:99px;padding:.1rem .45rem}
 .nm-why{margin:.8rem 0;font-size:.82rem}.nm-why b{display:block;margin-bottom:.3rem}.nm-why div{display:flex;gap:.4rem;align-items:flex-start;padding:.15rem 0}
 .nm-why .pro i{color:#34c38f}.nm-why .con i{color:#f06548}
+
+/* WAN provider names (Gamtel, QCell, Starlink…) — core/wan_names.py */
+.lbx-lane.named{border-left:4px solid var(--isp,#1769e0)}
+.lbx-isp-ic{width:24px;height:24px;border-radius:8px;display:grid;place-items:center;background:var(--isp,#1769e0);color:#fff;font-size:.8rem;flex:0 0 auto}
+.lbx-port{font-size:.7rem;color:var(--muted,#6b7c8f);background:#eef2f6;border-radius:99px;padding:.05rem .45rem}
+.lbx-rename{border:0;background:none;color:var(--muted,#6b7c8f);padding:0 .15rem;font-size:.8rem;line-height:1}.lbx-rename:hover{color:#1769e0}
+.lbx-name-chip{border:1.5px dashed #9dc0f2;background:#f2f7ff;color:#1558b8;border-radius:99px;font-size:.72rem;font-weight:700;padding:.12rem .6rem}
+.lbx-name-chip:hover{background:#e3eeff;border-style:solid}
+.lbx-namer-form{display:flex;gap:.35rem;align-items:center}.lbx-namer-form input{min-width:0;flex:1}
+.lbx-picks{display:flex;flex-wrap:wrap;gap:.3rem;margin-top:.45rem}
+.lbx-picks button{border:1px solid var(--border,#e3e9f1);background:#fff;border-radius:99px;font-size:.72rem;padding:.12rem .55rem;color:#34495e}
+.lbx-picks button:hover{border-color:#1769e0;color:#1769e0}.lbx-picks .clear{border-style:dashed;color:#8a9aab}
+.lbx-namer-msg{display:block;font-size:.72rem;margin-top:.3rem}.lbx-namer-msg.bad{color:#c0392b}
+.lbx-isp.named rect{stroke:var(--isp)}
+html[data-theme="dark"] .lbx-port{background:#2d353e;color:#c8d6e5}html[data-theme="dark"] .lbx-name-chip{background:#14243a;color:#9dc0f2}
+html[data-theme="dark"] .lbx-picks button{background:#1f2933;color:#c8d6e5}
+
+/* Rows of routers on one port (netviz-topology.js viewGraph) */
+.nm-node.t-chainmore{background:linear-gradient(135deg,#123c42,#0e2a31);border:1.5px dashed #4cc3d0;cursor:pointer;
+  box-shadow:6px 6px 0 -1px #0e2a31,6px 6px 0 0 #2f9aa6,12px 12px 0 -1px #0b2228,12px 12px 0 0 #24707a}
+.nm-node.t-chainmore .nm-ic{background:#14a3b3;color:#fff}.nm-node.t-chainmore:hover{border-style:solid}
+.nm-chain-box{margin-top:1rem;border:1px solid var(--border,#e3e9f1);border-radius:12px;padding:.7rem .8rem}
+.nm-chain-box>b{display:block;font-size:.85rem}.nm-chain-box>small{display:block;color:var(--muted,#6b7c8f);font-size:.74rem;margin:.2rem 0 .5rem}
+.nm-chain-list{list-style:none;counter-reset:row;padding:0;margin:0 0 .6rem;max-height:300px;overflow:auto}
+.nm-chain-list li{counter-increment:row;position:relative;padding-left:1.7rem}
+.nm-chain-list li:before{content:counter(row);position:absolute;left:0;top:.45rem;width:1.25rem;height:1.25rem;border-radius:50%;background:#e6f4f6;color:#0f6e78;font-size:.66rem;font-weight:800;display:grid;place-items:center}
+.nm-chain-list li:not(:last-child):after{content:'';position:absolute;left:.6rem;top:1.75rem;bottom:-.35rem;border-left:2px solid #9ad6dc}
+.nm-chain-list button{display:flex;flex-wrap:wrap;align-items:center;gap:0 .4rem;width:100%;text-align:left;background:none;border:0;border-radius:8px;padding:.35rem .4rem;color:inherit}
+.nm-chain-list button:hover{background:rgba(127,224,234,.10)}.nm-chain-list li.me button{background:rgba(76,195,208,.18)}
+.nm-chain-list b{font-size:.8rem}.nm-chain-list small{flex-basis:100%;padding-left:.9rem;color:var(--muted,#6b7c8f);font-size:.72rem}
+.nm-cdot{width:7px;height:7px;border-radius:50%;background:#34c38f}.nm-chain-list li.off .nm-cdot{background:#f06548}
+.lbx-namer-q{display:block;font-size:.78rem;color:var(--muted,#6b7c8f);margin-bottom:.35rem}
+.nm-chain-acts{display:flex;gap:.4rem;flex-wrap:wrap}

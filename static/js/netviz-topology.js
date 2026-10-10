@@ -13,12 +13,15 @@
   const NODE_W = 184, NODE_H = 64, CLUSTER_W = 150, LAYER_GAP = 150, COL_GAP = 44;
   const ICONS = {
     internet: 'bi-globe2', isp: 'bi-broadcast-pin', wan: 'bi-hdd-network-fill', router: 'bi-router-fill', siterouter: 'bi-router',
-    switch: 'bi-hdd-rack', wifi: 'bi-wifi', network: 'bi-diagram-3', clients: 'bi-phone'
+    switch: 'bi-hdd-rack', wifi: 'bi-wifi', network: 'bi-diagram-3', clients: 'bi-phone', chainmore: 'bi-collection'
   };
   const TYPE_LABEL = {
     internet: 'Internet', isp: 'ISP modem', wan: 'WAN link', router: 'MikroTik (managed)', siterouter: 'Router (not managed)', switch: 'Switch',
-    wifi: 'Access point', network: 'Network device', clients: 'Connected devices'
+    wifi: 'Access point', network: 'Network device', clients: 'Connected devices', chainmore: 'Routers in a row'
   };
+  // Routers sharing one MikroTik port are drawn one after the other (core/netgraph.py chain_order).
+  // A row longer than CHAIN_FOLD is folded after CHAIN_SHOW routers into one "+N more routers" card.
+  const CHAIN_SHOW = 3, CHAIN_FOLD = 4, CHAIN_KEY = 'tt-map-open-rows';
   const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
@@ -106,6 +109,7 @@
       this.opts = { clients: true, offline: true, labels: true, live: true };
       this.view = { x: 0, y: 0, k: 1 }; this.traffic = {}; this.particles = []; this.edgePaths = {};
       this.liveFail = 0; this.search = '';
+      try { this.openChains = new Set(JSON.parse(localStorage.getItem(CHAIN_KEY) || '[]')); } catch (e) { this.openChains = new Set(); }
       this.build(); this.render(true); this.bindPan();
       if (cfg.autoRefreshIds && cfg.autoRefreshIds.length) this.discover(cfg.autoRefreshIds, true);
       this.startLive();
@@ -163,8 +167,54 @@
       window.addEventListener('resize', () => { clearTimeout(this._rs); this._rs = setTimeout(() => this.fit(), 200); });
     }
 
+    // ------------------------------------------------ rows of routers on one port
+    chains() {
+      const out = {};
+      this.graph.nodes.forEach(n => { if (n.chain) (out[n.chain.id] = out[n.chain.id] || []).push(n); });
+      Object.values(out).forEach(list => list.sort((a, b) => a.chain.pos - b.chain.pos));
+      return out;
+    }
+    setChainOpen(cid, open) {
+      if (open) this.openChains.add(cid); else this.openChains.delete(cid);
+      try { localStorage.setItem(CHAIN_KEY, JSON.stringify([...this.openChains])); } catch (e) { /* private mode: fine */ }
+      this.render(false);
+    }
+    // The graph as drawn: long rows folded into a "+N more routers" card.
+    viewGraph() {
+      const g = this.graph, hide = new Set(), owner = {}, extraNodes = [], extraEdges = [];
+      Object.entries(this.chains()).forEach(([cid, members]) => {
+        if (members.length <= CHAIN_FOLD || this.openChains.has(cid)) return;
+        const hidden = members.slice(CHAIN_SHOW), tail = members[CHAIN_SHOW - 1], c = members[0].chain, mid = 'more:' + cid;
+        hidden.forEach(n => { hide.add(n.id); owner[n.id] = mid; });
+        const online = hidden.filter(n => n.status === 'online').length;
+        extraNodes.push({ id: mid, type: 'chainmore', label: `+${hidden.length} router${hidden.length === 1 ? '' : 's'}`,
+          sub: `on ${c.port} · ${online} of ${hidden.length} online`, status: online ? 'online' : 'offline', chain: c,
+          members: members.map(n => n.id), hidden: hidden.map(n => n.id), port: c.port, router_id: c.router_id });
+        extraEdges.push({ id: 'e-' + mid, source: tail.id, target: mid, kind: 'lan', online: true, router_id: c.router_id, iface: c.port, label: '', direction: 'down', chain: cid });
+      });
+      if (!hide.size) return g;
+      // Also fold what only hangs from folded routers (their customers, routers placed under them)…
+      for (let grew = true; grew;) {
+        grew = false;
+        g.nodes.forEach(n => {
+          if (hide.has(n.id) || n.type === 'router') return;
+          const inc = g.edges.filter(e => e.target === n.id);
+          if (inc.length && inc.every(e => hide.has(e.source))) { hide.add(n.id); owner[n.id] = owner[inc[0].source]; grew = true; }
+        });
+      }
+      // …but a managed MikroTik behind a folded router stays on the map, hanging from the folded card.
+      const edges = [];
+      g.edges.forEach(e => {
+        if (hide.has(e.target)) return;
+        if (hide.has(e.source)) edges.push({ ...e, id: e.id + ':f', source: owner[e.source] });
+        else edges.push(e);
+      });
+      return { ...g, nodes: g.nodes.filter(n => !hide.has(n.id)).concat(extraNodes), edges: edges.concat(extraEdges) };
+    }
+    nodeById(id) { return (this.L && this.L.nodes.find(x => x.id === id)) || this.graph.nodes.find(x => x.id === id); }
+
     render(fit) {
-      const L = this.L = layout(this.graph, this.opts);
+      const L = this.L = layout(this.viewGraph(), this.opts);
       this.svg.setAttribute('width', L.width + 40); this.svg.setAttribute('height', L.height + 40);
       this.svg.setAttribute('viewBox', `-20 -20 ${L.width + 40} ${L.height + 40}`);
       this.stage.style.width = (L.width + 40) + 'px'; this.stage.style.height = (L.height + 40) + 'px';
@@ -232,7 +282,8 @@
           n.type === 'wan' ? `<em class="nm-state">${esc(n.state || '')}</em>` :
           n.type === 'router' && n.lb_method && n.lb_method !== 'Single WAN' ? `<em class="nm-state">${esc(n.lb_method)}</em>` :
           n.type === 'siterouter' && n.suggested ? `<em class="nm-state" title="Found by TapTap — confirm it in the Detail tab">found?</em>` :
-          n.type === 'siterouter' && n.brand ? `<em class="nm-brand">${esc(n.brand)}</em>` : '';
+          n.type === 'siterouter' && n.brand ? `<em class="nm-brand">${esc(n.brand)}</em>` :
+          n.type === 'chainmore' ? `<em class="nm-state">open</em>` : '';
         div.innerHTML = `<span class="nm-ic"><i class="bi ${ICONS[n.type] || 'bi-circle'}"></i></span>
           <span class="nm-tx"><b>${esc(n.label)}</b><small>${esc(n.sub || TYPE_LABEL[n.type] || '')}</small></span>${badge}
           <span class="nm-dot" aria-hidden="true"></span>`;
@@ -283,16 +334,37 @@
       this.root.classList.toggle('nm-searching', !!q);
       this.nodeLayer.querySelectorAll('.nm-node').forEach(div => {
         if (!q) { div.classList.remove('match'); return; }
-        const n = this.graph.nodes.find(x => x.id === div.dataset.id); if (!n) return;
-        let hay = [n.label, n.sub, n.mac, n.ip, n.board, n.port, n.iface].join(' ').toLowerCase();
+        const n = this.nodeById(div.dataset.id); if (!n) return;
+        let hay = [n.label, n.sub, n.mac, n.ip, n.board, n.port, n.iface, n.isp].join(' ').toLowerCase();
+        if (n.hidden) hay += ' ' + n.hidden.map(id => { const m = this.graph.nodes.find(x => x.id === id) || {}; return [m.label, m.ip, m.mac].join(' '); }).join(' ').toLowerCase();
         if (n.devices) hay += ' ' + n.devices.map(d => [d.name, d.mac, d.ip].join(' ')).join(' ').toLowerCase();
         div.classList.toggle('match', hay.includes(q));
       });
     }
 
     // ------------------------------------------------ drawer
+    // Open a router that may be folded inside a row: stretch the row out first.
+    // A folded router opens in place (its card is shown); no need to unfold the whole row.
+    reveal(id) {
+      const n = this.graph.nodes.find(x => x.id === id);
+      const at = this.L.pos[id] ? id : n && n.chain ? 'more:' + n.chain.id : id;
+      this.focusNode(at); this.openDrawer(id);
+    }
+    chainBox(n) {
+      const list = (this.chains()[n.chain.id] || []);
+      const open = this.openChains.has(n.chain.id), long = list.length > CHAIN_FOLD;
+      const rname = (this.cfg.routers.find(r => r.id === n.chain.router_id) || {}).name || 'MikroTik';
+      return `<div class="nm-chain-box"><b><i class="bi bi-link-45deg"></i> ${list.length} routers in a row on ${esc(rname)} › ${esc(n.chain.port)}</b>
+        <small>Drawn one after the other in IP order — TapTap cannot see which feeds which. Place a router under the one it hangs from in the Detail tab to set the real order.</small>
+        <ol class="nm-chain-list">${list.map(m => `<li class="${m.status === 'online' ? 'on' : 'off'}${m.id === n.id ? ' me' : ''}"><button type="button" data-reveal="${esc(m.id)}">
+          <span class="nm-cdot"></span><b>${esc(m.label)}</b><small>${esc(m.ip || m.mac || '')}</small></button></li>`).join('')}</ol>
+        ${long ? `<div class="nm-chain-acts"><button type="button" class="btn btn-sm btn-primary" data-chain-detail="${esc(n.chain.id)}"><i class="bi bi-grid-3x3-gap"></i> Show all ${list.length} in Detail</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-chain-toggle="${esc(n.chain.id)}">
+          <i class="bi ${open ? 'bi-arrows-collapse' : 'bi-arrows-expand'}"></i> ${open ? 'Fold this row back' : 'Stretch out here'}</button></div>` : ''}</div>`;
+    }
+
     openDrawer(id) {
-      const n = this.graph.nodes.find(x => x.id === id); if (!n) return;
+      const n = this.nodeById(id); if (!n) return;
       this.nodeLayer.querySelectorAll('.nm-node.sel').forEach(x => x.classList.remove('sel'));
       const div = this.nodeLayer.querySelector(`[data-id="${CSS.escape(id)}"]`); if (div) div.classList.add('sel');
       const rows = [];
@@ -305,10 +377,14 @@
         extra += `<div class="nm-drawer-actions"><button type="button" class="btn btn-sm btn-primary" data-discover="${n.router_id}"><i class="bi bi-radar"></i> Discover now</button>
           <a class="btn btn-sm btn-outline-secondary" href="${this.cfg.controlUrl.replace('/0/', '/' + n.router_id + '/')}"><i class="bi bi-sliders"></i> Control Center</a></div>`;
       } else if (n.type === 'wan') {
-        add('Interface', n.iface); add('Gateway', n.sub); add('State', n.state); add('Role', n.role);
+        add('Provider', n.isp || 'Not named yet — name it on the Internet paths card below'); add('Interface', n.iface); add('Gateway', n.sub); add('State', n.state); add('Role', n.role);
         if (n.share != null) add('Planned share', n.share + '%'); add('Routing tables', (n.tables || []).join(', ')); add('Distance', n.distance); add('Type', n.source);
         extra += `<div class="nm-live-box" data-live-for="${esc(n.router_id)}:${esc(n.iface)}"></div>`;
+      } else if (n.type === 'chainmore') {
+        add('Port', n.port); add('Folded routers', n.hidden.length); add('Routers in the row', n.members.length);
+        extra += this.chainBox(n);
       } else if (n.type === 'siterouter') {
+        if (n.chain) add('Place in the row', `${n.chain.pos + 1} of ${n.chain.size}`);
         add('Maker', n.brand); add('Model', n.model); add('IP address', n.ip); add('MAC address', n.mac);
         add('Plugged into', n.port ? `${(this.cfg.routers.find(r => r.id === n.router_id) || {}).name || 'MikroTik'} › ${n.port}` : '');
         add('Works as', n.mode === 'ap' ? 'Access point — customers pass through' : n.mode === 'nat' ? 'Router (NAT) — customers hidden behind it' : '');
@@ -316,6 +392,7 @@
         if (n.suggested) extra += `<div class="nm-alert"><i class="bi bi-question-circle"></i> TapTap found this and thinks it is a router. Confirm it or mark it “not a router” in the Detail tab.</div>`;
         if ((n.reasons || []).length) extra += `<div class="nm-why"><b>Why TapTap thinks so</b>${n.reasons.map(r => `<div class="${r.sign === '+' ? 'pro' : 'con'}"><i class="bi ${r.sign === '+' ? 'bi-plus-circle' : 'bi-dash-circle'}"></i> ${esc(r.text)}</div>`).join('')}</div>`;
         extra += `<div class="nm-drawer-actions"><button type="button" class="btn btn-sm btn-primary" data-detail-key="${esc(n.key)}"><i class="bi bi-list-columns"></i> Open in Detail</button></div>`;
+        if (n.chain) extra += this.chainBox(n);
       } else if (n.type === 'clients') {
         add('Port', n.port); add('Devices', n.count); add('Wireless', n.wifi); add('Logged in to hotspot', n.hotspot);
         extra += `<input class="form-control form-control-sm nm-dev-filter" placeholder="Filter devices"><div class="nm-devlist">${(n.devices || []).map(d => `
@@ -335,10 +412,22 @@
       const f = this.drawer.querySelector('.nm-dev-filter');
       if (f) f.addEventListener('input', () => { const q = f.value.toLowerCase(); this.drawer.querySelectorAll('.nm-dev').forEach(d => d.hidden = !d.textContent.toLowerCase().includes(q)); });
       const btn = this.drawer.querySelector('[data-discover]'); if (btn) btn.onclick = () => this.discover([Number(btn.dataset.discover)]);
+      this.drawer.querySelectorAll('[data-reveal]').forEach(b => b.onclick = () => this.reveal(b.dataset.reveal));
+      const toDetail = this.drawer.querySelector('[data-chain-detail]');
+      if (toDetail) toDetail.onclick = () => { this.closeDrawer(); window.dispatchEvent(new CustomEvent('taptap:detail-row', { detail: toDetail.dataset.chainDetail })); };
+      const tog = this.drawer.querySelector('[data-chain-toggle]');
+      if (tog) tog.onclick = () => {
+        const cid = tog.dataset.chainToggle, open = !this.openChains.has(cid);
+        this.setChainOpen(cid, open); this.closeDrawer();
+        const list = this.chains()[cid] || [];
+        // Stretched: go to the first router that was folded. Folded: go to the "+N" card.
+        const target = open ? (list[CHAIN_SHOW] || list[list.length - 1] || {}).id : 'more:' + cid;
+        if (target) requestAnimationFrame(() => this.focusNode(target));
+      };
       const det = this.drawer.querySelector('[data-detail-key]');
       if (det) det.onclick = () => { this.closeDrawer(); window.dispatchEvent(new CustomEvent('taptap:detail', { detail: det.dataset.detailKey })); };
       this.drawer.classList.add('open'); this.drawer.setAttribute('aria-hidden', 'false'); this.paintDrawerLive();
-      if (n.type !== 'internet' && n.type !== 'wan' && n.type !== 'siterouter') this.loadNodeDevices(n);
+      if (!['internet', 'wan', 'siterouter', 'chainmore'].includes(n.type)) this.loadNodeDevices(n);
     }
 
     // Everything behind this node — online and offline — with a per-device alert bell.

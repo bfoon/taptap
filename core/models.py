@@ -572,6 +572,9 @@ class RouterInterfaceRole(models.Model):
     interface_name=models.CharField(max_length=120)
     role=models.CharField(max_length=30,choices=ROLES,default='unused')
     label=models.CharField(max_length=120,blank=True)
+    # The Internet provider on a WAN port (Gamtel, QCell, Starlink…). Kept apart from `label`, which the
+    # port-role editor rewrites, so a provider name survives role changes. Shown instead of "ether1".
+    isp_name=models.CharField(max_length=60,blank=True)
     updated_at=models.DateTimeField(auto_now=True)
     class Meta:
         constraints=[models.UniqueConstraint(fields=['router','interface_name'],name='uniq_router_interface_role')]

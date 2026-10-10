@@ -32,6 +32,20 @@
     return Math.round(v) + ' b/s';
   }
 
+  // Provider of an Internet line: an icon by kind of line, and a steady colour per name.
+  function ispIcon(name) {
+    const n = String(name || '').toLowerCase();
+    if (/starlink|satellite|vsat|sat\b/.test(n)) return 'bi-broadcast';
+    if (/4g|5g|lte|qcell|africell|comium|mobile|sim/.test(n)) return 'bi-reception-4';
+    if (/fib|gamtel|netpage|unique|cable|adsl/.test(n)) return 'bi-ethernet';
+    return 'bi-globe2';
+  }
+  function ispHue(name) { let h = 0; for (const c of String(name || '')) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
+  function csrfToken() {
+    const i = document.querySelector('[name=csrfmiddlewaretoken]'); const m = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/);
+    return (i && i.value) || (m && decodeURIComponent(m[1])) || '';
+  }
+
   class LBEngine {
     constructor(root, cfg) {
       this.root = root; this.cfg = cfg; this.lb = cfg.load_balancing || {};
@@ -88,6 +102,7 @@
         const g = s('g', { class: `lbx-isp st-${l.state}`, transform: `translate(${ix},${y})` });
         g.appendChild(s('rect', { x: -70, y: -22, width: 140, height: 44, rx: 12 }));
         const t1 = s('text', { x: 0, y: -3, 'text-anchor': 'middle', class: 'lbx-isp-name' }); t1.textContent = l.label || l.interface || 'WAN';
+        if (l.isp) g.style.setProperty('--isp', `hsl(${ispHue(l.isp)} 70% 62%)`), g.classList.add('named');
         const t2 = s('text', { x: 0, y: 13, 'text-anchor': 'middle', class: 'lbx-isp-sub' }); t2.textContent = STATE_TEXT[l.state] || l.state || '';
         g.appendChild(t1); g.appendChild(t2);
         if (l.state === 'down') { const x = s('text', { x: 58, y: -12, class: 'lbx-x', 'text-anchor': 'middle' }); x.textContent = '✕'; g.appendChild(x); }
@@ -117,8 +132,9 @@
       // ---------------- lane cards ----------------
       const lanes = this.root.querySelector('.lbx-lanes');
       lanes.innerHTML = links.map(l => `
-        <article class="lbx-lane st-${l.state}" data-id="${esc(l.id)}">
-          <header><span class="lbx-dot"></span><b>${esc(l.label || l.interface)}</b><em>${esc(STATE_TEXT[l.state] || l.state)}</em></header>
+        <article class="lbx-lane st-${l.state}${l.isp ? ' named' : ''}" data-id="${esc(l.id)}"${l.isp ? ` style="--isp:hsl(${ispHue(l.isp)} 70% 45%)"` : ''}>
+          <header><span class="lbx-dot"></span>${this.nameHtml(l)}<em>${esc(STATE_TEXT[l.state] || l.state)}</em></header>
+          <div class="lbx-namer" hidden></div>
           <div class="lbx-rates"><div><span>Down</span><strong data-k="down">—</strong></div><div><span>Up</span><strong data-k="up">—</strong></div></div>
           <div class="lbx-share" title="Bar: share of traffic now. Tick: planned share.">
             <div class="lbx-share-bar"><i data-k="bar"></i>${l.expected_share != null ? `<u style="left:${l.expected_share}%"></u>` : ''}</div>
@@ -128,12 +144,64 @@
           <footer>${esc(l.interface || 'interface ?')}${l.gateway ? ' → ' + esc(l.gateway) : ''} · ${esc(l.source || '')}${l.distance ? ' · distance ' + esc(l.distance) : ''}${l.tables && l.tables.length ? ' · ' + esc(l.tables.join(', ')) : ''}</footer>
         </article>`).join('');
 
+      lanes.querySelectorAll('[data-rename]').forEach(b => b.addEventListener('click', () => this.openNamer(b.closest('.lbx-lane'))));
+
       const facts = this.root.querySelector('.lbx-facts');
       facts.innerHTML = [
         ['PCC rules', lb.pcc_rule_count], ['Marking rules', lb.marked_rule_count], ['Routing tables', lb.routing_table_count],
         ['Routing rules', lb.routing_rule_count], ['Bonds', lb.bond_count]
       ].filter(([, v]) => v).map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('') + (lb.warnings || []).map(w => `<p class="lbx-warn"><i class="bi bi-exclamation-triangle"></i> ${esc(w)}</p>`).join('');
       this.paintTraffic();
+    }
+
+    // ---------------- provider names (Gamtel, QCell, Starlink…) ----------------
+    nameHtml(l) {
+      const can = !!this.cfg.name_url && !!l.interface;
+      if (l.isp) {
+        return `<span class="lbx-isp-ic"><i class="bi ${ispIcon(l.isp)}"></i></span><b>${esc(l.isp)}</b><small class="lbx-port">${esc(l.interface)}</small>` +
+          (can ? `<button type="button" class="lbx-rename" data-rename aria-label="Rename ${esc(l.isp)}" title="Change the provider name"><i class="bi bi-pencil"></i></button>` : '');
+      }
+      return `<b>${esc(l.label || l.interface)}</b>` +
+        (can ? `<button type="button" class="lbx-name-chip" data-rename title="Say which provider this line is"><i class="bi bi-tag"></i> Name this line</button>` : '');
+    }
+    openNamer(card) {
+      if (!card) return;
+      const l = this.links().find(x => x.id === card.dataset.id); if (!l) return;
+      const box = card.querySelector('.lbx-namer'), head = card.querySelector('header');
+      const list = `lbx-isps-${this.cfg.router_id}`;
+      const picks = this.cfg.isp_quick || ['Gamtel', 'QCell', 'Africell', 'Starlink'];
+      box.innerHTML = `
+        <label class="lbx-namer-q" for="${list}-in-${esc(l.id)}">Which provider is on <b>${esc(l.interface)}</b>?</label>
+        <form class="lbx-namer-form">
+          <input id="${list}-in-${esc(l.id)}" class="form-control form-control-sm" maxlength="60" list="${list}" value="${esc(l.isp || '')}" placeholder="e.g. Gamtel, QCell, Starlink" autocomplete="off">
+          <datalist id="${list}">${(this.cfg.isp_suggestions || []).map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+          <button class="btn btn-sm btn-primary">Save</button><button type="button" class="btn btn-sm btn-light" data-cancel>Cancel</button>
+        </form>
+        <div class="lbx-picks" aria-label="Quick picks">${picks.map(n => `<button type="button" data-pick="${esc(n)}"><i class="bi ${ispIcon(n)}"></i> ${esc(n)}</button>`).join('')}
+          ${l.isp ? `<button type="button" class="clear" data-pick="">Use ${esc(l.interface)} again</button>` : ''}</div>
+        <small class="lbx-namer-msg" aria-live="polite"></small>`;
+      box.hidden = false; head.hidden = true; this.editing = true;
+      const input = box.querySelector('input'); input.focus(); input.select();
+      const close = () => { box.hidden = true; box.innerHTML = ''; head.hidden = false; this.editing = false; };
+      box.querySelector('[data-cancel]').onclick = close;
+      box.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); close(); } });
+      box.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => this.saveName(l, b.dataset.pick, box, close));
+      box.querySelector('form').onsubmit = e => { e.preventDefault(); this.saveName(l, input.value, box, close); };
+    }
+    async saveName(l, name, box, close) {
+      const msg = box.querySelector('.lbx-namer-msg'); box.querySelectorAll('button,input').forEach(x => x.disabled = true);
+      try {
+        const res = await fetch(this.cfg.name_url, { method: 'POST', credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() }, body: JSON.stringify({ interface: l.interface, name: name.trim() }) });
+        const d = await res.json().catch(() => ({ success: false, message: 'TapTap did not answer.' }));
+        if (!d.success) throw new Error(d.message || 'Could not save the name.');
+        // Every link on this port takes the name (a port can carry more than one route).
+        (this.lb.wan_links || []).forEach(x => { if (x.interface === l.interface) { x.isp = d.name; x.label = d.name || x.interface; } });
+        close(); this.draw();
+        window.dispatchEvent(new CustomEvent('taptap:wan-named', { detail: { router_id: this.cfg.router_id, interface: l.interface, name: d.name } }));
+      } catch (err) {
+        box.querySelectorAll('button,input').forEach(x => x.disabled = false); msg.textContent = err.message; msg.classList.add('bad');
+      }
     }
 
     async poll() {
@@ -146,7 +214,7 @@
         if (!data.success) throw new Error(data.message || 'Router did not answer');
         const prev = this.lb; this.lb = data.load_balancing || this.lb; this.traffic = data.traffic || {};
         this.detectEvents(prev, this.lb);
-        if (this.signature(prev) !== this.signature(this.lb)) this.draw(); else this.paintTraffic();
+        if (this.signature(prev) !== this.signature(this.lb) && !this.editing) this.draw(); else this.paintTraffic();
         this.fail = 0; this.status('');
       } catch (err) {
         this.fail++; delay = Math.min(30000, 3000 * 2 ** this.fail);
@@ -198,7 +266,7 @@
           const w = both ? Math.min(14, 2 + Math.log10(1 + both / 1e4) * 2.2) : 0;
           p.glow.style.strokeWidth = w + 'px'; p.glow.style.opacity = w ? .55 : 0;
           const sub = p.isp.querySelector('.lbx-isp-sub');
-          if (sub) sub.textContent = both ? `↓ ${bps(p.down)}` : (STATE_TEXT[l.state] || l.state);
+          if (sub) sub.textContent = (l.isp ? l.interface + ' · ' : '') + (both ? `↓ ${bps(p.down)}` : (STATE_TEXT[l.state] || l.state));
         }
       });
       this.root.querySelector('.lbx-total').innerHTML = this.hasData() ? `↓ ${bps(sumDown)} <small>↑ ${bps(sumUp)}</small>` : '—';

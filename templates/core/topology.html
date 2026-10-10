@@ -2,7 +2,7 @@
 {% load static taptap_extras %}
 {% block title %}Live Topology — TapTap{% endblock %}
 {% block heading %}Live Network Topology{% endblock %}
-{% block extra_head %}<link href="{% static 'css/netviz.css' %}?v=6" rel="stylesheet"><link href="{% static 'css/topology-detail.css' %}?v=1" rel="stylesheet"><link href="{% static 'css/ports.css' %}?v=2" rel="stylesheet"><link href="{% static 'css/topology-health.css' %}?v=1" rel="stylesheet">{% endblock %}
+{% block extra_head %}<link href="{% static 'css/netviz.css' %}?v=7" rel="stylesheet"><link href="{% static 'css/topology-detail.css' %}?v=2" rel="stylesheet"><link href="{% static 'css/ports.css' %}?v=2" rel="stylesheet"><link href="{% static 'css/topology-health.css' %}?v=1" rel="stylesheet">{% endblock %}
 {% block content %}
 <form class="d-none">{% csrf_token %}</form>
 <div class="page-actions topology-actions">
@@ -166,9 +166,9 @@
 {{ detail|json_script:"topology-detail" }}
 {% endblock %}
 {% block scripts %}
-<script src="{% static 'js/netviz-lb.js' %}?v=5"></script>
-<script src="{% static 'js/netviz-topology.js' %}?v=6"></script>
-<script src="{% static 'js/topology-detail.js' %}?v=1"></script>
+<script src="{% static 'js/netviz-lb.js' %}?v=6"></script>
+<script src="{% static 'js/netviz-topology.js' %}?v=7"></script>
+<script src="{% static 'js/topology-detail.js' %}?v=2"></script>
 <script src="{% static 'js/topology-health.js' %}?v=1" data-resource-url="{% url 'router_resource_api' 0 %}" data-link-url="{% url 'router_link_status' 0 %}" data-reboot-url="{% url 'router_reboot' 0 %}"></script>
 <script src="{% static 'js/port-inspector.js' %}?v=3" data-port-url="{% url 'router_port' 0 %}" data-control-url="{% url 'router_control' 0 %}" data-action-url="{% url 'port_action' 0 %}" data-reboot-url="{% url 'router_reboot' 0 %}" data-backups-url="{% url 'router_backups' 0 %}"></script>
 <script>

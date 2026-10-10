@@ -129,12 +129,20 @@ class SiteRouterTests(SiteBase):
         self.assertIn('ether3', g['live_interfaces'][str(self.r.id)])
         self.assertEqual(g['stats']['site_routers'], 1)
 
-    def test_two_routers_on_one_port_share_a_cable_unless_chained(self):
-        a = self.dev(mac(TPLINK, 50), host='Archer-A'); b = self.dev(mac(TPLINK, 51), host='Archer-B')
+    def test_two_routers_on_one_port_are_a_chain(self):
+        # Several routers on one port are Wi-Fi routers fed one from the next: drawn one after the other
+        # (IP order) instead of fanned out under a "shared cable" node.
+        a = self.dev(mac(TPLINK, 50), host='Archer-A', ip='192.168.0.20'); b = self.dev(mac(TPLINK, 51), host='Archer-B', ip='192.168.0.3')
         sa = SiteRouter.objects.create(business=self.biz, mac_address=a.mac_address)
         sb = SiteRouter.objects.create(business=self.biz, mac_address=b.mac_address)
         g = build_graph(self.biz)
-        self.assertTrue(any(n['id'] == f'shared:{self.r.id}:ether3' for n in g['nodes']))
+        self.assertFalse(any(n['id'].startswith('shared:') for n in g['nodes']))
+        nodes = {n['id']: n for n in g['nodes']}
+        first, second = f'site:sr:{sb.pk}', f'site:sr:{sa.pk}'           # .3 before .20 (numeric, not text order)
+        self.assertEqual((nodes[first]['chain']['pos'], nodes[second]['chain']['pos'], nodes[first]['chain']['size']), (0, 1, 2))
+        self.assertTrue(any(e['source'] == f'router:{self.r.id}' and e['target'] == first and e['label'] == 'ether3' for e in g['edges']))
+        self.assertTrue(any(e['source'] == first and e['target'] == second and e['label'] == '' for e in g['edges']))
+        # Placing one under the other by hand replaces the guess.
         sb.parent = sa; sb.save()
         g = build_graph(self.biz)
         self.assertFalse(any(n['id'].startswith('shared:') for n in g['nodes']))

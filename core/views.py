@@ -590,7 +590,7 @@ def router_control(request,pk):
     if snapshot and snapshot.sections.get('Bridges'): bridges=snapshot.sections['Bridges'].get('rows',[])
     changes=router.config_changes.select_related('actor').order_by('-created_at')[:20]
     sections=[(label,sec) for label,sec in (snapshot.sections.items() if snapshot and snapshot.sections else []) if not str(label).startswith('_')]
-    return render(request,'core/router_control.html',{'router':router,'snapshot':snapshot,'sections':sections,'interfaces':interfaces,'bridges':bridges,'changes':changes,'role_choices':RouterInterfaceRole.ROLES,'catalog':MikroTikService.CONFIG_CATALOG,'lb_config':_lb_config(router,snapshot)})
+    return render(request,'core/router_control.html',{'router':router,'snapshot':snapshot,'sections':sections,'interfaces':interfaces,'bridges':bridges,'changes':changes,'role_choices':RouterInterfaceRole.ROLES,'catalog':MikroTikService.CONFIG_CATALOG,'lb_config':_lb_config(router,snapshot,request)})
 
 
 @login_required
@@ -721,14 +721,43 @@ def _safe_cache_set(key,value,ttl):
     except Exception: pass
 
 
-def _lb_config(router,snapshot=None):
+def _lb_config(router,snapshot=None,request=None):
     """Everything the load-balancing engine needs to draw instantly, before the first poll."""
     if snapshot is None:
         snapshot=RouterConfigSnapshot.objects.filter(router=router).first()
-    lb=(snapshot.load_balancing if snapshot else None) or {}
+    from .wan_names import named, ISP_SUGGESTIONS, ISP_QUICK
+    lb=named(router,(snapshot.load_balancing if snapshot else None) or {})
     from django.urls import reverse
+    can_name=request is not None and 'network.manage' in getattr(request,'tt_perms',())
     return {'router_id':router.id,'router_name':router.name,'router_ip':router.ip_address or ('TapTap Link' if router.connection_mode=='agent' else ''),'status':router.status,
-            'dom_id':f'lb-cfg-{router.id}','telemetry_url':reverse('router_telemetry',args=[router.id]),'load_balancing':lb}
+            'dom_id':f'lb-cfg-{router.id}','telemetry_url':reverse('router_telemetry',args=[router.id]),'load_balancing':lb,
+            'name_url':reverse('router_wan_name',args=[router.id]) if can_name else '','isp_suggestions':ISP_SUGGESTIONS,'isp_quick':ISP_QUICK}
+
+
+@login_required
+@require_POST
+def router_wan_name(request,pk):
+    """Name an Internet line after its provider: ether1 → Gamtel. Empty name = back to the port name."""
+    router=get_object_or_404(b(request).routers,pk=pk)
+    try: data=json.loads(request.body or '{}')
+    except ValueError: data=request.POST
+    iface=str(data.get('interface','')).strip()[:120]
+    snap=RouterConfigSnapshot.objects.filter(router=router).first()
+    wan_ifaces={l.get('interface') for l in ((snap.load_balancing if snap else None) or {}).get('wan_links',[]) if l.get('interface')}
+    if not iface or not (iface in wan_ifaces or router.interfaces.filter(name=iface).exists()):
+        return JsonResponse({'success':False,'message':'That is not an Internet port of this router.'},status=400)
+    from .wan_names import set_name
+    name=set_name(router,iface,data.get('name',''))
+    log(router.business,'Router',f'{router.name}: {iface} named "{name}"' if name else f'{router.name}: {iface} provider name cleared')
+    return JsonResponse({'success':True,'interface':iface,'name':name,'label':name or iface})
+
+
+def _named_payload(router,payload):
+    """Provider names (Gamtel, QCell…) over the WAN links of a telemetry answer. The cache keeps the raw answer."""
+    if not payload.get('load_balancing'):
+        return payload
+    from .wan_names import named
+    return {**payload,'load_balancing':named(router,payload['load_balancing'])}
 
 
 def _lb_signature(lb):
@@ -742,14 +771,14 @@ def router_telemetry(request,pk):
     key=f'tt:lb:{router.id}'
     cached=_safe_cache_get(key)
     if cached:
-        return JsonResponse(cached)
+        return JsonResponse(_named_payload(router,cached))
     snapshot=RouterConfigSnapshot.objects.filter(router=router).first()
     if _on_link(router):
         from .linklive import link_state, telemetry as link_telemetry
         online,why=link_state(router)
         payload={'success':True,**link_telemetry(router)} if online else {'success':False,'message':why}
         _safe_cache_set(key,payload,settings.LIVE_CACHE_SECONDS)
-        return JsonResponse(payload)
+        return JsonResponse(_named_payload(router,payload))
     try:
         with MikroTikService(router,timeout=settings.MIKROTIK_LIVE_TIMEOUT) as svc:
             data=svc.telemetry(snapshot.sections if snapshot else None)
@@ -762,7 +791,7 @@ def router_telemetry(request,pk):
             Router.objects.filter(pk=router.pk).update(status='Online',last_error='',last_tested_at=timezone.now())
         payload={'success':True,**data}
         _safe_cache_set(key,payload,settings.LIVE_CACHE_SECONDS)
-        return JsonResponse(payload)
+        return JsonResponse(_named_payload(router,payload))
     except Exception as e:
         payload={'success':False,'message':str(e)}
         _safe_cache_set(key,payload,max(5,settings.LIVE_CACHE_SECONDS))
@@ -873,7 +902,7 @@ def topology(request):
     business=b(request);routers=list(business.routers.all().order_by('name'))
     snapshots=[snapshot_from_database(r) for r in routers]
     for snap in snapshots:
-        snap['lb_config']=_lb_config(snap['router'])
+        snap['lb_config']=_lb_config(snap['router'],request=request)
         snap['wifi_clients']=[d for d in snap['devices'] if d.connection_type=='wifi']
         if snap['router'].status=='Online': snap['error']=''
     stale_after=timezone.now()-timedelta(seconds=settings.TOPOLOGY_STALE_SECONDS)

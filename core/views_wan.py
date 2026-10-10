@@ -139,6 +139,8 @@ def wan_detect(request, pk):
         return JsonResponse({'success': False, 'message': str(exc)}, status=502)
     analysis = facts.pop('analysis', {})
     setup.facts = facts; setup.save(update_fields=['facts', 'updated_at'])
+    from .wan_names import named
+    analysis = named(router, analysis)
     return JsonResponse({'success': True, 'facts': facts, 'current': {'method': analysis.get('method'), 'description': analysis.get('description'),
                                                                      'links': analysis.get('wan_links', []), 'warnings': analysis.get('warnings', [])}})
 

@@ -1,7 +1,8 @@
 /* TapTap Topology → Detail tab.
  *
  * A designed, tidy tree of how the routers are linked:
- *   Internet → MikroTik → port → TP-Link (or a shared cable when several share a port) → customers
+ *   Internet → MikroTik → port → TP-Link → customers. Several routers on one port are drawn as a chain
+ *   (Wi-Fi fed router to router); a long chain folds into "+N more routers" — stretch it out or list it.
  * Links animate with the live traffic of the MikroTik port they run through (the Map tab already
  * polls it: window.taptapNetMap.traffic), plus the list of routers with why TapTap found each one,
  * confirm / "not a router" / edit, and "Add routers by IP" (192.168.0.1, lists, ranges).
@@ -38,6 +39,11 @@
     t.addEventListener('keydown', e => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const n = tabs[(i + 1) % tabs.length]; show(n.dataset.view, true); } });
   });
   window.addEventListener('taptap:detail', e => { show('detail'); highlight(e.detail); });
+  // From the Map: "Show all N in Detail" opens this tab with that row stretched out (snaked into columns).
+  window.addEventListener('taptap:detail-row', e => {
+    openRows.add(e.detail); try { localStorage.setItem(OPEN_KEY, JSON.stringify([...openRows])); } catch (err) { /* fine */ }
+    show('detail'); requestAnimationFrame(() => fit(true, true));
+  });
 
   // ------------------------------------------------------------------ data helpers
   const entries = () => P.entries || [];
@@ -47,19 +53,40 @@
   function updateCount() { const n = entries().filter(confirmedOrLikely).length; const c = $('#tdCount'); if (c) c.textContent = n; }
 
   // ------------------------------------------------------------------ designed diagram (tidy tree)
-  const SIZE = { internet: [150, 52], mt: [236, 78], port: [96, 30], shared: [196, 44], site: [214, 74], clients: [136, 34], group: [170, 40] };
-  const GAP = 20, ROW = 118;
+  const SIZE = { internet: [150, 52], mt: [236, 78], port: [96, 30], site: [214, 74], clients: [150, 30], group: [170, 40], more: [214, 64], fold: [210, 34] };
+  const GAP = 20, ROW = 118, SIDE_GAP = 14;
+  // Routers on one MikroTik port are Wi-Fi routers fed one from the next: drawn as a chain, top to bottom.
+  // A chain longer than CHAIN_FOLD shows CHAIN_SHOW routers, then a "+N more routers" card (stretch it, or list them).
+  const CHAIN_SHOW = 3, CHAIN_FOLD = 4, OPEN_KEY = 'tt-td-open-rows';
+  // A stretched-out row snakes through columns of SNAKE_ROWS routers (down, across, up…) so it uses the width.
+  const SNAKE_ROWS = 5, SNAKE_GAP = 46, SNAKE_PAD = 16;
+  let openRows; try { openRows = new Set(JSON.parse(localStorage.getItem(OPEN_KEY) || '[]')); } catch (err) { openRows = new Set(); }
+  function setRow(cid, open) {
+    if (open) openRows.add(cid); else openRows.delete(cid);
+    try { localStorage.setItem(OPEN_KEY, JSON.stringify([...openRows])); } catch (err) { /* private mode: fine */ }
+    closePop(); drawDiagram();
+  }
+  // Same order as core/netgraph.py chain_order(): IP address, then name. TapTap cannot see who feeds whom.
+  const ipKey = ip => { const p = String(ip || '').split('.'); return p.length === 4 && p.every(x => /^\d+$/.test(x)) ? p.map(Number) : [999]; };
+  const cmp = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
+  function chainOrder(a, b) {
+    const x = ipKey(a.ip), y = ipKey(b.ip);
+    for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] ?? -1) - (y[i] ?? -1); if (d) return d; }
+    return cmp(String(a.name || '').toLowerCase(), String(b.name || '').toLowerCase()) || cmp(String(a.key), String(b.key));
+  }
 
   function buildTree() {
     const showSuggest = $('#tdSuggest').checked;
     const list = entries().filter(e => e.status === 'confirmed' || (showSuggest && e.confidence === 'likely'));
     const kids = k => list.filter(e => e.parent_key === k);
     const siteIndex = {};
-    const siteNode = e => {
+    const siteNode = (e, inChain) => {
       const n = { type: 'site', e, rid: e.router_id, port: e.port, children: [] };
       siteIndex[e.key] = n;
       kids(e.key).forEach(c => n.children.push(siteNode(c)));
-      if (e.clients) n.children.push({ type: 'clients', count: e.clients, rid: e.router_id, port: e.port, online: e.online, children: [] });
+      // Customers sit beside their router, not under it, so a chain stays one column wide.
+      // `clients` counts customers on the whole MikroTik port, so in a chain it is shown once, by the port.
+      if (e.clients && !inChain) n.side = { type: 'clients', count: e.clients, rid: e.router_id, port: e.port, online: e.online, children: [] };
       return n;
     };
     const root = { type: 'internet', children: [] };
@@ -72,10 +99,29 @@
       Object.keys(ports).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).forEach(port => {
         const p = { type: 'port', name: port, rid: r.id, children: [] };
         const group = ports[port];
-        if (group.length > 1) {
-          const sh = { type: 'shared', rid: r.id, port, children: group.map(siteNode) };
-          p.children.push(sh);
-        } else p.children.push(siteNode(group[0]));
+        if (group.length === 1 || port === '?') group.forEach(e => p.children.push(siteNode(e)));
+        else {
+          const all = group.slice().sort(chainOrder), cid = `${r.id}:${port}`, long = all.length > CHAIN_FOLD, open = openRows.has(cid);
+          const shown = long && !open ? all.slice(0, CHAIN_SHOW) : all;
+          const onPort = Math.max(0, ...all.map(e => e.clients || 0));
+          if (onPort) p.side = { type: 'clients', count: onPort, port, rid: r.id, online: true, onPort: true, children: [] };
+          if (long && open) {
+            const members = all.map((e, i) => { const n = siteNode(e, true); n.chain = { cid, pos: i, size: all.length }; return n; });
+            const snake = { type: 'snake', cid, rid: r.id, port, members, children: [{ type: 'fold', cid, rid: r.id, port, all, children: [] }] };
+            snake.spine = true; p.children.push(snake); p.spine = true; mt.children.push(p);
+            return;
+          }
+          let host = p;
+          shown.forEach((e, i) => {
+            const n = siteNode(e, true); n.chain = { cid, pos: i, size: all.length };
+            host.children.unshift(n); host.spine = true; host = n;     // the next router goes straight below
+          });
+          if (long && !open) {
+            const more = { type: 'more', cid, rid: r.id, port, all, hidden: all.slice(CHAIN_SHOW), children: [] };
+            more.hidden.forEach(e => { siteIndex[e.key] = more; });  // a MikroTik behind a folded router hangs from the card
+            host.children.unshift(more); host.spine = true;
+          } else if (long) { host.children.unshift({ type: 'fold', cid, rid: r.id, port, all, children: [] }); host.spine = true; }
+        }
         mt.children.push(p);
       });
     });
@@ -96,19 +142,68 @@
     });
     const loose = list.filter(e => !e.parent_key && (!e.router_id || !routerById(e.router_id)));
     if (loose.length) root.children.push({ type: 'group', label: 'Not linked yet', children: loose.map(siteNode) });
+    // A snake can only hold routers with nothing behind them. If one feeds more routers (or a MikroTik
+    // was placed under it), draw that row as a plain chain instead, so nothing is lost.
+    (function unsnake(n) {
+      n.children.forEach((c, i) => {
+        if (c.type === 'snake' && c.members.some(m => m.children.length)) {
+          const fold = c.children[0];
+          let host = null, first = null;
+          c.members.forEach(m => { if (!host) first = m; else { host.children.unshift(m); host.spine = true; } host = m; });
+          host.children.unshift(fold); host.spine = true;
+          n.children[i] = first;
+        }
+        unsnake(n.children[i]);
+      });
+    })(root);
     return root;
   }
 
+  // Layout by extents: each subtree knows how far it reaches left (L) and right (R) of its node's centre.
+  // A "spine" node keeps its first child straight below it (a chain); a "side" node sits to its right.
   function measure(n) {
-    const [w, h] = SIZE[n.type]; n.w = w; n.h = h;
+    if (n.type === 'snake') {
+      const k = n.members.length, cols = Math.ceil(k / SNAKE_ROWS), rows = Math.min(k, SNAKE_ROWS), [sw, sh] = SIZE.site;
+      n.cols = cols; n.rows = rows;
+      n.w = cols * sw + (cols - 1) * SNAKE_GAP + SNAKE_PAD * 2; n.h = (rows - 1) * ROW + sh + SNAKE_PAD * 2 + 18;
+      n.members.forEach(m => { m.w = sw; m.h = sh; });
+    } else { const [w0, h0] = SIZE[n.type]; n.w = w0; n.h = h0; }
+    const w = n.w;
+    if (n.side) measure(n.side);
     n.children.forEach(measure);
-    const kidsSpan = n.children.reduce((s, c) => s + c.span, 0) + GAP * Math.max(0, n.children.length - 1);
-    n.kidsSpan = kidsSpan; n.span = Math.max(w, kidsSpan);
+    let L = w / 2, R = w / 2 + (n.side ? SIDE_GAP + n.side.w : 0);
+    if (n.children.length) {
+      if (n.spine) {
+        let cur = 0;
+        n.children.forEach((c, i) => {
+          if (i === 0) { c.dx = 0; cur = c.R + GAP; }
+          else { c.dx = cur + c.L; cur = c.dx + c.R + GAP; }
+        });
+      } else {
+        const total = n.children.reduce((sum, c) => sum + c.L + c.R, 0) + GAP * (n.children.length - 1);
+        let cur = -total / 2;
+        n.children.forEach(c => { c.dx = cur + c.L; cur = c.dx + c.R + GAP; });
+      }
+      n.children.forEach(c => { L = Math.max(L, c.L - c.dx); R = Math.max(R, c.dx + c.R); });
+    }
+    n.L = L; n.R = R;
   }
-  function place(n, x, depth, out) {
-    n.x = x + (n.span - n.w) / 2; n.y = depth * ROW + (SIZE.mt[1] - n.h) / 2; out.push(n);
-    let cx = x + (n.span - n.kidsSpan) / 2;
-    n.children.forEach(c => { place(c, cx, depth + 1, out); cx += c.span + GAP; });
+  function place(n, cx, depth, out) {
+    n.x = cx - n.w / 2; n.y = depth * ROW + (SIZE.mt[1] - n.h) / 2;
+    if (n.type === 'snake') {
+      n.y = depth * ROW + (SIZE.mt[1] - SIZE.site[1]) / 2 - SNAKE_PAD - 18; out.push(n);
+      n.members.forEach((m, i) => {
+        const col = Math.floor(i / SNAKE_ROWS), r0 = i % SNAKE_ROWS;
+        const inCol = Math.min(SNAKE_ROWS, n.members.length - col * SNAKE_ROWS);
+        const row = col % 2 ? inCol - 1 - r0 : r0;                       // odd columns run upwards
+        m.x = n.x + SNAKE_PAD + col * (m.w + SNAKE_GAP); m.y = n.y + SNAKE_PAD + 18 + row * ROW; m.col = col; m.row = row; out.push(m);
+      });
+      n.children.forEach(c => place(c, cx + c.dx, depth + n.rows, out));
+      return;
+    }
+    out.push(n);
+    if (n.side) { const sd = n.side; sd.x = n.x + n.w + SIDE_GAP; sd.y = n.y + (n.h - sd.h) / 2; out.push(sd); }
+    n.children.forEach(c => place(c, cx + c.dx, depth + 1, out));
   }
 
   function nodeHtml(n) {
@@ -118,14 +213,23 @@
       return `<span class="td-ic"><i class="bi bi-router-fill"></i></span><div><b>${esc(r.name)}</b><small>${esc(r.ip || 'MikroTik')} · ${r.devices} online</small></div><span class="td-dot ${r.online ? 'on' : ''}" title="${r.online ? 'Online' : 'Unreachable'}"></span>`;
     }
     if (n.type === 'port') return `<i class="bi bi-ethernet"></i> ${esc(n.name === '?' ? 'port ?' : n.name)}`;
-    if (n.type === 'shared') return `<span class="td-ic"><i class="bi bi-hdd-rack"></i></span><div><b>Switch / shared cable</b><small>order not known</small></div>`;
-    if (n.type === 'clients') return `<i class="bi bi-phone"></i> ${n.count} customer${n.count === 1 ? '' : 's'}`;
+    if (n.type === 'more') {
+      const on = n.hidden.filter(e => e.online).length;
+      return `<span class="td-ic"><i class="bi bi-collection"></i></span><div><b>+${n.hidden.length} more router${n.hidden.length === 1 ? '' : 's'}</b>
+        <small>${on} of ${n.hidden.length} online</small><small class="td-mode">Click to stretch out or list</small></div>`;
+    }
+    if (n.type === 'snake') {
+      const r = routerById(n.rid) || {};
+      return `<span class="td-snake-label"><i class="bi bi-link-45deg"></i> ${n.members.length} routers in a row · ${esc(r.name || 'MikroTik')} › ${esc(n.port)}</span>`;
+    }
+    if (n.type === 'fold') return `<i class="bi bi-arrows-collapse"></i> Fold back · ${n.all.length} routers`;
+    if (n.type === 'clients') return `<i class="bi bi-phone"></i> ${n.count} customer${n.count === 1 ? '' : 's'}${n.onPort ? ' on this port' : ''}`;
     if (n.type === 'group') return `<i class="bi bi-question-diamond"></i> ${esc(n.label)}`;
     const e = n.e;
     const mode = MODE[e.mode || e.mode_guess] || '';
     return `${e.brand ? `<em class="td-brand">${esc(e.brand)}</em>` : ''}<span class="td-ic"><i class="bi ${ROLE_ICON[e.role] || 'bi-router'}"></i></span>
       <div><b>${esc(e.name)}</b><small>${esc([e.model, e.ip].filter(Boolean).join(' · ') || e.mac || 'not seen yet')}</small>${mode ? `<small class="td-mode">${esc(mode)}</small>` : ''}</div>
-      <span class="td-dot ${e.online ? 'on' : ''}" title="${e.online ? 'Online' : e.seen ? 'Offline' : 'Not seen yet'}"></span>${e.status !== 'confirmed' ? '<span class="td-q" title="Found by TapTap — not confirmed">?</span>' : ''}${e.ip_conflict || e.foreign_dhcp ? `<span class="td-warn" title="${e.foreign_dhcp ? 'A router on ' + esc(e.port) + ' still hands out addresses (DHCP on). ' : ''}${e.ip_conflict ? 'IP conflict: ' + (e.ip_conflict + 1) + ' devices use ' + esc(e.ip) + '.' : ''}">!</span>` : ''}`;
+      <span class="td-dot ${e.online ? 'on' : ''}" title="${e.online ? 'Online' : e.seen ? 'Offline' : 'Not seen yet'}"></span>${n.chain ? `<span class="td-pos" title="Router ${n.chain.pos + 1} of ${n.chain.size} on ${esc(e.port)} (order guessed by IP address)">${n.chain.pos + 1}</span>` : ''}${e.status !== 'confirmed' ? '<span class="td-q" title="Found by TapTap — not confirmed">?</span>' : ''}${e.ip_conflict || e.foreign_dhcp ? `<span class="td-warn" title="${e.foreign_dhcp ? 'A router on ' + esc(e.port) + ' still hands out addresses (DHCP on). ' : ''}${e.ip_conflict ? 'IP conflict: ' + (e.ip_conflict + 1) + ' devices use ' + esc(e.ip) + '.' : ''}">!</span>` : ''}`;
   }
 
   let links = [];
@@ -266,6 +370,7 @@
   });
   // Capture phase: runs before Bootstrap closes the dialog, so Esc closes the dialog first, the big view next time.
   document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && pop) return;                      // Esc closes the open row list first
     if (e.key === 'Escape' && isBig() && !document.querySelector('.modal.show')) closeBig();
   }, true);
   // In big view the dialog and messages must live inside the full-screen panel to be seen.
@@ -274,9 +379,10 @@
 
   function drawDiagram() {
     const box = $('#tdDiagram'); if (!box || $('#paneDetail').hidden) return;
+    closePop();
     const root = buildTree(); measure(root);
-    const all = []; place(root, 0, 0, all);
-    const W = Math.max(root.span, 400) + 40, depthMax = Math.max(...all.map(n => n.y + n.h));
+    const all = []; place(root, Math.max(root.L, 200) + 20, 0, all);
+    const W = Math.max(root.L, 200) + Math.max(root.R, 200) + 40, depthMax = Math.max(...all.map(n => n.y + n.h));
     box.innerHTML = '';
     const stage = document.createElement('div'); stage.className = 'td-stage'; stage.style.width = W + 'px'; stage.style.height = (depthMax + 30) + 'px';
     const svg = document.createElementNS(svgNS, 'svg'); svg.setAttribute('width', W); svg.setAttribute('height', depthMax + 30); svg.setAttribute('aria-hidden', 'true');
@@ -288,7 +394,7 @@
     links = [];
     const off = 0;
     all.forEach(n => {
-      const d = document.createElement(n.type === 'site' ? 'button' : 'div');
+      const d = document.createElement(['site', 'more', 'fold'].includes(n.type) ? 'button' : 'div');
       d.className = `td-n td-${n.type}` + (n.e && n.e.status !== 'confirmed' ? ' sug' : '') + ((n.e && !n.e.online) || (n.r && !n.r.online) ? ' off' : '');
       d.style.cssText = `left:${n.x + off}px;top:${n.y + 10}px;width:${n.w}px;height:${n.h}px`;
       d.innerHTML = nodeHtml(n);
@@ -305,21 +411,101 @@
       }
       if (n.type === 'internet') d.dataset.drop = 'internet';
       if (n.type === 'port') d.dataset.drop = `port:${n.rid}:${n.name}`;
-      if (n.type === 'shared') d.dataset.drop = `port:${n.rid}:${n.port}`;
+      if (n.type === 'more') {
+        d.type = 'button'; d.dataset.drop = `port:${n.rid}:${n.port}`; d.setAttribute('aria-haspopup', 'dialog');
+        d.setAttribute('aria-label', `${n.hidden.length} more routers on ${n.port}: stretch out or list`);
+        d.addEventListener('click', ev => { ev.stopPropagation(); openRowPop(n, d); });
+      }
+      if (n.type === 'snake') { d.dataset.drop = `port:${n.rid}:${n.port}`; d.setAttribute('aria-hidden', 'true'); }
+      if (n.type === 'fold') {
+        d.type = 'button'; d.setAttribute('aria-label', `Fold the ${n.all.length} routers on ${n.port} back`);
+        d.addEventListener('click', () => setRow(n.cid, false));
+      }
       stage.appendChild(d);
-      n.children.forEach(c => {
-        const x1 = n.x + off + n.w / 2, y1 = n.y + 10 + n.h, x2 = c.x + off + c.w / 2, y2 = c.y + 10, my = (y1 + y2) / 2;
+      const link = (c, dAttr, chain) => {
         const path = document.createElementNS(svgNS, 'path');
-        const dAttr = `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`;
         path.setAttribute('d', dAttr);
         const rid = c.rid || (c.type === 'mt' ? c.r.id : null), port = c.port || (c.type === 'port' ? c.name : '');
         const online = c.type === 'mt' ? c.r.online : c.e ? c.e.online : c.type === 'clients' ? c.online !== false : true;
-        path.setAttribute('class', 'td-link' + (online ? ' on' : ' off') + (c.e && c.e.status !== 'confirmed' ? ' sug' : ''));
+        path.setAttribute('class', 'td-link' + (online ? ' on' : ' off') + (c.e && c.e.status !== 'confirmed' ? ' sug' : '') + (chain ? ' chain' : ''));
         svg.appendChild(path);
         links.push({ path, d: dAttr, rid, port, online, uplink: c.type === 'mt', dots: [] });
+      };
+      if (n.type === 'snake') {
+        n.members.forEach((m, i) => {
+          const nx = n.members[i + 1]; if (!nx) return;
+          const ax = m.x + off + m.w / 2, bx = nx.x + off + nx.w / 2;
+          let dA;
+          if (nx.col === m.col) {                     // same column: straight down (or up)
+            const down = nx.row > m.row, y1 = m.y + 10 + (down ? m.h : 0), y2 = nx.y + 10 + (down ? 0 : nx.h);
+            dA = `M${ax},${y1} L${bx},${y2}`;
+          } else {                                    // turn round the bottom (or the top) into the next column
+            const bottom = m.row > 0, y = bottom ? m.y + 10 + m.h : m.y + 10, bend = bottom ? 38 : -38;
+            dA = `M${ax},${y} C${ax},${y + bend} ${bx},${y + bend} ${bx},${y}`;
+          }
+          link(nx, dA, true);
+        });
+        const lastM = n.members[n.members.length - 1];
+        n.children.forEach(c => {
+          const x1 = lastM.x + off + lastM.w / 2, y1 = lastM.y + 10 + (lastM.row > 0 || n.members.length === 1 ? lastM.h : 0), x2 = c.x + off + c.w / 2, y2 = c.y + 10, my = (y1 + y2) / 2;
+          link(c, `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`, true);
+        });
+        return;
+      }
+      n.children.forEach((c, i) => {
+        if (c.type === 'snake') {                     // the cable goes to the first router of the row
+          const m = c.members[0], x1 = n.x + off + n.w / 2, y1 = n.y + 10 + n.h, x2 = m.x + off + m.w / 2, y2 = m.y + 10, my = (y1 + y2) / 2;
+          link(m, `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`, true);
+          return;
+        }
+        const x1 = n.x + off + n.w / 2, y1 = n.y + 10 + n.h, x2 = c.x + off + c.w / 2, y2 = c.y + 10, my = (y1 + y2) / 2;
+        link(c, `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`, n.spine && i === 0 && (c.chain || c.type === 'more' || c.type === 'fold'));
       });
+      if (n.side) {
+        const y = n.y + 10 + n.h / 2, x1 = n.x + off + n.w, x2 = n.side.x + off;
+        link(n.side, `M${x1},${y} L${x2},${y}`, false);
+      }
     });
     paintTraffic(true);
+  }
+
+  // ------------------------------------------------------------------ a folded row: stretch it out, or list its routers
+  let pop = null;
+  function closePop() { if (pop) { pop.remove(); pop = null; document.removeEventListener('pointerdown', popAway, true); } }
+  function popAway(ev) { if (pop && !pop.contains(ev.target) && !ev.target.closest('.td-more')) closePop(); }
+  function openRowPop(n, anchor, showList) {
+    closePop();
+    const r = routerById(n.rid) || {}, all = n.all, on = all.filter(e => e.online).length;
+    pop = document.createElement('div'); pop.className = 'td-pop'; pop.setAttribute('role', 'dialog');
+    pop.setAttribute('aria-label', `Routers on ${r.name || 'MikroTik'} ${n.port}`);
+    pop.innerHTML = `<header><div><b>${all.length} routers in a row</b><small>${esc(r.name || 'MikroTik')} › ${esc(n.port)} · ${on} online</small></div>
+        <button type="button" class="btn-close" aria-label="Close"></button></header>
+      <div class="td-pop-acts"><button type="button" class="btn btn-sm btn-primary" data-stretch><i class="bi bi-arrows-expand"></i> Stretch out all ${all.length}</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-list aria-expanded="false"><i class="bi bi-list-ol"></i> List them</button></div>
+      <ol class="td-pop-list" hidden>${all.map((e, i) => `<li class="${e.online ? 'on' : 'off'}${i < CHAIN_SHOW ? ' shown' : ''}"><button type="button" data-k="${esc(e.key)}">
+        <span class="td-pop-dot"></span><b>${esc(e.name)}</b><small>${esc([e.ip, e.model].filter(Boolean).join(' · ') || e.mac || '')}</small></button></li>`).join('')}</ol>
+      <p class="td-pop-note">Drawn in IP order — TapTap cannot see which router feeds which. To set the real order, drag a router onto the one it hangs from.</p>`;
+    panel.appendChild(pop);
+    // Below the card if it fits in the panel, else above it; never taller than the panel (it scrolls).
+    const placePop = () => {
+      if (!pop) return;
+      const pr = panel.getBoundingClientRect(), ar = anchor.getBoundingClientRect();
+      pop.style.left = Math.max(8, Math.min(ar.left - pr.left, pr.width - pop.offsetWidth - 8)) + 'px';
+      pop.style.maxHeight = Math.max(220, pr.height - 16) + 'px';
+      const below = ar.bottom - pr.top + 8, ph = pop.offsetHeight;
+      pop.style.top = (below + ph <= pr.height - 8 ? below : Math.max(8, Math.min(ar.top - pr.top - ph - 8, pr.height - ph - 8))) + 'px';
+    };
+    placePop();
+    const listEl = pop.querySelector('.td-pop-list'), listBtn = pop.querySelector('[data-list]');
+    const showL = () => { listEl.hidden = false; listBtn.setAttribute('aria-expanded', 'true'); listBtn.classList.add('active'); placePop(); };
+    pop.querySelector('.btn-close').onclick = () => { closePop(); anchor.focus({ preventScroll: true }); };
+    pop.querySelector('[data-stretch]').onclick = () => setRow(n.cid, true);
+    listBtn.onclick = () => (listEl.hidden ? showL() : (listEl.hidden = true, listBtn.setAttribute('aria-expanded', 'false'), listBtn.classList.remove('active')));
+    listEl.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { closePop(); openEdit(b.dataset.k); });
+    pop.addEventListener('keydown', ev => { if (ev.key === 'Escape') { ev.stopPropagation(); closePop(); anchor.focus({ preventScroll: true }); } });
+    if (showList) showL();
+    setTimeout(() => document.addEventListener('pointerdown', popAway, true), 0);
+    pop.querySelector('[data-stretch]').focus({ preventScroll: true });
   }
 
   // live traffic → animation speed; each link follows the MikroTik port it runs through

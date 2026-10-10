@@ -50,6 +50,20 @@ def _identity(router, snap):
     return router.name, ''
 
 
+def _ip_key(ip):
+    parts = str(ip or '').split('.')
+    return tuple(int(p) for p in parts) if len(parts) == 4 and all(p.isdigit() for p in parts) else (999,)
+
+
+def chain_order(group):
+    """Order of routers sharing one MikroTik port, drawn one after the other.
+
+    RouterOS only says they are all behind that port, not who feeds whom, so the order is a guess: by IP
+    address, then name. The owner fixes it by placing a router under the one it hangs from (Detail tab);
+    those routers then hang from their parent and are not in the chain. topology-detail.js uses the same rule."""
+    return sorted(group, key=lambda e: (_ip_key(e.get('ip')), str(e.get('name') or '').lower(), e.get('key', '')))
+
+
 def build_graph(business, include_clients=True, client_sample=40):
     routers = list(business.routers.all().order_by('name'))
     nodes, edges = {}, {}
@@ -60,7 +74,8 @@ def build_graph(business, include_clients=True, client_sample=40):
     for r in routers:
         snap = _snapshot(r)
         identity, model = _identity(r, snap)
-        lb = (snap.load_balancing if snap else None) or {}
+        from .wan_names import named
+        lb = named(r, (snap.load_balancing if snap else None) or {})      # provider names: Gamtel, QCell…
         meta[r.id] = {'snap': snap, 'lb': lb, 'identity': identity}
         for ip in _router_ips(r, snap):
             ip_index[ip] = r
@@ -162,8 +177,9 @@ def build_graph(business, include_clients=True, client_sample=40):
                 continue
             wid = f'wan:{r.id}:{link.get("id") or iface}'
             nodes[wid] = {
-                'id': wid, 'type': 'wan', 'label': link.get('label') or iface or 'WAN',
-                'sub': link.get('gateway') or link.get('source', ''), 'router_id': r.id, 'iface': iface,
+                'id': wid, 'type': 'wan', 'label': link.get('label') or iface or 'WAN', 'isp': link.get('isp', ''),
+                'sub': ' · '.join(x for x in ((iface if link.get('isp') else ''), link.get('gateway') or link.get('source', '')) if x),
+                'router_id': r.id, 'iface': iface,
                 'state': link.get('state', ''), 'role': link.get('role', ''), 'share': link.get('expected_share'),
                 'source': link.get('source', ''), 'status': 'offline' if link.get('state') in {'down', 'no-route'} else 'online',
                 'tables': link.get('tables', []), 'distance': link.get('distance', ''),
@@ -202,17 +218,26 @@ def build_graph(business, include_clients=True, client_sample=40):
     for (router_id, port), group in roots.items():
         rid = f'router:{router_id}'
         kind = 'wireless' if _is_wifi_iface(port) else 'lan'
-        feed = rid
         if len(group) > 1 and port:
-            # Several routers on one port and the order is unknown: they share a cable / switch.
-            feed = f'shared:{router_id}:{port}'
-            nodes[feed] = {'id': feed, 'type': 'switch', 'label': 'Switch / shared cable', 'sub': f'on {port}',
-                           'router_id': router_id, 'port': port, 'status': 'online', 'shared': True}
-            add_edge(rid, feed, kind, router_id, port, port, True)
+            # Several routers on one port: Wi-Fi routers fed one from the next (a daisy chain). They are drawn
+            # one after the other; the browser folds a long chain into "+N routers" (netviz-topology.js).
+            chain = chain_order(group)
+            cid = f'{router_id}:{port}'
+            prev = rid
+            for i, e in enumerate(chain):
+                nid = f'site:{e["key"]}'
+                nodes[nid]['chain'] = {'id': cid, 'pos': i, 'size': len(chain), 'port': port, 'router_id': router_id}
+                edge = add_edge(prev, nid, kind, router_id, port, port, e['online'])
+                if i:
+                    edge['label'] = ''           # the port name once, on the cable leaving the MikroTik
+                edge['chain'] = cid
+                prev = nid
+            port_feed[(router_id, port)] = f'site:{chain[0]["key"]}'
+            continue
         for e in group:
-            add_edge(feed, f'site:{e["key"]}', kind, router_id, port, port if feed == rid else '', e['online'])
+            add_edge(rid, f'site:{e["key"]}', kind, router_id, port, port, e['online'])
         if port:
-            port_feed[(router_id, port)] = feed if len(group) > 1 else f'site:{group[0]["key"]}'
+            port_feed[(router_id, port)] = f'site:{group[0]["key"]}'
     for e in site:
         parent = site_by_key.get(e['parent_key'])
         if parent:

@@ -3,7 +3,7 @@
 {% block title %}{{ router.name }} Control Center — TapTap{% endblock %}
 {% block heading %}MikroTik Control Center{% endblock %}
 {% block extra_head %}
-<link href="{% static 'css/netviz.css' %}?v=5" rel="stylesheet">
+<link href="{% static 'css/netviz.css' %}?v=7" rel="stylesheet">
 <link href="{% static 'css/control-designer.css' %}?v=1" rel="stylesheet">
 <link href="{% static 'css/control-studio-skin.css' %}?v=1" rel="stylesheet">
 {% endblock %}
@@ -369,7 +369,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{% static 'js/netviz-lb.js' %}?v=5"></script>
+<script src="{% static 'js/netviz-lb.js' %}?v=6"></script>
 <script>
 (function(){
   const csrf=document.querySelector('#csrf-holder [name=csrfmiddlewaretoken]').value;
