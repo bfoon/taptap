@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}{% block title %}Team — TapTap{% endblock %}{% block heading %}Team accounts{% endblock %}
+{% extends 'core/base.html' %}{% load taptap_extras %}{% block title %}Team — TapTap{% endblock %}{% block heading %}Team accounts{% endblock %}
 {% block extra_head %}<style>
 .role-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:.75rem}
 .role-card{border:1px solid #e3e9f1;border-radius:14px;padding:.8rem .9rem;background:#fff}.role-card b{display:block}.role-card small{color:#6b7c8f;font-size:.78rem}
@@ -6,27 +6,70 @@
 .role-pill{display:inline-block;border-radius:999px;padding:.12rem .55rem;font-size:.72rem;font-weight:700;background:#eef4ff;color:#1558b8}
 .role-pill.owner{background:#fff4dc;color:#9a6200}.role-pill.off{background:#f1f3f5;color:#8a9aab}
 .member-row.off td{opacity:.6}.perm-list{columns:2;font-size:.82rem}@media(max-width:576px){.perm-list{columns:1}}
+/* staff pay */
+.pay-strip{display:flex;flex-wrap:wrap;align-items:center;gap:1rem 1.6rem;border:1px solid #dfe8f4;background:linear-gradient(120deg,#f4f8ff,#fbfdff);border-radius:16px;padding:.85rem 1.1rem;margin-bottom:1rem}
+.pay-strip .ico{width:42px;height:42px;border-radius:12px;background:#1769e0;color:#fff;display:grid;place-items:center;font-size:1.25rem}
+.pay-strip small{display:block;font-size:.72rem;font-weight:700;color:#6b7c8f;text-transform:uppercase;letter-spacing:.03em}.pay-strip strong{font-size:1.15rem}
+.pay-mix{flex:1 1 220px;min-width:180px}.pay-mix .bar{display:flex;height:9px;border-radius:99px;overflow:hidden;background:#e8eef6}.pay-mix .bar i{display:block}
+.pay-mix .legend{display:flex;gap:.8rem;font-size:.72rem;color:#5d7186;margin-top:.3rem}.pay-mix .legend span:before{content:'';display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:4px;background:var(--c)}
+.pay-chip{display:inline-flex;align-items:center;gap:.3rem;border-radius:999px;padding:.12rem .55rem;font-size:.72rem;font-weight:700;background:#eaf7ef;color:#16794a}
+.pay-chip.sales{background:#eef4ff;color:#1558b8}.pay-chip.profit{background:#f4ecff;color:#6b3fc0}.pay-chip.none{background:#f1f3f5;color:#8a9aab}
+.earn-meter{height:5px;border-radius:99px;background:#edf1f6;margin-top:.3rem;max-width:180px;overflow:hidden}.earn-meter i{display:block;height:100%;background:#22a565;border-radius:99px}
+.pay-types{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}@media(max-width:576px){.pay-types{grid-template-columns:1fr}}
+.pay-types label{border:1.5px solid #dfe6ef;border-radius:14px;padding:.7rem .75rem;cursor:pointer;position:relative;transition:.15s}
+.pay-types label:hover{border-color:#9dc0f2}.pay-types input{position:absolute;opacity:0}
+.pay-types label:has(input:checked){border-color:#1769e0;background:#f2f7ff;box-shadow:0 0 0 3px rgba(23,105,224,.12)}
+.pay-types i{font-size:1.3rem;color:#1769e0}.pay-types b{display:block;margin-top:.2rem}.pay-types small{color:#6b7c8f;font-size:.74rem;line-height:1.2;display:block}
+.pay-preview{border-radius:14px;background:#0f2742;color:#dbe8f7;padding:.85rem 1rem;margin-top:1rem}
+.pay-preview .big{font-size:1.5rem;font-weight:800;color:#fff}.pay-preview small{color:#9fb6cf}.pay-preview .cols{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;margin-top:.5rem}
+.pay-preview .cols div{background:rgba(255,255,255,.06);border-radius:10px;padding:.45rem .6rem}.pay-preview .cols b{display:block;color:#fff}
+.pay-preview .how{font-size:.75rem;color:#9fb6cf;margin-top:.5rem}
+html[data-theme="dark"] .pay-strip{background:#13233a;border-color:#22344d}html[data-theme="dark"] .pay-types label:has(input:checked){background:#14243a}
 </style>{% endblock %}
 {% block content %}
+{% with c=current_business.currency %}
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <p class="text-secondary m-0">Give each staff member their own login. They only see and can only do what their role allows — the server checks every page and action.</p>
   <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#memberModal" data-member='{}'><i class="bi bi-person-plus"></i> Add team member</button>
 </div>
 
+{% if payroll %}
+<section class="pay-strip">
+  <span class="ico"><i class="bi bi-wallet2"></i></span>
+  <div><small>{{ payroll.month|date:'F' }} payroll</small><strong>{{ payroll.projected|money:c }}</strong><span class="text-secondary small"> on pace · {{ payroll.count }} {{ payroll.count|pluralize:"person,people" }}</span></div>
+  <div><small>Paid so far</small><strong>{{ payroll.paid|money:c }}</strong></div>
+  <div><small>Share of sales</small><strong>{% if payroll.of_sales is not None %}{{ payroll.of_sales }}%{% else %}—{% endif %}</strong></div>
+  {% if payroll.projected > 0 %}<div class="pay-mix" aria-label="Pay by type">
+    <div class="bar"><i style="width:{{ payroll.by_type.fixed|pct_of:payroll.projected }}%;background:#22a565"></i><i style="width:{{ payroll.by_type.sales|pct_of:payroll.projected }}%;background:#1769e0"></i><i style="width:{{ payroll.by_type.profit|pct_of:payroll.projected }}%;background:#7c4dff"></i></div>
+    <div class="legend"><span style="--c:#22a565">Fixed {{ payroll.by_type.fixed|money:c }}</span><span style="--c:#1769e0">Sales {{ payroll.by_type.sales|money:c }}</span><span style="--c:#7c4dff">Profit {{ payroll.by_type.profit|money:c }}</span></div></div>{% endif %}
+  {% if 'finance.view' in tt_perms %}<a class="btn btn-sm btn-outline-primary ms-auto" href="{% url 'finance' %}?tab=payroll"><i class="bi bi-cash-coin"></i> Pay staff</a>{% endif %}
+</section>
+{% endif %}
+
 <div class="panel">
   <div class="table-responsive"><table class="table align-middle">
-    <thead><tr><th>Name</th><th>Role</th><th>Status</th><th>Last sign-in</th><th class="text-end">Use (30 days)</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Role</th>{% if payroll %}<th>Pay</th>{% endif %}<th>Status</th><th>Last sign-in</th><th class="text-end">Use (30 days)</th><th></th></tr></thead>
     <tbody>
       <tr><td><b>{% firstof owner.get_full_name current_business.owner_name %}</b><small class="d-block text-secondary">{{ owner.email }}</small></td>
-        <td><span class="role-pill owner">Owner</span></td><td>Active</td><td>{{ owner.last_login|date:'d M Y H:i'|default:'—' }}</td><td class="text-end">—</td><td></td></tr>
+        <td><span class="role-pill owner">Owner</span></td>{% if payroll %}<td><small class="text-secondary">Owner draws</small></td>{% endif %}<td>Active</td><td>{{ owner.last_login|date:'d M Y H:i'|default:'—' }}</td><td class="text-end">—</td><td></td></tr>
       {% for m in members %}
       <tr class="member-row {% if not m.is_active %}off{% endif %}">
         <td><b>{{ m.name }}</b><small class="d-block text-secondary">{{ m.user.email }}{% if m.phone %} · {{ m.phone }}{% endif %}</small></td>
         <td><span class="role-pill">{{ m.role_label }}</span>{% if m.extra_permissions %}<small class="d-block text-secondary">+ {{ m.extra_permissions|length }} extra</small>{% endif %}</td>
+        {% if payroll %}<td>
+          {% if m.pay_terms %}
+            <span class="pay-chip {{ m.pay_terms.pay_type }}{% if not m.pay_terms.active %} none{% endif %}"><i class="bi {% if m.pay_terms.pay_type == 'fixed' %}bi-calendar-check{% elif m.pay_terms.pay_type == 'sales' %}bi-graph-up-arrow{% else %}bi-pie-chart{% endif %}"></i>{% if m.pay_terms.active %}{{ m.pay_text }}{% else %}Paused{% endif %}</span>
+            {% if m.pay_row and m.pay_terms.active %}<small class="d-block text-secondary mt-1">{{ m.pay_row.calc.earned|money:c }} earned so far{% if m.pay_terms.is_share %} · on pace for {{ m.pay_row.owed_projected|money:c }}{% endif %}{% if m.pay_row.paid %} · {{ m.pay_row.paid|money:c }} paid{% endif %}</small>
+            <div class="earn-meter" title="Paid {{ m.pay_row.paid_pct }}% of this month"><i style="width:{{ m.pay_row.paid_pct }}%"></i></div>{% endif %}
+          {% else %}<span class="pay-chip none">No pay set</span>{% endif %}
+        </td>{% endif %}
         <td>{% if m.is_active %}Active{% if m.must_change_password %}<small class="d-block text-secondary">Temporary password</small>{% endif %}{% else %}<span class="role-pill off">Switched off</span>{% endif %}</td>
         <td>{{ m.user.last_login|date:'d M Y H:i'|default:'Never' }}</td>
         <td class="text-end"><small>{{ m.usage.views|default:0 }} pages · {{ m.usage.logins|default:0 }} sign-ins</small></td>
-        <td class="text-end text-nowrap">{% if m.can_edit %}
+        <td class="text-end text-nowrap">
+          {% if payroll and m.can_pay %}<button class="btn btn-sm btn-light" aria-label="Pay for {{ m.name }}" title="Salary &amp; commission" data-bs-toggle="modal" data-bs-target="#payModal"
+            data-pay='{"member":{{ m.id }},"name":"{{ m.name|escapejs }}",{% if m.pay_terms %}"set":true,"pay_type":"{{ m.pay_terms.pay_type }}","amount":"{{ m.pay_terms.amount }}","percent":"{{ m.pay_terms.percent|pct }}","minimum":"{{ m.pay_terms.minimum }}","cap":"{{ m.pay_terms.cap }}","site":"{{ m.pay_terms.site_id|default_if_none:'' }}","method":"{{ m.pay_terms.method }}","pay_day":{{ m.pay_terms.pay_day }},"starts_on":"{{ m.pay_terms.starts_on|date:'Y-m-d' }}","show_basis":{{ m.pay_terms.show_basis|yesno:"true,false" }},"active":{{ m.pay_terms.active|yesno:"true,false" }},"note":"{{ m.pay_terms.note|escapejs }}"{% else %}"set":false{% endif %}}'><i class="bi bi-wallet2"></i></button>{% endif %}
+          {% if m.can_edit %}
           <button class="btn btn-sm btn-light" aria-label="Edit {{ m.name }}" data-bs-toggle="modal" data-bs-target="#memberModal"
             data-member='{"id":{{ m.id }},"first_name":"{{ m.user.first_name|escapejs }}","last_name":"{{ m.user.last_name|escapejs }}","email":"{{ m.user.email|escapejs }}","phone":"{{ m.phone|escapejs }}","role":"{{ m.role }}","extra":[{% for e in m.extra_permissions %}"{{ e }}"{% if not forloop.last %},{% endif %}{% endfor %}]}'><i class="bi bi-pencil"></i></button>
           <div class="dropdown d-inline"><button class="btn btn-sm btn-light dropdown-toggle" data-bs-toggle="dropdown" aria-label="More actions"></button>
@@ -38,7 +81,7 @@
               </form></div></div>{% endif %}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="6" class="empty-table">No team members yet. Add your cashier, finance or support staff so they don't need your password.</td></tr>
+      <tr><td colspan="{% if payroll %}7{% else %}6{% endif %}" class="empty-table">No team members yet. Add your cashier, finance or support staff so they don't need your password.</td></tr>
       {% endfor %}
     </tbody></table></div>
 </div>
@@ -66,6 +109,42 @@
   </div>
   <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save</button></div>
 </form></div></div>
+
+{% if payroll %}
+<div class="modal fade" id="payModal" tabindex="-1" aria-labelledby="payTitle"><div class="modal-dialog modal-dialog-centered modal-lg"><form class="modal-content" method="post" action="{% url 'team_pay_save' %}">{% csrf_token %}
+  <input type="hidden" name="member"><input type="hidden" name="next" value="{% url 'team' %}">
+  <div class="modal-header border-0"><h5 class="modal-title fw-bold" id="payTitle">Pay</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body pt-0">
+    <div class="pay-types" role="radiogroup" aria-label="How they are paid">
+      <label><input type="radio" name="pay_type" value="fixed" checked><i class="bi bi-calendar-check"></i><b>Fixed salary</b><small>The same amount every month</small></label>
+      <label><input type="radio" name="pay_type" value="sales"><i class="bi bi-graph-up-arrow"></i><b>% of sales</b><small>A share of what is sold — great for sellers</small></label>
+      <label><input type="radio" name="pay_type" value="profit"><i class="bi bi-pie-chart"></i><b>% of profit</b><small>A share of what is left after costs — for managers and partners</small></label>
+    </div>
+    <div class="row g-2 mt-2">
+      <div class="col-sm-6"><label class="form-label" data-amount-label>Monthly salary ({{ c }})</label><input class="form-control" type="number" step="0.01" min="0" name="amount" inputmode="decimal"><small class="text-secondary share-only">Optional basic pay on top of the percentage</small></div>
+      <div class="col-sm-6 share-only"><label class="form-label">Percentage</label><div class="input-group"><input class="form-control" type="number" step="any" min="0" max="100" name="percent" inputmode="decimal"><span class="input-group-text">%</span></div></div>
+      <div class="col-sm-6 share-only"><label class="form-label">Count sales from</label><select class="form-select" name="site"><option value="">Whole business</option>{% for r in routers %}<option value="{{ r.id }}">{{ r.name }}</option>{% endfor %}</select><small class="text-secondary">A site deal counts only that router's sales and costs.</small></div>
+      <div class="col-sm-3 share-only"><label class="form-label">Guaranteed min</label><input class="form-control" type="number" step="0.01" min="0" name="minimum" placeholder="0"></div>
+      <div class="col-sm-3"><label class="form-label">Cap a month</label><input class="form-control" type="number" step="0.01" min="0" name="cap" placeholder="No cap"></div>
+      <div class="col-sm-3"><label class="form-label">Pay day</label><input class="form-control" type="number" min="1" max="31" name="pay_day" value="28"></div>
+      <div class="col-sm-3"><label class="form-label">Usually paid by</label><select class="form-select" name="method">{% for k,l in pay_methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-sm-3"><label class="form-label">Starts on</label><input class="form-control" type="date" name="starts_on"></div>
+      <div class="col-sm-3"><label class="form-label">Status</label><select class="form-select" name="active"><option value="1">On payroll</option><option value="0">Paused</option></select></div>
+      <div class="col-12"><label class="form-label">Note <span class="fw-normal text-secondary">(optional)</span></label><input class="form-control" name="note" maxlength="255" placeholder="e.g. Agreed in contract of 1 March"></div>
+      <div class="col-12 share-only"><div class="form-check"><input class="form-check-input" type="checkbox" name="show_basis" id="payShowBasis"><label class="form-check-label small" for="payShowBasis">Let them see the sales / profit figure behind their pay on <b>My pay</b></label></div></div>
+    </div>
+    <div class="pay-preview" aria-live="polite">
+      <small id="pvHead">Last month this deal would have paid</small>
+      <div class="big" id="pvLast">—</div>
+      <div class="cols"><div><small id="pvThisLbl">This month so far</small><b id="pvSoFar">—</b></div><div><small>On pace for</small><b id="pvPace">—</b></div><div><small>Per year</small><b id="pvYear">—</b></div></div>
+      <div class="how" id="pvHow"></div>
+    </div>
+  </div>
+  <div class="modal-footer border-0"><button type="submit" class="btn btn-outline-danger me-auto" name="action" value="remove" id="payRemove" formnovalidate onclick="return confirm('Take this person off the payroll? Past payments are kept.')">Remove pay</button><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" name="action" value="save">Save pay</button></div>
+</form></div></div>
+{{ pay_preview|json_script:"payFigures" }}
+{% endif %}
+{% endwith %}
 {% endblock %}
 {% block scripts %}<script>
 (function(){const modal=document.getElementById('memberModal'),form=modal.querySelector('form'),sel=form.role,desc=document.getElementById('roleDesc');
@@ -75,4 +154,44 @@ modal.addEventListener('show.bs.modal',e=>{const m=JSON.parse(e.relatedTarget.da
   form.email.required=!edit;modal.querySelectorAll('.new-only').forEach(el=>el.classList.toggle('d-none',edit));
   sel.value=m.role||'viewer';form.querySelectorAll('input[name=extra]').forEach(c=>c.checked=(m.extra||[]).includes(c.value));
   document.getElementById('memberTitle').textContent=edit?'Edit '+(m.first_name||m.email):'Add team member';showDesc();});})();
+
+(function(){
+  const modal=document.getElementById('payModal'); if(!modal) return;
+  const f=modal.querySelector('form'), F=JSON.parse(document.getElementById('payFigures').textContent), cur="{{ current_business.currency|escapejs }}";
+  const $=id=>document.getElementById(id), num=v=>Math.max(0,parseFloat(v)||0);
+  const money=v=>{const n=Math.round(v*100)/100;return cur+n.toLocaleString(undefined,{minimumFractionDigits:n%1?2:0,maximumFractionDigits:2});};
+  function type(){return f.querySelector('input[name=pay_type]:checked').value;}
+  function figures(){return F[f.site.value]||F['_'];}
+  // Mirrors core/payroll.py compute(): basic + percent × basis, min (full month only) and cap.
+  function pay(basis,full){const t=type(),amt=num(f.amount.value),cap=num(f.cap.value);
+    let v=amt; if(t!=='fixed'){const b=t==='profit'?Math.max(0,basis):basis; v+=b*num(f.percent.value)/100; if(full) v=Math.max(v,num(f.minimum.value));}
+    if(cap>0) v=Math.min(v,cap); return v;}
+  function refresh(){
+    const t=type(), share=t!=='fixed', fg=figures(), key=t==='profit'?'profit':'sales';
+    modal.querySelectorAll('.share-only').forEach(el=>el.classList.toggle('d-none',!share));
+    modal.querySelector('[data-amount-label]').textContent=share?'Basic pay ({{ current_business.currency|escapejs }})':'Monthly salary ({{ current_business.currency|escapejs }})';
+    f.amount.required=!share; f.percent.required=share;
+    const last=pay(fg.last[key],true), soFarBasis=fg.this[key], paceBasis=soFarBasis*F.days/Math.max(1,F.elapsed);
+    const amt=num(f.amount.value);
+    const soFar=t==='fixed'?amt:Math.min(amt+(t==='profit'?Math.max(0,soFarBasis):soFarBasis)*num(f.percent.value)/100,num(f.cap.value)||Infinity);
+    const pace=pay(paceBasis,true);
+    $('pvHead').textContent=share?'In '+F.last_label+' this deal would have paid':'Every month this costs';
+    $('pvLast').textContent=money(share?last:pay(0,true));
+    $('pvThisLbl').textContent=F.this_label+' so far'; $('pvSoFar').textContent=money(soFar); $('pvPace').textContent=money(pace); $('pvYear').textContent=money(pace*12);
+    const where=f.site.value?f.site.selectedOptions[0].text:'the whole business';
+    $('pvHow').textContent=share?(t==='sales'?'Net sales at '+where+' in '+F.last_label+': '+money(fg.last.sales)+'. ':'Profit before staff pay at '+where+' in '+F.last_label+': '+money(fg.last.profit)+(fg.last.profit<0?' (a loss — no share). ':'. '))
+      +'This month so far: '+money(soFarBasis)+' after '+F.elapsed+' of '+F.days+' days.':'Paid in full each month; joiners are paid for the days they were on the payroll.';
+  }
+  f.addEventListener('input',refresh); f.addEventListener('change',refresh);
+  modal.addEventListener('show.bs.modal',e=>{
+    const p=JSON.parse(e.relatedTarget.dataset.pay||'{}');
+    f.member.value=p.member; $('payTitle').textContent='Pay for '+p.name;
+    f.querySelector('input[name=pay_type][value="'+(p.pay_type||'fixed')+'"]').checked=true;
+    f.amount.value=p.set&&+p.amount?p.amount:''; f.percent.value=p.set&&+p.percent?p.percent:'';
+    f.minimum.value=p.set&&+p.minimum?p.minimum:''; f.cap.value=p.set&&+p.cap?p.cap:'';
+    f.site.value=p.site||''; f.method.value=p.method||'cash'; f.pay_day.value=p.pay_day||28; f.starts_on.value=p.starts_on||'';
+    f.show_basis.checked=!!p.show_basis; f.active.value=p.set&&p.active===false?'0':'1'; f.note.value=p.note||'';
+    $('payRemove').classList.toggle('d-none',!p.set); refresh();
+  });
+})();
 </script>{% endblock %}

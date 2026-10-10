@@ -1,5 +1,6 @@
 """Finance & Reports views."""
 import csv
+from collections import defaultdict
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
@@ -17,6 +18,7 @@ from .finance import (
     commission_for, PRESETS, CATEGORY_LABELS, METHOD_LABELS, d,
 )
 from .models import Agent, VoucherSale, Expense, CashCollection, EXPENSE_CATEGORIES, PAYMENT_METHODS
+from .models_payroll import PAYOUT_KINDS
 from .utils import log
 
 MANUAL_METHODS = [m for m in PAYMENT_METHODS if m[0] != 'auto']
@@ -58,6 +60,9 @@ def finance(request):
     period = resolve_period(request.GET, 'month')
     fin_full = 'finance.view' in getattr(request, 'tt_perms', ())
     tab = request.GET.get('tab', 'overview') if fin_full else 'agents'  # finance staff only see agents & cash
+    can_payroll = fin_full and 'payroll.manage' in getattr(request, 'tt_perms', ())
+    if tab == 'payroll' and not can_payroll:
+        tab = 'overview'
     summary = finance_summary(business, period)
     charts = finance_charts(business, period)
     from .finance import stock_movement
@@ -93,6 +98,21 @@ def finance(request):
         if by_cat.get(key): pl_rows.append((label, -by_cat[key], 'out'))
     pl_rows.append(('Net profit', summary['profit'], 'total'))
 
+    # Staff pay. Payments already sit in expenses (Staff & wages); what is earned but not yet
+    # paid is shown under the P&L when the period is one calendar month.
+    payroll = payroll_trend = None
+    if can_payroll:
+        from .payroll import month_start, parse_month, payroll_month, single_month_of
+        payroll = payroll_month(business, parse_month(request.GET.get('pm')) if tab == 'payroll' else month_start())
+        one_month = single_month_of(period)
+        if one_month:
+            pr_pl = payroll if one_month == payroll['month'] else payroll_month(business, one_month)
+            if pr_pl['due'] > 0:
+                pl_rows.append((f"Staff pay still to pay ({pr_pl['month']:%B})", -pr_pl['due'], 'out'))
+                pl_rows.append(('Profit after all staff pay', summary['profit'] - pr_pl['due'], 'total'))
+        if tab == 'payroll':
+            payroll_trend = _payroll_trend(business, payroll['month'])
+
     from .views_live import missing_sales
     priced, unpriced = missing_sales(business)
     health = {'missing_count': len(priced), 'missing_value': sum((p for _, p in priced), Decimal('0')), 'unpriced': unpriced,
@@ -114,8 +134,35 @@ def finance(request):
         'pl_rows': pl_rows, 'subs': business.subscriptions.order_by('-created_at')[:12],
         'today': timezone.localdate().isoformat(), 'q': sq, 'query': request.GET.urlencode(),
         'filters': {'method': request.GET.get('method', ''), 'agent': request.GET.get('agent', ''), 'category': request.GET.get('category', '')},
+        'can_payroll': can_payroll, 'payroll': payroll, 'payroll_trend': payroll_trend,
+        'payout_kinds': PAYOUT_KINDS,
     }
     return render(request, 'core/finance.html', ctx)
+
+
+def _payroll_trend(business, last_month, months=6):
+    """Staff pay paid out vs net sales per month, for the chart on Finance → Payroll."""
+    from .models_payroll import StaffPayout
+    from .payroll import prev_month, next_month
+    keys = [last_month]
+    for _ in range(months - 1):
+        keys.insert(0, prev_month(keys[0]))
+    start = timezone.make_aware(datetime.combine(keys[0], datetime.min.time()))
+    end = timezone.make_aware(datetime.combine(next_month(last_month), datetime.min.time()))
+    paid = defaultdict(Decimal)
+    for r in (StaffPayout.objects.filter(business=business, month__gte=keys[0], month__lte=last_month,
+                                         kind__in=('salary', 'advance', 'bonus'))
+              .values('month').annotate(v=Sum('amount'))):
+        paid[r['month']] += d(r['v'])
+    sales = defaultdict(Decimal)
+    from django.db.models.functions import TruncMonth
+    for r in (business.sales.filter(sold_at__gte=start, sold_at__lt=end).annotate(m=TruncMonth('sold_at'))
+              .values('m').annotate(v=Sum('amount'))):
+        m = timezone.localtime(r['m']).date() if timezone.is_aware(r['m']) else r['m'].date()
+        sales[m.replace(day=1)] += d(r['v'])
+    return {'labels': [f'{m:%b}' for m in keys], 'paid': [float(paid[m]) for m in keys],
+            'sales': [float(sales[m]) for m in keys],
+            'share': [round(float(paid[m] / sales[m] * 100), 1) if sales[m] > 0 else 0 for m in keys]}
 
 
 @login_required
@@ -285,6 +332,18 @@ def finance_export(request):
         for r in business.expenses.filter(paid_at__gte=period.start, paid_at__lt=period.end).values('category').annotate(v=Sum('amount')):
             w.writerow([CATEGORY_LABELS.get(r['category']), r['v']])
         w.writerow(['Total expenses', s['expenses']]); w.writerow(['Net profit', s['profit']]); w.writerow(['Margin %', s['margin']])
+    elif kind == 'payroll' and 'payroll.manage' in getattr(request, 'tt_perms', ()) and 'finance.view' in getattr(request, 'tt_perms', ()):
+        from .payroll import describe, parse_month, payroll_month
+        pr = payroll_month(business, parse_month(request.GET.get('pm')))
+        w.writerow(['TapTap payroll', business.business_name, f"{pr['month']:%B %Y}"])
+        w.writerow(['Name', 'Pay terms', 'Basis', 'Basis amount', 'Basic', 'Share', 'Earned', 'Bonuses', 'Deductions',
+                    'Owed', 'Salary paid', 'Advances', 'Total paid', 'Balance'])
+        for r in pr['rows']:
+            c = r['calc']
+            w.writerow([r['name'], describe(r['pay'], business.currency) if r['pay'] else '', c['basis_label'], c['basis_value'],
+                        c['basic'], c['share'], c['earned'], r['bonus'], r['deduction'], r['owed'], r['salary'],
+                        r['advance'], r['paid'], r['balance']])
+        w.writerow([]); w.writerow(['Total owed', pr['owed']]); w.writerow(['Total paid', pr['paid']]); w.writerow(['Still to pay', pr['due']])
     elif kind == 'agents':
         from .finance import agent_balances
         w.writerow(['Agent', 'Phone', 'Commission %', 'Vouchers sold', 'Gross sales', 'Commission', 'Owed', 'Collected', 'Outstanding'])

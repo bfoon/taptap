@@ -19,12 +19,18 @@
 .sales-health>i{font-size:1.4rem;color:#b7791f}.sales-health b{display:block;color:#4d3a12}.sales-health small{display:block;font-size:.78rem}.sales-health input{max-width:150px}</style>
 {% endif %}{% endif %}
 <div class="filter-bar">
+  {% if tab == 'payroll' %}<div class="range-pills pm-nav" role="group" aria-label="Pay month">
+    <a href="?tab=payroll&pm={{ payroll.prev|date:'Y-m' }}" aria-label="Previous month"><i class="bi bi-chevron-left"></i></a>
+    <a class="on" aria-current="page">{{ payroll.month|date:'F Y' }}</a>
+    {% if payroll.next %}<a href="?tab=payroll&pm={{ payroll.next|date:'Y-m' }}" aria-label="Next month"><i class="bi bi-chevron-right"></i></a>{% endif %}
+    {% if not payroll.is_current %}<a href="?tab=payroll">This month</a>{% endif %}
+  </div>{% else %}
   <div class="range-pills" role="group" aria-label="Period">
     {% for key,label in presets.items %}{% if key != 'custom' %}<a href="?tab={{ tab }}&range={{ key }}" class="{% if period.preset == key %}on{% endif %}">{{ label }}</a>{% endif %}{% endfor %}
     <form class="custom-range" method="get"><input type="hidden" name="tab" value="{{ tab }}"><input type="hidden" name="range" value="custom">
       <input class="form-control form-control-sm" type="date" name="start" value="{{ pq.start }}" aria-label="From"><span class="text-secondary">–</span>
       <input class="form-control form-control-sm" type="date" name="end" value="{{ pq.end }}" aria-label="To"><button class="btn btn-sm btn-outline-secondary {% if period.preset == 'custom' %}active{% endif %}">Apply</button></form>
-  </div>
+  </div>{% endif %}
   <div class="bar-actions">
 {% if 'finance.manage' in tt_perms %}<button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#saleModal"><i class="bi bi-plus-lg"></i> Record sale</button>
     <button class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#expenseModal"><i class="bi bi-receipt"></i> Add expense</button>{% endif %}
@@ -33,18 +39,20 @@
         {% if fin_full %}<li><a class="dropdown-item" href="{% url 'finance_export' %}?type=sales&{{ query }}">Sales (CSV)</a></li>
         <li><a class="dropdown-item" href="{% url 'finance_export' %}?type=expenses&{{ query }}">Expenses (CSV)</a></li>
         <li><a class="dropdown-item" href="{% url 'finance_export' %}?type=pnl&{{ query }}">Profit &amp; loss (CSV)</a></li>{% endif %}
+        {% if can_payroll %}<li><a class="dropdown-item" href="{% url 'finance_export' %}?type=payroll&pm={{ payroll.month|date:'Y-m' }}">Payroll {{ payroll.month|date:'M Y' }} (CSV)</a></li>{% endif %}
         <li><a class="dropdown-item" href="{% url 'finance_export' %}?type=agents&{{ query }}">Agent balances (CSV)</a></li>
         <li><hr class="dropdown-divider"></li><li><button class="dropdown-item" onclick="window.print()">Print this page</button></li>
       </ul></div>
   </div>
 </div>
-<p class="period-note">Showing <b>{{ period.label }}</b>, compared with the {{ period.days }} day{{ period.days|pluralize }} before.</p>
+{% if tab == 'payroll' %}<p class="period-note">Staff pay for <b>{{ payroll.month|date:'F Y' }}</b>. Every payment is also booked in Expenses under <b>Staff &amp; wages</b>.</p>{% else %}<p class="period-note">Showing <b>{{ period.label }}</b>, compared with the {{ period.days }} day{{ period.days|pluralize }} before.</p>{% endif %}
 
 <nav class="fin-tabs">{% if fin_full %}
   <a href="?tab=overview&range={{ period.preset }}&start={{ pq.start }}&end={{ pq.end }}" class="{% if tab == 'overview' %}on{% endif %}"><i class="bi bi-speedometer2"></i> Overview</a>
   <a href="?tab=sales&range={{ period.preset }}&start={{ pq.start }}&end={{ pq.end }}" class="{% if tab == 'sales' %}on{% endif %}"><i class="bi bi-bag-check"></i> Sales <span class="count">{{ s.sales_count }}</span></a>
   <a href="?tab=expenses&range={{ period.preset }}&start={{ pq.start }}&end={{ pq.end }}" class="{% if tab == 'expenses' %}on{% endif %}"><i class="bi bi-receipt"></i> Expenses</a>{% endif %}
   <a href="?tab=agents&range={{ period.preset }}&start={{ pq.start }}&end={{ pq.end }}" class="{% if tab == 'agents' %}on{% endif %}"><i class="bi bi-people"></i> Agents &amp; cash {% if s.outstanding > 0 %}<span class="count">{{ s.outstanding|money:c }} due</span>{% endif %}</a>
+  {% if can_payroll %}<a href="?tab=payroll" class="{% if tab == 'payroll' %}on{% endif %}"><i class="bi bi-wallet2"></i> Payroll {% if payroll.due > 0 %}<span class="count">{{ payroll.due|money:c }} to pay</span>{% endif %}</a>{% endif %}
   {% if fin_full %}<a href="?tab=subscription" class="{% if tab == 'subscription' %}on{% endif %}"><i class="bi bi-credit-card"></i> TapTap subscription</a>{% endif %}
 </nav>
 
@@ -56,6 +64,7 @@
   <div class="kpi"><small>Cash position</small><strong>{{ s.cash_position|money:c }}</strong><em>Takings + agent hand-ins − expenses, all time</em></div>
   <div class="kpi"><small>Carried forward</small><strong>{{ movement.opening.n }}</strong><em>unsold on {{ movement.since|date:'d M' }} · {{ movement.opening.value|money:c }}{% if movement.opening_agents.n %} · {{ movement.opening_agents.n }} with agents{% endif %}</em></div>
   <div class="kpi"><small>Stock on hand</small><strong>{{ s.stock_count }}</strong><em>unsold vouchers worth {{ s.stock_value|money:c }}</em></div>
+  {% if can_payroll and payroll.count %}<a class="kpi text-reset text-decoration-none" href="?tab=payroll"><small>Staff pay · {{ payroll.month|date:'F' }}</small><strong>{{ payroll.projected|money:c }}</strong><em>{{ payroll.paid|money:c }} paid{% if payroll.due > 0 %} · {{ payroll.due|money:c }} to pay{% endif %}{% if payroll.of_sales is not None %} · {{ payroll.of_sales }}% of sales{% endif %}</em></a>{% endif %}
 </div>
 
 <div class="row g-3 mt-1">
@@ -168,6 +177,108 @@
 {% for x in collections %}<tr><td>{{ x.collected_at|date:'d M Y H:i' }}</td><td>{{ x.agent.name }}</td><td><span class="method-pill {{ x.payment_method }}">{{ x.get_payment_method_display }}</span></td><td>{{ x.reference }}{% if x.note %}<small class="d-block text-secondary">{{ x.note }}</small>{% endif %}</td><td class="num"><b>{{ x.amount|money:c }}</b></td></tr>
 {% empty %}<tr><td colspan="5" class="empty-table">No hand-ins recorded yet.</td></tr>{% endfor %}</tbody></table></div></div>
 
+{% elif tab == 'payroll' %}{% with pr=payroll %}
+<style>
+.pay-banner{display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;background:#eef6ff;border:1px solid #c9defa;border-radius:14px;padding:.7rem 1rem;color:#1c4f8f;margin-bottom:1rem}.pay-banner>i{font-size:1.3rem}
+.pay-banner.late{background:#fff3f0;border-color:#f5c8bc;color:#94331b}
+.pay-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:.9rem}
+.pay-card{border:1px solid var(--border,#e3e9f1);border-radius:16px;background:var(--panel,#fff);padding:.9rem 1rem;display:flex;flex-direction:column}
+.pay-card header{display:flex;gap:.65rem;align-items:center}.pay-card .av{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-weight:800;color:#fff;background:#1769e0}
+.pay-card .av.sales{background:#1769e0}.pay-card .av.profit{background:#7c4dff}.pay-card .av.fixed{background:#22a565}.pay-card .av.removed{background:#9aa8b6}
+.pay-card h4{font-size:1rem;margin:0}.pay-card header small{color:var(--muted,#6b7c8f);font-size:.76rem}
+.pay-calc{margin:.7rem 0 .5rem;font-size:.84rem;border-top:1px dashed var(--border,#e3e9f1);padding-top:.55rem}.pay-calc div{display:flex;justify-content:space-between;gap:.5rem;padding:.12rem 0}
+.pay-calc span{color:var(--muted,#6b7c8f)}.pay-calc .tot{font-weight:800;border-top:1px solid var(--border,#e3e9f1);margin-top:.25rem;padding-top:.3rem}
+.pay-bal{display:flex;justify-content:space-between;align-items:baseline;margin-top:auto}.pay-bal strong{font-size:1.35rem}.pay-bal.due strong{color:#c0392b}.pay-bal.ahead strong{color:#b7791f}.pay-bal.paid strong{color:#16794a}
+.pay-prog{height:7px;border-radius:99px;background:#edf1f6;overflow:hidden;margin:.35rem 0 .55rem}.pay-prog i{display:block;height:100%;background:linear-gradient(90deg,#22a565,#38c47c);border-radius:99px}
+.pay-flag{display:inline-block;font-size:.68rem;font-weight:700;border-radius:99px;padding:.05rem .45rem;background:#fff4dc;color:#9a6200;margin-left:.25rem}
+.pm-nav a{min-width:2rem;text-align:center}
+</style>
+{% if pr.payday %}<div class="pay-banner {% if pr.payday.in_days < 0 %}late{% endif %}"><i class="bi bi-calendar2-heart"></i>
+  <div class="flex-grow-1"><b>{% if pr.payday.in_days == 0 %}Pay day is today{% elif pr.payday.in_days < 0 %}Pay day was {{ pr.payday.date|date:'j M' }}{% else %}Pay day in {{ pr.payday.in_days }} day{{ pr.payday.in_days|pluralize }} ({{ pr.payday.date|date:'j M' }}){% endif %}</b>
+  <small class="d-block">{{ pr.payday.people }} {{ pr.payday.people|pluralize:"person,people" }} still to pay on that day.</small></div></div>{% endif %}
+
+<div class="kpi-row">
+  <div class="kpi hero"><small>{% if pr.is_current %}Payroll on pace{% else %}Payroll{% endif %}</small><strong>{{ pr.projected|money:c }}</strong><em>{{ pr.count }} {{ pr.count|pluralize:"person,people" }}{% if pr.is_current %} · {{ pr.owed|money:c }} earned so far{% endif %}</em></div>
+  <div class="kpi"><small>Paid</small><strong>{{ pr.paid|money:c }}</strong><em>{{ pr.paid_pct }}% of the payroll{% if pr.advances %} · {{ pr.advances|money:c }} in advances{% endif %}</em></div>
+  <div class="kpi {% if pr.due > 0 %}neg{% endif %}"><small>Still to pay</small><strong>{{ pr.due|money:c }}</strong><em>{% if pr.deductions %}after {{ pr.deductions|money:c }} deductions{% else %}earned and not yet paid{% endif %}</em></div>
+  <div class="kpi"><small>Share of sales</small><strong>{% if pr.of_sales is not None %}{{ pr.of_sales }}%{% else %}—{% endif %}</strong><em>of {{ pr.sales|money:c }} net sales</em></div>
+  <div class="kpi {% if pr.profit_after_pay < 0 %}neg{% endif %}"><small>Profit after staff pay</small><strong>{{ pr.profit_after_pay|money:c }}</strong><em>{{ pr.profit_before_pay|money:c }} before staff pay</em></div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3 mb-2">
+  <p class="text-secondary small m-0">Fixed pay counts in full for the month. Percentage pay grows with sales or profit as the month goes on{% if pr.is_current %} — “on pace” is where it lands if the month carries on like this{% endif %}. Profit shares use profit <b>before</b> staff pay.</p>
+  <div class="d-flex gap-2">{% if 'team.manage' in tt_perms %}<a class="btn btn-sm btn-light" href="{% url 'team' %}"><i class="bi bi-person-gear"></i> Set pay on Team</a>{% endif %}
+  {% if pr.due > 0 %}<form method="post" action="{% url 'payroll_pay_all' %}" class="d-flex gap-2">{% csrf_token %}<input type="hidden" name="month" value="{{ pr.month|date:'Y-m' }}"><input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <button class="btn btn-sm btn-success" onclick="return confirm('Pay every outstanding balance for {{ pr.month|date:"F Y" }} ({{ pr.due|money:c }}), each by the person\'s usual method? Each payment is booked as a Staff & wages expense.')"><i class="bi bi-cash-stack"></i> Pay everyone {{ pr.due|money:c }}</button></form>{% endif %}</div>
+</div>
+
+<div class="pay-grid">
+{% for r in pr.rows %}{% with k=r.calc %}
+<div class="pay-card">
+  <header><span class="av {% if r.pay %}{{ r.pay.pay_type }}{% else %}removed{% endif %}">{{ r.name|slice:':1'|upper }}</span>
+    <div class="flex-grow-1"><h4>{{ r.name }}</h4><small>{% if r.member %}{{ r.member.role_label }}{% if r.pay %} · {{ r.pay.get_pay_type_display }}{% endif %}{% else %}No longer on the team{% endif %}</small></div>
+    {% if r.member %}<a class="btn btn-sm btn-light" href="{% url 'payroll_payslip' r.member.id pr.month|date:'Y-m' %}" title="Payslip" aria-label="Payslip for {{ r.name }}"><i class="bi bi-file-earmark-person"></i></a>{% endif %}</header>
+  <div class="pay-calc">
+    {% if r.pay %}
+      {% if k.basic %}<div><span>{% if r.pay.pay_type == 'fixed' %}Salary{% else %}Basic pay{% endif %}{% if k.days_on < k.days %} ({{ k.days_on }}/{{ k.days }} days){% endif %}</span><b>{{ k.basic|money:c }}</b></div>{% endif %}
+      {% if r.pay.is_share %}<div><span>{{ k.percent|pct }}% × {{ k.basis_label|lower }}{% if r.pay.site %} at {{ r.pay.site.name }}{% endif %} {{ k.basis_value|money:c }}</span><b>{{ k.share|money:c }}</b></div>
+        {% if k.in_progress and k.share_projected != k.share %}<div><span class="fst-italic">On pace: {{ k.basis_projected|money:c }} → share</span><span>{{ k.share_projected|money:c }}</span></div>{% endif %}{% endif %}
+      {% if k.capped %}<div><span>Capped at {{ k.cap|money:c }}</span><span class="pay-flag">cap</span></div>{% endif %}
+      {% if k.topped_up %}<div><span>Topped up to the guaranteed {{ k.minimum|money:c }}</span><span class="pay-flag">min</span></div>{% elif k.in_progress and k.minimum %}<div><span>Guaranteed at month end</span><span>{{ k.minimum|money:c }}</span></div>{% endif %}
+    {% endif %}
+    {% if r.bonus %}<div><span>Bonuses</span><b>+{{ r.bonus|money:c }}</b></div>{% endif %}
+    {% if r.deduction %}<div><span>Deductions</span><b>−{{ r.deduction|money:c }}</b></div>{% endif %}
+    <div class="tot"><span>{% if k.in_progress %}Earned so far{% else %}Owed for {{ pr.month|date:'F' }}{% endif %}</span><span>{{ r.owed|money:c }}</span></div>
+    {% if r.paid %}<div><span>Paid{% if r.advance %} (incl. {{ r.advance|money:c }} advance){% endif %}</span><b>−{{ r.paid|money:c }}</b></div>{% endif %}
+  </div>
+  <div class="pay-prog" title="{{ r.paid_pct }}% paid"><i style="width:{{ r.paid_pct }}%"></i></div>
+  <div class="pay-bal {{ r.status }}"><span class="text-secondary small">{% if r.balance < 0 %}Paid ahead{% elif r.balance == 0 %}All paid{% else %}Still to pay{% endif %}</span><strong>{% if r.balance < 0 %}{{ r.balance|neg|money:c }}{% else %}{{ r.balance|money:c }}{% endif %}</strong></div>
+  {% if r.member %}<div class="d-flex gap-1 mt-2 flex-wrap">
+    <button class="btn btn-sm btn-success flex-grow-1" data-bs-toggle="modal" data-bs-target="#payoutModal" data-member="{{ r.member.id }}" data-name="{{ r.name }}" data-kind="salary" data-amount="{% if r.balance > 0 %}{{ r.balance }}{% endif %}" data-method="{{ r.pay.method|default:'cash' }}"><i class="bi bi-cash-coin"></i> Pay{% if r.balance > 0 %} {{ r.balance|money:c }}{% endif %}</button>
+    <div class="dropdown"><button class="btn btn-sm btn-light dropdown-toggle" data-bs-toggle="dropdown">More</button><div class="dropdown-menu dropdown-menu-end">
+      <button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#payoutModal" data-member="{{ r.member.id }}" data-name="{{ r.name }}" data-kind="advance" data-method="{{ r.pay.method|default:'cash' }}"><i class="bi bi-skip-forward me-2"></i>Give an advance</button>
+      <button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#payoutModal" data-member="{{ r.member.id }}" data-name="{{ r.name }}" data-kind="bonus" data-method="{{ r.pay.method|default:'cash' }}"><i class="bi bi-gift me-2"></i>Pay a bonus</button>
+      <button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#payoutModal" data-member="{{ r.member.id }}" data-name="{{ r.name }}" data-kind="deduction"><i class="bi bi-dash-circle me-2"></i>Make a deduction</button>
+      <a class="dropdown-item" href="{% url 'payroll_payslip' r.member.id pr.month|date:'Y-m' %}"><i class="bi bi-printer me-2"></i>Print payslip</a>
+    </div></div></div>{% endif %}
+</div>
+{% endwith %}{% empty %}
+<div class="panel text-center py-5" style="grid-column:1/-1"><i class="bi bi-wallet2 fs-1 text-primary"></i><h3 class="mt-2">Nobody on the payroll yet</h3>
+  <p>Open <b>Team</b> and press the <i class="bi bi-wallet2"></i> button next to someone to give them a fixed salary, a share of sales or a share of profit.</p>
+  {% if 'team.manage' in tt_perms %}<a class="btn btn-primary" href="{% url 'team' %}">Go to Team</a>{% endif %}</div>
+{% endfor %}
+</div>
+
+<div class="row g-3 mt-2">
+  <div class="col-xl-7"><div class="panel h-100"><div class="panel-head"><div><h3>Payments in {{ pr.month|date:'F' }}</h3><p>Salaries, advances, bonuses and deductions</p></div></div>
+    <div class="table-responsive"><table class="table table-money align-middle"><thead><tr><th>Paid</th><th>Who</th><th>What</th><th>Method</th><th class="num">Amount</th><th></th></tr></thead><tbody>
+    {% for r in pr.rows %}{% for p in r.payouts %}<tr><td class="text-nowrap">{{ p.paid_at|date:'d M Y' }}</td><td>{{ p.member_name }}</td>
+      <td>{{ p.get_kind_display }}{% if p.note %}<small class="d-block text-secondary">{{ p.note }}</small>{% endif %}{% if p.reference %}<small class="d-block text-secondary">Ref {{ p.reference }}</small>{% endif %}</td>
+      <td>{% if p.moves_cash %}<span class="method-pill {{ p.method }}">{{ p.method_label }}</span>{% else %}<span class="text-secondary small">no cash</span>{% endif %}</td>
+      <td class="num"><b>{% if p.kind == 'deduction' %}−{% endif %}{{ p.amount|money:c }}</b></td>
+      <td class="text-end"><form method="post" action="{% url 'payroll_void' p.id %}" onsubmit="return confirm('Void this {{ p.get_kind_display|lower }}? {% if p.moves_cash %}Its Staff & wages expense is removed too.{% endif %}')">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn btn-sm btn-link text-danger p-0">Void</button></form></td></tr>
+    {% endfor %}{% empty %}{% endfor %}
+    {% if not pr.paid and not pr.deductions %}<tr><td colspan="6" class="empty-table">Nothing paid for {{ pr.month|date:'F' }} yet.</td></tr>{% endif %}
+    </tbody></table></div></div></div>
+  <div class="col-xl-5"><div class="chart-panel h-100"><header><div><h3>Staff pay vs sales</h3><p>Paid out each month, and as a share of net sales</p></div></header><div class="chart-box"><canvas id="payTrend"></canvas></div></div></div>
+</div>
+{{ payroll_trend|json_script:"payTrendData" }}
+
+<div class="modal fade" id="payoutModal" tabindex="-1" aria-labelledby="payoutTitle"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post" action="{% url 'payroll_pay' %}">{% csrf_token %}
+  <input type="hidden" name="member"><input type="hidden" name="month" value="{{ pr.month|date:'Y-m' }}"><input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <div class="modal-header border-0"><h5 class="modal-title fw-bold" id="payoutTitle">Pay</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body pt-0"><div class="row g-2">
+    <div class="col-6"><label class="form-label">What</label><select class="form-select" name="kind">{% for k,l in payout_kinds %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-6"><label class="form-label">Amount ({{ c }})</label><input class="form-control" type="number" step="0.01" min="0.01" name="amount" required inputmode="decimal"></div>
+    <div class="col-12"><small class="text-secondary" id="kindHelp"></small></div>
+    <div class="col-6 cash-only"><label class="form-label">Paid with</label><select class="form-select" name="method">{% for k,l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+    <div class="col-6"><label class="form-label">Date</label><input class="form-control" type="date" name="paid_at" value="{{ today }}"></div>
+    <div class="col-6 cash-only"><label class="form-label">Reference</label><input class="form-control" name="reference" placeholder="Wave / bank ref"></div>
+    <div class="col-6"><label class="form-label">Note</label><input class="form-control" name="note" maxlength="255"></div>
+  </div><small class="text-secondary d-block mt-2">For {{ pr.month|date:'F Y' }}.</small></div>
+  <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-success" id="payoutGo">Record payment</button></div>
+</form></div></div>
+{% endwith %}
 {% else %}
 <div class="panel"><div class="panel-head"><div><h3>TapTap subscription payments</h3><p>What you pay for TapTap itself.</p></div><a class="btn btn-sm btn-outline-primary" href="{% url 'subscription' %}">Renew</a></div><div class="table-responsive"><table class="table"><thead><tr><th>Plan</th><th>Amount</th><th>Method</th><th>Status</th><th>Date</th></tr></thead><tbody>{% for x in subs %}<tr><td>{{ x.plan }}</td><td>D{{ x.amount }}</td><td>{{ x.payment_method }}</td><td>{{ x.payment_status }}</td><td>{{ x.created_at|date:'d M Y' }}</td></tr>{% empty %}<tr><td colspan="5" class="empty-table">No subscription payments yet.</td></tr>{% endfor %}</tbody></table></div></div>
 {% endif %}
@@ -255,6 +366,15 @@
   if($('catChart')) TT.doughnut('catChart',D.categories.labels,D.categories.values,{empty:'No expenses recorded for this period.'});
   if($('methodChart')) TT.doughnut('methodChart',D.methods.labels,D.methods.values,{empty:'No sales recorded for this period.'});
   if($('siteChart')){TT.showEmpty('siteChart','Assign vouchers and expenses to routers to compare sites.',TT.empty(D.sites.revenue));TT.make('siteChart',{type:'bar',data:{labels:D.sites.labels,datasets:[{label:'Sales',data:D.sites.revenue,backgroundColor:C.blue},{label:'Costs',data:D.sites.expenses,backgroundColor:TT.alpha(C.red,.75)}]},options:{indexAxis:'y',plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+TT.money(c.parsed.x)}}},scales:{x:TT.moneyAxis(),y:{grid:{display:false},border:{display:false}}}}});}
+  // Payroll tab
+  const po=$('payoutModal');
+  if(po){const f=po.querySelector('form'),help={salary:'Their pay for the month. Booked as a Staff & wages expense.',advance:'Money given early. It counts against this month\'s pay and is booked as an expense now.',bonus:'Extra on top of their pay. Adds to what they are owed and is booked as an expense.',deduction:'Lowers what they are owed (a fine, a shortage, a loan repayment). No money moves and no expense is booked.'};
+    const sync=()=>{const k=f.kind.value;$('kindHelp').textContent=help[k];po.querySelectorAll('.cash-only').forEach(el=>el.classList.toggle('d-none',k==='deduction'));$('payoutGo').textContent=k==='deduction'?'Record deduction':'Record payment';$('payoutGo').className='btn '+(k==='deduction'?'btn-warning':'btn-success');};
+    f.kind.addEventListener('change',sync);
+    po.addEventListener('show.bs.modal',e=>{const b=e.relatedTarget;f.member.value=b.dataset.member;f.kind.value=b.dataset.kind||'salary';f.amount.value=b.dataset.amount?(+b.dataset.amount).toFixed(2):'';if(b.dataset.method)f.method.value=b.dataset.method;$('payoutTitle').textContent=b.dataset.name;sync();});}
+  if($('payTrend')){const P=JSON.parse($('payTrendData').textContent);TT.showEmpty('payTrend','No staff pay recorded yet.',TT.empty(P.paid)&&TT.empty(P.sales));
+    TT.make('payTrend',{data:{labels:P.labels,datasets:[{type:'bar',label:'Net sales',data:P.sales,backgroundColor:TT.alpha(C.blue,.25),yAxisID:'y'},{type:'bar',label:'Staff pay',data:P.paid,backgroundColor:C.green,yAxisID:'y'},{type:'line',label:'% of sales',data:P.share,borderColor:C.orange,borderWidth:2,pointRadius:3,pointBackgroundColor:'#fff',yAxisID:'p'}]},
+      options:{interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom'},tooltip:{callbacks:{label:c=>' '+c.dataset.label+': '+(c.dataset.yAxisID==='p'?c.parsed.y+'%':TT.money(c.parsed.y))}}},scales:{x:TT.plainAxis(),y:TT.moneyAxis(),p:{position:'right',grid:{display:false},border:{display:false},ticks:{callback:v=>v+'%'},beginAtZero:true}}}});}
   if($('yearChart')) TT.make('yearChart',{data:{labels:D.year.labels,datasets:[{type:'bar',label:'Sales',data:D.year.revenue,backgroundColor:TT.alpha(C.blue,.85)},{type:'bar',label:'Expenses',data:D.year.expenses,backgroundColor:TT.alpha(C.red,.6)},{type:'line',label:'Profit',data:D.year.profit,borderColor:C.green,borderWidth:2.5,pointRadius:3,pointBackgroundColor:'#fff'}]},options:{interaction:{mode:'index',intersect:false},plugins:{legend:{position:'bottom'},tooltip:TT.moneyTip()},scales:{x:TT.plainAxis(),y:TT.moneyAxis()}}});
 })();
 </script>

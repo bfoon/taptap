@@ -5,6 +5,7 @@ from . import views_help as vhelp
 from . import views_ads, views_ports, views_live, views_traffic, views_missing, views_link
 from . import views_team as vteam, views_platform as vp, views_detail as vdetail, views_bin as vbin, views_freeze as vfz
 from . import views_rollback as vrb
+from . import views_payroll as vpay
 from . import views_fup as vfup
 from . import views_bonanza as vbz
 from . import views_netdev as vnd
@@ -114,6 +115,12 @@ urlpatterns = [
     # Team accounts, daily sales and own password
     path('team/',vteam.team,name='team'), path('team/save/',vteam.team_member_save,name='team_member_save'),
     path('team/<int:pk>/action/',vteam.team_member_action,name='team_member_action'),
+    # Staff pay: terms on the Team page, payments from Finance → Payroll, payslips and My pay
+    path('team/pay/',vpay.team_pay_save,name='team_pay_save'),
+    path('finance/payroll/pay/',vpay.payroll_pay,name='payroll_pay'), path('finance/payroll/pay-all/',vpay.payroll_pay_all,name='payroll_pay_all'),
+    path('finance/payroll/<int:pk>/void/',vpay.payroll_void,name='payroll_void'),
+    path('finance/payroll/payslip/<int:member_pk>/<str:month>/',vpay.payroll_payslip,name='payroll_payslip'),
+    path('my-pay/',vpay.my_pay,name='my_pay'), path('my-pay/<str:month>/',vpay.my_payslip,name='my_payslip'),
     path('sales/today/',vteam.sales_daily,name='sales_daily'), path('account/password/',vteam.account_password,name='account_password'),
     # Platform console (app owner / superusers)
     path('platform/',vp.overview,name='platform_overview'), path('platform/businesses/',vp.businesses,name='platform_businesses'),

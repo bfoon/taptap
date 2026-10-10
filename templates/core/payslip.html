@@ -1,0 +1,68 @@
+{% load static taptap_extras %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ number }} · {{ member.name }} — Payslip {{ month|date:'F Y' }}</title>
+<link rel="stylesheet" href="{% static 'css/statement.css' %}">
+<style>@page{size:A4;margin:10mm}
+.slip-badge{display:inline-block;border-radius:99px;padding:3px 10px;font-size:11px;font-weight:800;letter-spacing:.06em}
+.slip-badge.paid{background:#e6f6ee;color:#16794a}.slip-badge.due{background:#fdecea;color:#b0321f}.slip-badge.ahead{background:#fff4dc;color:#9a6200}.slip-badge.none{background:#eef2f6;color:#5d7186}
+</style></head>
+<body>{% with c=current_business.currency b=current_business k=calc %}
+<div class="st-bar no-print">
+  <a class="st-btn" href="{{ back_url }}">Back</a>
+  <button class="st-btn go" type="button" onclick="window.print()">Print payslip</button>
+</div>
+<article class="sheet" style="padding:0">
+  <section style="padding:44px 44px 36px;position:relative">
+    <header class="st-head">
+      <div class="st-brand">{% if b.logo_data %}<img src="{{ b.logo_data }}" alt="">{% endif %}<div><h1>{{ b.business_name }}</h1><p>Payslip · {{ month|date:'F Y' }}</p></div></div>
+      <div class="st-ref"><div class="state"><span class="slip-badge {{ row.status }}">{% if row.status == 'paid' %}PAID IN FULL{% elif row.status == 'due' %}BALANCE DUE{% elif row.status == 'ahead' %}PAID AHEAD{% else %}NO PAY{% endif %}</span></div><div class="no">{{ number }}</div><small>{% if k.in_progress %}Month in progress — figures so far{% else %}Final for the month{% endif %}</small></div>
+    </header>
+    {% if row.status == 'paid' %}<div class="stamp paid" aria-hidden="true">PAID</div>{% endif %}
+
+    <h2>Employee</h2>
+    <div class="tiles">
+      <div class="tile"><div class="k">Name</div><div class="v">{{ member.name }}</div><div class="s">{{ member.user.email }}</div></div>
+      <div class="tile"><div class="k">Role</div><div class="v">{{ member.role_label }}</div>{% if member.phone %}<div class="s">{{ member.phone }}</div>{% endif %}</div>
+      <div class="tile"><div class="k">Pay terms</div><div class="v" style="font-size:15px">{{ terms }}</div>{% if row.pay.starts_on %}<div class="s">since {{ row.pay.starts_on|date:'d M Y' }}</div>{% endif %}</div>
+      <div class="tile"><div class="k">Pay period</div><div class="v" style="font-size:15px">{{ month|date:'1 M' }} – {{ month|date:'t M Y' }}</div>{% if k.days_on and k.days_on < k.days %}<div class="s">{{ k.days_on }} of {{ k.days }} days on the payroll</div>{% endif %}</div>
+    </div>
+
+    <h2>Earnings</h2>
+    <div class="amount-row" style="grid-template-columns:1fr">
+      <div class="tw"><table>
+        {% if k.basic %}<tr><td>{% if row.pay.pay_type == 'fixed' %}Salary{% else %}Basic pay{% endif %}</td><td style="color:var(--st-muted)">{% if k.days_on < k.days %}{{ k.days_on }}/{{ k.days }} days{% else %}full month{% endif %}</td><td class="n"><b>{{ k.basic|money2:c }}</b></td></tr>{% endif %}
+        {% if row.pay.is_share %}<tr><td>{% if row.pay.pay_type == 'sales' %}Sales commission{% else %}Profit share{% endif %}</td>
+          <td style="color:var(--st-muted)">{{ k.percent|pct }}%{% if show_basis %} of {{ k.basis_value|money2:c }} {{ k.basis_label|lower }}{% else %} of {{ k.basis_label|lower }}{% endif %}{% if row.pay.site %} at {{ row.pay.site.name }}{% endif %}</td><td class="n"><b>{{ k.share|money2:c }}</b></td></tr>{% endif %}
+        {% if k.capped %}<tr><td>Monthly cap applied</td><td style="color:var(--st-muted)">max {{ k.cap|money2:c }}</td><td class="n">—</td></tr>{% endif %}
+        {% if k.topped_up %}<tr><td>Guaranteed minimum top-up</td><td style="color:var(--st-muted)">min {{ k.minimum|money2:c }}</td><td class="n">—</td></tr>{% endif %}
+        {% if row.bonus %}<tr><td>Bonuses</td><td></td><td class="n"><b>{{ row.bonus|money2:c }}</b></td></tr>{% endif %}
+        {% if row.deduction %}<tr><td>Deductions</td><td></td><td class="n"><b>−{{ row.deduction|money2:c }}</b></td></tr>{% endif %}
+        <tr class="total"><td colspan="2">{% if k.in_progress %}Earned so far{% else %}Total earned{% endif %}</td><td class="n">{{ row.owed|money2:c }}</td></tr>
+      </table></div>
+    </div>
+
+    <h2>Payments</h2>
+    <div class="amount-row" style="grid-template-columns:1fr">
+      <div class="tw"><table>
+        {% for p in row.payouts %}{% if p.moves_cash %}<tr><td>{{ p.paid_at|date:'d M Y' }} · {{ p.get_kind_display }}</td><td style="color:var(--st-muted)">{{ p.method_label }}{% if p.reference %} · {{ p.reference }}{% endif %}</td><td class="n"><b>{{ p.amount|money2:c }}</b></td></tr>{% endif %}
+        {% empty %}<tr><td colspan="3" style="color:var(--st-muted)">No payments recorded for this month.</td></tr>{% endfor %}
+        <tr class="total"><td colspan="2">Total paid</td><td class="n">{{ row.paid|money2:c }}</td></tr>
+        <tr><td colspan="2"><b>{% if row.balance < 0 %}Paid ahead{% else %}Balance still to pay{% endif %}</b></td><td class="n"><b>{% if row.balance < 0 %}{{ row.balance|neg|money2:c }}{% else %}{{ row.balance|money2:c }}{% endif %}</b></td></tr>
+      </table>
+      <p class="words">Paid: {{ words }}</p></div>
+    </div>
+
+    <table class="kv">
+      <tr><td>Payslip reference</td><td>{{ number }}</td></tr>
+      <tr><td>Printed</td><td>{% now 'd M Y, H:i' %} by {{ printed_by }}</td></tr>
+      {% if row.pay.note %}<tr><td>Note</td><td>{{ row.pay.note }}</td></tr>{% endif %}
+    </table>
+    <p class="note">{% if row.pay.pay_type == 'profit' %}Profit share is worked out on profit before staff pay: net sales less agent commission and business expenses. {% endif %}{% if k.in_progress %}This month is not over yet, so percentage pay may still change. {% endif %}Payments listed here are recorded in {{ b.business_name }}'s accounts as Staff &amp; wages.</p>
+    <div class="sign">
+      <div><strong>{{ member.name }}</strong>Received — signature and date</div>
+      <div><strong>{{ printed_by }}</strong>For {{ b.business_name }} — signature and date</div>
+    </div>
+    <footer class="st-foot"><span>TapTap Business Hotspot Management</span><span>{{ number }}</span></footer>
+  </section>
+</article>
+{% endwith %}</body></html>

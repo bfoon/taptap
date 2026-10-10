@@ -14,7 +14,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from .models import TrustedDevice
+from .models import PAYMENT_METHODS, TrustedDevice
 from .models_team import TeamMember, UsageDaily
 from .permissions import PERMISSIONS, ROLES, STAFF_ROLES, landing_for
 from .team import ACTIVE_BUSINESS_KEY, business_access_for_user, owned_business
@@ -44,7 +44,7 @@ def _extras_you_can_grant(request):
         'plans.delete_used',
         'vouchers.warn',
         'vouchers.rollback',
-    } | (set() if _is_owner(request) else {'team.manage'})
+    } | (set() if _is_owner(request) else {'team.manage', 'payroll.manage'})
 
     return [
         (key, value)
@@ -83,7 +83,7 @@ def team(request):
 
     members = list(
         business.team
-        .select_related('user')
+        .select_related('user', 'pay', 'pay__site')
         .all()
     )
 
@@ -120,6 +120,25 @@ def team(request):
         for key, _ in _roles_you_can_assign(request)
     ]
 
+    # Staff pay is sensitive: only people with payroll.manage see or change it.
+    payroll = None
+    pay_preview = None
+    if 'payroll.manage' in request.tt_perms:
+        from .payroll import describe, payroll_month, preview_figures
+
+        payroll = payroll_month(business, timezone.localdate())
+        rows = {r['member'].pk: r for r in payroll['rows'] if r['member']}
+        for member in members:
+            member.pay_row = rows.get(member.pk)
+            member.pay_terms = getattr(member, 'pay', None)
+            member.pay_text = describe(member.pay_terms, business.currency) if member.pay_terms else ''
+            # Same rules as paying: not your own pay, and only the owner touches an admin's pay.
+            member.can_pay = (
+                member.user_id != request.user.pk
+                and (_is_owner(request) or member.role != 'admin')
+            )
+        pay_preview = preview_figures(business)
+
     return render(
         request,
         'core/team.html',
@@ -130,6 +149,11 @@ def team(request):
             'permission_labels': PERMISSIONS,
             'owner': business.user,
             'is_owner': _is_owner(request),
+            'payroll': payroll,
+            'pay_preview': pay_preview,
+            'routers': business.routers.all().order_by('name') if payroll is not None else [],
+            'pay_methods': [m for m in PAYMENT_METHODS if m[0] != 'auto'],
+            'today': timezone.localdate().isoformat(),
         },
     )
 

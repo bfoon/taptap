@@ -1,0 +1,53 @@
+{% extends 'core/base.html' %}{% load taptap_extras %}{% block title %}My pay — TapTap{% endblock %}{% block heading %}My pay{% endblock %}
+{% block extra_head %}<style>
+.mp-hero{border-radius:20px;padding:1.3rem 1.4rem;color:#fff;background:linear-gradient(135deg,#0f2742,#1769e0);display:grid;grid-template-columns:1fr auto;gap:1rem;align-items:center}
+.mp-hero small{color:#b9d3f2;font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em}.mp-hero .big{font-size:2.2rem;font-weight:800;line-height:1.1}
+.mp-hero .terms{display:inline-block;margin-top:.4rem;background:rgba(255,255,255,.14);border-radius:99px;padding:.15rem .7rem;font-size:.8rem}
+.mp-ring{--p:0;width:112px;height:112px;border-radius:50%;background:conic-gradient(#5ee6a0 calc(var(--p)*1%),rgba(255,255,255,.15) 0);display:grid;place-items:center}
+.mp-ring b{width:86px;height:86px;border-radius:50%;background:#14365e;display:grid;place-items:center;font-size:1.1rem}
+.mp-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.7rem;margin-top:1rem}
+.mp-stats div{border:1px solid var(--border,#e3e9f1);border-radius:14px;padding:.7rem .85rem;background:var(--panel,#fff)}.mp-stats small{display:block;color:var(--muted,#6b7c8f);font-size:.74rem;font-weight:700}.mp-stats b{font-size:1.15rem}
+.mp-month{display:flex;align-items:center;gap:.8rem;padding:.6rem 0;border-bottom:1px solid var(--border,#eef1f5)}.mp-month:last-child{border:0}
+.mp-month .bar{flex:1;height:8px;border-radius:99px;background:#edf1f6;overflow:hidden}.mp-month .bar i{display:block;height:100%;background:#22a565}
+@media(max-width:576px){.mp-hero{grid-template-columns:1fr}.mp-ring{display:none}}
+</style>{% endblock %}
+{% block content %}{% with c=current_business.currency %}
+{% if not member %}
+<div class="panel text-center py-5"><i class="bi bi-wallet2 fs-1 text-primary"></i><h3 class="mt-2">Owners are not on the payroll</h3><p>Staff pay is set per team member on the Team page.</p>{% if 'team.manage' in tt_perms %}<a class="btn btn-primary" href="{% url 'team' %}">Go to Team</a>{% endif %}</div>
+{% elif not pay and not payments %}
+<div class="panel text-center py-5"><i class="bi bi-wallet2 fs-1 text-primary"></i><h3 class="mt-2">No pay set up yet</h3><p>When {{ current_business.business_name }} sets your salary or commission, you will see what you have earned and been paid here.</p></div>
+{% else %}{% with r=current k=current.calc %}
+<section class="mp-hero">
+  <div><small>{{ this_month|date:'F' }} {% if k.in_progress %}so far{% endif %}</small>
+    <div class="big">{{ r.owed|money:c }}</div>
+    <div>{% if r.pay and r.pay.is_share and k.in_progress %}On pace for <b>{{ r.owed_projected|money:c }}</b> this month{% elif r.paid %}{{ r.paid|money:c }} paid{% else %}earned{% endif %}</div>
+    {% if terms %}<span class="terms"><i class="bi bi-briefcase me-1"></i>{{ terms }}</span>{% endif %}</div>
+  <div class="mp-ring" style="--p:{{ r.paid_pct }}" title="Paid {{ r.paid_pct }}%"><b>{{ r.paid_pct }}%<small style="font-size:.6rem;display:block;text-align:center;margin-top:-1.2rem;color:#b9d3f2">paid</small></b></div>
+</section>
+<div class="mp-stats">
+  {% if k.basic %}<div><small>{% if r.pay.pay_type == 'fixed' %}Salary{% else %}Basic pay{% endif %}</small><b>{{ k.basic|money:c }}</b></div>{% endif %}
+  {% if r.pay.is_share %}<div><small>{{ k.percent|pct }}% {% if r.pay.pay_type == 'sales' %}commission{% else %}profit share{% endif %}</small><b>{{ k.share|money:c }}</b>{% if show_basis %}<small class="fw-normal">of {{ k.basis_value|money:c }} {{ k.basis_label|lower }}</small>{% endif %}</div>{% endif %}
+  <div><small>Paid this month</small><b>{{ r.paid|money:c }}</b>{% if r.advance %}<small class="fw-normal">incl. {{ r.advance|money:c }} advance</small>{% endif %}</div>
+  <div><small>{% if r.balance < 0 %}Paid ahead{% else %}Still to come{% endif %}</small><b>{% if r.balance < 0 %}{{ r.balance|neg|money:c }}{% else %}{{ r.balance|money:c }}{% endif %}</b>{% if r.pay %}<small class="fw-normal">pay day: day {{ r.pay.pay_day }} of the month</small>{% endif %}</div>
+  {% if k.minimum and k.in_progress %}<div><small>Guaranteed</small><b>{{ k.minimum|money:c }}</b><small class="fw-normal">at least, at month end</small></div>{% endif %}
+</div>
+{% endwith %}
+
+<div class="row g-3 mt-1">
+  <div class="col-lg-6"><div class="panel h-100"><div class="panel-head"><div><h3>Month by month</h3><p>Earned and paid</p></div></div>
+    {% for h in history %}<div class="mp-month">
+      <div style="width:90px"><a class="fw-bold text-reset" href="{% url 'my_payslip' h.month|date:'Y-m' %}">{{ h.month|date:'M Y' }}</a></div>
+      <div class="bar"><i style="width:{{ h.paid_pct }}%"></i></div>
+      <div class="text-end" style="min-width:120px"><b>{{ h.paid|money:c }}</b><small class="d-block text-secondary">of {{ h.owed|money:c }}</small></div>
+    </div>{% endfor %}
+  </div></div>
+  <div class="col-lg-6"><div class="panel h-100"><div class="panel-head"><div><h3>Payments</h3><p>Everything paid to you</p></div></div>
+    <div class="table-responsive"><table class="table table-money"><thead><tr><th>Date</th><th>What</th><th>For</th><th class="num">Amount</th><th></th></tr></thead><tbody>
+    {% for p in payments %}<tr><td>{{ p.paid_at|date:'d M Y' }}</td><td>{{ p.get_kind_display }}{% if p.moves_cash %}<small class="d-block text-secondary">{{ p.method_label }}</small>{% endif %}</td><td>{{ p.month|date:'M Y' }}</td><td class="num"><b>{% if p.kind == 'deduction' %}−{% endif %}{{ p.amount|money:c }}</b></td>
+      <td class="text-end"><a class="btn btn-sm btn-light" href="{% url 'my_payslip' p.month|date:'Y-m' %}" aria-label="Payslip"><i class="bi bi-file-earmark-person"></i></a></td></tr>
+    {% empty %}<tr><td colspan="5" class="empty-table">No payments yet.</td></tr>{% endfor %}</tbody></table></div>
+    <a class="btn btn-sm btn-outline-primary" href="{% url 'my_payslip' this_month|date:'Y-m' %}"><i class="bi bi-printer"></i> This month's payslip</a>
+  </div></div>
+</div>
+{% endif %}
+{% endwith %}{% endblock %}

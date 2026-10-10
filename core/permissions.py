@@ -33,6 +33,7 @@ PERMISSIONS = {
     'studio.manage': 'Portal studio, voucher designer and adverts',
     'settings.manage': 'Business settings and email alerts',
     'team.manage': 'Create and manage team accounts',
+    'payroll.manage': 'Staff pay: set salaries and commission deals, pay staff, payslips (sensitive)',
     'subscription.manage': 'Pay for / renew the TapTap subscription',
 }
 ALL_PERMISSIONS = frozenset(PERMISSIONS)
@@ -105,6 +106,8 @@ URL_PERMS = {
     'live_settings': 'settings.manage',
     'subscription_select': 'subscription.manage',
     'team': 'team.manage', 'team_member_save': 'team.manage', 'team_member_action': 'team.manage',
+    'team_pay_save': 'payroll.manage', 'payroll_pay': 'payroll.manage', 'payroll_pay_all': 'payroll.manage',
+    'payroll_void': 'payroll.manage', 'payroll_payslip': 'payroll.manage',
     **{n: 'network.manage' for n in _NETWORK},
     **{n: 'studio.manage' for n in _STUDIO},
 }
@@ -117,6 +120,7 @@ MEMBER_ALLOWED = {
     'home', 'login', 'register', 'logout', 'verify_code', 'resend_code', 'cancel_verification',
     'trusted_devices', 'trusted_device_remove', 'trusted_devices_remove_all', 'support', 'subscription',
     'live_tick', 'account_password', 'support_guide',
+    'my_pay', 'my_payslip',                        # each person sees only their own pay (the view checks)
     'page_presence_ping', 'page_presence_leave',   # who else is on a page: the view checks the page's own permission
     # live chat: everyone in a business can chat (the views check who may see which conversation)
     'chat_page', 'chat_state', 'chat_history', 'chat_send', 'chat_read', 'chat_direct', 'chat_settings', 'chat_support_action',
