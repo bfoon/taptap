@@ -190,7 +190,8 @@ def _public_ctx(request, page, mode):
             'acceptUrl': f'/p/{page.slug}/accept/', 'reportUrl': f'/p/{page.slug}/report/',
             'bonanza': bonanza_ctx(business),
             'qrLib': static('vendor/jsqr.js'),          # QR decoder, loaded only when a customer taps "Scan"
-            'ads': {page.kind: ads_for(business, page.kind, base)}}
+            'ads': {page.kind: ads_for(business, page.kind, base)},
+            'clock': _clock_ctx(url='/p/clock.json')}   # phone clock check (wrong time = sign-in trouble)
 
 
 def portal_public(request, slug):
@@ -280,6 +281,11 @@ def _wants_scan(config):
                for b in (config or {}).get('blocks', []))
 
 
+def _clock_ctx(**kw):
+    from .online_portal import clock_ctx
+    return clock_ctx(**kw)
+
+
 def _export_html(page, base=''):
     renderer = (STATIC_DIR / 'studio' / 'portal-render.js').read_text(encoding='utf-8')
     business = page.business
@@ -288,7 +294,9 @@ def _export_html(page, base=''):
            'bonanza': bonanza_ctx(business, base) if base else None,
            # frozen / warned vouchers: the page asks TapTap first and shows the warning instead of logging in
            'stateUrl': f'{base}/p/{page.slug}/state/' if base else '', 'acceptUrl': f'{base}/p/{page.slug}/accept/' if base else '',
-           'reportUrl': f'{base}/p/{page.slug}/report/' if base else ''}
+           'reportUrl': f'{base}/p/{page.slug}/report/' if base else '',
+           # phone clock check: TapTap's time when reachable, else "a phone dated before this page is wrong"
+           'clock': _clock_ctx(url=f'{base}/p/clock.json' if base else '', built=True)}
     # Values that may contain quotes go through the DOM, not a JS string literal.
     hidden = '<div id="tp-err" hidden>$(error)</div><div id="tp-orig" hidden>$(link-orig)</div>' if page.kind == 'login' else ''
     if page.kind == 'login' and _wants_scan(page.config):

@@ -42,12 +42,22 @@ def default_pages(business):
     return pages
 
 
+def _renderer_hash():
+    """The page renderer is baked into every router page: a new version (e.g. the phone clock check) re-installs them."""
+    try:
+        from .views_studio import STATIC_DIR
+        return hashlib.sha1((STATIC_DIR / 'studio' / 'portal-render.js').read_bytes()).hexdigest()[:12]
+    except Exception:
+        return ''
+
+
 def version_for(business):
     """Fingerprint of everything baked into the pages (not the export timestamp)."""
     from .views_studio import business_ctx, plans_ctx
     pages = default_pages(business)
     blob = json.dumps({'pages': {f: [p.pk, p.config, str(p.updated_at)] for f, p in pages.items()},
-                       'biz': business_ctx(business), 'plans': plans_ctx(business)}, sort_keys=True, default=str)
+                       'biz': business_ctx(business), 'plans': plans_ctx(business),
+                       'renderer': _renderer_hash()}, sort_keys=True, default=str)
     return hashlib.sha1(blob.encode()).hexdigest()
 
 

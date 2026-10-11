@@ -210,6 +210,15 @@ def online_login(request, slug):
     return online_page(request, slug, auto={'user': user, 'pw': pw[:64], 'member': member})
 
 
+def _with_clock(data):
+    """The error the customer saw, plus the phone's clock error when the page found one ("3 h behind")."""
+    err = str(data.get('error') or '').strip()
+    clk = re.sub(r'[^\w :()+.,-]', '', str(data.get('clock') or ''))[:120].strip()
+    if clk and 'clock' not in err.lower():
+        err = (err + ' · ' if err else '') + f'Phone clock {clk}'
+    return err
+
+
 def _cors(resp):
     resp['Access-Control-Allow-Origin'] = '*'
     return resp
@@ -249,7 +258,7 @@ def online_report(request, slug):
     mac = str(data.get('mac') or '').upper()[:20]
     report = VoucherReport.objects.create(
         business=page.business, voucher_id=d.get('voucher_id'), code=code, name=str(data.get('name') or '')[:80].strip(),
-        phone=phone, message=str(data.get('message') or '')[:500].strip(), shown_error=str(data.get('error') or '')[:300],
+        phone=phone, message=str(data.get('message') or '')[:500].strip(), shown_error=_with_clock(data)[:300],
         diagnosis=d, mac=mac if re.fullmatch(r'([0-9A-F]{2}:){5}[0-9A-F]{2}', mac) else '', ip=ip,
         user_agent=request.META.get('HTTP_USER_AGENT', '')[:300], portal_slug=page.slug)
     try:
@@ -361,3 +370,34 @@ def prepare_routers(request):
         except Exception as exc:  # noqa: BLE001
             results.append({'router': r.name, 'ok': False, 'text': str(exc)[:160]})
     return JsonResponse({'ok': True, 'results': results})
+
+
+
+# ─────────────────────────────── phone clock check ───────────────────────────────
+
+def clock_ctx(*, url='', built=False):
+    """What the portal page needs to check the phone's clock (static/studio/portal-render.js wireClock).
+
+    url    TapTap's time endpoint — the exact reference when the phone can reach it.
+    built  router pages: the moment the page was made. A phone dated before that is certainly wrong,
+           even when it cannot reach TapTap (a badly wrong date also breaks https).
+    tz     the business's UTC offset now (minutes) — to show the real local time and spot a wrong time zone."""
+    from django.conf import settings
+    now = timezone.now()
+    local = timezone.localtime(now)
+    off = local.utcoffset()
+    zone = str(getattr(settings, 'TIME_ZONE', '') or '')
+    city = zone.split('/')[-1].replace('_', ' ') if '/' in zone else ''
+    ms = int(now.timestamp() * 1000)
+    out = {'url': url, 'tz': int(off.total_seconds() // 60) if off is not None else 0, 'zone': city,
+           'place': f'in {city}' if city else 'here'}
+    out['built' if built else 'server'] = ms
+    return out
+
+
+def clock(request):
+    """GET /p/clock.json → {"now": ms}. Any origin may ask (the router's own login page does), never cached."""
+    resp = JsonResponse({'now': int(timezone.now().timestamp() * 1000)})
+    resp['Access-Control-Allow-Origin'] = '*'
+    resp['Cache-Control'] = 'no-store, max-age=0'
+    return resp

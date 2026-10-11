@@ -19,6 +19,23 @@
     rubik: 'Rubik:wght@400;600;800', mono: 'JetBrains+Mono:wght@400;700;800', caveat: 'Caveat:wght@500;700', bebas: 'Bebas+Neue'
   };
 
+
+  var CLOCK_CSS = '.tp-clk{margin:0 0 14px;border-radius:16px;padding:12px 14px;font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#422006;background:#fff7e6;border:1px solid #f5c26b;text-align:left;animation:tpClk .35s ease}' +
+    '@keyframes tpClk{from{opacity:0;transform:translateY(-6px)}}' +
+    '.tp-clk.minor{display:flex;gap:10px;align-items:flex-start;background:#fffbeb;border-color:#fde68a}.tp-clk.good{background:#ecfdf5;border-color:#6ee7b7;color:#065f46}' +
+    '.tp-clk.date{background:#fff1f0;border-color:#fca5a5;color:#7f1d1d}' +
+    '.tp-clk-h{display:flex;gap:10px;align-items:flex-start}.tp-clk-h b{display:block;font-size:16px}.tp-clk-h small{display:block;opacity:.85}' +
+    '.tp-clk-i{font-size:22px;line-height:1;animation:tpRing 2.2s ease-in-out infinite}@keyframes tpRing{0%,80%,100%{transform:rotate(0)}85%{transform:rotate(-14deg)}90%{transform:rotate(12deg)}95%{transform:rotate(-8deg)}}' +
+    '.tp-clk-cmp{display:flex;align-items:stretch;gap:8px;margin:10px 0 8px}.tp-clk-cmp>div{flex:1;border-radius:12px;padding:8px;text-align:center;background:#fff;border:1px solid rgba(0,0,0,.08)}' +
+    '.tp-clk-cmp small{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;opacity:.7}' +
+    '.tp-clk-cmp b{display:block;font:800 24px/1.1 ui-monospace,Menlo,Consolas,monospace;color:#0f172a}.tp-clk-cmp b i{font-style:normal;font-size:14px;opacity:.6}' +
+    '.tp-clk-cmp em{display:block;font-style:normal;font-size:12px;opacity:.8}.tp-clk-cmp .ph .diff{color:#dc2626}.tp-clk-cmp .ok b{color:#047857}' +
+    '.tp-clk-cmp .vs{flex:0 0 auto;background:none;border:0;display:flex;flex-direction:column;justify-content:center;font-size:18px;color:#b45309;padding:0}.tp-clk-cmp .vs small{font-size:10px;text-transform:none;letter-spacing:0;line-height:1.2}' +
+    '.tp-clk ol{margin:6px 0 4px;padding-left:20px}.tp-clk li{margin:2px 0}.tp-clk-note{margin:6px 0 0;font-size:13px}' +
+    '.tp-clk-go{display:block;text-align:center;margin:8px 0 4px;padding:11px;border-radius:12px;background:#0f172a;color:#fff!important;font-weight:800;text-decoration:none}' +
+    '.tp-clk-acts{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}.tp-clk-acts button{flex:1;border:0;border-radius:10px;padding:10px;font-weight:700;background:#b45309;color:#fff;cursor:pointer;min-width:130px}' +
+    '.tp-clk-acts .ghost{background:rgba(0,0,0,.06);color:inherit}';
+
   /* ---------- tiny helpers ---------- */
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function h(tag, attrs, html) { var e = document.createElement(tag); if (attrs) for (var k in attrs) { if (k === 'class') e.className = attrs[k]; else if (k === 'style') e.style.cssText = attrs[k]; else e.setAttribute(k, attrs[k]); } if (html != null) e.innerHTML = html; return e; }
@@ -604,7 +621,7 @@
         }
         var req = root.querySelector('.tp-terms-cb[data-req]');
         if (req && !req.checked) { say('err', 'Tick the box to accept the terms first.'); return; }
-        var dst = (cfg.settings && cfg.settings.redirect_url) || (ctx.mt && ctx.mt.linkOrig) || '';
+        var dst = dstOf(cfg, ctx);
         if (ctx.mode === 'preview' || ctx.mode === 'thumb') { say('ok', member ? 'Preview: member <b>' + esc(code) + '</b> would be logged in now.' : 'Preview: a customer typing <b>' + esc(code) + '</b> would be logged in now.'); return; }
         try { sessionStorage.setItem('tp-mode', member ? 'member' : 'voucher'); } catch (e) {}
         // Vouchers: the code is username AND password. Members: username + their own password.
@@ -729,7 +746,7 @@
         sendDevice(ctx, 'TRIAL');
         btn.disabled = true;
         // RouterOS HotSpot trial: username "T-<mac>" with an empty password (enable trial on the server profile).
-        postForm(login, { username: 'T-' + mac, password: '', dst: (ctx.settings && ctx.settings.redirect_url) || ctx.mt.linkOrig || '', popup: 'true' });
+        postForm(login, { username: 'T-' + mac, password: '', dst: dstOf(cfg || {}, ctx), popup: 'true' });
       });
     });
   }
@@ -745,7 +762,7 @@
       if (ring) ring.setAttribute('stroke-dashoffset', String(364.4 * p)); if (bar) bar.style.width = (p * 100) + '%';
       if (p < 1) { requestAnimationFrame(frame); return; }
       if (ctx.mode === 'preview' || ctx.mode === 'thumb') { setTimeout(function () { t0 = Date.now(); requestAnimationFrame(frame); }, 1200); return; }
-      if (dest) location.href = dest;
+      if (dest && !(ctx.clockState && ctx.clockState.level === 'date')) location.href = dest;
     }
     requestAnimationFrame(frame);
   }
@@ -758,7 +775,7 @@
     [t.font, t.heading_font].forEach(function (f) { if (FONT_QUERY[f] && q.indexOf(FONT_QUERY[f]) < 0) q.push(FONT_QUERY[f]); });
     var fl = document.getElementById('tp-fonts');
     if (q.length) { if (!fl) { fl = h('link', { id: 'tp-fonts', rel: 'stylesheet' }); document.head.appendChild(fl); } fl.href = 'https://fonts.googleapis.com/css2?family=' + q.join('&family=') + '&display=swap'; }
-    var st = document.getElementById('tp-style'); if (!st) { st = h('style', { id: 'tp-style' }); document.head.appendChild(st); } st.textContent = css(t) + EXTRA_CSS;
+    var st = document.getElementById('tp-style'); if (!st) { st = h('style', { id: 'tp-style' }); document.head.appendChild(st); } st.textContent = css(t) + EXTRA_CSS + CLOCK_CSS;
 
     var blocks = (cfg.blocks || []).filter(function (b) { return !b.hidden && B[b.type]; });
     // Your uploaded logo shows on every page: pages without a Logo block get a small one on top.
@@ -777,7 +794,7 @@
     if (ctx.kind === 'login' && ctx.settings.collect_device !== false && ctx.settings.device_notice !== '' && root.querySelector('.tp-vform')) {
       root.querySelector('.tp-vform').insertAdjacentHTML('beforeend', '<p class="tp-privacy">' + esc(ctx.settings.device_notice || 'We note basic details of your device to keep your voucher safe from misuse.') + '</p>');
     }
-    wireBoxes(root); wireVoucher(root, cfg, ctx); wireCountdown(root, cfg, ctx); wireAds(root, ctx); wireTrial(root, ctx); wireReport(root, ctx);
+    wireBoxes(root); wireVoucher(root, cfg, ctx); wireCountdown(root, cfg, ctx); wireAds(root, ctx); wireTrial(root, ctx); wireReport(root, ctx); wireClock(root, ctx);
     if (ctx.mt && ctx.mt.error && ctx.mode === 'mikrotik') reportOffer(root, ctx.mt.username || '', ctx.mt.error, true);
     if (ctx.autoLogin && ctx.autoLogin.code && ctx.mode === 'hosted') autoLogin(root, ctx.autoLogin);
     if (ctx.kind === 'login') sendDevice(ctx, '');
@@ -788,6 +805,144 @@
         e.preventDefault(); parent.postMessage({ tp: 'select', id: el.getAttribute('data-bid') }, '*');
       });
     }
+  }
+
+
+  /* ---------- phone clock check ----------
+   * A phone with the wrong time has trouble signing in: secure (https) pages and the phone's own
+   * "is there internet?" test fail when the date is off, and apps refuse to work. The page compares the
+   * phone's clock with TapTap's (ctx.clock.url, half the round trip added) and, when TapTap cannot be
+   * reached (a router page before sign-in, or a date so wrong that https fails), with the moment the page
+   * was built (ctx.clock.built): a phone dated before that is certainly wrong. It then explains the fix in
+   * plain words — on Android a button opens Date & time settings — and checks again when the customer
+   * comes back. Sign-in itself still works (the router login is plain http); with a wrong date the phone
+   * lands on the router's own page afterwards instead of a secure site that would not open.
+   */
+  function dstOf(cfg, ctx) {
+    if (ctx.clockState && ctx.clockState.level === 'date') return '';   // the router's own (http) page opens instead
+    return (cfg.settings && cfg.settings.redirect_url) || (ctx.mt && ctx.mt.linkOrig) || '';
+  }
+  var MIN = 60000, HOUR = 60 * MIN, DAY = 24 * HOUR;
+  function span(ms) {
+    ms = Math.abs(ms); var d = Math.floor(ms / DAY), hh = Math.floor(ms % DAY / HOUR), mm = Math.round(ms % HOUR / MIN);
+    if (mm === 60) { hh++; mm = 0; }
+    if (d >= 365) { var y = Math.round(d / 365.25 * 10) / 10; return y + (y === 1 ? ' year' : ' years'); }
+    if (ms >= 2 * DAY) return Math.round(ms / DAY) + ' days';
+    return [d ? d + ' day' : '', hh ? hh + ' h' : '', mm && !d ? mm + ' min' : ''].filter(Boolean).join(' ') || 'a moment';
+  }
+  function two(n) { return (n < 10 ? '0' : '') + n; }
+  var MONTHS = 'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' '), DAYS = 'Sun Mon Tue Wed Thu Fri Sat'.split(' ');
+  // Show a moment as the business's local time (tz = its UTC offset in minutes), whatever the phone's zone is.
+  function at(ms, tz) { var d = new Date(ms + tz * MIN); return { hm: two(d.getUTCHours()) + ':' + two(d.getUTCMinutes()), sec: two(d.getUTCSeconds()),
+    day: DAYS[d.getUTCDay()] + ' ' + d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()] + ' ' + d.getUTCFullYear() }; }
+  function phoneKind() { var u = navigator.userAgent || ''; if (/android/i.test(u)) return 'android';
+    if (/iphone|ipad|ipod/i.test(u) || (/macintosh/i.test(u) && 'ontouchend' in document)) return 'ios'; return 'other'; }
+  function gmt(min) { if (!min) return 'GMT'; var s = min > 0 ? '+' : '-', a = Math.abs(min); return 'GMT' + s + Math.floor(a / 60) + (a % 60 ? ':' + two(a % 60) : ''); }
+
+  function measureClock(c, done) {
+    // done(offset in ms: phone − real, source) — source 'server' (exact) or 'built' (only "at least this far behind").
+    var settled = false, finish = function (off, src) { if (!settled) { settled = true; done(off, src); } };
+    var fallback = function () {
+      if (c.server && c.loadedAt) { finish(c.loadedAt - c.server, 'page'); return; }
+      if (c.built && Date.now() < c.built - 10 * MIN) { finish(Date.now() - c.built, 'built'); return; }
+      if (c.built && Date.now() > c.built + 400 * DAY) { finish(Date.now() - c.built, 'built'); return; }
+      finish(null, '');
+    };
+    if (!c.url || !window.XMLHttpRequest) { fallback(); return; }
+    var x = new XMLHttpRequest(), t0 = Date.now();
+    try { x.open('GET', c.url + (c.url.indexOf('?') < 0 ? '?' : '&') + 't=' + t0, true); } catch (e) { fallback(); return; }
+    x.timeout = 4500;
+    x.onload = function () { var t1 = Date.now(), d = null; try { d = JSON.parse(x.responseText); } catch (e) {}
+      if (d && d.now) finish((t0 + t1) / 2 - d.now, 'server'); else fallback(); };
+    x.onerror = x.ontimeout = fallback;
+    try { x.send(); } catch (e) { fallback(); }
+  }
+
+  function clockState(off, src, c) {
+    var tz = +c.tz || 0, phoneTz = -new Date().getTimezoneOffset();
+    if (off === null) return { level: 'unknown' };
+    var a = Math.abs(off), st = { off: off, src: src, tz: tz, phoneTz: phoneTz };
+    st.level = a <= 3 * MIN ? 'ok' : a <= HOUR ? 'minor' : a < DAY ? 'bad' : 'date';
+    // Right time on the screen, wrong time zone: the phone is off by exactly the difference between the zones.
+    st.zone = st.level !== 'ok' && src === 'server' && phoneTz !== tz && Math.abs(off - (tz - phoneTz) * MIN) <= 3 * MIN;
+    st.summary = (src === 'built' ? 'at least ' : '') + span(off) + (off < 0 ? ' behind' : ' ahead') +
+      (st.zone ? ' (time zone set to ' + gmt(phoneTz) + ', should be ' + gmt(tz) + ')' : '');
+    return st;
+  }
+
+  function wireClock(root, ctx) {
+    var c = ctx.clock; if (!c || ctx.mode === 'preview' || ctx.mode === 'thumb') return;
+    if (c.server && !c.loadedAt) c.loadedAt = Date.now() - (window.performance && performance.now ? performance.now() : 0);
+    var host = root.querySelector('.tp-card') || root, box = h('section', { 'class': 'tp-clk', role: 'status', 'aria-live': 'polite', hidden: '' });
+    host.insertBefore(box, host.firstChild);
+    var ticker = null, kind = phoneKind(), connected = ctx.kind !== 'login', wasBad = false;
+
+    function show(st) {
+      ctx.clockState = st; clearInterval(ticker);
+      if (st.level === 'unknown') { box.hidden = true; return; }
+      if (st.level === 'ok') {
+        if (wasBad) { box.hidden = false; box.className = 'tp-clk good'; box.innerHTML = '<b>✓ Fixed — your phone’s time is right now.</b>' + (connected ? '' : ' Sign in below.'); setTimeout(function () { box.hidden = true; }, 6000); }
+        else box.hidden = true;
+        return;
+      }
+      wasBad = true; box.hidden = false;
+      var place = c.place || 'here', zoneName = c.zone ? ' (' + esc(c.zone) + ')' : '';
+      if (st.level === 'minor') {
+        box.className = 'tp-clk minor';
+        box.innerHTML = '<span class="tp-clk-i">⏰</span><div><b>Your phone’s clock is ' + esc(st.summary) + '.</b> If signing in or some apps act strangely, ' +
+          'turn on <b>automatic date &amp; time</b>' + (st.zone ? ' and set the time zone to <b>' + gmt(st.tz) + zoneName + '</b>' : '') + '.</div>';
+        return;
+      }
+      var real = function () { return Date.now() - st.off; };
+      var known = st.src !== 'built';   // 'built': TapTap not reachable — only "this page is newer than your phone's date" is certain
+      var steps = kind === 'android'
+        ? '<a class="tp-clk-go" href="intent:#Intent;action=android.settings.DATE_SETTINGS;end">⚙️ Open Date &amp; time settings</a>' +
+          '<ol><li>Turn on <b>Set time automatically</b> (or <b>Automatic date and time</b>).</li><li>Turn on <b>Set time zone automatically</b>' + (st.zone ? ' — or choose <b>' + gmt(st.tz) + zoneName + '</b>' : '') + '.</li></ol>' +
+          '<small>No button? Settings → System (Samsung: General management) → Date &amp; time.</small>'
+        : kind === 'ios'
+        ? '<ol><li>Open <b>Settings</b> → <b>General</b> → <b>Date &amp; Time</b>.</li><li>Turn on <b>Set Automatically</b>' + (st.zone ? ' and choose the time zone <b>' + gmt(st.tz) + zoneName + '</b>' : '') + '.</li><li>Come back to this page.</li></ol>'
+        : '<ol><li>Open your device’s <b>Date &amp; time</b> settings.</li><li>Turn on <b>automatic</b> date, time and time zone' + (st.zone ? ' (' + gmt(st.tz) + zoneName + ')' : '') + '.</li></ol>';
+      var why = st.level === 'date'
+        ? 'With the wrong date, secure websites and apps will not open — even after you sign in.'
+        : 'A wrong time can stop the sign-in page and some apps from working.';
+      var auto = connected
+        ? '<p class="tp-clk-note">You are online now, so <b>automatic time</b> can correct your phone by itself.</p>'
+        : '<p class="tp-clk-note">Automatic time needs internet: <b>sign in first</b>, then turn it on — your phone corrects itself.' +
+          (known ? ' Or set it by hand to the real time above.' : ' Or set today’s date and time by hand.') + '</p>';
+      box.className = 'tp-clk ' + st.level;
+      box.innerHTML =
+        '<div class="tp-clk-h"><span class="tp-clk-i">⏰</span><div><b>' + (st.zone ? 'Your phone’s time zone is wrong' : st.level === 'date' ? 'Your phone’s date is wrong' : 'Your phone’s time is wrong') + '</b>' +
+        '<small>' + esc(why) + '</small></div></div>' +
+        '<div class="tp-clk-cmp"><div class="ph"><small>Your phone</small><b data-ph></b><em data-phd></em></div>' +
+        '<div class="vs">' + (st.off < 0 ? '◀' : '▶') + '<small>' + (known ? '' : 'at least<br>') + esc(span(st.off)) + '<br>' + (st.off < 0 ? 'behind' : 'ahead') + '</small></div>' +
+        (known ? '<div class="ok"><small>Real time ' + esc(place) + '</small><b data-rl></b><em data-rld></em></div></div>'
+               : '<div class="ok"><small>This page was made</small><b>' + esc(at(c.built, st.tz).day.replace(/^\w+ /, '')) + '</b><em>so today is later than that</em></div></div>') +
+        (st.zone ? '<p class="tp-clk-note">Your phone is set to <b>' + gmt(st.phoneTz) + '</b>; ' + esc(place) + ' is <b>' + gmt(st.tz) + zoneName + '</b>.</p>' : '') +
+        steps + auto +
+        '<div class="tp-clk-acts"><button type="button" data-recheck>I fixed it — check again</button>' + (connected ? '' : '<button type="button" class="ghost" data-later>Sign in anyway</button>') + '</div>';
+      var ph = box.querySelector('[data-ph]'), phd = box.querySelector('[data-phd]'), rl = box.querySelector('[data-rl]'), rld = box.querySelector('[data-rld]');
+      var tick = function () {
+        var p = at(Date.now(), st.phoneTz);
+        ph.innerHTML = esc(p.hm) + '<i>:' + p.sec + '</i>'; phd.textContent = p.day;
+        if (!known) { phd.className = 'diff'; return; }
+        var r = at(real(), st.tz);
+        rl.innerHTML = esc(r.hm) + '<i>:' + r.sec + '</i>'; rld.textContent = r.day;
+        phd.className = p.day !== r.day ? 'diff' : ''; ph.className = p.hm !== r.hm ? 'diff' : '';
+      };
+      tick(); ticker = setInterval(tick, 1000);
+      box.querySelector('[data-recheck]').addEventListener('click', function () { this.textContent = 'Checking…'; run(); });
+      var later = box.querySelector('[data-later]');
+      if (later) later.addEventListener('click', function () {
+        clearInterval(ticker); box.className = 'tp-clk minor';
+        box.innerHTML = '<span class="tp-clk-i">⏰</span><div>Phone clock ' + esc(st.summary) + '. Remember to turn on <b>automatic time</b> after you sign in.</div>';
+      });
+      // Tell the report form, so staff see the cause straight away.
+      var rp = root.querySelector('[data-report]'); if (rp && !rp.getAttribute('data-error')) rp.setAttribute('data-error', 'Phone clock ' + st.summary);
+    }
+    function run() { measureClock(c, function (off, src) { show(clockState(off, src, c)); }); }
+    run();
+    // Back from Settings: check again by itself.
+    document.addEventListener('visibilitychange', function () { if (!document.hidden && wasBad) setTimeout(run, 600); });
   }
 
   function reportOffer(root, code, error, quiet) {
@@ -819,7 +974,8 @@
       };
       xhr.onerror = function () { btn.disabled = false; say2('err', 'Could not reach our server. Check you are connected to the Wi-Fi.'); };
       xhr.send(JSON.stringify({ code: get('rp_code'), name: get('rp_name'), phone: get('rp_phone'), message: get('rp_msg'),
-                                error: r.getAttribute('data-error') || '', mac: (ctx.mt && ctx.mt.mac) || '' }));
+                                error: r.getAttribute('data-error') || '', mac: (ctx.mt && ctx.mt.mac) || '',
+                                clock: (ctx.clockState && ctx.clockState.level !== 'ok') ? ctx.clockState.summary : '' }));
     });
   }
   // Opened from a voucher QR / "Quick login" link: fill the code in and sign in straight away.
