@@ -382,7 +382,9 @@ def plans(request):
         obj=form.save(commit=False);obj.business=business;obj.source='taptap';obj.price_source='manual';obj.save();messages.success(request,'Plan saved.')
         from .portal_deploy import schedule_redeploy; schedule_redeploy(business)
         return redirect('plans')
-    plan_list=list(business.plans.select_related('imported_from_router').all().order_by('price','name'))
+    from .member_plan_prices import annotate as mp_annotate, sync_business as mp_sync
+    mp_sync(business)    # member-plan profiles: price, Free and validity come from the member plan
+    plan_list=mp_annotate(list(business.plans.select_related('imported_from_router').all().order_by('price','name')),business)
     zero=business.vouchers.filter(price=0,sold_at__isnull=True).values('plan_name').annotate(n=Count('id'))
     zero_map={r['plan_name']:r['n'] for r in zero}
     usage={r['plan_name']:r for r in business.vouchers.values('plan_name').annotate(total=Count('id'),used=Count('id',filter=Q(used_at__isnull=False)),

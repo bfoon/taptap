@@ -272,12 +272,14 @@ class MikroTikService:
     def disconnect(self, item_id):
         return self.resource('/ip/hotspot/active').remove(id=item_id)
 
-    def ensure_hotspot_profile(self, profile_name, max_devices=1, rate_limit=''):
+    def ensure_hotspot_profile(self, profile_name, max_devices=1, rate_limit='', comment=None):
         profiles = self.resource('/ip/hotspot/user/profile')
         existing = profiles.get(name=profile_name)
         values = {'shared_users': str(max(1, int(max_devices or 1)))}
         if rate_limit:
             values['rate_limit'] = rate_limit
+        if comment:     # e.g. a member plan's price, so the router carries it (core/member_plan_prices.py)
+            values['comment'] = comment
         try:   # sticky sessions: devices log back in by themselves, idle devices stay logged in
             from .sticky import api_values
             values.update(api_values(self.router.business))

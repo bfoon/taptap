@@ -377,7 +377,26 @@ def _pm_create(row):
     return profile_minutes(row)[0]
 
 
-def _profile_to_plan(
+def _profile_to_plan(router, row, summary, now):
+    """Import one HotSpot profile as a plan. A member-plan profile takes its price and validity from the
+    member plan (core/member_plan_prices.py), so it no longer shows up as "No price · 1 day"."""
+    plan = _profile_to_plan_inner(router, row, summary, now)
+    if plan is not None:
+        try:
+            from .member_plan_prices import apply_to_plan, member_plan_for
+            mp = member_plan_for(router.business, plan.name)
+            if mp is not None:
+                apply_to_plan(plan, mp)
+                missing = summary.get('plans_without_price')
+                if missing and plan.name in missing:
+                    missing.remove(plan.name)
+        except Exception:
+            import logging
+            logging.getLogger('taptap.sync').exception('member plan price for %s', getattr(plan, 'name', ''))
+    return plan
+
+
+def _profile_to_plan_inner(
     router,
     row,
     summary,

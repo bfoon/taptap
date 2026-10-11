@@ -69,9 +69,13 @@ def desired(voucher, plan=None):
 
     plan = _member_plan(voucher, plan)
     profile, shared, rate = voucher_profile(voucher, plan)
+    from .member_plan_prices import plan_id, router_comment
     return {
         "plan": plan,
         "profile": profile,
+        # The member plan's price goes on its router profile, so the router (and TapTap's own profile import)
+        # see "price=1000" instead of an unpriced plan.
+        "comment": router_comment(plan) if plan is not None and plan_id(profile) == plan.pk else "",
         "shared": max(1, int(shared or 1)),
         "rate": rate or "",
         "limit": expected_limit(voucher),
@@ -128,6 +132,7 @@ def _direct_push(voucher, wanted):
             wanted["profile"],
             wanted["shared"],
             wanted["rate"],
+            comment=wanted.get("comment") or None,
         )
         _, item_id = svc.upsert_voucher(
             voucher.code,
@@ -255,6 +260,7 @@ def _link_push(voucher, wanted):
         "name": wanted["profile"],
         "shared": wanted["shared"],
         "rate": wanted["rate"],
+        **({"comment": wanted["comment"]} if wanted.get("comment") else {}),
     }
     user = {
         "n": voucher.code,

@@ -285,6 +285,11 @@ def save_member_plan(business, data, *, plan=None, user=None):
     plan.max_devices = devices
     plan.speed_limit = rate
     plan.save()
+    try:     # the plan's router-profile row on the Plans page follows the new price / validity at once
+        from .member_plan_prices import sync_business
+        sync_business(business)
+    except Exception:
+        pass
 
     # Refresh every linked member's reusable-plan facts. Current expiry is not
     # recalculated for members already inside a running period.
