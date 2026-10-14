@@ -27,6 +27,7 @@ from . import views_router_cleanup as vrc
 from . import router_file_copy as rfcopy
 from . import router_restore as rrest
 from . import online_portal as oportal
+from . import views_fit as vfit
 
 urlpatterns = [
     path('network/devices/',vnd.netdev_list,name='netdev_list'), path('network/devices/save/',vnd.netdev_save,name='netdev_save'),
@@ -163,4 +164,8 @@ urlpatterns = [
     path('network-tools/path/',vnt.network_tools_path,name='network_tools_path'), path('network-tools/devices/',vnt.network_tools_devices,name='network_tools_devices'),
     path('network-tools/verdict/',vnt.network_tools_verdict,name='network_tools_verdict'), path('network-tools/save-chain/',vnt.network_tools_save_chain,name='network_tools_save_chain'),
     path('network-tools/blob/',vnt.network_tools_blob,name='network_tools_blob'), path('network-tools/sink/',vnt.network_tools_sink,name='network_tools_sink'),
+    # Fit — the AI technician (core/fit_ai.py). The views check business, person and permission themselves.
+    path('fit/state/',vfit.fit_state,name='fit_state'), path('fit/ask/',vfit.fit_ask,name='fit_ask'),
+    path('fit/action/<int:pk>/',vfit.fit_action,name='fit_action'), path('fit/settings/',vfit.fit_settings,name='fit_settings'),
+    path('fit/new/',vfit.fit_new,name='fit_new'),
 ]
