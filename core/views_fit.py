@@ -144,8 +144,11 @@ def fit_ask(request):
     try:
         out = fit_ai.ask(ctx, text, page=page)
     except fit_ai.FitAIError as exc:
-        FitMessage.objects.create(conversation=conv, role='assistant', content=str(exc))
-        return JsonResponse({'ok': True, 'conversation': conv.pk, 'reply': str(exc), 'cards': {}, 'mood': 'sad'})
+        text = str(exc)
+        if exc.detail and _can_manage(request):          # owners see the real cause; staff get the short message
+            text += f'\n\n**Why:** {exc.detail}\n\nRun `python manage.py fit_check` on the server for a full connection test.'
+        FitMessage.objects.create(conversation=conv, role='assistant', content=text)
+        return JsonResponse({'ok': True, 'conversation': conv.pk, 'reply': text, 'cards': {}, 'mood': 'sad'})
     return JsonResponse({'ok': True, 'conversation': conv.pk, **out})
 
 
