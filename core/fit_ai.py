@@ -3,7 +3,7 @@
 Configuration (.env):
     GROQ_API_KEY         required to talk to Fit (without it Fit still shows its insights)
     GROQ_MODEL           default openai/gpt-oss-120b (strong tool use)
-    GROQ_FALLBACK_MODEL  default llama-3.3-70b-versatile (used if the main model is busy or retired)
+    GROQ_FALLBACK_MODEL  default openai/gpt-oss-20b (used if the main model is busy or retired)
     GROQ_BASE_URL        default https://api.groq.com/openai/v1
     FIT_TIMEOUT          seconds per Groq request, default 45
 
@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import urllib.error
 import urllib.request
 
@@ -33,7 +34,7 @@ RATE = (25, 300)         # questions per person per 5 minutes
 
 
 class FitAIError(Exception):
-    pass
+    detail = ''   # exact technical reason, shown to people who can manage Fit
 
 
 def api_key():
@@ -42,7 +43,7 @@ def api_key():
 
 def models():
     main = os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b').strip()
-    fb = os.getenv('GROQ_FALLBACK_MODEL', 'llama-3.3-70b-versatile').strip()
+    fb = os.getenv('GROQ_FALLBACK_MODEL', 'openai/gpt-oss-20b').strip()
     return [m for m in (main, fb) if m] if fb != main else [main]
 
 
@@ -60,34 +61,87 @@ def _post(model, payload):
         return json.loads(r.read().decode())
 
 
+def explain(exc, model=''):
+    """Plain-words reason for a failed Groq request, and what to do about it."""
+    import socket
+    import ssl
+    if isinstance(exc, urllib.error.HTTPError):
+        detail = getattr(exc, '_fit_detail', '') or ''
+        try:
+            msg = json.loads(detail).get('error', {}).get('message', '') or detail
+        except ValueError:
+            msg = detail
+        msg = ' '.join(str(msg).split())[:220]
+        code = exc.code
+        if code == 401:
+            return 'Groq refused the API key (401). Check GROQ_API_KEY in .env, then restart the web container.'
+        if code == 403:
+            return (f'Groq blocked the request (403): {msg or "forbidden"}. This usually means Groq does not accept requests '
+                    'from this server\'s network or country, or a firewall/proxy is rewriting the request.')
+        if code == 404 or 'decommissioned' in msg or 'does not exist' in msg:
+            return f'Groq does not know the model “{model}” (404). Set GROQ_MODEL in .env to a current model from console.groq.com/docs/models.'
+        if code == 413:
+            return 'The request was too large for this Groq model (413). Try GROQ_MODEL=openai/gpt-oss-120b.'
+        if code == 429:
+            return f'Groq rate limit reached (429): {msg}. Wait a minute, or upgrade the Groq plan.'
+        if code >= 500:
+            return f'Groq is having a problem on its side ({code}). Try again in a few minutes.'
+        return f'Groq rejected the request ({code}): {msg}'
+    reason = getattr(exc, 'reason', exc)
+    if isinstance(reason, socket.gaierror):
+        return 'This server cannot look up api.groq.com (DNS failed). Check the server\'s DNS / internet connection.'
+    if isinstance(reason, ssl.SSLError) or 'CERTIFICATE' in str(reason).upper():
+        return f'The secure connection to api.groq.com failed ({reason}). Often a proxy or firewall inspecting HTTPS, or a wrong server clock.'
+    if isinstance(reason, (TimeoutError, socket.timeout)) or 'timed out' in str(reason):
+        return f'api.groq.com did not answer within {os.getenv("FIT_TIMEOUT", "45")} seconds. The server\'s outbound internet may be slow or blocked.'
+    if isinstance(reason, (ConnectionRefusedError, ConnectionResetError, OSError)):
+        return f'This server could not connect to api.groq.com ({reason}). Outbound HTTPS (port 443) may be blocked by a firewall.'
+    return f'Could not reach Groq: {reason}'
+
+
 def complete(messages, tools):
-    """One chat completion with tools. Retries a failed tool-call generation once, then tries the fallback model."""
+    """One chat completion with tools. Retries a failed tool-call generation once, then tries the fallback model.
+    On failure raises FitAIError with a short message, and .detail with the exact reason per model."""
     if not api_key():
         raise FitAIError('Fit needs a Groq API key. Add GROQ_API_KEY to the server’s .env file and restart TapTap.')
-    payload = {'messages': messages, 'temperature': 0.2, 'max_completion_tokens': 1600}
+    payload = {'messages': messages, 'temperature': 0.2, 'max_completion_tokens': 1000}
     if tools:
         payload.update(tools=tools, tool_choice='auto')
-    last = None
+    reasons, limited = [], False
     for model in models():
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 return _post(model, payload)
             except urllib.error.HTTPError as exc:
-                detail = exc.read().decode(errors='replace')[:400]
-                last = f'{exc.code} {detail}'
-                logger.warning('Groq %s %s (attempt %s): %s', model, exc.code, attempt + 1, detail)
+                exc._fit_detail = exc.read().decode(errors='replace')[:600]
+                logger.warning('Groq %s %s (attempt %s): %s', model, exc.code, attempt + 1, exc._fit_detail)
                 if exc.code == 401:
-                    raise FitAIError('Groq refused the API key (GROQ_API_KEY). Check it in the .env file.')
-                if exc.code == 400 and 'tool_use_failed' in detail and attempt == 0:
+                    raise FitAIError(explain(exc, model))
+                if exc.code == 400 and 'tool_use_failed' in exc._fit_detail and attempt == 0:
                     continue                       # the model wrote a broken tool call: ask again
+                if exc.code == 429:
+                    limited = True
+                    try:
+                        wait = float((exc.headers or {}).get('retry-after') or 0)
+                    except (TypeError, ValueError):
+                        wait = 0
+                    if 0 < wait <= 8 and attempt < 2:
+                        time.sleep(wait)           # a short pause clears a per-minute token limit
+                        continue
+                reasons.append((model, explain(exc, model)))
                 break                              # 404 retired model, 413, 429, 5xx → next model
             except (urllib.error.URLError, TimeoutError, OSError) as exc:
-                last = str(exc)
-                logger.warning('Groq %s unreachable: %s', model, exc)
+                logger.warning('Groq %s unreachable: %r', model, exc)
+                reasons.append((model, explain(exc, model)))
                 break
-    if last and last.startswith('429'):
-        raise FitAIError('Fit is getting too many questions for the Groq plan right now. Try again in a minute.')
-    raise FitAIError('Fit could not reach its AI service just now. Your data is safe — try again in a moment.')
+    if limited:
+        err = FitAIError('Fit is getting too many questions for the Groq plan right now. Try again in a minute.')
+    else:
+        err = FitAIError('Fit could not reach its AI service just now. Your data is safe — try again in a moment.')
+    # The main model's reason matters most; add the fallback's only when it says something different.
+    texts = list(dict.fromkeys(r for _, r in reasons))
+    err.detail = texts[0] if len(texts) == 1 else ' · '.join(f'{m}: {r}' for m, r in reasons)
+    raise err
 
 
 # ─────────────────────────────── prompt ───────────────────────────────

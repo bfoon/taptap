@@ -603,7 +603,7 @@ def specs(ctx):
     return out
 
 
-MAX_RESULT = 7000
+MAX_RESULT = 4500
 
 
 def call(ctx, name, args):

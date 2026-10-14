@@ -360,3 +360,101 @@ class GroqClientTests(FitBase):
         # The memory replays cleanly: user → assistant(tool_calls) → tool → assistant
         roles = [m['role'] for m in fit_ai.history(ctx.conversation)]
         self.assertEqual(roles, ['user', 'assistant', 'tool', 'assistant'])
+
+
+class FailureExplanationTests(FitBase):
+    def http(self, code, body):
+        import io
+        import urllib.error
+        e = urllib.error.HTTPError('u', code, 'x', {}, io.BytesIO(body.encode()))
+        return e
+
+    def test_reasons_are_specific(self):
+        import socket
+        import urllib.error
+        cases = [
+            (self.http(403, '{"error":{"message":"Access denied"}}'), '403'),
+            (self.http(404, '{"error":{"message":"The model `x` does not exist"}}'), 'GROQ_MODEL'),
+            (self.http(400, '{"error":{"message":"bad field"}}'), 'bad field'),
+            (urllib.error.URLError(socket.gaierror(-2, 'Name or service not known')), 'DNS'),
+            (urllib.error.URLError(ConnectionRefusedError(111, 'refused')), 'port 443'),
+        ]
+        for exc, expect in cases:
+            with mock.patch.object(fit_ai, '_post', side_effect=exc), mock.patch.dict('os.environ', {'GROQ_API_KEY': 'k'}):
+                with self.assertRaises(fit_ai.FitAIError) as e:
+                    fit_ai.complete([], None)
+            self.assertIn(expect, e.exception.detail, expect)
+
+    def test_owner_sees_why_staff_do_not(self):
+        import socket
+        import urllib.error
+        boom = urllib.error.URLError(socket.gaierror(-2, 'nope'))
+        u = User.objects.create_user('st@example.com', 'st@example.com', 'Pass-word-123')
+        TeamMember.objects.create(business=self.a, user=u, role='voucher_support')
+        for who, shown in ((self.owner_a, True), (u, False)):
+            self.client.force_login(who)
+            with mock.patch.object(fit_ai, '_post', side_effect=boom), mock.patch.dict('os.environ', {'GROQ_API_KEY': 'k'}):
+                text = self.client.post(reverse('fit_ask'), json.dumps({'message': 'hi'}), **JSON).json()['reply']
+            self.assertEqual('DNS' in text and 'fit_check' in text, shown, text)
+
+
+class FallbackMaskingTests(FitBase):
+    def test_main_model_429_is_not_hidden_by_missing_fallback(self):
+        import io
+        import urllib.error
+        seen = []
+
+        def fake(model, payload):
+            seen.append(model)
+            if model == 'main':
+                raise urllib.error.HTTPError('u', 429, 'x', {'retry-after': '30'},
+                                             io.BytesIO(b'{"error":{"message":"Rate limit reached for tokens per minute"}}'))
+            raise urllib.error.HTTPError('u', 404, 'x', {}, io.BytesIO(b'{"error":{"message":"model does not exist"}}'))
+        with mock.patch.object(fit_ai, '_post', side_effect=fake), \
+                mock.patch.dict('os.environ', {'GROQ_API_KEY': 'k', 'GROQ_MODEL': 'main', 'GROQ_FALLBACK_MODEL': 'gone'}):
+            with self.assertRaises(fit_ai.FitAIError) as e:
+                fit_ai.complete([], None)
+        self.assertIn('too many questions', str(e.exception))
+        self.assertTrue(e.exception.detail.startswith('main: '), e.exception.detail)
+        self.assertIn('tokens per minute', e.exception.detail)
+
+    def test_short_retry_after_is_waited_out(self):
+        import io
+        import urllib.error
+        n = []
+
+        def fake(model, payload):
+            n.append(1)
+            if len(n) == 1:
+                raise urllib.error.HTTPError('u', 429, 'x', {'retry-after': '1'}, io.BytesIO(b'{}'))
+            return reply('ok')
+        with mock.patch.object(fit_ai, '_post', side_effect=fake), mock.patch.object(fit_ai.time, 'sleep') as slept, \
+                mock.patch.dict('os.environ', {'GROQ_API_KEY': 'k'}):
+            self.assertEqual(fit_ai.complete([], None)['choices'][0]['message']['content'], 'ok')
+        slept.assert_called_once_with(1.0)
+
+    def test_default_fallback(self):
+        with mock.patch.dict('os.environ', {'GROQ_MODEL': '', 'GROQ_FALLBACK_MODEL': ''}):
+            import os
+            os.environ.pop('GROQ_MODEL'); os.environ.pop('GROQ_FALLBACK_MODEL')
+            self.assertEqual(fit_ai.models(), ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'])
+
+    def test_fit_check_full_size_step(self):
+        import io
+        from core.management.commands.fit_check import Command
+
+        class R(io.BytesIO):
+            headers = {'x-ratelimit-limit-tokens': '8000', 'x-ratelimit-remaining-tokens': '7000'}
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        body = json.dumps({'usage': {'prompt_tokens': 2600, 'completion_tokens': 40}, 'choices': [{'message': {
+            'tool_calls': [{'function': {'name': 'overview', 'arguments': '{}'}}]}}]}).encode()
+        out = io.StringIO()
+        cmd = Command(stdout=out)
+        with mock.patch('urllib.request.urlopen', return_value=R(body)):
+            cmd.full_request('https://x', 'k', ['openai/gpt-oss-120b'], self.a.pk)
+        text = out.getvalue()
+        self.assertIn('Alpha WiFi', text)
+        self.assertIn('2600 + 40 tokens', text)
+        self.assertIn('8000 tokens per minute', text)
+        self.assertIn('low for Fit', text)
