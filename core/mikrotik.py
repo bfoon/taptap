@@ -278,8 +278,8 @@ class MikroTikService:
         values = {'shared_users': str(max(1, int(max_devices or 1)))}
         if rate_limit:
             values['rate_limit'] = rate_limit
-        if comment:     # e.g. a member plan's price, so the router carries it (core/member_plan_prices.py)
-            values['comment'] = comment
+        # "comment" is accepted for old callers but never sent: HotSpot user profiles have no comment property,
+        # so RouterOS rejects the whole set/add ("unknown parameter") and the member push failed.
         try:   # sticky sessions: devices log back in by themselves, idle devices stay logged in
             from .sticky import api_values
             values.update(api_values(self.router.business))

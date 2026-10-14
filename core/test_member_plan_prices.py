@@ -80,22 +80,22 @@ class MemberPlanPriceTests(TestCase):
         MemberPlanAssignment.objects.create(member=member, plan=self.monthly)
         from .member_router_alignment import desired
         wanted = desired(member)
-        self.assertEqual(wanted['comment'], 'TapTap member plan · Member Monthly 7 · price=1000')
-        # Direct API: the comment is written with the profile.
+        self.assertEqual(wanted['comment'], '')
+        # Direct API: no comment is ever written on a profile (RouterOS has no such property there).
         from .mikrotik import MikroTikService
         svc = MikroTikService.__new__(MikroTikService); svc.router = self.r
         prof = mock.MagicMock(); prof.get.return_value = [{'id': '*9'}]
         svc.resource = mock.MagicMock(return_value=prof)
-        svc.ensure_hotspot_profile(wanted['profile'], 7, '2M/2M', comment=wanted['comment'])
-        self.assertEqual(prof.set.call_args.kwargs['comment'], 'TapTap member plan · Member Monthly 7 · price=1000')
-        # TapTap Link: both scripts that create the profile also set the comment.
+        svc.ensure_hotspot_profile(wanted['profile'], 7, '2M/2M', comment='TapTap member plan · x · price=1')
+        self.assertNotIn('comment', prof.set.call_args.kwargs)
+        # TapTap Link: even a command queued before this fix (comment in its params) must not emit a profile comment.
         from .agent import command_body
         from .models import AgentCommand
         for kind in ('hotspot_users', 'hotspot_users_limit'):
             cmd = AgentCommand(router=self.r, kind=kind, params={
                 'users': [{'n': 'anna', 'prof': wanted['profile'], 'lim': '30d'}],
-                'profiles': [{'name': wanted['profile'], 'shared': 7, 'rate': '2M/2M', 'comment': wanted['comment']}]})
-            self.assertIn('comment="TapTap member plan · Member Monthly 7 · price=1000"', command_body(cmd), kind)
+                'profiles': [{'name': wanted['profile'], 'shared': 7, 'rate': '2M/2M', 'comment': 'TapTap member plan · x · price=1'}]})
+            self.assertNotIn('TapTap member plan', command_body(cmd), kind)
         # A voucher plan's profile is untouched (no comment key → no comment line).
         cmd = AgentCommand(router=self.r, kind='hotspot_users', params={'users': [], 'profiles': [{'name': '1-day', 'shared': 1}]})
         self.assertNotIn('comment=', command_body(cmd))

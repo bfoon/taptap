@@ -69,13 +69,13 @@ def desired(voucher, plan=None):
 
     plan = _member_plan(voucher, plan)
     profile, shared, rate = voucher_profile(voucher, plan)
-    from .member_plan_prices import plan_id, router_comment
     return {
         "plan": plan,
         "profile": profile,
-        # The member plan's price goes on its router profile, so the router (and TapTap's own profile import)
-        # see "price=1000" instead of an unpriced plan.
-        "comment": router_comment(plan) if plan is not None and plan_id(profile) == plan.pk else "",
+        # RouterOS HotSpot *user profiles* have no "comment" property: sending one is a syntax error that
+        # aborted every TapTap Link batch it travelled in (resets, kicks, member saves) and made the direct
+        # API push fail. The member plan stays the source of truth for the price (core/member_plan_prices.py).
+        "comment": "",
         "shared": max(1, int(shared or 1)),
         "rate": rate or "",
         "limit": expected_limit(voucher),
