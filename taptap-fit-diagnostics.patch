@@ -1,0 +1,366 @@
+diff --git a/README.md b/README.md
+index 1a6e639..547d7b8 100644
+--- a/README.md
++++ b/README.md
+@@ -263,3 +263,76 @@ safely even when the filter list is empty.
+ * If no router at all has a fresh handshake, repairs pause and the tunnel container logs
+   a server-side warning (UDP blocked, wrong endpoint, interface down).
+ * The manager picks the same iptables backend (nft/legacy) as the host's Docker.
++
++
++## Fit — the AI technician
++
++Fit is a small animated robot with a screwdriver that floats above the chat button on every page. Ask it
++anything about the business you are signed in to; it looks the answer up in TapTap, gives links, runs live
++tests on your MikroTik routers and prepares changes for you to approve. It runs on [Groq](https://console.groq.com).
++
++### Setup
++
++Add to `.env`, then rebuild and migrate (migration `0099_fit_ai`):
++
++```
++GROQ_API_KEY=gsk_...
++# optional
++GROQ_MODEL=openai/gpt-oss-120b            # main model (tool use)
++GROQ_FALLBACK_MODEL=llama-3.3-70b-versatile  # used when the main model is busy or retired
++FIT_TIMEOUT=45                            # seconds per Groq request
++```
++
++```bash
++docker compose up -d --build
++docker compose exec web python manage.py migrate
++```
++
++Without a key Fit still appears and shows what needs attention, and tells owners how to finish setup.
++
++**If Fit says it “could not reach its AI service”**, the owner sees the exact reason under the message. For a full
++step-by-step test (key loaded → DNS → HTTPS to api.groq.com → key accepted → model exists → tool calling works) run:
++
++```bash
++docker compose exec web python manage.py fit_check
++```
++
++It stops at the first broken step and says how to fix it. Common causes: `.env` changed without recreating the
++container (`docker compose up -d --force-recreate web`), outbound HTTPS blocked by a firewall, a model name Groq no
++longer offers (the check lists the ones it does), or Groq not accepting requests from the server's network (403).
++
++### What Fit can do
++
++* **Answer from your data** — vouchers (state, time left, devices, why one does not work, history), customer
++  reports, agents (sales vs the previous period, drops, money owed, collection rate), finance (revenue, profit,
++  margin, expenses, month target forecast), network status and a summary of what happened, top data users,
++  devices, team chat and help guides — always with links to the right page.
++* **Read live from MikroTik** — resources, sessions, interfaces, DHCP leases, IP bindings, neighbours, routes,
++  DNS, logs, queues, health; over TapTap Link (latest sync, optional fresh pull) or the API. Secrets are removed.
++* **Run tests with live traffic** — internet check, ping, traceroute, DNS, website and speed test, from the router.
++* **Notice things** — open customer reports, unreachable routers, sessions that should be offline, agent sales
++  drops and a month behind target appear in its speech bubble, with a badge and a blinking antenna.
++* **Take action — only when you approve** — freeze / unfreeze / warn / disable / enable a voucher, add or reduce
++  time, reset devices, block / unblock a device, disconnect a session, resolve a customer report, track a voucher,
++  send a chat message.
++
++### Safety
++
++* **One business only.** Every lookup starts from the business the signed-in person is working in
++  (`request.tt_business`). The model never gets a business parameter; vouchers, reports, routers and chats are
++  always looked up inside that business. Company A can never see company B.
++* **Role-aware.** Fit only gets the tools the person's role permits (a *View only* member cannot ask about finance
++  or routers), and only offers actions their role could do by hand.
++* **Two locks on every change.** Fit only *proposes*: a card appears with **Take action**. The change happens when
++  (1) the owner has allowed that group in Fit settings (gear icon in Fit; all groups start **off**) and
++  (2) the person pressing it has the permission. It is re-checked at that moment, must be used within 30 minutes,
++  can only be approved by the person it was offered to, and goes through the same code as the normal page —
++  so it appears in the voucher history and activity log with "approved in Fit".
++* **Prompt injection.** Customer messages, chat, device names and router comments are passed to the model as data
++  and it is told never to follow instructions found in them; even if it did, it can only propose.
++* **Customer reports.** With "Close fixed customer reports by itself" on, Fit resolves a report only when the
++  voucher was broken when reported and now works; everything else waits for a person.
++
++Code: `core/fit_ai.py` (Groq + loop), `core/fit_tools.py` (read tools), `core/fit_actions.py` (approved
++changes), `core/views_fit.py`, `core/models_fit.py`, `static/js/fit.js`, `static/css/fit.css`, tests in
++`core/test_fit.py`. Shortcut: press `/` then `f` on any page to open Fit.
+diff --git a/core/fit_ai.py b/core/fit_ai.py
+index cca562f..b11cb6f 100644
+--- a/core/fit_ai.py
++++ b/core/fit_ai.py
+@@ -33,7 +33,7 @@ RATE = (25, 300)         # questions per person per 5 minutes
+ 
+ 
+ class FitAIError(Exception):
+-    pass
++    detail = ''   # exact technical reason, shown to people who can manage Fit
+ 
+ 
+ def api_key():
+@@ -60,34 +60,79 @@ def _post(model, payload):
+         return json.loads(r.read().decode())
+ 
+ 
++def explain(exc, model=''):
++    """Plain-words reason for a failed Groq request, and what to do about it."""
++    import socket
++    import ssl
++    if isinstance(exc, urllib.error.HTTPError):
++        detail = getattr(exc, '_fit_detail', '') or ''
++        try:
++            msg = json.loads(detail).get('error', {}).get('message', '') or detail
++        except ValueError:
++            msg = detail
++        msg = ' '.join(str(msg).split())[:220]
++        code = exc.code
++        if code == 401:
++            return 'Groq refused the API key (401). Check GROQ_API_KEY in .env, then restart the web container.'
++        if code == 403:
++            return (f'Groq blocked the request (403): {msg or "forbidden"}. This usually means Groq does not accept requests '
++                    'from this server\'s network or country, or a firewall/proxy is rewriting the request.')
++        if code == 404 or 'decommissioned' in msg or 'does not exist' in msg:
++            return f'Groq does not know the model “{model}” (404). Set GROQ_MODEL in .env to a current model from console.groq.com/docs/models.'
++        if code == 413:
++            return 'The request was too large for this Groq model (413). Try GROQ_MODEL=openai/gpt-oss-120b.'
++        if code == 429:
++            return f'Groq rate limit reached (429): {msg}. Wait a minute, or upgrade the Groq plan.'
++        if code >= 500:
++            return f'Groq is having a problem on its side ({code}). Try again in a few minutes.'
++        return f'Groq rejected the request ({code}): {msg}'
++    reason = getattr(exc, 'reason', exc)
++    if isinstance(reason, socket.gaierror):
++        return 'This server cannot look up api.groq.com (DNS failed). Check the server\'s DNS / internet connection.'
++    if isinstance(reason, ssl.SSLError) or 'CERTIFICATE' in str(reason).upper():
++        return f'The secure connection to api.groq.com failed ({reason}). Often a proxy or firewall inspecting HTTPS, or a wrong server clock.'
++    if isinstance(reason, (TimeoutError, socket.timeout)) or 'timed out' in str(reason):
++        return f'api.groq.com did not answer within {os.getenv("FIT_TIMEOUT", "45")} seconds. The server\'s outbound internet may be slow or blocked.'
++    if isinstance(reason, (ConnectionRefusedError, ConnectionResetError, OSError)):
++        return f'This server could not connect to api.groq.com ({reason}). Outbound HTTPS (port 443) may be blocked by a firewall.'
++    return f'Could not reach Groq: {reason}'
++
++
+ def complete(messages, tools):
+-    """One chat completion with tools. Retries a failed tool-call generation once, then tries the fallback model."""
++    """One chat completion with tools. Retries a failed tool-call generation once, then tries the fallback model.
++    On failure raises FitAIError with a short message, and .detail with the exact reason per model."""
+     if not api_key():
+         raise FitAIError('Fit needs a Groq API key. Add GROQ_API_KEY to the server’s .env file and restart TapTap.')
+     payload = {'messages': messages, 'temperature': 0.2, 'max_completion_tokens': 1600}
+     if tools:
+         payload.update(tools=tools, tool_choice='auto')
+-    last = None
++    reasons, last_code = [], None
+     for model in models():
+         for attempt in range(2):
+             try:
+                 return _post(model, payload)
+             except urllib.error.HTTPError as exc:
+-                detail = exc.read().decode(errors='replace')[:400]
+-                last = f'{exc.code} {detail}'
+-                logger.warning('Groq %s %s (attempt %s): %s', model, exc.code, attempt + 1, detail)
++                exc._fit_detail = exc.read().decode(errors='replace')[:600]
++                last_code = exc.code
++                logger.warning('Groq %s %s (attempt %s): %s', model, exc.code, attempt + 1, exc._fit_detail)
+                 if exc.code == 401:
+-                    raise FitAIError('Groq refused the API key (GROQ_API_KEY). Check it in the .env file.')
+-                if exc.code == 400 and 'tool_use_failed' in detail and attempt == 0:
++                    raise FitAIError(explain(exc, model))
++                if exc.code == 400 and 'tool_use_failed' in exc._fit_detail and attempt == 0:
+                     continue                       # the model wrote a broken tool call: ask again
++                reasons.append(f'{model}: {explain(exc, model)}')
+                 break                              # 404 retired model, 413, 429, 5xx → next model
+             except (urllib.error.URLError, TimeoutError, OSError) as exc:
+-                last = str(exc)
+-                logger.warning('Groq %s unreachable: %s', model, exc)
++                logger.warning('Groq %s unreachable: %r', model, exc)
++                reasons.append(f'{model}: {explain(exc, model)}')
+                 break
+-    if last and last.startswith('429'):
+-        raise FitAIError('Fit is getting too many questions for the Groq plan right now. Try again in a minute.')
+-    raise FitAIError('Fit could not reach its AI service just now. Your data is safe — try again in a moment.')
++    if last_code == 429:
++        err = FitAIError('Fit is getting too many questions for the Groq plan right now. Try again in a minute.')
++    else:
++        err = FitAIError('Fit could not reach its AI service just now. Your data is safe — try again in a moment.')
++    # Same cause for both models (e.g. no internet) → say it once.
++    uniq = list(dict.fromkeys(r.split(': ', 1)[1] for r in reasons))
++    err.detail = uniq[0] if len(uniq) == 1 else ' · '.join(reasons)
++    raise err
+ 
+ 
+ # ─────────────────────────────── prompt ───────────────────────────────
+diff --git a/core/management/commands/fit_check.py b/core/management/commands/fit_check.py
+new file mode 100644
+index 0000000..efd5177
+--- /dev/null
++++ b/core/management/commands/fit_check.py
+@@ -0,0 +1,112 @@
++"""Find out why Fit cannot reach Groq.
++
++    docker compose exec web python manage.py fit_check
++
++Checks, in order, and stops at the first broken link:
++  1. GROQ_API_KEY is loaded in this container
++  2. api.groq.com resolves (DNS)
++  3. an HTTPS connection to api.groq.com:443 works (firewall / proxy / certificates / clock)
++  4. Groq accepts the key and lists the models it offers
++  5. GROQ_MODEL and GROQ_FALLBACK_MODEL exist
++  6. a real tool-calling request works with each model
++"""
++import json
++import os
++import socket
++import ssl
++import time
++import urllib.error
++import urllib.request
++from urllib.parse import urlsplit
++
++from django.core.management.base import BaseCommand
++
++
++class Command(BaseCommand):
++    help = 'Test the connection from this server to Groq for Fit, step by step.'
++
++    def ok(self, msg):
++        self.stdout.write(self.style.SUCCESS('  ✓ ') + msg)
++
++    def bad(self, msg, fix=''):
++        self.stdout.write(self.style.ERROR('  ✗ ') + msg)
++        if fix:
++            self.stdout.write('    → ' + fix)
++
++    def handle(self, *args, **opts):
++        from core import fit_ai
++        base = os.getenv('GROQ_BASE_URL', 'https://api.groq.com/openai/v1').rstrip('/')
++        host = urlsplit(base).hostname or 'api.groq.com'
++        self.stdout.write(self.style.MIGRATE_HEADING('Fit → Groq connection check'))
++
++        key = fit_ai.api_key()
++        if not key:
++            return self.bad('GROQ_API_KEY is not set inside this container.',
++                            'Add GROQ_API_KEY=gsk_... to .env, then: docker compose up -d --force-recreate web')
++        self.ok(f'GROQ_API_KEY is loaded ({key[:4]}…{key[-4:]}, {len(key)} characters)')
++        if key != key.strip() or ' ' in key or key.startswith(('"', "'")):
++            self.bad('The key contains spaces or quotes.', 'In .env write GROQ_API_KEY=gsk_... with no quotes or spaces.')
++        for v in ('HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy'):
++            if os.getenv(v):
++                self.stdout.write(f'  · {v} is set ({os.getenv(v)}) — requests go through this proxy')
++
++        try:
++            ips = sorted({a[4][0] for a in socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)})
++            self.ok(f'DNS: {host} → {", ".join(ips[:3])}')
++        except socket.gaierror as exc:
++            return self.bad(f'DNS: cannot resolve {host} ({exc}).',
++                            'The server has no working DNS or no internet. Test with: docker compose exec web getent hosts api.groq.com')
++
++        t = time.monotonic()
++        try:
++            with socket.create_connection((host, 443), timeout=10) as raw:
++                with ssl.create_default_context().wrap_socket(raw, server_hostname=host) as tls:
++                    self.ok(f'HTTPS: connected to {host}:443 with {tls.version()} in {int((time.monotonic() - t) * 1000)} ms')
++        except ssl.SSLCertVerificationError as exc:
++            return self.bad(f'HTTPS: certificate check failed ({exc.verify_message}).',
++                            'A firewall/proxy is intercepting HTTPS, or the server clock is wrong (check with: date).')
++        except (OSError, ssl.SSLError) as exc:
++            return self.bad(f'HTTPS: cannot connect to {host}:443 ({exc}).',
++                            'Outbound HTTPS is blocked. Allow the server to reach api.groq.com on port 443.')
++
++        req = urllib.request.Request(base + '/models', headers={'Authorization': f'Bearer {key}', 'User-Agent': 'TapTap-Fit/1.0'})
++        try:
++            with urllib.request.urlopen(req, timeout=20) as r:
++                available = sorted(m['id'] for m in json.loads(r.read().decode()).get('data', []))
++            self.ok(f'Groq accepted the key — {len(available)} models available')
++        except urllib.error.HTTPError as exc:
++            exc._fit_detail = exc.read().decode(errors='replace')[:600]
++            return self.bad(f'Groq answered {exc.code}: {fit_ai.explain(exc)}')
++        except Exception as exc:  # noqa: BLE001
++            return self.bad(f'Could not list models: {fit_ai.explain(exc)}')
++
++        wanted = fit_ai.models()
++        usable = []
++        for m in wanted:
++            if m in available:
++                self.ok(f'Model {m} is available')
++                usable.append(m)
++            else:
++                self.bad(f'Model {m} is NOT offered by Groq for this key.',
++                         'Pick one of these for GROQ_MODEL: ' + ', '.join(x for x in available if not any(
++                             w in x for w in ('whisper', 'tts', 'guard', 'prompt'))))
++        if not usable:
++            return
++
++        tools = [{'type': 'function', 'function': {'name': 'overview', 'description': 'Business overview',
++                                                   'parameters': {'type': 'object', 'properties': {}, 'required': []}}}]
++        msgs = [{'role': 'system', 'content': 'You are a test. Call the overview tool.'}, {'role': 'user', 'content': 'How is my business?'}]
++        for m in usable:
++            t = time.monotonic()
++            try:
++                data = fit_ai._post(m, {'messages': msgs, 'tools': tools, 'tool_choice': 'auto', 'temperature': 0.2,
++                                        'max_completion_tokens': 300})
++                msg = data['choices'][0]['message']
++                how = 'called a tool' if msg.get('tool_calls') else 'answered'
++                self.ok(f'{m}: tool-calling request works ({how}, {int((time.monotonic() - t) * 1000)} ms)')
++            except urllib.error.HTTPError as exc:
++                exc._fit_detail = exc.read().decode(errors='replace')[:600]
++                self.bad(f'{m}: {fit_ai.explain(exc, m)}')
++            except Exception as exc:  # noqa: BLE001
++                self.bad(f'{m}: {fit_ai.explain(exc, m)}')
++        self.stdout.write(self.style.MIGRATE_HEADING('Done.') + ' If every line is ✓, open Fit and ask again.')
+diff --git a/core/test_fit.py b/core/test_fit.py
+index 5949ed1..4913474 100644
+--- a/core/test_fit.py
++++ b/core/test_fit.py
+@@ -360,3 +360,39 @@ class GroqClientTests(FitBase):
+         # The memory replays cleanly: user → assistant(tool_calls) → tool → assistant
+         roles = [m['role'] for m in fit_ai.history(ctx.conversation)]
+         self.assertEqual(roles, ['user', 'assistant', 'tool', 'assistant'])
++
++
++class FailureExplanationTests(FitBase):
++    def http(self, code, body):
++        import io
++        import urllib.error
++        e = urllib.error.HTTPError('u', code, 'x', {}, io.BytesIO(body.encode()))
++        return e
++
++    def test_reasons_are_specific(self):
++        import socket
++        import urllib.error
++        cases = [
++            (self.http(403, '{"error":{"message":"Access denied"}}'), '403'),
++            (self.http(404, '{"error":{"message":"The model `x` does not exist"}}'), 'GROQ_MODEL'),
++            (self.http(400, '{"error":{"message":"bad field"}}'), 'bad field'),
++            (urllib.error.URLError(socket.gaierror(-2, 'Name or service not known')), 'DNS'),
++            (urllib.error.URLError(ConnectionRefusedError(111, 'refused')), 'port 443'),
++        ]
++        for exc, expect in cases:
++            with mock.patch.object(fit_ai, '_post', side_effect=exc), mock.patch.dict('os.environ', {'GROQ_API_KEY': 'k'}):
++                with self.assertRaises(fit_ai.FitAIError) as e:
++                    fit_ai.complete([], None)
++            self.assertIn(expect, e.exception.detail, expect)
++
++    def test_owner_sees_why_staff_do_not(self):
++        import socket
++        import urllib.error
++        boom = urllib.error.URLError(socket.gaierror(-2, 'nope'))
++        u = User.objects.create_user('st@example.com', 'st@example.com', 'Pass-word-123')
++        TeamMember.objects.create(business=self.a, user=u, role='voucher_support')
++        for who, shown in ((self.owner_a, True), (u, False)):
++            self.client.force_login(who)
++            with mock.patch.object(fit_ai, '_post', side_effect=boom), mock.patch.dict('os.environ', {'GROQ_API_KEY': 'k'}):
++                text = self.client.post(reverse('fit_ask'), json.dumps({'message': 'hi'}), **JSON).json()['reply']
++            self.assertEqual('DNS' in text and 'fit_check' in text, shown, text)
+diff --git a/core/views_fit.py b/core/views_fit.py
+index 0ab96f1..c9d9547 100644
+--- a/core/views_fit.py
++++ b/core/views_fit.py
+@@ -144,8 +144,11 @@ def fit_ask(request):
+     try:
+         out = fit_ai.ask(ctx, text, page=page)
+     except fit_ai.FitAIError as exc:
+-        FitMessage.objects.create(conversation=conv, role='assistant', content=str(exc))
+-        return JsonResponse({'ok': True, 'conversation': conv.pk, 'reply': str(exc), 'cards': {}, 'mood': 'sad'})
++        text = str(exc)
++        if exc.detail and _can_manage(request):          # owners see the real cause; staff get the short message
++            text += f'\n\n**Why:** {exc.detail}\n\nRun `python manage.py fit_check` on the server for a full connection test.'
++        FitMessage.objects.create(conversation=conv, role='assistant', content=text)
++        return JsonResponse({'ok': True, 'conversation': conv.pk, 'reply': text, 'cards': {}, 'mood': 'sad'})
+     return JsonResponse({'ok': True, 'conversation': conv.pk, **out})
+ 
+ 
