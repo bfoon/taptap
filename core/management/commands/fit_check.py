@@ -7,7 +7,7 @@ Checks, in order, and stops at the first broken link:
   2. generativelanguage.googleapis.com resolves (DNS)
   3. an HTTPS connection to it on port 443 works (firewall / proxy / certificates / clock)
   4. Gemini accepts the key and lists the models it offers
-  5. GEMINI_MODEL (main) and GEMINI_FALLBACK_MODEL (Flash) exist for this key
+  5. GEMINI_MODEL (main), GEMINI_FALLBACK_MODEL (Flash) and GEMINI_LITE_MODEL (Flash-Lite) exist for this key
   6. a real tool-calling request works with each model
   7. a FULL Fit request (real instructions + every tool) works with each model
 
@@ -102,14 +102,15 @@ class Command(BaseCommand):
 
         wanted = fit_ai.models()
         usable = []
-        for role, m in zip(('main', 'fallback'), wanted):
+        for i, m in enumerate(wanted):
+            role = 'main' if i == 0 else f'fallback {i}'
             if m in available:
                 self.ok(f'Model {m} ({role}) is available')
                 usable.append(m)
             else:
                 chat = [x for x in available if x.startswith('gemini-') and not any(
                     w in x for w in ('tts', 'image', 'live', 'embedding', 'audio', 'computer'))]
-                var = 'GEMINI_MODEL' if role == 'main' else 'GEMINI_FALLBACK_MODEL'
+                var = 'GEMINI_MODEL' if i == 0 else ('GEMINI_FALLBACK_MODEL' if i == 1 else 'GEMINI_LITE_MODEL')
                 self.bad(f'Model {m} ({role}) is NOT offered by Gemini for this key.',
                          f'Pick one of these for {var}: ' + ', '.join(chat[-12:]))
         if not usable:

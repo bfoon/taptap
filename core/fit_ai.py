@@ -1,13 +1,19 @@
 """Fit — TapTap AI technician, powered by Google Gemini.
 
-The main model is a Gemini Pro model; a Gemini Flash model is the fallback when the main one is rate-limited,
-down, or not offered for the key. Both are reached through Gemini's OpenAI-compatible endpoint, so the chat
-messages and the tool-call schema stay the same as before.
+Models are tried in order: the main model (Pro), then Flash, then Flash-Lite — the next one whenever the
+current one is rate-limited, out of quota, overloaded or not offered for the key. All are reached through
+Gemini's OpenAI-compatible endpoint, so the chat messages and the tool-call schema stay the same.
+
+Free plan: a model that has no free quota (Pro previews: "limit: 0"), or whose daily quota is used up, is
+skipped for hours instead of being asked again on every question; a per-minute limit is skipped only for the
+delay Google gives. An overloaded model (503) is retried once after 2 seconds, then the next one is used.
 
 Environment:
  GEMINI_API_KEY                         (required — https://aistudio.google.com/apikey)
- GEMINI_MODEL           default gemini-3.1-pro-preview
+ GEMINI_MODEL           default gemini-3.1-pro-preview   (free plan: use gemini-3.5-flash)
  GEMINI_FALLBACK_MODEL  default gemini-3.5-flash
+ GEMINI_LITE_MODEL      default gemini-3.1-flash-lite     (last resort: the most generous free quota)
+ GEMINI_FALLBACK_MODELS optional, comma-separated: replaces the two fallbacks above with your own list
  GEMINI_BASE_URL        default https://generativelanguage.googleapis.com/v1beta/openai
  GEMINI_REASONING       default low   (thinking effort: low | medium | high)
  FIT_MAX_TOKENS         default 4096  (Gemini counts its thinking in this budget)
@@ -39,6 +45,9 @@ RATE = (25, 300)
 PROVIDER = 'Gemini'
 DEFAULT_MODEL = 'gemini-3.1-pro-preview'
 DEFAULT_FALLBACK = 'gemini-3.5-flash'
+DEFAULT_LITE = 'gemini-3.1-flash-lite'
+NO_QUOTA_COOLDOWN = 12 * 3600    # the plan has no quota for this model at all ("limit: 0")
+DAILY_COOLDOWN = 3600            # daily quota used up: look again in an hour (it resets once a day)
 DEFAULT_BASE = 'https://generativelanguage.googleapis.com/v1beta/openai'
 
 
@@ -55,10 +64,14 @@ def base_url():
 
 
 def models():
-    """[main Gemini model, Flash fallback] — duplicates and blanks removed."""
+    """[main, fallbacks…] in the order they are tried — duplicates and blanks removed."""
     main = os.getenv('GEMINI_MODEL', DEFAULT_MODEL).strip()
-    fb = os.getenv('GEMINI_FALLBACK_MODEL', DEFAULT_FALLBACK).strip()
-    return list(dict.fromkeys(m.removeprefix('models/') for m in (main, fb) if m))
+    custom = os.getenv('GEMINI_FALLBACK_MODELS', '').strip()
+    if custom:
+        fallbacks = [x.strip() for x in custom.split(',')]
+    else:
+        fallbacks = [os.getenv('GEMINI_FALLBACK_MODEL', DEFAULT_FALLBACK).strip(), os.getenv('GEMINI_LITE_MODEL', DEFAULT_LITE).strip()]
+    return list(dict.fromkeys(m.removeprefix('models/') for m in [main, *fallbacks] if m))
 
 
 def _body(model, payload):
@@ -112,7 +125,13 @@ def explain(exc, model='', provider=PROVIDER):
         if code == 413:
             return f'{name} request exceeds the model size limit (413).'
         if code == 429:
-            return f'{name} rate limit or quota reached (429): {msg}.'
+            kind = _quota_kind(detail)
+            if kind == 'none':
+                return f'{name} model “{model}” has no quota on your plan (429, limit 0) — skipped for 12 h. ' \
+                       'On the free plan use a Flash model as GEMINI_MODEL.'
+            if kind == 'daily':
+                return f'{name} daily quota for “{model}” is used up (429) — it resets once a day.'
+            return f'{name} rate limit reached (429): {msg}.'
         if code >= 500:
             return f'{name} is temporarily unavailable ({code}).'
         return f'{name} rejected request ({code}): {msg}'
@@ -147,8 +166,10 @@ def complete(messages, tools):
     cooldown = max(1, int(os.getenv('FIT_PROVIDER_COOLDOWN', '60')))
     for i, model in enumerate(chain):
         last = i == len(chain) - 1
-        if cache.get(_cooldown_key(model)) and not last:      # the last model is always tried
-            reasons.append((model, 'Temporarily in cooldown after an earlier rate limit or outage.', False))
+        skipped = cache.get(_cooldown_key(model))
+        if skipped and not last:                              # the last model is always tried
+            reasons.append((model, skipped if isinstance(skipped, str) else 'Skipped for now after an earlier limit or outage.',
+                            'quota' in str(skipped) or 'limit' in str(skipped)))
             continue
         for attempt in range(2):
             try:
@@ -157,15 +178,25 @@ def complete(messages, tools):
                     raise ValueError('Gemini returned no choices.')
                 return response
             except urllib.error.HTTPError as exc:
-                exc._fit_detail = exc.read().decode(errors='replace')[:600]
-                logger.warning('Fit Gemini %s HTTP %s: %s', model, exc.code, exc._fit_detail)
-                wait = _retry_after(exc)
-                if exc.code == 429 and attempt == 0 and wait is not None and wait <= 5:
-                    time.sleep(wait)              # a short per-minute limit: wait it out on the same model
+                exc._fit_detail = exc.read().decode(errors='replace')[:4000]
+                logger.warning('Fit Gemini %s HTTP %s: %s', model, exc.code, exc._fit_detail[:600])
+                if exc.code == 429:
+                    kind = _quota_kind(exc._fit_detail)
+                    wait = _retry_after(exc)
+                    if kind == 'minute' and attempt == 0 and wait is not None and wait <= 5:
+                        time.sleep(wait)          # a short per-minute limit: wait it out on the same model
+                        continue
+                    why_ = explain(exc, model)
+                    reasons.append((model, why_, True))
+                    hold = NO_QUOTA_COOLDOWN if kind == 'none' else DAILY_COOLDOWN if kind == 'daily' else max(cooldown, int(wait or 0))
+                    cache.set(_cooldown_key(model), f'Skipped: {why_}', timeout=hold)
+                    break
+                if exc.code in (500, 502, 503, 504) and attempt == 0:
+                    time.sleep(2)                 # overloaded for a moment: one more try on the same model
                     continue
-                reasons.append((model, explain(exc, model), exc.code == 429))
-                if exc.code in (429, 500, 502, 503, 504):
-                    cache.set(_cooldown_key(model), True, timeout=max(cooldown, int(wait or 0)))
+                reasons.append((model, explain(exc, model), False))
+                if exc.code in (500, 502, 503, 504):
+                    cache.set(_cooldown_key(model), f'Skipped: {model} was overloaded a moment ago.', timeout=cooldown)
                 break
             except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
                 logger.warning('Fit Gemini %s unavailable: %r', model, exc)
@@ -182,12 +213,27 @@ def complete(messages, tools):
     raise err
 
 
+def _quota_kind(detail):
+    """What kind of 429: 'none' (the plan has no quota for this model), 'daily', or 'minute'."""
+    text = str(detail or '')
+    if 'limit: 0' in text or '"limit": "0"' in text or "limit: '0'" in text:
+        return 'none'
+    if 'PerDay' in text or 'per day' in text.lower():
+        return 'daily'
+    return 'minute'
+
+
 def _retry_after(exc):
+    """Seconds to wait: the Retry-After header, else Gemini's own retryDelay in the error body."""
     try:
         value = (exc.headers or {}).get('retry-after')
-        return float(value) if value not in (None, '') else None
+        if value not in (None, ''):
+            return float(value)
     except (TypeError, ValueError, AttributeError):
-        return None
+        pass
+    import re
+    m = re.search(r'"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"', str(getattr(exc, '_fit_detail', '') or ''))
+    return float(m.group(1)) if m else None
 
 
 def _tool_calls(raw):
@@ -242,6 +288,12 @@ def system_prompt(ctx, page=None):
         'Say exactly what it will do: who is told (me / team, email, the member) and whether it only tells or also acts '
         '(free_slot frees one idle, offline device; disconnect kicks devices not locked to the voucher). Use monitors to list, '
         'monitor_test to show what a monitor would catch now, and pause_monitor / resume_monitor / delete_monitor to change one.',
+        '11. Syncing: TapTap is the source of truth and the router must match it. When the person asks to sync something — one '
+        'voucher, several codes, a batch, a plan, the members, unsent vouchers, time limits, plan profiles, a router or '
+        'everything — offer ONE propose_action kind=sync with the matching scope (codes / batch / plan / router). Use '
+        'sync_status first when it helps to show what is actually different, and prefer the smallest scope that fixes it '
+        '(one voucher before a batch, a batch before a full router sync). Router-made vouchers are read from the router, never '
+        'overwritten.',
     ]
     if page and page.get('path'):
         lines += ['', f'The person is looking at the TapTap page “{str(page.get("title", ""))[:80]}” ({str(page["path"])[:120]}). '

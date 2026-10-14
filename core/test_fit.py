@@ -3,6 +3,7 @@
 Gemini is never called: fit_ai._post is replaced by a scripted fake, so these tests run offline.
 """
 import json
+import os
 from datetime import timedelta
 from decimal import Decimal
 from unittest import mock
@@ -477,7 +478,52 @@ class FallbackMaskingTests(FitBase):
         with mock.patch.dict('os.environ', {'GEMINI_MODEL': '', 'GEMINI_FALLBACK_MODEL': ''}):
             import os
             os.environ.pop('GEMINI_MODEL'); os.environ.pop('GEMINI_FALLBACK_MODEL')
-            self.assertEqual(fit_ai.models(), ['gemini-3.1-pro-preview', 'gemini-3.5-flash'])
+            os.environ.pop('GEMINI_LITE_MODEL', None); os.environ.pop('GEMINI_FALLBACK_MODELS', None)
+            self.assertEqual(fit_ai.models(), ['gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'])
+
+    def test_free_plan_pro_quota_zero_then_flash_busy_then_lite_answers(self):
+        """The exact situation from the free plan: Pro has no quota, Flash is overloaded, Flash-Lite answers."""
+        import io
+        import urllib.error
+        used = []
+        no_quota = json.dumps([{'error': {'code': 429, 'message': 'You exceeded your current quota. Quota exceeded for metric: '
+                                          'generate_content_free_tier_requests, limit: 0, model: gemini-3.1-pro'}}]).encode()
+
+        def fake(model, payload):
+            used.append(model)
+            if model == 'gemini-3.1-pro-preview':
+                raise urllib.error.HTTPError('u', 429, 'quota', {}, io.BytesIO(no_quota))
+            if model == 'gemini-3.5-flash':
+                raise urllib.error.HTTPError('u', 503, 'busy', {}, io.BytesIO(b'{"error":{"message":"overloaded"}}'))
+            return reply('ok from ' + model)
+        with mock.patch.object(fit_ai, '_post', side_effect=fake), mock.patch.object(fit_ai.time, 'sleep'), \
+                mock.patch.dict('os.environ', {'GEMINI_API_KEY': 'k'}):
+            for k in ('GEMINI_MODEL', 'GEMINI_FALLBACK_MODEL', 'GEMINI_LITE_MODEL', 'GEMINI_FALLBACK_MODELS'):
+                os.environ.pop(k, None)
+            out = fit_ai.complete([], None)
+            self.assertEqual(out['choices'][0]['message']['content'], 'ok from gemini-3.1-flash-lite')
+            # Flash was retried once (503), Pro asked once
+            self.assertEqual(used, ['gemini-3.1-pro-preview', 'gemini-3.5-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite'])
+            used.clear()
+            fit_ai.complete([], None)            # next question: Pro (no quota) and Flash (just overloaded) are skipped
+            self.assertEqual(used, ['gemini-3.1-flash-lite'])
+        self.assertIn('limit 0', cache.get('fit:ai:cooldown:gemini:gemini-3.1-pro-preview'))
+
+    def test_daily_quota_and_body_retry_delay(self):
+        import io
+        import urllib.error
+        daily = urllib.error.HTTPError('u', 429, 'q', {}, io.BytesIO(b'{"error":{"details":[{"quotaId":"GenerateRequestsPerDayPerProjectPerModel-FreeTier"}]}}'))
+        daily._fit_detail = daily.read().decode()
+        self.assertEqual(fit_ai._quota_kind(daily._fit_detail), 'daily')
+        self.assertIn('daily quota', fit_ai.explain(daily, 'gemini-3.5-flash'))
+        minute = urllib.error.HTTPError('u', 429, 'q', {}, io.BytesIO(b''))
+        minute._fit_detail = '{"error":{"details":[{"@type":"RetryInfo","retryDelay":"3s"}]}}'
+        self.assertEqual(fit_ai._retry_after(minute), 3.0)
+        self.assertEqual(fit_ai._quota_kind(minute._fit_detail), 'minute')
+
+    def test_own_fallback_list(self):
+        with mock.patch.dict('os.environ', {'GEMINI_MODEL': 'a', 'GEMINI_FALLBACK_MODELS': 'b, c ,d'}):
+            self.assertEqual(fit_ai.models(), ['a', 'b', 'c', 'd'])
 
     def test_fit_check_full_size_step(self):
         import io

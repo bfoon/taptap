@@ -550,6 +550,17 @@ def t_monitors(ctx, include_paused=True):
     return {'monitors': mons, 'recent_events': events, 'page': '/fit/monitors/'}
 
 
+def t_sync_status(ctx, scope='voucher', codes='', batch='', plan='', router=''):
+    from . import fit_sync
+    try:
+        out = fit_sync.status(ctx.business, scope=scope or 'voucher', codes=codes, batch=batch, plan=plan, router=router)
+    except fit_sync.SyncError as exc:
+        raise ToolError(str(exc))
+    out['hint'] = ('To fix differences offer propose_action kind=sync with the same scope. Scopes: '
+                   + '; '.join(f'{k} = {v}' for k, v in fit_sync.SCOPES.items()))
+    return out
+
+
 def t_monitor_test(ctx, monitor_id):
     from .fit_monitors import dry_run
     from .models_fit import FitMonitor
@@ -603,6 +614,10 @@ TOOLS = {
                  'recently saw and did.', _obj({'include_paused': {'type': 'boolean'}})),
     'monitor_test': (VOUCHER_PERMS + NETWORK_PERMS, t_monitor_test, 'Dry-run one monitor: what it would catch right now. '
                      'Sends nothing, changes nothing.', _obj({'monitor_id': {'type': 'integer'}}, ['monitor_id'])),
+    'sync_status': (VOUCHER_PERMS + NETWORK_PERMS, t_sync_status, 'Compare TapTap with the routers (read only): which of the '
+                    'given vouchers / batch / plan / members differ from the router (missing, profile, time limit, on/off, last '
+                    'send failed), plus each router\'s last sync and waiting/failed commands. scope: voucher, batch, plan, '
+                    'members, unsynced, router.', _obj({'scope': S, 'codes': S, 'batch': S, 'plan': S, 'router': S})),
     'help_guides': (None, t_help, 'Find TapTap how-to guides with links.', _obj({'query': S}, ['query'])),
 }
 
@@ -610,6 +625,7 @@ TOOLS = {
 def propose_spec(ctx):
     from .fit_actions import kinds_for
     from .fit_monitors import KINDS as MONITOR_KINDS
+    from .fit_sync import SCOPES as SYNC_SCOPES
     kinds = kinds_for(ctx.perms)
     return _obj({
         'kind': {'type': 'string', 'enum': kinds},
@@ -645,6 +661,12 @@ def propose_spec(ctx):
         'hours': {'type': 'integer', 'description': 'create_monitor: stop after this many hours (empty = until paused)'},
         'cooldown_minutes': {'type': 'integer', 'description': 'create_monitor: same device/voucher told once per this many minutes'},
         'monitor_id': {'type': 'integer', 'description': 'pause_monitor / resume_monitor / delete_monitor'},
+        # sync
+        'scope': {'type': 'string', 'enum': list(SYNC_SCOPES),
+                  'description': 'sync: ' + '; '.join(f'{k} = {v}' for k, v in SYNC_SCOPES.items())},
+        'batch': {**S, 'description': 'sync scope=batch: the batch name'},
+        'plan': {**S, 'description': 'sync scope=plan: the plan name'},
+        'router': {**S, 'description': 'sync: one router name (empty or "all" = every router)'},
     }, ['kind'])
 
 
@@ -661,7 +683,7 @@ def specs(ctx):
             'description': 'Offer a change for the person to approve (freeze/unfreeze/warn/disable/enable a voucher, add_time, '
                            'reduce_time, reset_devices, block_device, unblock_device, disconnect_session, resolve_report, '
                            'track_voucher, send_chat, free_idle_slot, create_monitor, pause_monitor, resume_monitor, '
-                           'delete_monitor). It is NOT carried out: a card with “Take action” appears.',
+                           'delete_monitor, sync). It is NOT carried out: a card with “Take action” appears.',
             'parameters': propose_spec(ctx)}})
     return out
 

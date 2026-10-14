@@ -38,6 +38,8 @@ GROUPS = {
     'tracking': ('Tracking', 'Follow a voucher so you are told when something happens to it'),
     'chat': ('Chat', 'Send chat messages you approved to your team or TapTap support'),
     'tests': ('Network tests', 'Run ping, DNS, website, traceroute and speed tests from your routers'),
+    'sync': ('Sync with routers', 'Send TapTap\'s vouchers, members, batches, plans, profiles or time limits to the '
+                                  'routers, or run a full router sync'),
     'monitors': ('Monitors', 'Set up standing watches (slots full, sharing, heavy users, drops, routers) that alert '
                              'you or the member, and may free an idle slot or disconnect extra devices'),
 }
@@ -546,6 +548,44 @@ def _do_free_idle_slot(business, p, user):
     return f'{v.code}: {result}'
 
 
+# ─────────────────────────────── sync ───────────────────────────────
+
+def _sync_args(a):
+    scope = str(a.get('scope') or '').strip().lower()
+    codes = a.get('codes') or a.get('code') or ''
+    if not scope:
+        scope = 'voucher' if codes else ('batch' if a.get('batch') else ('plan' if a.get('plan') else 'router'))
+    return {'scope': scope, 'codes': codes if isinstance(codes, str) else ','.join(map(str, codes)),
+            'batch': str(a.get('batch') or '').strip(), 'plan': str(a.get('plan') or '').strip(),
+            'router': str(a.get('router') or '').strip()}
+
+
+def _check_sync(business, a):
+    from . import fit_sync
+    p = _sync_args(a)
+    if p['scope'] not in fit_sync.SCOPES:
+        raise FitActionError(f'Sync what? One of: {", ".join(fit_sync.SCOPES)}.')
+    try:
+        n, detail = fit_sync.describe(business, **p)
+    except fit_sync.SyncError as exc:
+        raise FitActionError(str(exc))
+    if not n:
+        raise FitActionError('Nothing matches that — no vouchers or routers to sync.')
+    what = {'voucher': p['codes'].replace(',', ', ')[:60], 'batch': f'batch {p["batch"]}', 'plan': f'plan {p["plan"]}',
+            'members': 'members', 'unsynced': 'unsent vouchers', 'router_time': 'time limits', 'profiles': 'plan profiles',
+            'router': 'full router sync', 'everything': 'everything'}[p['scope']]
+    where = f' on {p["router"]}' if p['router'] and p['scope'] not in ('voucher',) else ''
+    return p, f'Sync {what}{where}', detail, '/routers/'
+
+
+def _do_sync(business, p, user):
+    from . import fit_sync
+    try:
+        return fit_sync.run(business, user=user, **p)
+    except fit_sync.SyncError as exc:
+        raise FitActionError(str(exc))
+
+
 # ─────────────────────────────── registry ───────────────────────────────
 # kind: (group, permissions (any of), check(business, args) -> (params, title, detail, link), do(business, params, user), danger)
 KINDS = {
@@ -567,6 +607,7 @@ KINDS = {
     'pause_monitor': ('monitors', MONITOR_PERMS, _check_pause_monitor, _do_pause_monitor, 'ok'),
     'resume_monitor': ('monitors', MONITOR_PERMS, _check_resume_monitor, _do_resume_monitor, 'ok'),
     'delete_monitor': ('monitors', MONITOR_PERMS, _check_delete_monitor, _do_delete_monitor, 'warn'),
+    'sync': ('sync', ('vouchers.support', 'network.manage'), _check_sync, _do_sync, 'ok'),
     'free_idle_slot': ('devices', ('vouchers.support',), _check_free_idle_slot, _do_free_idle_slot, 'warn'),
 }
 

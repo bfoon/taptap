@@ -113,6 +113,14 @@ elif ! grep -qE '^GEMINI_FALLBACK_MODEL=' .env; then
 else
   green "$(grep -E '^GEMINI_FALLBACK_MODEL=' .env)"
 fi
+if ! grep -qE '^GEMINI_LITE_MODEL=' .env; then
+  printf 'GEMINI_LITE_MODEL=gemini-3.1-flash-lite\n' >> .env; green "Added GEMINI_LITE_MODEL=gemini-3.1-flash-lite (last fallback, most free quota)"
+else
+  green "$(grep -E '^GEMINI_LITE_MODEL=' .env)"
+fi
+if grep -qE '^GEMINI_MODEL=gemini-[0-9.]+-pro' .env; then
+  yellow "GEMINI_MODEL is a Pro model. On Google's free plan Pro has no quota: set GEMINI_MODEL=gemini-3.5-flash (Fit skips Pro for 12 h after the first refusal anyway)."
+fi
 grep -qE '^GROQ_' .env && yellow "GROQ_* lines in .env are no longer used by Fit (safe to delete)."
 
 # ───────────────────────── 5. rebuild + restart ─────────────────────────
