@@ -208,11 +208,26 @@ def enforce_on_router(router, svc, users, active, now):
         f'on {router.name}',
     )
 
-    # Router uptime reached limit.
+    # TapTap's clock decides: correct every TapTap voucher whose router limit disagrees (would cut it
+    # early, or has no limit at all) before anything is concluded from the router's counters.
+    try:
+        from .router_time import repair_api
+        repair_api(router, svc, users, now)
+    except Exception:
+        logger.exception('router time repair on %s', router)
+
+    # Router uptime reached limit. Only router-made vouchers end because of the router's counter:
+    # a TapTap voucher with time left was just given a correct limit instead (core/router_time.py).
+    from .router_time import platform_owned, remaining_s
+    owned_with_time = {
+        v.code.upper()
+        for v in base.filter(router=router, status='active')
+        if platform_owned(v) and (remaining_s(v, None, now) is None or remaining_s(v, None, now) > 0)
+    }
     used_up = [
         name
         for name, row in rows.items()
-        if uptime_used_up(row)
+        if uptime_used_up(row) and name.upper() not in owned_with_time
     ]
 
     if used_up:

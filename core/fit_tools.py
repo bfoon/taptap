@@ -527,6 +527,38 @@ def t_propose(ctx, kind, **args):
                     + ('' if card['authorized'] else ' The business owner must first allow “' + card['group_label'] + '” in Fit settings.')}
 
 
+# ─────────────────────────────── monitors ───────────────────────────────
+
+def t_slots_report(ctx, plans=''):
+    from .fit_monitors import slots_report
+    out = slots_report(ctx.business, plans)
+    out['hint'] = ('full = every device slot taken; refused_today = new devices turned away today. To be told (or to free an '
+                   'idle slot automatically) when that happens, offer create_monitor with monitor_kind slot_refused.')
+    return out
+
+
+def t_monitors(ctx, include_paused=True):
+    from .fit_monitors import as_json
+    from .models_fit import FitMonitor, FitMonitorEvent
+    qs = FitMonitor.objects.filter(business=ctx.business)
+    if not include_paused:
+        qs = qs.filter(active=True)
+    mons = [as_json(m) for m in qs[:30]]
+    events = [{'monitor': e.monitor_id, 'at': when(e.created_at), 'title': e.title, 'action': e.action or None,
+               'result': e.result or None, 'voucher': e.voucher_code or None, 'member_emailed': e.member_emailed or None}
+              for e in FitMonitorEvent.objects.filter(business=ctx.business).order_by('-id')[:15]]
+    return {'monitors': mons, 'recent_events': events, 'page': '/fit/monitors/'}
+
+
+def t_monitor_test(ctx, monitor_id):
+    from .fit_monitors import dry_run
+    from .models_fit import FitMonitor
+    m = FitMonitor.objects.filter(business=ctx.business, pk=monitor_id).select_related('business').first()
+    if not m:
+        raise ToolError(f'No monitor #{monitor_id} in this business.')
+    return {'monitor': m.name, 'dry_run': dry_run(m), 'note': 'Nothing was sent or changed.'}
+
+
 # ─────────────────────────────── registry ───────────────────────────────
 
 def _obj(props, required=()):
@@ -564,12 +596,20 @@ TOOLS = {
                                'target': {**S, 'description': 'Host/IP for ping/trace/dns, URL for web'}}, ['kind'])),
     'test_result': (NETWORK_PERMS, t_test_result, 'Result of a network test started earlier.', _obj({'test_id': {'type': 'integer'}}, ['test_id'])),
     'team_chat_recent': (None, t_chat_recent, 'Latest messages in the team chat room (to summarise).', _obj({'limit': {'type': 'integer'}})),
+    'slots_report': (VOUCHER_PERMS, t_slots_report, 'Device slots per plan right now: active vouchers/members, how many have every '
+                     'slot full (with codes) and how many new devices were refused today. Optional plans: comma-separated names.',
+                     _obj({'plans': S})),
+    'monitors': (VOUCHER_PERMS + NETWORK_PERMS, t_monitors, 'The standing monitors (watches) of this business and what they '
+                 'recently saw and did.', _obj({'include_paused': {'type': 'boolean'}})),
+    'monitor_test': (VOUCHER_PERMS + NETWORK_PERMS, t_monitor_test, 'Dry-run one monitor: what it would catch right now. '
+                     'Sends nothing, changes nothing.', _obj({'monitor_id': {'type': 'integer'}}, ['monitor_id'])),
     'help_guides': (None, t_help, 'Find TapTap how-to guides with links.', _obj({'query': S}, ['query'])),
 }
 
 
 def propose_spec(ctx):
     from .fit_actions import kinds_for
+    from .fit_monitors import KINDS as MONITOR_KINDS
     kinds = kinds_for(ctx.perms)
     return _obj({
         'kind': {'type': 'string', 'enum': kinds},
@@ -583,6 +623,28 @@ def propose_spec(ctx):
         'note': {**S, 'description': 'resolve_report note / track_voucher note'},
         'to': {**S, 'description': 'send_chat: "team", "support" or a colleague first name'},
         'body': {**S, 'description': 'send_chat: the message text'},
+        # monitors (create_monitor / pause_monitor / resume_monitor / delete_monitor) and free_idle_slot
+        'monitor_kind': {'type': 'string', 'enum': list(MONITOR_KINDS),
+                         'description': 'create_monitor: ' + '; '.join(f'{k} = {v[0]} ({v[1]})' for k, v in MONITOR_KINDS.items())},
+        'name': {**S, 'description': 'create_monitor: short name'},
+        'plans': {**S, 'description': 'create_monitor: comma-separated plan names (empty = all plans)'},
+        'codes': {**S, 'description': 'create_monitor: comma-separated voucher/member codes'},
+        'routers': {**S, 'description': 'create_monitor: comma-separated router names (empty = all)'},
+        'members_only': {'type': 'boolean', 'description': 'create_monitor: only members'},
+        'threshold': {'type': 'number', 'description': 'heavy_user Mbit/s · online_drop percent'},
+        'days': {'type': 'integer', 'description': 'idle_slots: free slots unseen for this many days'},
+        'min_users': {'type': 'integer', 'description': 'online_drop: ignore routers with fewer users at peak'},
+        'min_idle_minutes': {'type': 'integer', 'description': 'free_slot / free_idle_slot: device must be unused this long (default 20)'},
+        'once': {'type': 'boolean', 'description': 'voucher_online: stop after the first alert'},
+        'response': {'type': 'string', 'enum': ['notify', 'free_slot', 'disconnect'],
+                     'description': 'create_monitor: notify only; free_slot (slot_refused: free one idle slot so the new device '
+                                    'gets in); disconnect (sharing: kick devices not locked to the voucher)'},
+        'audience': {'type': 'string', 'enum': ['me', 'team'], 'description': 'create_monitor: who gets the in-app alert'},
+        'email': {'type': 'boolean', 'description': 'create_monitor: also email the business notification recipients'},
+        'notify_member': {'type': 'boolean', 'description': 'create_monitor: email the member/customer it is about'},
+        'hours': {'type': 'integer', 'description': 'create_monitor: stop after this many hours (empty = until paused)'},
+        'cooldown_minutes': {'type': 'integer', 'description': 'create_monitor: same device/voucher told once per this many minutes'},
+        'monitor_id': {'type': 'integer', 'description': 'pause_monitor / resume_monitor / delete_monitor'},
     }, ['kind'])
 
 
@@ -598,7 +660,8 @@ def specs(ctx):
             'name': 'propose_action',
             'description': 'Offer a change for the person to approve (freeze/unfreeze/warn/disable/enable a voucher, add_time, '
                            'reduce_time, reset_devices, block_device, unblock_device, disconnect_session, resolve_report, '
-                           'track_voucher, send_chat). It is NOT carried out: a card with “Take action” appears.',
+                           'track_voucher, send_chat, free_idle_slot, create_monitor, pause_monitor, resume_monitor, '
+                           'delete_monitor). It is NOT carried out: a card with “Take action” appears.',
             'parameters': propose_spec(ctx)}})
     return out
 

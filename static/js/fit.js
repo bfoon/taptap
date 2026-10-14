@@ -325,7 +325,7 @@
     b.innerHTML = '';
     if (!d.ready) {
       b.innerHTML = '<div class="fit-hello"><h3>Fit is almost ready</h3><p>' + (d.settings.can_manage
-        ? 'Add your Groq key to the server’s <code>.env</code> as <code>GROQ_API_KEY=…</code> and restart TapTap. Fit can already show you what needs attention:'
+        ? 'Add your Gemini key to the server’s <code>.env</code> as <code>GEMINI_API_KEY=…</code> and restart TapTap. Fit can already show you what needs attention:'
         : 'The business owner still needs to switch Fit on. Meanwhile, here is what needs attention:') + '</p></div>';
     } else if (!d.messages.length) {
       b.innerHTML = '<div class="fit-hello"><h3>Hi ' + esc(d.me.name) + ', I’m Fit.</h3><p>Ask me anything about your vouchers, agents, money or network. ' +

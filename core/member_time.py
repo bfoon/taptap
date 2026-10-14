@@ -56,21 +56,27 @@ def rebase(v, new_minutes, now=None):
     return {'duration_minutes': new_minutes, 'expires_at': start + timedelta(minutes=new_minutes + extra)}
 
 
-def expected_limit(v):
-    """The limit-uptime the router should have for this member ('0s' = no limit)."""
+def plan_minutes(v):
+    """The member's TapTap time in minutes for display (0 = no limit) — the wall-clock period."""
     if not v.duration_minutes and not v.expires_at:
-        return UNLIMITED_ROUTEROS
+        return 0
     start = start_of(v)
     if v.expires_at and start:
-        return routeros(max(1, _minutes(v.expires_at - start)))
-    return routeros(int(v.duration_minutes))
+        return max(1, _minutes(v.expires_at - start))
+    return int(v.duration_minutes)
 
 
-def router_matches(v, router_limit_text):
-    """Does the router's limit-uptime equal the member's plan time? (within a minute)"""
-    have = parse_routeros(router_limit_text or '', 0) or 0
-    want = parse_routeros(expected_limit(v), 0) or 0
-    return abs(have - want) <= 1
+def expected_limit(v, uptime=None):
+    """The limit-uptime the router should have for this member now ('0s' = no limit).
+    Includes the time the router already counted and the device slots (core/router_time.py)."""
+    from .router_time import limit_for
+    return limit_for(v, uptime=uptime)
+
+
+def router_matches(v, router_limit_text, uptime_text=None):
+    """Does the router's limit-uptime agree with the member's TapTap time? (core/router_time.acceptable)"""
+    from .router_time import acceptable
+    return acceptable(v, router_limit_text, uptime_text)
 
 
 def describe_change(v, updates, now=None):

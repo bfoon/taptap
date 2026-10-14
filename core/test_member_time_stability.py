@@ -82,8 +82,10 @@ class MemberTimeStabilityTests(TestCase):
         )
 
     def test_generic_duration_sender_uses_exact_member_clock(self):
+        # 7 devices: the router must allow up to 7 × the member's time (their sessions add up on the router)
+        from .router_time import secs
         want = expected_limit(self.member)
-        self.assertEqual(want, "30d2m")
+        self.assertGreater(secs(want), 6 * 30 * 86400)
         self.assertEqual(durations.router_limit(self.member), want)
 
     def test_sync_early_bound_alias_is_replaced_too(self):
@@ -123,7 +125,7 @@ class MemberTimeStabilityTests(TestCase):
             status="queued",
         )
         self.assertEqual(cmd.params["users"][0]["n"], self.member.code)
-        self.assertEqual(cmd.params["users"][0]["lim"], "30d2m")
+        self.assertEqual(cmd.params["users"][0]["lim"], expected_limit(self.member))
         self.assertEqual(
             cmd.params["users"][0]["prof"],
             self.plan.router_profile_name,
@@ -143,7 +145,8 @@ class MemberTimeStabilityTests(TestCase):
             router=self.router,
             username=self.member.code,
             profile=self.plan.router_profile_name,
-            limit_uptime="30d2m",
+            limit_uptime=expected_limit(self.member, uptime=3600),
+            uptime="1h",
             source="taptap",
             is_present=True,
         )

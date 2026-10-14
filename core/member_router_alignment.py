@@ -170,11 +170,15 @@ def _direct_push(voucher, wanted):
 
         # Retry once with the smallest possible RouterOS write. This catches
         # devices where an upsert/profile update succeeded but limit-uptime was
-        # left behind.
+        # left behind. The limit is recomputed with the uptime the router itself
+        # just reported (core/router_time.py), so it can never cut the member early.
+        have_uptime = str(row.get("uptime", "") or "")
         if (
-            not router_matches(voucher, have_limit)
+            not router_matches(voucher, have_limit, have_uptime)
             or have_profile != wanted["profile"]
         ):
+            from .router_time import limit_for, secs
+            wanted["limit"] = limit_for(voucher, uptime=secs(have_uptime))
             users.set(
                 id=item_id,
                 limit_uptime=wanted["limit"],
@@ -200,7 +204,7 @@ def _direct_push(voucher, wanted):
             )
             have_profile = str(row.get("profile", "") or "")
 
-        if not router_matches(voucher, have_limit):
+        if not router_matches(voucher, have_limit, str(row.get("uptime", "") or have_uptime)):
             raise RuntimeError(
                 "MikroTik still reports "
                 f"limit-uptime={have_limit or '0s'}; "

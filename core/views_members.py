@@ -648,9 +648,9 @@ def router_view(business, vouchers):
             and u.profile != expected_profile
         )
 
-        from .member_time import expected_limit, router_matches
-        time_mismatch = not unlimited and not router_matches(v, u.limit_uptime)   # e.g. 1 month plan, router says no limit
-        want = parse_routeros(expected_limit(v), 0) or 0
+        from .member_time import plan_minutes, router_matches
+        time_mismatch = not unlimited and not router_matches(v, u.limit_uptime, u.uptime)   # e.g. router would cut early
+        want = plan_minutes(v)
         out[v.pk] = {
             'time_mismatch': time_mismatch,
             'expected_time': mtext(want) if want else 'no limit',

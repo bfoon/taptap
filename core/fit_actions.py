@@ -38,7 +38,12 @@ GROUPS = {
     'tracking': ('Tracking', 'Follow a voucher so you are told when something happens to it'),
     'chat': ('Chat', 'Send chat messages you approved to your team or TapTap support'),
     'tests': ('Network tests', 'Run ping, DNS, website, traceroute and speed tests from your routers'),
+    'monitors': ('Monitors', 'Set up standing watches (slots full, sharing, heavy users, drops, routers) that alert '
+                             'you or the member, and may free an idle slot or disconnect extra devices'),
 }
+
+
+MONITOR_PERMS = ('vouchers.support', 'settings.manage', 'network.manage')
 
 
 class FitActionError(ValueError):
@@ -380,6 +385,167 @@ def _do_chat(business, p, user):
     return f'Message sent to {name}.'
 
 
+# ─────────────────────────────── monitors ───────────────────────────────
+
+def _bool(v):
+    return v is True or str(v).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _num(a, key, lo, hi, kind=int):
+    v = a.get(key)
+    if v in (None, ''):
+        return None
+    try:
+        n = kind(v)
+    except (TypeError, ValueError):
+        raise FitActionError(f'{key} must be a number.')
+    if not lo <= n <= hi:
+        raise FitActionError(f'{key} must be between {lo} and {hi}.')
+    return n
+
+
+def _check_create_monitor(business, a):
+    from .fit_monitors import KINDS as MK, _names
+    from .models_fit import FitMonitor
+    kind = str(a.get('monitor_kind') or '').strip()
+    if kind not in MK:
+        raise FitActionError(f'Which monitor? One of: {", ".join(MK)}.')
+    label, _, defaults, responses = MK[kind]
+    params = dict(defaults)
+    plans, codes = _names(a.get('plans')), [c.replace(' ', '') for c in _names(a.get('codes'))]
+    if plans:
+        known = {p.lower(): p for p in business.plans.values_list('name', flat=True)}
+        try:
+            from .models_member_plans import MemberPlan
+            known.update({p.lower(): p for p in MemberPlan.objects.filter(business=business).values_list('name', flat=True)})
+        except Exception:
+            pass
+        known.update({p.lower(): p for p in business.vouchers.exclude(plan_name='').values_list('plan_name', flat=True).distinct()[:500]})
+        bad = [p for p in plans if p.lower() not in known]
+        if bad:
+            raise FitActionError(f'No plan called {", ".join(bad)}. Plans: {", ".join(sorted(set(known.values()))[:25])}.')
+        params['plans'] = [known[p.lower()] for p in plans]
+    if codes:
+        found = {c.upper(): c for c in business.vouchers.filter(code__in=codes).values_list('code', flat=True)}
+        found.update({c.upper(): c for c in business.vouchers.filter(code__iregex=r'^(' + '|'.join(map(re.escape, codes)) + ')$')
+                      .values_list('code', flat=True)})
+        bad = [c for c in codes if c.upper() not in found]
+        if bad:
+            raise FitActionError(f'No voucher or member {", ".join(bad)} in {business.business_name}.')
+        params['codes'] = [found[c.upper()] for c in codes]
+    if kind == 'voucher_online' and not codes:
+        raise FitActionError('Which voucher or member should I watch? Give its code.')
+    if _bool(a.get('members_only')):
+        params['members_only'] = True
+    for key, lo, hi, cast in (('threshold', 1, 10000, float), ('minutes', 1, 1440, int), ('days', 1, 60, int),
+                              ('min_users', 1, 10000, int), ('min_idle_minutes', 0, 1440, int)):
+        n = _num(a, key, lo, hi, cast)
+        if n is not None:
+            params[key] = n
+    if 'once' in a:
+        params['once'] = _bool(a.get('once'))
+    routers = []
+    for r in _names(a.get('routers')):
+        hit = business.routers.filter(pk=int(r)).first() if r.isdigit() else business.routers.filter(name__iexact=r).first()
+        if not hit:
+            raise FitActionError(f'No router “{r}”.')
+        routers.append(hit.pk)
+    if routers:
+        params['routers'] = routers
+    response = str(a.get('response') or responses[0]).strip()
+    if response not in responses:
+        raise FitActionError(f'A “{label}” monitor can only: {", ".join(dict(FitMonitor.RESPONSES)[r] for r in responses)}.')
+    hours = _num(a, 'hours', 1, 24 * 90, int)
+    audience = 'team' if str(a.get('audience') or '').lower() in ('team', 'everyone', 'all') else 'me'
+    name = (str(a.get('name') or '').strip() or (label + (f' — {", ".join(params.get("plans") or params.get("codes") or [])}'
+                                                      if params.get('plans') or params.get('codes') else '')))[:120]
+    p = {'monitor_kind': kind, 'name': name, 'params': params, 'response': response, 'audience': audience,
+         'email': _bool(a.get('email')), 'notify_member': _bool(a.get('notify_member')),
+         'cooldown_minutes': _num(a, 'cooldown_minutes', 1, 1440, int) or 30, 'hours': hours}
+    fake = FitMonitor(business=business, kind=kind, params=params, response=response, audience=audience,
+                      email=p['email'], notify_member=p['notify_member'])
+    from .fit_monitors import describe
+    detail = describe(fake) + (f'. Stops after {hours} h.' if hours else '. Runs until you pause it.')
+    if response == 'free_slot':
+        detail += ' Only a device that is offline and unused is ever removed.'
+    return p, f'Monitor: {name}', detail, reverse('fit_monitors_page')
+
+
+def _do_create_monitor(business, p, user):
+    from .models_fit import FitMonitor
+    m = FitMonitor.objects.create(business=business, created_by=user, name=p['name'], kind=p['monitor_kind'], params=p['params'],
+                                  response=p['response'], audience=p['audience'], email=p['email'], notify_member=p['notify_member'],
+                                  cooldown_minutes=p['cooldown_minutes'], source='fit',
+                                  expires_at=timezone.now() + timedelta(hours=p['hours']) if p.get('hours') else None)
+    return f'Monitor #{m.pk} “{m.name}” is watching now. See it under Monitors.'
+
+
+def _monitor(business, a):
+    from .models_fit import FitMonitor
+    try:
+        pk = int(a.get('monitor_id'))
+    except (TypeError, ValueError):
+        raise FitActionError('Which monitor? Give its number (monitor_id).')
+    m = FitMonitor.objects.filter(business=business, pk=pk).first()
+    if not m:
+        raise FitActionError(f'There is no monitor #{pk} in {business.business_name}.')
+    return m
+
+
+def _check_pause_monitor(business, a):
+    m = _monitor(business, a)
+    return {'monitor_id': m.pk}, f'Pause monitor “{m.name}”', 'It stops watching until resumed.', reverse('fit_monitors_page')
+
+
+def _do_pause_monitor(business, p, user):
+    m = _monitor(business, p)
+    m.active = False
+    m.save(update_fields=['active'])
+    return f'Monitor “{m.name}” paused.'
+
+
+def _check_resume_monitor(business, a):
+    m = _monitor(business, a)
+    return {'monitor_id': m.pk}, f'Resume monitor “{m.name}”', 'It starts watching again.', reverse('fit_monitors_page')
+
+
+def _do_resume_monitor(business, p, user):
+    m = _monitor(business, p)
+    m.active, m.expires_at = True, (None if m.expires_at and m.expires_at <= timezone.now() else m.expires_at)
+    m.save(update_fields=['active', 'expires_at'])
+    return f'Monitor “{m.name}” is watching again.'
+
+
+def _check_delete_monitor(business, a):
+    m = _monitor(business, a)
+    return {'monitor_id': m.pk}, f'Delete monitor “{m.name}”', f'{m.hits} alert(s) so far; its log is kept.', reverse('fit_monitors_page')
+
+
+def _do_delete_monitor(business, p, user):
+    m = _monitor(business, p)
+    name = m.name
+    m.delete()
+    return f'Monitor “{name}” deleted.'
+
+
+def _check_free_idle_slot(business, a):
+    from .fit_monitors import idle_binding
+    v = _voucher(business, a.get('code'))
+    b = idle_binding(v, _num(a, 'min_idle_minutes', 0, 1440, int) or 20)
+    if b is None:
+        raise FitActionError(f'{v.code} has no idle slot: every locked device is online or was used in the last minutes.')
+    return {'code': v.code, 'binding': b.pk, 'reason': _reason(a, 'Freed an idle slot with Fit')}, \
+        f'Free one idle slot on {v.code}', f'Removes {b.label or b.current_mac or "slot " + str(b.slot_no)} (slot {b.slot_no}, not online). ' \
+        'The other devices stay connected.', f'/vouchers/{v.pk}/'
+
+
+def _do_free_idle_slot(business, p, user):
+    from .shared_voucher_device_control import remove_one
+    v = _voucher(business, p['code'])
+    ok, result = remove_one(v, p['binding'], user=user)
+    return f'{v.code}: {result}'
+
+
 # ─────────────────────────────── registry ───────────────────────────────
 # kind: (group, permissions (any of), check(business, args) -> (params, title, detail, link), do(business, params, user), danger)
 KINDS = {
@@ -397,6 +563,11 @@ KINDS = {
     'resolve_report': ('reports', ('vouchers.support', 'vouchers.view'), _check_resolve, _do_resolve, 'ok'),
     'track_voucher': ('tracking', ('vouchers.view', 'vouchers.support', 'vouchers.create', 'plans.manage'), _check_track, _do_track, 'ok'),
     'send_chat': ('chat', (), _check_chat, _do_chat, 'ok'),
+    'create_monitor': ('monitors', MONITOR_PERMS, _check_create_monitor, _do_create_monitor, 'ok'),
+    'pause_monitor': ('monitors', MONITOR_PERMS, _check_pause_monitor, _do_pause_monitor, 'ok'),
+    'resume_monitor': ('monitors', MONITOR_PERMS, _check_resume_monitor, _do_resume_monitor, 'ok'),
+    'delete_monitor': ('monitors', MONITOR_PERMS, _check_delete_monitor, _do_delete_monitor, 'warn'),
+    'free_idle_slot': ('devices', ('vouchers.support',), _check_free_idle_slot, _do_free_idle_slot, 'warn'),
 }
 
 

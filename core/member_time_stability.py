@@ -185,7 +185,7 @@ def repair_member_drift(router):
         have_profile = str(mirror.profile or "")
         have_limit = str(mirror.limit_uptime or "")
 
-        time_ok = router_matches(voucher, have_limit)
+        time_ok = router_matches(voucher, have_limit, mirror.uptime)
         profile_ok = have_profile == wanted["profile"]
         if time_ok and profile_ok:
             continue
@@ -227,6 +227,11 @@ def _wrap_link_users_import(original):
                 summary["member_alignments_queued"] = (
                     int(summary.get("member_alignments_queued") or 0) + fixed
                 )
+            from .router_time import repair_link
+            timed = repair_link(router, now)
+            if timed:
+                summary = dict(summary or {})
+                summary["router_time_fixes_queued"] = timed
         except Exception as exc:
             logger.exception(
                 "Member drift check failed after inventory for %s",

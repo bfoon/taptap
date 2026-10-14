@@ -76,3 +76,75 @@ class FitAction(models.Model):
 
     def __str__(self):
         return f'{self.title} ({self.get_status_display()})'
+
+
+class FitMonitor(models.Model):
+    """A standing task: Fit watches something for you and alerts — and, if you chose, acts.
+
+    Event monitors react the moment something happens (a device refused because the slots are full);
+    state monitors are checked every live cycle (core/fit_monitors.py). Created from a Fit conversation
+    (after the person approved the card) or from the Monitors page.
+    """
+    KINDS = [
+        ('slot_refused', 'A new device is refused because all slots are full'),
+        ('slot_filled', 'A voucher or member fills its last device slot'),
+        ('idle_slots', 'Free slots held by devices that have not been seen for days'),
+        ('voucher_online', 'A voucher or member comes online'),
+        ('sharing', 'More devices online on one voucher than it allows'),
+        ('heavy_user', 'One customer downloads very fast for a long time'),
+        ('online_drop', 'Customers online suddenly drop on a router'),
+        ('router_offline', 'A router is offline'),
+    ]
+    RESPONSES = [
+        ('notify', 'Only tell me'),
+        ('free_slot', 'Free one idle slot (the new device gets in)'),
+        ('disconnect', 'Disconnect the extra device'),
+    ]
+    AUDIENCES = [('me', 'Only me'), ('team', 'The whole team')]
+
+    business = models.ForeignKey('core.Business', on_delete=models.CASCADE, related_name='fit_monitors')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    name = models.CharField(max_length=120)
+    kind = models.CharField(max_length=20, choices=KINDS)
+    # plans [names], codes [codes], routers [ids], members_only, threshold, minutes, days, min_idle_minutes, once…
+    params = models.JSONField(default=dict, blank=True)
+    response = models.CharField(max_length=12, choices=RESPONSES, default='notify')
+    audience = models.CharField(max_length=6, choices=AUDIENCES, default='me')
+    email = models.BooleanField(default=False, help_text='Also email the business notification recipients')
+    notify_member = models.BooleanField(default=False, help_text='Email the member / customer when it is about their account')
+    cooldown_minutes = models.PositiveSmallIntegerField(default=30)
+    active = models.BooleanField(default=True)
+    expires_at = models.DateTimeField(null=True, blank=True, help_text='Stop watching after this time (empty = until paused)')
+    source = models.CharField(max_length=10, default='fit')
+    hits = models.PositiveIntegerField(default=0)
+    firing = models.BooleanField(default=False)
+    state = models.JSONField(default=dict, blank=True, help_text='What is true right now (so each thing is told once)')
+    last_fired_at = models.DateTimeField(null=True, blank=True)
+    last_checked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-active', '-created_at']
+        indexes = [models.Index(fields=['business', 'kind', 'active'], name='fitmon_biz_kind_idx')]
+
+    def __str__(self):
+        return self.name
+
+
+class FitMonitorEvent(models.Model):
+    """One thing a monitor saw (and what it did about it) — the monitor's log and Fit's memory of it."""
+    business = models.ForeignKey('core.Business', on_delete=models.CASCADE, related_name='fit_monitor_events')
+    monitor = models.ForeignKey(FitMonitor, on_delete=models.SET_NULL, null=True, blank=True, related_name='events')
+    kind = models.CharField(max_length=20, blank=True)
+    title = models.CharField(max_length=160)
+    body = models.CharField(max_length=500, blank=True)
+    link = models.CharField(max_length=200, blank=True)
+    voucher_code = models.CharField(max_length=64, blank=True)
+    mac = models.CharField(max_length=32, blank=True)
+    action = models.CharField(max_length=20, blank=True, help_text='admitted, freed_slot, disconnected, nothing_idle…')
+    result = models.CharField(max_length=300, blank=True)
+    member_emailed = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']

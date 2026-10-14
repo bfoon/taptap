@@ -168,4 +168,5 @@ urlpatterns = [
     path('fit/state/',vfit.fit_state,name='fit_state'), path('fit/ask/',vfit.fit_ask,name='fit_ask'),
     path('fit/action/<int:pk>/',vfit.fit_action,name='fit_action'), path('fit/settings/',vfit.fit_settings,name='fit_settings'),
     path('fit/new/',vfit.fit_new,name='fit_new'),
+    path('fit/monitors/',vfit.fit_monitors_page,name='fit_monitors_page'), path('fit/monitors/<int:pk>/',vfit.fit_monitor_toggle,name='fit_monitor_toggle'),
 ]

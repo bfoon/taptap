@@ -198,3 +198,80 @@ def fit_new(request):
     b = _biz(request)
     conv = FitConversation.objects.create(business=b, user=request.user)
     return JsonResponse({'ok': True, 'conversation': conv.pk})
+
+
+# ─────────────────────────────── Monitors page ───────────────────────────────
+VIEW_MONITOR_PERMS = ('vouchers.view', 'vouchers.support', 'network.manage', 'settings.manage')
+
+
+def _can_change_monitors(request):
+    return getattr(request, 'tt_role', None) == 'owner' or any(p in _perms(request) for p in fit_actions.MONITOR_PERMS)
+
+
+@login_required
+def fit_monitors_page(request):
+    """Standing watches: list, create (same checks as Fit's proposal), and their log."""
+    from django.contrib import messages
+    from django.shortcuts import redirect, render
+    from . import fit_monitors
+    from .models_fit import FitMonitor, FitMonitorEvent
+    b = _biz(request)
+    if not (getattr(request, 'tt_role', None) == 'owner' or any(p in _perms(request) for p in VIEW_MONITOR_PERMS)):
+        raise Http404
+    can_change = _can_change_monitors(request)
+    if request.method == 'POST':
+        if not can_change:
+            raise Http404
+        data = {k: v for k, v in request.POST.items() if k != 'csrfmiddlewaretoken' and v not in ('', None)}
+        for flag in ('email', 'notify_member', 'members_only', 'once'):
+            data[flag] = flag in request.POST
+        try:
+            params, *_ = fit_actions._check_create_monitor(b, data)
+            msg = fit_actions._do_create_monitor(b, params, request.user)
+            from .utils import log
+            log(b, 'Monitor', msg)
+            messages.success(request, msg)
+        except fit_actions.FitActionError as exc:
+            messages.error(request, str(exc))
+        return redirect('fit_monitors_page')
+    monitors = list(FitMonitor.objects.filter(business=b).select_related('created_by'))
+    for m in monitors:
+        m.what = fit_monitors.describe(m)
+        m.live = m.active and not (m.expires_at and m.expires_at <= timezone.now())
+    events = FitMonitorEvent.objects.filter(business=b).select_related('monitor')[:60]
+    kinds = [{'key': k, 'label': v[0], 'needs': v[1], 'responses': v[3]} for k, v in fit_monitors.KINDS.items()]
+    plans = sorted(set(b.plans.values_list('name', flat=True)) | set(
+        b.vouchers.exclude(plan_name='').values_list('plan_name', flat=True).distinct()[:200]))
+    return render(request, 'core/fit_monitors.html', {
+        'monitors': monitors, 'events': events, 'kinds': kinds, 'plans': plans, 'routers': b.routers.all(),
+        'can_change': can_change, 'responses': FitMonitor.RESPONSES,
+        'slots': fit_monitors.slots_report(b)['plans'][:12]})
+
+
+@login_required
+@require_POST
+def fit_monitor_toggle(request, pk):
+    from django.contrib import messages
+    from django.shortcuts import redirect
+    from . import fit_monitors
+    from .models_fit import FitMonitor
+    b = _biz(request)
+    if not _can_change_monitors(request):
+        raise Http404
+    m = get_object_or_404(FitMonitor, business=b, pk=pk)
+    op = request.POST.get('op')
+    if op == 'pause':
+        m.active = False; m.save(update_fields=['active']); messages.success(request, f'“{m.name}” paused.')
+    elif op == 'resume':
+        m.active = True
+        if m.expires_at and m.expires_at <= timezone.now():
+            m.expires_at = None
+        m.save(update_fields=['active', 'expires_at']); messages.success(request, f'“{m.name}” is watching again.')
+    elif op == 'delete':
+        name = m.name; m.delete(); messages.success(request, f'“{name}” deleted.')
+    elif op == 'test':
+        r = fit_monitors.dry_run(m)
+        n = r.get('full_now', r.get('true_now', r.get('would_free', 0)))
+        ex = ', '.join(str(x if not isinstance(x, dict) else x.get('code')) for x in (r.get('examples') or [])[:6])
+        messages.info(request, f'Test of “{m.name}”: {n} match{"es" if n != 1 else ""} right now' + (f' — {ex}' if ex else '') + '. Nothing was sent or changed.')
+    return redirect('fit_monitors_page')

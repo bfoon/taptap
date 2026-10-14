@@ -35,6 +35,7 @@ EVENTS = OrderedDict([
     ('traffic_guard', ('Traffic guard triggers', 'A port reached its speed limit and was slowed down or switched off.', 'instant', 'warning', 'Network')),
     ('rule_alert', ('Business alerts (your rules)', 'Alerts from the rules you set on the Alerts page that have email ticked: stock, sales, routers, agents…', 'instant', 'warning', 'Hotspot')),
     ('voucher_report', ('A customer sent a voucher to check', 'A customer used “Send this voucher to staff” on the online portal.', 'instant', 'warning', 'Hotspot')),
+    ('fit_monitor', ('Monitors (Fit)', 'Standing watches set up with Fit: slots full and devices refused, idle slots freed, sharing, heavy users, drops…', 'instant', 'warning', 'Hotspot')),
     ('voucher_shared', ('Voucher used on too many devices', 'A voucher was seen on more devices than its plan allows (and warned, if automatic).', 'instant', 'warning', 'Hotspot')),
     ('session_enforced', ('Expired voucher disconnected', 'Automatic fixes of sessions whose voucher ran out or was disabled.', 'digest', 'info', 'Hotspot')),
     ('sync_failed', ('Router sync fails', 'A full synchronisation could not finish.', 'instant', 'warning', 'Routers')),
@@ -47,7 +48,7 @@ EVENTS = OrderedDict([
     ('subscription', ('TapTap subscription ending', 'Reminder 3 days and 1 day before your subscription ends.', 'instant', 'warning', 'Business')),
 ])
 COOLDOWN_MIN = {'router_offline': 15, 'router_online': 15, 'device_offline': 30, 'device_online': 30, 'link_ip_change': 360,
-                'link_rejected': 60, 'traffic_guard': 30, 'stock_low': 1440, 'subscription': 1440}
+                'link_rejected': 60, 'fit_monitor': 5, 'traffic_guard': 30, 'stock_low': 1440, 'subscription': 1440}
 SEVERITY_COLOR = {'critical': '#d64545', 'warning': '#f59e0b', 'info': '#1769e0', 'good': '#18a66a'}
 
 

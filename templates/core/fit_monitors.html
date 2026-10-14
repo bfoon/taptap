@@ -1,0 +1,93 @@
+{% extends 'core/base.html' %}{% load taptap_extras %}
+{% block title %}Monitors — TapTap{% endblock %}{% block heading %}Monitors{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <div><h2 class="section-title mb-1">🤖 Standing watches</h2>
+    <p class="text-secondary m-0">Fit watches these for you, rings the bell (and emails, if ticked) and — when you chose it — acts on its own.
+      Tip: just ask Fit, e.g. <i>“Watch plans Gold and Family: when all slots are full and a new phone is refused, free an idle slot and email the member.”</i></p></div>
+  <a class="btn btn-outline-secondary" href="{% url 'alerts' %}?f=business"><i class="bi bi-bell"></i> All alerts</a>
+</div>
+{% if messages %}{% for m in messages %}<div class="alert alert-{% if m.tags == 'error' %}danger{% elif m.tags == 'success' %}success{% else %}info{% endif %} py-2 small">{{ m }}</div>{% endfor %}{% endif %}
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <section class="panel mb-3">
+      <h3 class="h6 fw-bold mb-2">Your monitors</h3>
+      {% for m in monitors %}
+      <div class="d-flex gap-3 align-items-start border-bottom py-2 {% if not m.live %}opacity-50{% endif %}">
+        <span class="fs-4">{% if m.kind == 'slot_refused' or m.kind == 'slot_filled' or m.kind == 'idle_slots' %}🔒{% elif m.kind == 'sharing' %}👥{% elif m.kind == 'heavy_user' %}🚀{% elif m.kind == 'online_drop' %}📉{% elif m.kind == 'router_offline' %}📡{% else %}👀{% endif %}</span>
+        <div class="flex-grow-1">
+          <b>#{{ m.pk }} {{ m.name }}</b>{% if m.firing %} <span class="badge text-bg-warning">true now</span>{% endif %}{% if not m.live %} <span class="badge text-bg-secondary">{% if m.active %}ended{% else %}paused{% endif %}</span>{% endif %}
+          <small class="d-block text-secondary">{{ m.what }}</small>
+          <small class="text-secondary">{{ m.hits }} alert{{ m.hits|pluralize }}{% if m.last_fired_at %} · last {{ m.last_fired_at|date:"d M H:i" }}{% endif %}{% if m.expires_at %} · until {{ m.expires_at|date:"d M H:i" }}{% endif %} · by {{ m.created_by.first_name|default:m.created_by.username|default:"—" }}{% if m.source == 'fit' %} with Fit{% endif %}</small>
+        </div>
+        {% if can_change %}<form method="post" action="{% url 'fit_monitor_toggle' m.pk %}" class="d-flex gap-1 flex-wrap justify-content-end">{% csrf_token %}
+          <button class="btn btn-sm btn-outline-secondary" name="op" value="test" title="What would it catch right now?"><i class="bi bi-eye"></i></button>
+          {% if m.active %}<button class="btn btn-sm btn-outline-secondary" name="op" value="pause" title="Pause"><i class="bi bi-pause"></i></button>
+          {% else %}<button class="btn btn-sm btn-outline-success" name="op" value="resume" title="Resume"><i class="bi bi-play"></i></button>{% endif %}
+          <button class="btn btn-sm btn-outline-danger" name="op" value="delete" title="Delete" onclick="return confirm('Delete this monitor?')"><i class="bi bi-trash"></i></button>
+        </form>{% endif %}
+      </div>
+      {% empty %}<p class="text-secondary small mb-0">No monitors yet. Ask Fit, or add one on the right.</p>{% endfor %}
+    </section>
+
+    <section class="panel">
+      <h3 class="h6 fw-bold mb-2">What they saw and did</h3>
+      <div class="table-responsive"><table class="table table-sm align-middle small mb-0"><tbody>
+      {% for e in events %}
+        <tr><td class="text-nowrap text-secondary">{{ e.created_at|date:"d M H:i" }}</td>
+          <td><b>{% if e.link %}<a href="{{ e.link }}" class="text-decoration-none">{{ e.title }}</a>{% else %}{{ e.title }}{% endif %}</b>
+            {% if e.body %}<div class="text-secondary">{{ e.body }}</div>{% endif %}
+            {% if e.result %}<div>→ {{ e.result }}</div>{% endif %}</td>
+          <td class="text-nowrap">{% if e.action == 'admitted' %}<span class="badge text-bg-success">let in</span>{% elif e.action == 'freed_slot' %}<span class="badge text-bg-info">slot freed</span>{% elif e.action == 'disconnected' %}<span class="badge text-bg-danger">disconnected</span>{% elif e.action == 'nothing_idle' %}<span class="badge text-bg-warning">all online</span>{% else %}<span class="badge text-bg-light">told</span>{% endif %}
+            {% if e.member_emailed %}<span class="badge text-bg-light">✉️ member</span>{% endif %}</td></tr>
+      {% empty %}<tr><td class="text-secondary">Nothing yet.</td></tr>{% endfor %}
+      </tbody></table></div>
+    </section>
+  </div>
+
+  <div class="col-lg-5">
+    <section class="panel mb-3">
+      <h3 class="h6 fw-bold mb-2">Slots right now</h3>
+      <div class="table-responsive"><table class="table table-sm small mb-0"><thead><tr><th>Plan</th><th class="text-end">Active</th><th class="text-end">Full</th><th class="text-end">Refused today</th></tr></thead><tbody>
+      {% for r in slots %}<tr><td>{{ r.plan }}{% if r.full_codes %}<div class="text-secondary">{{ r.full_codes|join:", " }}</div>{% endif %}</td><td class="text-end">{{ r.active }}</td>
+        <td class="text-end {% if r.full %}fw-bold{% endif %}">{{ r.full }}</td><td class="text-end {% if r.refused_today %}text-danger fw-bold{% endif %}">{{ r.refused_today }}</td></tr>
+      {% empty %}<tr><td colspan="4" class="text-secondary">No active vouchers.</td></tr>{% endfor %}
+      </tbody></table></div>
+    </section>
+
+    {% if can_change %}
+    <section class="panel">
+      <h3 class="h6 fw-bold mb-2">Add a monitor</h3>
+      <form method="post" class="row g-2 small">{% csrf_token %}
+        <div class="col-12"><label class="form-label fw-semibold">Watch for</label>
+          <select class="form-select form-select-sm" name="monitor_kind" id="monKind" required>{% for k in kinds %}<option value="{{ k.key }}" data-responses="{{ k.responses|join:',' }}">{{ k.label }}</option>{% endfor %}</select>
+          <div class="form-text" id="monNeeds"></div></div>
+        <div class="col-12"><label class="form-label fw-semibold">Name</label><input class="form-control form-control-sm" name="name" maxlength="120" placeholder="optional"></div>
+        <div class="col-md-6"><label class="form-label fw-semibold">Plans</label><input class="form-control form-control-sm" name="plans" list="monPlans" placeholder="e.g. Gold, Family (empty = all)"><datalist id="monPlans">{% for p in plans %}<option value="{{ p }}">{% endfor %}</datalist></div>
+        <div class="col-md-6"><label class="form-label fw-semibold">Codes</label><input class="form-control form-control-sm" name="codes" placeholder="voucher / member codes"></div>
+        <div class="col-md-6"><label class="form-label fw-semibold">Routers</label><input class="form-control form-control-sm" name="routers" list="monRouters" placeholder="empty = all"><datalist id="monRouters">{% for r in routers %}<option value="{{ r.name }}">{% endfor %}</datalist></div>
+        <div class="col-md-6"><label class="form-label fw-semibold">Then</label><select class="form-select form-select-sm" name="response" id="monResp">{% for k, l in responses %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select></div>
+        <div class="col-4"><label class="form-label fw-semibold">Threshold</label><input class="form-control form-control-sm" type="number" step="any" name="threshold" placeholder="Mbit/s · %"></div>
+        <div class="col-4"><label class="form-label fw-semibold">Minutes</label><input class="form-control form-control-sm" type="number" name="minutes"></div>
+        <div class="col-4"><label class="form-label fw-semibold">Days</label><input class="form-control form-control-sm" type="number" name="days"></div>
+        <div class="col-6"><label class="form-label fw-semibold">Tell</label><select class="form-select form-select-sm" name="audience"><option value="me">Only me</option><option value="team">The whole team</option></select></div>
+        <div class="col-6"><label class="form-label fw-semibold">Stop after (hours)</label><input class="form-control form-control-sm" type="number" name="hours" placeholder="empty = keep"></div>
+        <div class="col-12 d-flex flex-wrap gap-3">
+          <label><input class="form-check-input" type="checkbox" name="email"> Email me too</label>
+          <label><input class="form-check-input" type="checkbox" name="notify_member"> Email the member</label>
+          <label><input class="form-check-input" type="checkbox" name="members_only"> Members only</label>
+          <label><input class="form-check-input" type="checkbox" name="once"> Only once</label>
+        </div>
+        <div class="col-12"><button class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> Start watching</button></div>
+      </form>
+      <script>(function(){var k=document.getElementById('monKind'),r=document.getElementById('monResp'),n=document.getElementById('monNeeds');
+        var needs={ {% for k in kinds %}'{{ k.key }}':'{{ k.needs|escapejs }}'{% if not forloop.last %},{% endif %}{% endfor %} };
+        function sync(){var ok=(k.options[k.selectedIndex].dataset.responses||'').split(',');n.textContent='Uses: '+(needs[k.value]||'');
+          Array.from(r.options).forEach(function(o){o.disabled=ok.indexOf(o.value)<0;});if(r.options[r.selectedIndex].disabled){r.value=ok[0];}}
+        k.addEventListener('change',sync);sync();})();</script>
+    </section>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

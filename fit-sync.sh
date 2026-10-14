@@ -8,7 +8,7 @@
 #   2. Makes the code exactly match GitHub (origin/<branch>) — .env, the database and
 #      other untracked files are NOT touched
 #   3. Checks that all Fit files are there and up to date
-#   4. Makes sure .env has GROQ_API_KEY and a fallback model Groq offers
+#   4. Makes sure .env has GEMINI_API_KEY and the Gemini main + Flash fallback models
 #   5. Rebuilds and restarts web / worker / live, waits for the site, runs migrations check
 #   6. Runs `manage.py fit_check`
 # Safe to run more than once.
@@ -69,11 +69,12 @@ green "Now at $(git log -1 --format='%h %s (%cd)' --date=format:'%d %b %H:%M')"
 step "3/6  Checking Fit files"
 MISSING=0
 for f in core/fit_ai.py core/fit_tools.py core/fit_actions.py core/views_fit.py core/models_fit.py \
-         core/migrations/0099_fit_ai.py core/management/commands/fit_check.py static/js/fit.js static/css/fit.css; do
+         core/migrations/0099_fit_ai.py core/migrations/0100_fit_monitors.py core/fit_monitors.py templates/core/fit_monitors.html \
+         core/management/commands/fit_check.py static/js/fit.js static/css/fit.css; do
   if [ -f "$f" ]; then :; else red "missing $f"; MISSING=1; fi
 done
 check() { if grep -q "$2" "$1" 2>/dev/null; then green "$3"; else red "$4"; MISSING=1; fi; }
-check core/fit_ai.py      "gpt-oss-20b"        "fit_ai.py: latest (correct fallback model, error reasons)" "fit_ai.py is an old version"
+check core/fit_ai.py      "GEMINI_FALLBACK_MODEL" "fit_ai.py: latest (Gemini, Flash fallback)"              "fit_ai.py is an old version (still Groq)"
 check core/views_fit.py   "Why:"               "views_fit.py: latest (owners see why a request failed)"      "views_fit.py is an old version"
 check core/management/commands/fit_check.py "full_request" "fit_check: latest (full-size test)"          "fit_check.py is an old version"
 check templates/core/base.html "ttFit"         "Fit is on every page"                                         "base.html does not load Fit"
@@ -88,24 +89,31 @@ fi
 # ───────────────────────── 4. .env ─────────────────────────
 step "4/6  Checking .env"
 touch .env
-if grep -qE '^GROQ_API_KEY=.+' .env; then
-  green "GROQ_API_KEY is set"
-  if grep -qE '^GROQ_API_KEY=["'"'"' ]|^GROQ_API_KEY=.*[ "'"'"']$' .env; then
-    yellow "GROQ_API_KEY has quotes or spaces around it — remove them: GROQ_API_KEY=gsk_..."
+if grep -qE '^GEMINI_API_KEY=.+' .env; then
+  green "GEMINI_API_KEY is set"
+  if grep -qE '^GEMINI_API_KEY=["'"'"' ]|^GEMINI_API_KEY=.*[ "'"'"']$' .env; then
+    yellow "GEMINI_API_KEY has quotes or spaces around it — remove them: GEMINI_API_KEY=AIza..."
   fi
 else
-  red "GROQ_API_KEY is missing in .env. Add a line:  GROQ_API_KEY=gsk_your_key   then run this script again."
+  red "GEMINI_API_KEY is missing in .env. Add a line:  GEMINI_API_KEY=AIza_your_key   then run this script again."
   exit 1
 fi
-if grep -qE '^GROQ_FALLBACK_MODEL=llama-3\.3-70b-versatile' .env; then
-  sed -i 's/^GROQ_FALLBACK_MODEL=.*/GROQ_FALLBACK_MODEL=openai\/gpt-oss-20b/' .env
-  green "Changed GROQ_FALLBACK_MODEL to openai/gpt-oss-20b (llama-3.3-70b-versatile is not offered for your key)"
-elif ! grep -qE '^GROQ_FALLBACK_MODEL=' .env; then
-  printf '\nGROQ_FALLBACK_MODEL=openai/gpt-oss-20b\n' >> .env
-  green "Added GROQ_FALLBACK_MODEL=openai/gpt-oss-20b"
+# Main model and Flash fallback (gemini-2.5-* shut down on 16 Oct 2026 — move off them)
+if grep -qE '^GEMINI_MODEL=gemini-2\.5-' .env; then
+  sed -i 's/^GEMINI_MODEL=.*/GEMINI_MODEL=gemini-3.1-pro-preview/' .env; green "Changed GEMINI_MODEL to gemini-3.1-pro-preview (Gemini 2.5 is retired)"
+elif ! grep -qE '^GEMINI_MODEL=' .env; then
+  printf '\nGEMINI_MODEL=gemini-3.1-pro-preview\n' >> .env; green "Added GEMINI_MODEL=gemini-3.1-pro-preview"
 else
-  green "$(grep -E '^GROQ_FALLBACK_MODEL=' .env)"
+  green "$(grep -E '^GEMINI_MODEL=' .env)"
 fi
+if grep -qE '^GEMINI_FALLBACK_MODEL=gemini-2\.5-' .env; then
+  sed -i 's/^GEMINI_FALLBACK_MODEL=.*/GEMINI_FALLBACK_MODEL=gemini-3.5-flash/' .env; green "Changed GEMINI_FALLBACK_MODEL to gemini-3.5-flash (Gemini 2.5 is retired)"
+elif ! grep -qE '^GEMINI_FALLBACK_MODEL=' .env; then
+  printf 'GEMINI_FALLBACK_MODEL=gemini-3.5-flash\n' >> .env; green "Added GEMINI_FALLBACK_MODEL=gemini-3.5-flash"
+else
+  green "$(grep -E '^GEMINI_FALLBACK_MODEL=' .env)"
+fi
+grep -qE '^GROQ_' .env && yellow "GROQ_* lines in .env are no longer used by Fit (safe to delete)."
 
 # ───────────────────────── 5. rebuild + restart ─────────────────────────
 step "5/6  Rebuilding and restarting TapTap"
@@ -128,7 +136,7 @@ else
 fi
 
 # ───────────────────────── 6. Fit check ─────────────────────────
-step "6/6  Checking Fit's connection to Groq"
+step "6/6  Checking Fit's connection to Gemini"
 $DC exec -T web python manage.py fit_check 2>&1 | grep -vE 'enabled|installed|aligned' || true
 
 echo

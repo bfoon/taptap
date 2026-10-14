@@ -125,7 +125,7 @@ MEMBER_ALLOWED = {
     # live chat: everyone in a business can chat (the views check who may see which conversation)
     'chat_page', 'chat_state', 'chat_history', 'chat_send', 'chat_read', 'chat_direct', 'chat_settings', 'chat_support_action',
     # Fit, the AI technician: every tool and action checks the person's own permissions (core/fit_tools.py, core/fit_actions.py)
-    'fit_state', 'fit_ask', 'fit_action', 'fit_new', 'fit_settings',
+    'fit_state', 'fit_ask', 'fit_action', 'fit_new', 'fit_settings', 'fit_monitors_page', 'fit_monitor_toggle',
 }
 
 # Landing pages tried in order when a member opens a page they can't use (e.g. the dashboard after login).

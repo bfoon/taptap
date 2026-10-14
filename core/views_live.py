@@ -77,6 +77,11 @@ def live_tick(request):
             ba.evaluate(business)
         except Exception:
             pass
+        try:
+            from .fit_monitors import evaluate as monitors_evaluate
+            monitors_evaluate(business)
+        except Exception:
+            pass
     try:
         esince = int(request.GET.get('esince') or 0)
     except ValueError:

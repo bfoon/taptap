@@ -100,9 +100,9 @@ def check(batch, live=False):
                 problems.append('disabled')
             if str(row.get('mac-address', '') or ANY_MAC).upper() not in ('', ANY_MAC):
                 problems.append('mac_lock')
-            if v.source == 'taptap':
-                lim = router_limit(v)
-                if lim and _secs(row.get('limit-uptime')) != _secs(lim):
+            if v.source == 'taptap' and 'used_on_router' not in problems:     # really in use: left alone
+                from .router_time import acceptable      # same drift test as every other sync path
+                if not acceptable(v, row.get('limit-uptime', ''), row.get('uptime', '')):
                     problems.append('limit')
         if v.pk in locked:
             problems.append('device_lock')

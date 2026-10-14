@@ -1,9 +1,17 @@
-"""Fit — TapTap AI technician. Groq primary; Google Gemini provider fallback.
+"""Fit — TapTap AI technician, powered by Google Gemini.
+
+The main model is a Gemini Pro model; a Gemini Flash model is the fallback when the main one is rate-limited,
+down, or not offered for the key. Both are reached through Gemini's OpenAI-compatible endpoint, so the chat
+messages and the tool-call schema stay the same as before.
 
 Environment:
- GROQ_API_KEY, GROQ_MODEL, GROQ_FALLBACK_MODEL, GROQ_BASE_URL
- GEMINI_API_KEY, GEMINI_MODEL, GEMINI_BASE_URL
- FIT_TIMEOUT (seconds), FIT_PROVIDER_COOLDOWN (seconds, default 60)
+ GEMINI_API_KEY                         (required — https://aistudio.google.com/apikey)
+ GEMINI_MODEL           default gemini-3.1-pro-preview
+ GEMINI_FALLBACK_MODEL  default gemini-3.5-flash
+ GEMINI_BASE_URL        default https://generativelanguage.googleapis.com/v1beta/openai
+ GEMINI_REASONING       default low   (thinking effort: low | medium | high)
+ FIT_MAX_TOKENS         default 4096  (Gemini counts its thinking in this budget)
+ FIT_TIMEOUT (seconds, default 60), FIT_PROVIDER_COOLDOWN (seconds, default 60)
 
 Business isolation and permissions are enforced by FitContext / fit_tools, not the AI provider.
 """
@@ -28,6 +36,10 @@ MAX_ROUNDS = 6
 MAX_TOOL_CALLS = 14
 HISTORY = 24
 RATE = (25, 300)
+PROVIDER = 'Gemini'
+DEFAULT_MODEL = 'gemini-3.1-pro-preview'
+DEFAULT_FALLBACK = 'gemini-3.5-flash'
+DEFAULT_BASE = 'https://generativelanguage.googleapis.com/v1beta/openai'
 
 
 class FitAIError(Exception):
@@ -35,138 +47,162 @@ class FitAIError(Exception):
 
 
 def api_key():
-    """Compatibility with existing Fit readiness check: either provider is enough."""
-    return os.getenv('GROQ_API_KEY', '').strip() or os.getenv('GEMINI_API_KEY', '').strip()
+    return os.getenv('GEMINI_API_KEY', '').strip()
+
+
+def base_url():
+    return os.getenv('GEMINI_BASE_URL', DEFAULT_BASE).strip().rstrip('/')
 
 
 def models():
-    """Groq model list, maintained for fit_check compatibility."""
-    main = os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b').strip()
-    fb = os.getenv('GROQ_FALLBACK_MODEL', 'openai/gpt-oss-20b').strip()
-    return list(dict.fromkeys(m for m in (main, fb) if m))
+    """[main Gemini model, Flash fallback] — duplicates and blanks removed."""
+    main = os.getenv('GEMINI_MODEL', DEFAULT_MODEL).strip()
+    fb = os.getenv('GEMINI_FALLBACK_MODEL', DEFAULT_FALLBACK).strip()
+    return list(dict.fromkeys(m.removeprefix('models/') for m in (main, fb) if m))
 
 
-def _providers():
-    groq_key = os.getenv('GROQ_API_KEY', '').strip()
-    gemini_key = os.getenv('GEMINI_API_KEY', '').strip()
-    result = []
-    if groq_key:
-        result.extend(('Groq', model, groq_key,
-                       os.getenv('GROQ_BASE_URL', 'https://api.groq.com/openai/v1').rstrip('/'))
-                      for model in models())
-    if gemini_key:
-        result.append(('Gemini', os.getenv('GEMINI_MODEL', 'gemini-2.5-flash').strip(), gemini_key,
-                       os.getenv('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta/openai').rstrip('/')))
-    return result
-
-
-def _request(provider, model, key, base, payload):
+def _body(model, payload):
     body = dict(payload, model=model)
-    if provider == 'Groq' and model.startswith('openai/gpt-oss'):
-        body['reasoning_effort'] = 'low'
-    req = urllib.request.Request(
-        base + '/chat/completions',
-        data=json.dumps(body).encode('utf-8'),
-        method='POST',
-        headers={
-            'Authorization': f'Bearer {key}',
-            'Content-Type': 'application/json',
-            'User-Agent': 'TapTap-Fit/1.1',
-        },
-    )
-    with urllib.request.urlopen(req, timeout=float(os.getenv('FIT_TIMEOUT', '45'))) as response:
-        return json.loads(response.read().decode('utf-8'))
+    # Gemini counts its thinking inside the output budget, and recommends its default temperature for Gemini 3
+    # (a low temperature can make it loop). Thinking stays light: Fit's answers are short and tool-driven.
+    body.pop('temperature', None)
+    if 'max_completion_tokens' in body:
+        body['max_tokens'] = body.pop('max_completion_tokens')
+    body.setdefault('reasoning_effort', os.getenv('GEMINI_REASONING', 'low').strip() or 'low')
+    return body
 
 
 def _post(model, payload):
-    """Legacy Groq caller used by manage.py fit_check."""
-    return _request('Groq', model, os.getenv('GROQ_API_KEY', '').strip(),
-                    os.getenv('GROQ_BASE_URL', 'https://api.groq.com/openai/v1').rstrip('/'), payload)
+    """One request to Gemini (OpenAI-compatible chat completions). Tests replace this function."""
+    req = urllib.request.Request(
+        base_url() + '/chat/completions',
+        data=json.dumps(_body(model, payload)).encode('utf-8'),
+        method='POST',
+        headers={
+            'Authorization': f'Bearer {api_key()}',
+            'Content-Type': 'application/json',
+            'User-Agent': 'TapTap-Fit/2.0',
+        },
+    )
+    with urllib.request.urlopen(req, timeout=float(os.getenv('FIT_TIMEOUT', '60'))) as response:
+        return json.loads(response.read().decode('utf-8'))
 
 
-def explain(exc, model='', provider='Groq'):
-    reason_name = provider
+def explain(exc, model='', provider=PROVIDER):
+    name = provider
     if isinstance(exc, urllib.error.HTTPError):
         detail = getattr(exc, '_fit_detail', '') or ''
         try:
             parsed = json.loads(detail)
+            if isinstance(parsed, list):          # Gemini sometimes wraps the error in a list
+                parsed = parsed[0] if parsed else {}
             msg = parsed.get('error', {}).get('message', '') or detail
         except (TypeError, ValueError, AttributeError):
             msg = detail
         msg = ' '.join(str(msg).split())[:220]
         code = exc.code
+        if code in (400, 401) and ('API key' in msg or 'API_KEY' in msg):
+            return f'{name} rejected its API key ({code}). Check GEMINI_API_KEY in .env.'
         if code == 401:
-            return f'{reason_name} rejected its API key (401). Check the provider key in .env.'
+            return f'{name} rejected its API key (401). Check GEMINI_API_KEY in .env.'
         if code == 403:
-            return f'{reason_name} refused access (403): {msg or "forbidden"}.'
+            return f'{name} refused access (403): {msg or "forbidden"}. Is the Generative Language API enabled for this key?'
         if code == 404:
-            return f'{reason_name} model “{model}” is unavailable (404). Check the configured model.'
+            return f'{name} model “{model}” is unavailable (404). Check GEMINI_MODEL / GEMINI_FALLBACK_MODEL.'
         if code == 413:
-            return f'{reason_name} request exceeds the model size limit (413).'
+            return f'{name} request exceeds the model size limit (413).'
         if code == 429:
-            return f'{reason_name} rate limit reached (429): {msg}.'
+            return f'{name} rate limit or quota reached (429): {msg}.'
         if code >= 500:
-            return f'{reason_name} is temporarily unavailable ({code}).'
-        return f'{reason_name} rejected request ({code}): {msg}'
+            return f'{name} is temporarily unavailable ({code}).'
+        return f'{name} rejected request ({code}): {msg}'
     reason = getattr(exc, 'reason', exc)
     if isinstance(reason, socket.gaierror):
-        return f'{reason_name} DNS resolution failed: {reason}.'
+        return f'{name} DNS resolution failed: {reason}.'
     if isinstance(reason, ssl.SSLError) or 'CERTIFICATE' in str(reason).upper():
-        return f'{reason_name} TLS/certificate error: {reason}.'
+        return f'{name} TLS/certificate error: {reason}.'
     if isinstance(reason, (TimeoutError, socket.timeout)) or 'timed out' in str(reason).lower():
-        return f'{reason_name} request timed out.'
-    return f'{reason_name} connection failed: {reason}'
+        return f'{name} request timed out.'
+    if isinstance(reason, ConnectionRefusedError):
+        return f'{name} connection refused: outbound HTTPS (port 443) looks blocked ({reason}).'
+    return f'{name} connection failed: {reason}'
 
 
-def _cooldown_key(provider, model):
-    return 'fit:ai:cooldown:' + provider.lower() + ':' + model
+def _cooldown_key(model):
+    return 'fit:ai:cooldown:gemini:' + model
 
 
 def complete(messages, tools):
-    """Use Groq first. On errors, try its second model, then Gemini.
+    """Ask the main Gemini model; on a rate limit, outage or unknown model, ask the Flash fallback.
 
-    Provider failure never executes tools, so repeated requests cannot duplicate actions.
-    The chat messages and tool-call schema remain OpenAI-compatible for both providers.
+    A provider failure never executes tools, so trying the next model cannot duplicate actions.
     """
-    providers = _providers()
-    if not providers:
-        raise FitAIError('Fit needs an AI API key. Configure GROQ_API_KEY or GEMINI_API_KEY on the server.')
-
-    payload = {'messages': messages, 'temperature': 0.2, 'max_completion_tokens': 1000}
+    if not api_key():
+        raise FitAIError('Fit needs a Gemini API key. Configure GEMINI_API_KEY on the server.')
+    chain = models()
+    payload = {'messages': messages, 'max_completion_tokens': int(os.getenv('FIT_MAX_TOKENS', '4096'))}
     if tools:
         payload.update(tools=tools, tool_choice='auto')
-    reasons = []
+    reasons = []          # (model, reason, was_rate_limited)
     cooldown = max(1, int(os.getenv('FIT_PROVIDER_COOLDOWN', '60')))
-    for provider, model, key, base in providers:
-        if not model:
-            continue
-        if cache.get(_cooldown_key(provider, model)):
-            reasons.append((provider, model, 'Temporarily in cooldown after an earlier rate limit or outage.'))
+    for i, model in enumerate(chain):
+        last = i == len(chain) - 1
+        if cache.get(_cooldown_key(model)) and not last:      # the last model is always tried
+            reasons.append((model, 'Temporarily in cooldown after an earlier rate limit or outage.', False))
             continue
         for attempt in range(2):
             try:
-                response = _request(provider, model, key, base, payload)
+                response = _post(model, payload)
                 if not response.get('choices'):
-                    raise ValueError('Provider returned no choices.')
+                    raise ValueError('Gemini returned no choices.')
                 return response
             except urllib.error.HTTPError as exc:
                 exc._fit_detail = exc.read().decode(errors='replace')[:600]
-                logger.warning('Fit %s %s HTTP %s: %s', provider, model, exc.code, exc._fit_detail)
-                if exc.code == 400 and 'tool_use_failed' in exc._fit_detail and attempt == 0:
+                logger.warning('Fit Gemini %s HTTP %s: %s', model, exc.code, exc._fit_detail)
+                wait = _retry_after(exc)
+                if exc.code == 429 and attempt == 0 and wait is not None and wait <= 5:
+                    time.sleep(wait)              # a short per-minute limit: wait it out on the same model
                     continue
-                reasons.append((provider, model, explain(exc, model, provider)))
+                reasons.append((model, explain(exc, model), exc.code == 429))
                 if exc.code in (429, 500, 502, 503, 504):
-                    cache.set(_cooldown_key(provider, model), True, timeout=cooldown)
+                    cache.set(_cooldown_key(model), True, timeout=max(cooldown, int(wait or 0)))
                 break
             except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
-                logger.warning('Fit %s %s unavailable: %r', provider, model, exc)
-                reasons.append((provider, model, explain(exc, model, provider)))
-                cache.set(_cooldown_key(provider, model), True, timeout=cooldown)
+                logger.warning('Fit Gemini %s unavailable: %r', model, exc)
+                reasons.append((model, explain(exc, model), False))
+                cache.set(_cooldown_key(model), True, timeout=cooldown)
                 break
 
-    err = FitAIError('Fit’s AI providers are temporarily unavailable. Please try again shortly.')
-    err.detail = ' · '.join(f'{provider}/{model}: {reason}' for provider, model, reason in reasons)
+    limited = any(r[2] for r in reasons)
+    err = FitAIError('Fit has had too many questions for a moment — wait a minute and ask again.' if limited
+                     else 'Fit’s AI (Gemini) is temporarily unavailable. Please try again shortly.')
+    # A rate limit on the main model is the real reason; never let a fallback's error hide it.
+    reasons.sort(key=lambda r: not r[2])
+    err.detail = ' · '.join(f'{model}: {reason}' for model, reason, _ in reasons)
     raise err
+
+
+def _retry_after(exc):
+    try:
+        value = (exc.headers or {}).get('retry-after')
+        return float(value) if value not in (None, '') else None
+    except (TypeError, ValueError, AttributeError):
+        return None
+
+
+def _tool_calls(raw):
+    """Normalise the model's tool calls. Gemini 3 attaches a thought signature to each call
+    (extra_content.google.thought_signature); it MUST be sent back with the call, or the next
+    request is refused (400), so it is kept here and stored with the message."""
+    out = []
+    for c in raw or []:
+        fn = c.get('function') or {}
+        call = {'id': c.get('id') or f'call_{len(out)}', 'type': 'function',
+                'function': {'name': fn.get('name', ''), 'arguments': fn.get('arguments') or '{}'}}
+        if c.get('extra_content'):
+            call['extra_content'] = c['extra_content']
+        out.append(call)
+    return out
 
 
 # ─────────────────────────────── prompt ───────────────────────────────
@@ -199,6 +235,13 @@ def system_prompt(ctx, page=None):
         '8. For network problems: check network_status / router_live first, run a test (run_network_test, doctor first) '
         'when it helps, explain the result in plain words, then suggest the fix.',
         '9. Keep replies short: a few sentences or a tight list. Use **bold** for key numbers. Reply in the person’s language.',
+        '10. Standing tasks: when the person wants to be told about something later or wants TapTap to react by itself '
+        '(“watch plans A, B, C and tell me when a slot is full and someone tries to get in”, “free a slot if a member’s new '
+        'phone is refused”, “tell me when voucher X comes online”, “alert me if Tower drops users”), offer ONE create_monitor '
+        'per need with propose_action. First check slots_report or monitors when it helps; never invent plan names or codes. '
+        'Say exactly what it will do: who is told (me / team, email, the member) and whether it only tells or also acts '
+        '(free_slot frees one idle, offline device; disconnect kicks devices not locked to the voucher). Use monitors to list, '
+        'monitor_test to show what a monitor would catch now, and pause_monitor / resume_monitor / delete_monitor to change one.',
     ]
     if page and page.get('path'):
         lines += ['', f'The person is looking at the TapTap page “{str(page.get("title", ""))[:80]}” ({str(page["path"])[:120]}). '
@@ -258,8 +301,7 @@ def ask(ctx, text, page=None):
         if not tcs:
             reply = content
             break
-        tcs = [{'id': c.get('id'), 'type': 'function',
-                'function': {'name': c['function']['name'], 'arguments': c['function'].get('arguments') or '{}'}} for c in tcs]
+        tcs = _tool_calls(tcs)
         FitMessage.objects.create(conversation=conv, role='assistant', content=content, meta={'tool_calls': tcs})
         messages.append({'role': 'assistant', 'content': content, 'tool_calls': tcs})
         for c in tcs:

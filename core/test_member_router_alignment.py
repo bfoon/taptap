@@ -88,7 +88,8 @@ class MemberRouterAlignmentTests(TestCase):
         )
         self.assertEqual(wanted["shared"], 7)
         self.assertEqual(wanted["rate"], "2M/2M")
-        self.assertEqual(wanted["limit"], "30d2m")
+        from core.member_time import expected_limit
+        self.assertEqual(wanted["limit"], expected_limit(self.member))     # 7 devices × the member's time
 
     @mock.patch("core.linkops.uses_link", return_value=True)
     def test_link_push_never_uses_bulk_pending_gate(self, _uses_link):
@@ -115,7 +116,8 @@ class MemberRouterAlignmentTests(TestCase):
         ).latest("created_at")
         user = final.params["users"][0]
         self.assertEqual(user["n"], "jimmy")
-        self.assertEqual(user["lim"], "30d2m")
+        from core.member_time import expected_limit
+        self.assertEqual(user["lim"], expected_limit(self.member))
         self.assertEqual(
             user["prof"],
             self.plan.router_profile_name,

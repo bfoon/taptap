@@ -580,6 +580,12 @@ def watch_all():
                     evaluate(business)
         except Exception:
             logger.exception('business alerts')
+        # Fit monitors (standing watches set up with Fit or on the Monitors page)
+        try:
+            from .fit_monitors import evaluate_all as monitors_all
+            monitors_all()
+        except Exception:
+            logger.exception('fit monitors')
         # Automatic plan time on TapTap Link routers (direct routers get it inside the live pass)
         try:
             from .linkops import uses_link

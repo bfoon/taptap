@@ -103,7 +103,13 @@ def parse_routeros(value, default=None):
 
 
 def router_limit(voucher, plan=None):
-    # Unused TapTap vouchers follow the CURRENT plan at send time.
+    # TapTap's own vouchers and members: TapTap's clock decides (core/router_time.py) — the router's
+    # uptime counter, the time left and the device slots, so the router can never cut a customer early.
+    from .router_time import limit_for, platform_owned
+    if platform_owned(voucher):
+        return limit_for(voucher, plan)
+    # Router-made vouchers (imported): the router stays the authority, as before.
+    # Unused vouchers follow the CURRENT plan at send time.
     if plan is not None and not voucher.used_at and not voucher.expires_at:
         return routeros(int(getattr(plan, 'duration_minutes', 0) or 0))
 
