@@ -1,21 +1,19 @@
-"""Fit — the TapTap AI technician, powered by Groq.
+"""Fit — TapTap AI technician. Groq primary; Google Gemini provider fallback.
 
-Configuration (.env):
-    GROQ_API_KEY         required to talk to Fit (without it Fit still shows its insights)
-    GROQ_MODEL           default openai/gpt-oss-120b (strong tool use)
-    GROQ_FALLBACK_MODEL  default openai/gpt-oss-20b (used if the main model is busy or retired)
-    GROQ_BASE_URL        default https://api.groq.com/openai/v1
-    FIT_TIMEOUT          seconds per Groq request, default 45
+Environment:
+ GROQ_API_KEY, GROQ_MODEL, GROQ_FALLBACK_MODEL, GROQ_BASE_URL
+ GEMINI_API_KEY, GEMINI_MODEL, GEMINI_BASE_URL
+ FIT_TIMEOUT (seconds), FIT_PROVIDER_COOLDOWN (seconds, default 60)
 
-What leaves the server: the person's question, a short description of their business/role, and the
-tool results Fit asked for (this business only). Router passwords and secrets are never in tool
-results (mikrotik.redact + an allow-list of fields).
+Business isolation and permissions are enforced by FitContext / fit_tools, not the AI provider.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
+import socket
+import ssl
 import time
 import urllib.error
 import urllib.request
@@ -26,121 +24,148 @@ from django.utils import timezone
 from . import fit_tools
 
 logger = logging.getLogger('taptap.fit')
-
-MAX_ROUNDS = 6           # model ↔ tools round trips per question
+MAX_ROUNDS = 6
 MAX_TOOL_CALLS = 14
-HISTORY = 24             # stored messages sent back as memory
-RATE = (25, 300)         # questions per person per 5 minutes
+HISTORY = 24
+RATE = (25, 300)
 
 
 class FitAIError(Exception):
-    detail = ''   # exact technical reason, shown to people who can manage Fit
+    detail = ''
 
 
 def api_key():
-    return os.getenv('GROQ_API_KEY', '').strip()
+    """Compatibility with existing Fit readiness check: either provider is enough."""
+    return os.getenv('GROQ_API_KEY', '').strip() or os.getenv('GEMINI_API_KEY', '').strip()
 
 
 def models():
+    """Groq model list, maintained for fit_check compatibility."""
     main = os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b').strip()
     fb = os.getenv('GROQ_FALLBACK_MODEL', 'openai/gpt-oss-20b').strip()
-    return [m for m in (main, fb) if m] if fb != main else [main]
+    return list(dict.fromkeys(m for m in (main, fb) if m))
 
 
-# ─────────────────────────────── Groq ───────────────────────────────
+def _providers():
+    groq_key = os.getenv('GROQ_API_KEY', '').strip()
+    gemini_key = os.getenv('GEMINI_API_KEY', '').strip()
+    result = []
+    if groq_key:
+        result.extend(('Groq', model, groq_key,
+                       os.getenv('GROQ_BASE_URL', 'https://api.groq.com/openai/v1').rstrip('/'))
+                      for model in models())
+    if gemini_key:
+        result.append(('Gemini', os.getenv('GEMINI_MODEL', 'gemini-2.5-flash').strip(), gemini_key,
+                       os.getenv('GEMINI_BASE_URL', 'https://generativelanguage.googleapis.com/v1beta/openai').rstrip('/')))
+    return result
+
+
+def _request(provider, model, key, base, payload):
+    body = dict(payload, model=model)
+    if provider == 'Groq' and model.startswith('openai/gpt-oss'):
+        body['reasoning_effort'] = 'low'
+    req = urllib.request.Request(
+        base + '/chat/completions',
+        data=json.dumps(body).encode('utf-8'),
+        method='POST',
+        headers={
+            'Authorization': f'Bearer {key}',
+            'Content-Type': 'application/json',
+            'User-Agent': 'TapTap-Fit/1.1',
+        },
+    )
+    with urllib.request.urlopen(req, timeout=float(os.getenv('FIT_TIMEOUT', '45'))) as response:
+        return json.loads(response.read().decode('utf-8'))
+
 
 def _post(model, payload):
-    base = os.getenv('GROQ_BASE_URL', 'https://api.groq.com/openai/v1').rstrip('/')
-    body = dict(payload, model=model)
-    if model.startswith('openai/gpt-oss'):
-        body['reasoning_effort'] = 'low'          # fast answers; tools do the heavy lifting
-    req = urllib.request.Request(base + '/chat/completions', data=json.dumps(body).encode(), method='POST',
-                                 headers={'Authorization': f'Bearer {api_key()}', 'Content-Type': 'application/json',
-                                          'User-Agent': 'TapTap-Fit/1.0'})
-    with urllib.request.urlopen(req, timeout=float(os.getenv('FIT_TIMEOUT', '45'))) as r:
-        return json.loads(r.read().decode())
+    """Legacy Groq caller used by manage.py fit_check."""
+    return _request('Groq', model, os.getenv('GROQ_API_KEY', '').strip(),
+                    os.getenv('GROQ_BASE_URL', 'https://api.groq.com/openai/v1').rstrip('/'), payload)
 
 
-def explain(exc, model=''):
-    """Plain-words reason for a failed Groq request, and what to do about it."""
-    import socket
-    import ssl
+def explain(exc, model='', provider='Groq'):
+    reason_name = provider
     if isinstance(exc, urllib.error.HTTPError):
         detail = getattr(exc, '_fit_detail', '') or ''
         try:
-            msg = json.loads(detail).get('error', {}).get('message', '') or detail
-        except ValueError:
+            parsed = json.loads(detail)
+            msg = parsed.get('error', {}).get('message', '') or detail
+        except (TypeError, ValueError, AttributeError):
             msg = detail
         msg = ' '.join(str(msg).split())[:220]
         code = exc.code
         if code == 401:
-            return 'Groq refused the API key (401). Check GROQ_API_KEY in .env, then restart the web container.'
+            return f'{reason_name} rejected its API key (401). Check the provider key in .env.'
         if code == 403:
-            return (f'Groq blocked the request (403): {msg or "forbidden"}. This usually means Groq does not accept requests '
-                    'from this server\'s network or country, or a firewall/proxy is rewriting the request.')
-        if code == 404 or 'decommissioned' in msg or 'does not exist' in msg:
-            return f'Groq does not know the model “{model}” (404). Set GROQ_MODEL in .env to a current model from console.groq.com/docs/models.'
+            return f'{reason_name} refused access (403): {msg or "forbidden"}.'
+        if code == 404:
+            return f'{reason_name} model “{model}” is unavailable (404). Check the configured model.'
         if code == 413:
-            return 'The request was too large for this Groq model (413). Try GROQ_MODEL=openai/gpt-oss-120b.'
+            return f'{reason_name} request exceeds the model size limit (413).'
         if code == 429:
-            return f'Groq rate limit reached (429): {msg}. Wait a minute, or upgrade the Groq plan.'
+            return f'{reason_name} rate limit reached (429): {msg}.'
         if code >= 500:
-            return f'Groq is having a problem on its side ({code}). Try again in a few minutes.'
-        return f'Groq rejected the request ({code}): {msg}'
+            return f'{reason_name} is temporarily unavailable ({code}).'
+        return f'{reason_name} rejected request ({code}): {msg}'
     reason = getattr(exc, 'reason', exc)
     if isinstance(reason, socket.gaierror):
-        return 'This server cannot look up api.groq.com (DNS failed). Check the server\'s DNS / internet connection.'
+        return f'{reason_name} DNS resolution failed: {reason}.'
     if isinstance(reason, ssl.SSLError) or 'CERTIFICATE' in str(reason).upper():
-        return f'The secure connection to api.groq.com failed ({reason}). Often a proxy or firewall inspecting HTTPS, or a wrong server clock.'
-    if isinstance(reason, (TimeoutError, socket.timeout)) or 'timed out' in str(reason):
-        return f'api.groq.com did not answer within {os.getenv("FIT_TIMEOUT", "45")} seconds. The server\'s outbound internet may be slow or blocked.'
-    if isinstance(reason, (ConnectionRefusedError, ConnectionResetError, OSError)):
-        return f'This server could not connect to api.groq.com ({reason}). Outbound HTTPS (port 443) may be blocked by a firewall.'
-    return f'Could not reach Groq: {reason}'
+        return f'{reason_name} TLS/certificate error: {reason}.'
+    if isinstance(reason, (TimeoutError, socket.timeout)) or 'timed out' in str(reason).lower():
+        return f'{reason_name} request timed out.'
+    return f'{reason_name} connection failed: {reason}'
+
+
+def _cooldown_key(provider, model):
+    return 'fit:ai:cooldown:' + provider.lower() + ':' + model
 
 
 def complete(messages, tools):
-    """One chat completion with tools. Retries a failed tool-call generation once, then tries the fallback model.
-    On failure raises FitAIError with a short message, and .detail with the exact reason per model."""
-    if not api_key():
-        raise FitAIError('Fit needs a Groq API key. Add GROQ_API_KEY to the server’s .env file and restart TapTap.')
+    """Use Groq first. On errors, try its second model, then Gemini.
+
+    Provider failure never executes tools, so repeated requests cannot duplicate actions.
+    The chat messages and tool-call schema remain OpenAI-compatible for both providers.
+    """
+    providers = _providers()
+    if not providers:
+        raise FitAIError('Fit needs an AI API key. Configure GROQ_API_KEY or GEMINI_API_KEY on the server.')
+
     payload = {'messages': messages, 'temperature': 0.2, 'max_completion_tokens': 1000}
     if tools:
         payload.update(tools=tools, tool_choice='auto')
-    reasons, limited = [], False
-    for model in models():
-        for attempt in range(3):
+    reasons = []
+    cooldown = max(1, int(os.getenv('FIT_PROVIDER_COOLDOWN', '60')))
+    for provider, model, key, base in providers:
+        if not model:
+            continue
+        if cache.get(_cooldown_key(provider, model)):
+            reasons.append((provider, model, 'Temporarily in cooldown after an earlier rate limit or outage.'))
+            continue
+        for attempt in range(2):
             try:
-                return _post(model, payload)
+                response = _request(provider, model, key, base, payload)
+                if not response.get('choices'):
+                    raise ValueError('Provider returned no choices.')
+                return response
             except urllib.error.HTTPError as exc:
                 exc._fit_detail = exc.read().decode(errors='replace')[:600]
-                logger.warning('Groq %s %s (attempt %s): %s', model, exc.code, attempt + 1, exc._fit_detail)
-                if exc.code == 401:
-                    raise FitAIError(explain(exc, model))
+                logger.warning('Fit %s %s HTTP %s: %s', provider, model, exc.code, exc._fit_detail)
                 if exc.code == 400 and 'tool_use_failed' in exc._fit_detail and attempt == 0:
-                    continue                       # the model wrote a broken tool call: ask again
-                if exc.code == 429:
-                    limited = True
-                    try:
-                        wait = float((exc.headers or {}).get('retry-after') or 0)
-                    except (TypeError, ValueError):
-                        wait = 0
-                    if 0 < wait <= 8 and attempt < 2:
-                        time.sleep(wait)           # a short pause clears a per-minute token limit
-                        continue
-                reasons.append((model, explain(exc, model)))
-                break                              # 404 retired model, 413, 429, 5xx → next model
-            except (urllib.error.URLError, TimeoutError, OSError) as exc:
-                logger.warning('Groq %s unreachable: %r', model, exc)
-                reasons.append((model, explain(exc, model)))
+                    continue
+                reasons.append((provider, model, explain(exc, model, provider)))
+                if exc.code in (429, 500, 502, 503, 504):
+                    cache.set(_cooldown_key(provider, model), True, timeout=cooldown)
                 break
-    if limited:
-        err = FitAIError('Fit is getting too many questions for the Groq plan right now. Try again in a minute.')
-    else:
-        err = FitAIError('Fit could not reach its AI service just now. Your data is safe — try again in a moment.')
-    # The main model's reason matters most; add the fallback's only when it says something different.
-    texts = list(dict.fromkeys(r for _, r in reasons))
-    err.detail = texts[0] if len(texts) == 1 else ' · '.join(f'{m}: {r}' for m, r in reasons)
+            except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+                logger.warning('Fit %s %s unavailable: %r', provider, model, exc)
+                reasons.append((provider, model, explain(exc, model, provider)))
+                cache.set(_cooldown_key(provider, model), True, timeout=cooldown)
+                break
+
+    err = FitAIError('Fit’s AI providers are temporarily unavailable. Please try again shortly.')
+    err.detail = ' · '.join(f'{provider}/{model}: {reason}' for provider, model, reason in reasons)
     raise err
 
 
@@ -181,8 +206,6 @@ def system_prompt(ctx, page=None):
     return '\n'.join(lines)
 
 
-# ─────────────────────────────── memory ───────────────────────────────
-
 def history(conv):
     """Stored turns, starting at a person's message so tool results never lose their call."""
     from .models_fit import FitMessage
@@ -212,8 +235,6 @@ def rate_ok(user):
     cache.set(key, c + 1, window)
     return True
 
-
-# ─────────────────────────────── one question ───────────────────────────────
 
 def ask(ctx, text, page=None):
     """Answer one question. Returns {'reply', 'cards', 'mood'}; stores every turn in the conversation."""
