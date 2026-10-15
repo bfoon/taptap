@@ -15,7 +15,7 @@ from django.utils import timezone
 from . import pathtrace as pt
 from .models import AgentCommand, Business, Router, RouterDevice, SiteRouter
 from .models_nettools import NetTest
-from .test_link_install import routeros_balanced
+from .test_link_install import link_text, routeros_balanced
 from .test_nettools import FakeSvc, ping_rows
 
 
@@ -245,7 +245,7 @@ class LinkFlowTests(Base):
         t = self.run_link({'kind': 'whoami', 'lip': '172.16.7.66'})
         cmd = AgentCommand.objects.get(kind='nettest')
         from .agent import wrap
-        body = wrap(cmd, 'https://taptap.example', 'no')
+        body = link_text(wrap(cmd, 'https://taptap.example', 'no'))
         self.assertTrue(routeros_balanced(body))
         self.assertIn(':set ips ($ips , "104.21.48.7")', body); self.assertIn('[:resolve "taptap.example"]', body)
         self.assertIn('/ip firewall connection find where dst-address=($i . ":443")', body)
@@ -258,7 +258,7 @@ class LinkFlowTests(Base):
         t = self.run_link({'kind': 'hops', 'hops': ['172.16.7.40', '172.16.7.66'], 'port': 'ether2', 'mac': 'E8:48:B8:00:00:01', 'phase': 'idle', 'rounds': 2})
         cmd = AgentCommand.objects.get(kind='nettest')
         from .agent import wrap
-        body = wrap(cmd, 'https://taptap.example', 'no')
+        body = link_text(wrap(cmd, 'https://taptap.example', 'no'))
         self.assertTrue(routeros_balanced(body))
         self.assertIn(':for r from=1 to=2 do={', body)
         self.assertIn('/interface ethernet monitor [find name="ether2"] once as-value', body)

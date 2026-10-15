@@ -15,7 +15,7 @@ from django.utils import timezone
 from . import router_cleanup as rc
 from .models import AgentCommand, Business, Router, RouterBackup
 from .models_router_cleanup import RouterCleanup
-from .test_link_install import routeros_balanced
+from .test_link_install import link_text, routeros_balanced
 
 OLD = (timezone.localtime() - timedelta(days=90)).strftime('%Y-%m-%d %H:%M:%S')
 NEW = timezone.localtime().strftime('%Y-%m-%d %H:%M:%S')
@@ -175,8 +175,9 @@ class LinkCleanupTests(CleanupTests):
         job = self.link(reverse('router_cleanup_scan', args=[self.r.pk])).json()['job']
         self.assertEqual(job['status'], 'waiting')
         cmd = AgentCommand.objects.get(kind='cleanup')
-        body = wrap(cmd, 'https://taptap.example', 'no')
-        self.assertTrue(routeros_balanced(body)); self.assertIn('/file get $f last-modified', body)
+        sent = wrap(cmd, 'https://taptap.example', 'no')
+        body = link_text(sent)                      # each command runs in its own [:parse]
+        self.assertTrue(routeros_balanced(sent)); self.assertTrue(routeros_balanced(body)); self.assertIn('/file get $f last-modified', body)
         self.assertNotIn('\\$)', body)
         lines = ['fd=1500000', 'td=16000000', 'fm=20000000', 'tm=67108864', 'ver=7.16', 'bd=hAP ac2', 'll=950', 'ml=1000']
         lines += [f"f={f['name']}|{f['size']}|{f['type']}|{f['last-modified']}" for f in FILES if f['type'] != 'directory' and not f['name'].startswith('hotspot/')]
@@ -191,13 +192,13 @@ class LinkCleanupTests(CleanupTests):
                           {'scan': job['id'] if False else scan['id'], 'files': ['autosupout.rif', 'log.0.txt', 'taptap-ca-1.txt'], 'clear_log': True}).json()
         self.assertEqual(r['left'], 2)
         c1 = AgentCommand.objects.filter(kind='cleanup').latest('pk')
-        b1 = wrap(c1, 'https://taptap.example', 'no')
+        b1 = link_text(wrap(c1, 'https://taptap.example', 'no'))
         self.assertTrue(routeros_balanced(b1)); self.assertIn('{"autosupout.rif"}', b1); self.assertIn('memory-lines=1', b1)
         self.upload(c1, b'ok=1\nbad=0\nfr=900000\nlog=1\nfd=2400000\ntd=16000000\nfm=20100000\n')
         nxt = self.link(reverse('router_cleanup_clean', args=[self.r.pk]), {'continue': r['job']['id']}).json()
         c2 = AgentCommand.objects.filter(kind='cleanup').latest('pk')
-        self.assertIn('"log.0.txt"', wrap(c2, 'https://taptap.example', 'no'))
-        self.assertNotIn('memory-lines', wrap(c2, 'https://taptap.example', 'no'))                # only once
+        self.assertIn('"log.0.txt"', link_text(wrap(c2, 'https://taptap.example', 'no')))
+        self.assertNotIn('memory-lines', link_text(wrap(c2, 'https://taptap.example', 'no')))                # only once
         self.upload(c2, b'ok=2\nbad=0\nfr=122000\nfd=2522000\ntd=16000000\nfm=20100000\n')
         done = RouterCleanup.objects.get(pk=nxt['job']['id'])
         self.assertEqual((done.result['removed_count'], done.result['saved']), (2, 1022000))      # measured against the scan

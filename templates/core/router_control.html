@@ -6,6 +6,7 @@
 <link href="{% static 'css/netviz.css' %}?v=7" rel="stylesheet">
 <link href="{% static 'css/control-designer.css' %}?v=1" rel="stylesheet">
 <link href="{% static 'css/control-studio-skin.css' %}?v=2" rel="stylesheet">
+<link href="{% static 'css/router-clock.css' %}?v=1" rel="stylesheet">
 {% endblock %}
 {% block content %}
 <form class="d-none" id="csrf-holder">{% csrf_token %}</form>
@@ -32,6 +33,56 @@
   <div><span class="metric-icon"><i class="bi bi-hdd-network"></i></span><b>{{ router.devices.count }}</b><small>Known devices</small></div>
   <div><span class="metric-icon"><i class="bi bi-clock-history"></i></span><b>{% if snapshot %}{{ snapshot.captured_at|date:'H:i:s' }}{% else %}—{% endif %}</b><small>Config snapshot</small></div>
 </div>
+
+<section class="panel mb-4 rclk" id="routerClock"
+         data-status="{% url 'router_clock' router.id %}" data-read="{% url 'router_clock_read' router.id %}" data-set="{% url 'router_clock_set' router.id %}">
+  <div class="panel-head">
+    <div>
+      <h3><i class="bi bi-clock"></i> Router clock</h3>
+      <p>The MikroTik's own date and time. Boards without a clock battery lose it after a power cut, and with a wrong date HTTPS uploads to TapTap (syncs, backups) fail.</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <button class="btn btn-outline-primary btn-sm" type="button" id="rclkRead"><i class="bi bi-arrow-clockwise"></i> Read clock</button>
+      <button class="btn btn-primary btn-sm" type="button" id="rclkFix"><i class="bi bi-magic"></i> Set correct time</button>
+    </div>
+  </div>
+  <div class="rclk-faces">
+    <div class="rclk-face" id="rclkRouterFace">
+      <small>On {{ router.name }}</small>
+      <b class="rclk-time" id="rclkRouter">--:--:--</b>
+      <span class="rclk-date" id="rclkRouterDate">Not read yet</span>
+    </div>
+    <div class="rclk-verdict" id="rclkVerdict"><i class="bi bi-question-circle"></i><span>Unknown</span></div>
+    <div class="rclk-face rclk-ref">
+      <small>Correct time <span id="rclkZoneLabel"></span></small>
+      <b class="rclk-time" id="rclkCorrect">--:--:--</b>
+      <span class="rclk-date" id="rclkCorrectDate">—</span>
+    </div>
+  </div>
+  <div class="rclk-meta" id="rclkMeta"></div>
+  <div class="rclk-note" id="rclkNote" hidden></div>
+  <details class="rclk-more">
+    <summary>Time zone, NTP and manual time</summary>
+    <div class="rclk-form">
+      <label>Time zone
+        <input class="form-control form-control-sm" id="rclkTz" list="rclkZones" placeholder="e.g. Africa/Banjul" autocomplete="off">
+        <datalist id="rclkZones"></datalist>
+      </label>
+      <label>Set to a specific time <small>(router's local time — leave empty to use the correct time)</small>
+        <input class="form-control form-control-sm" id="rclkManual" type="datetime-local" step="1">
+      </label>
+      <label class="form-check rclk-check">
+        <input class="form-check-input" type="checkbox" id="rclkNtp" checked>
+        <span class="form-check-label">Keep it correct automatically (NTP: time.cloudflare.com, pool.ntp.org)</span>
+      </label>
+      <button class="btn btn-outline-primary btn-sm" type="button" id="rclkApply"><i class="bi bi-check2"></i> Apply</button>
+    </div>
+    <div class="rclk-cmd">
+      <small>Router cannot reach TapTap because of its date? Paste this once in WinBox › New Terminal:</small>
+      <pre id="rclkCmd"></pre>
+    </div>
+  </details>
+</section>
 
 <section class="panel mb-4 visual-configurator">
   <div class="panel-head">
@@ -917,6 +968,7 @@
 </script>
 <script src="{% static 'js/control-studio-fx.js' %}?v=2" defer></script>
 <script src="{% static 'js/router_cleanup.js' %}?v=1" defer></script>
+<script src="{% static 'js/router_clock.js' %}?v=1" defer></script>
 <link rel="stylesheet" href="{% static 'css/router_restore.css' %}?v=1">
 <script src="{% static 'js/router_restore.js' %}?v=1" defer></script>
 {% endblock %}

@@ -157,6 +157,8 @@ EMAIL_CHECK_DOMAIN = env_bool('EMAIL_CHECK_DOMAIN', True)
 
 CELERY_BEAT_SCHEDULE['taptap-chat-email'] = {'task': 'core.tasks.chat_email_missed', 'schedule': 60.0, 'options': {'expires': 120}}
 CELERY_TASK_ROUTES['core.tasks.chat_email_missed'] = {'queue': 'live'}
+# Old finished TapTap Link commands are deleted hourly (a huge command table made Link check-ins time out).
+CELERY_BEAT_SCHEDULE['taptap-prune-link-commands'] = {'task': 'core.tasks.prune_agent_commands', 'schedule': 3600.0, 'options': {'expires': 1800}}
 
 # Map tiles (Topology › Geo map, field mapping). OpenStreetMap's own servers only serve sites that say who they
 # are (the Referer header) and are meant for light use; set your own provider here for heavy use.

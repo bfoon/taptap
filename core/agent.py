@@ -42,7 +42,7 @@ SAFE_KINDS = {
     'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'remote_nat', 'remote_close', 'hotspot_kick_mac', 'share_rules', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
-    'hotspot_users_limit', 'admin_password', 'port_blink', 'protection', 'site_probe', 'nettest', 'cleanup', 'filecopy', 'restore', 'online_signin',
+    'hotspot_users_limit', 'admin_password', 'port_blink', 'protection', 'site_probe', 'nettest', 'cleanup', 'filecopy', 'restore', 'online_signin', 'clock',
 }
 # Delivery order for queued commands: anything about vouchers first (a customer is waiting), then the rest,
 # and the pieces of a full inventory sync last — 61 of them must never hold up a voucher.
@@ -58,8 +58,9 @@ def delivery_order():
 
 
 BATCH_GAP = 45   # seconds: one unanswered command must never freeze the whole queue
+TRAVEL_ALONE = {'reboot', 'self_update'}
 NEVER_RESEND = {'restore'}     # a restore reboots the router before it can confirm: sending it again would restore twice
-ACK_WAIT = {'restore': 3600, 'filecopy': 3600, 'cleanup': 300, 'nettest': 240, 'portal_install': 300, 'inventory_piece': 600, 'backup': 3600, 'hotspot_users': 300, 'self_update': 300}   # seconds before a resend
+ACK_WAIT = {'restore': 3600, 'filecopy': 3600, 'cleanup': 300, 'nettest': 240, 'portal_install': 300, 'inventory_piece': 600, 'backup': 3600, 'hotspot_users': 300, 'self_update': 300, 'clock': 120}   # seconds before a resend
 NAME_RE = re.compile(r'^[\w.@:+/<>-]{1,64}$')
 MAC_RE = re.compile(r'^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$')
 
@@ -571,11 +572,25 @@ def wrap(cmd, url, check):
     elif cmd.kind == 'online_signin':
         from .online_portal import link_body as signin_body
         body = signin_body(cmd, url, check, nonce(cmd))
+    elif cmd.kind == 'clock':
+        from .router_clock import link_body as clock_body
+        body = clock_body(cmd, url, check, nonce(cmd))
     else:
         body = command_body(cmd)
     result = f'{cmd.params.get("file")}.backup, {cmd.params.get("file")}.rsc' if cmd.kind == 'backup' else ''
-    return (f':do {{ {body}; {_ack(url, cmd, "ok", check, result)} }} '
-            f'on-error={{ :do {{ {_ack(url, cmd, "fail", check)} }} on-error={{}} }}')
+    ok, fail = _ack(url, cmd, "ok", check, result), _ack(url, cmd, "fail", check)
+    # Each command is compiled on the router by its own [:parse]. A RouterOS syntax error (an unknown
+    # property, a menu this RouterOS version lacks) then fails only that command, which reports "fail" —
+    # instead of stopping the whole batch script, including every sync table sent with it.
+    # (Some RouterOS versions return nothing instead of raising for unparsable code: that counts as an error too.)
+    isolated = (f':do {{ :local ttRun [:parse {rs(body)}]; '
+                f':if ([:typeof $ttRun] = "nothing" || [:typeof $ttRun] = "nil") do={{ :error "TapTap: command does not parse" }}; '
+                f'$ttRun; {ok} }} '
+                f'on-error={{ :do {{ {fail} }} on-error={{}} }}')
+    if cmd.kind not in TRAVEL_ALONE and len(isolated) <= MAX_SCRIPT:
+        return isolated
+    # Too big to escape within one check-in (or travels alone anyway): it is sent on its own, as before.
+    return f':do {{ {body}; {ok} }} on-error={{ :do {{ {fail} }} on-error={{}} }}'
 
 
 def queue(router, kind, params=None, label='', user=None, minutes=None):
@@ -615,6 +630,9 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
             raise ValueError('Only routers on the local network can be checked.')
         if not re.match(r'^(sr:\d+|auto:([0-9A-F]{2}:){5}[0-9A-F]{2})$', str((params or {}).get('key', ''))):
             raise ValueError('Invalid router.')
+    if kind == 'clock':
+        from .router_clock import validate_params
+        validate_params(params or {})
     if kind == 'online_signin' and not re.fullmatch(r'[A-Za-z0-9.-]{3,253}', str((params or {}).get('host') or '')):
         raise ValueError('Invalid host.')
     if kind == 'restore':
@@ -975,21 +993,18 @@ def link_expiries(router, now):
 def auto_sync(router, first=False):
     """Full inventory sync on the first check-in, then every LINK_SYNC_MINUTES (default 30).
 
-    Also settles sync jobs left 'running' by a router that went offline mid-sync
-    (their unfinished tables expired), so a stale job never blocks future syncs.
+    Settling syncs left 'running' by a router that went offline mid-sync runs in the worker:
+    nothing slow may happen inside the check-in, whose answer the router waits only 8 s for.
     """
-    from .models import RouterSyncJob
-    from .tasks import enqueue_router_sync
+    from .tasks import enqueue_router_sync, settle_link_router
     if not first and not cache.add(f'tt:link:autosync:{router.pk}', 1, 60):
         return
     now = timezone.now()
-    from .agent_inventory import settle_stalled_jobs
-    settle_stalled_jobs(router)
-    for job in router.sync_jobs.filter(status__in=['queued', 'running'], created_at__lt=now - timedelta(minutes=35)):
-        from .agent_inventory import _record_piece
-        _record_piece(router, job.pk, {'errors': ['Some sections did not arrive in time (router offline or busy).']})
-        RouterSyncJob.objects.filter(pk=job.pk, status__in=['queued', 'running']).update(
-            status='failed', phase='Timed out waiting for the router', finished_at=now)
+    try:
+        settle_link_router.delay(router.pk)
+    except Exception:
+        from .agent_inventory import settle_router
+        settle_router(router)
     every = int(getattr(settings, 'LINK_SYNC_MINUTES', 30))
     last_ok = router.sync_jobs.filter(status='success').order_by('-finished_at').values_list('finished_at', flat=True).first()
     if first or not last_ok or now - last_ok > timedelta(minutes=every):
@@ -1004,14 +1019,14 @@ def build_response(router, url):
     """
     now = timezone.now()
     check = tls_flag(url)
+    unanswered = []   # sync tables the router did not deliver: noted on their job by the worker
     expiring = list(AgentCommand.objects.filter(router=router, status__in=['queued', 'sent'], expires_at__lt=now))
     if expiring:
         AgentCommand.objects.filter(pk__in=[c.pk for c in expiring]).update(status='expired', done_at=now)
-        from .agent_inventory import inventory_command_ack
         for cmd in expiring:
             if cmd.kind == 'inventory_piece' and not (cmd.params or {}).get('received'):
                 cmd.status, cmd.result = 'expired', 'Expired before the router answered'
-                inventory_command_ack(cmd, False)
+                unanswered.append(cmd)
     for cmd in AgentCommand.objects.filter(router=router, status='sent'):
         if cmd.sent_at and (now - cmd.sent_at).total_seconds() > ACK_WAIT.get(cmd.kind, 120):
             if cmd.kind in NEVER_RESEND:
@@ -1021,9 +1036,11 @@ def build_response(router, url):
             else:
                 AgentCommand.objects.filter(pk=cmd.pk).update(status='failed', result='No answer from the router', done_at=now)
                 if cmd.kind == 'inventory_piece':
-                    from .agent_inventory import inventory_command_ack
                     cmd.status, cmd.result = 'failed', 'No answer from the router'
-                    inventory_command_ack(cmd, False)
+                    unanswered.append(cmd)
+    if unanswered:
+        from .agent_inventory import note_unanswered
+        note_unanswered(router, unanswered)
     if AgentCommand.objects.filter(router=router, status='sent', sent_at__gte=now - timedelta(seconds=BATCH_GAP)).exists():
         return ''  # give the router a moment to finish the last batch (never longer than BATCH_GAP)
     from .agent_inventory import send_function

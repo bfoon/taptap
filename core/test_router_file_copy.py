@@ -21,7 +21,7 @@ from . import backup_server as bs
 from . import router_file_copy as rfc
 from .models import AgentCommand, Business, Router
 from .models_router_cleanup import RouterCleanup
-from .test_link_install import routeros_balanced
+from .test_link_install import link_text, routeros_balanced
 
 BLOB = bytes(range(256)) * 100            # 25,600 bytes of binary: two pieces
 
@@ -125,7 +125,7 @@ class FileCopyTests(TestCase):
         self.assertEqual(r.json()['job']['status'], 'waiting')
         cmd = AgentCommand.objects.get(kind='filecopy')
         from .agent import queue, wrap
-        body = wrap(cmd, 'https://taptap.example', 'no')
+        body = link_text(wrap(cmd, 'https://taptap.example', 'no'))
         self.assertTrue(routeros_balanced(body)); self.assertIn(f'/api/router-files/{r.json()["job"]["id"]}/upload/', body)
         for p in ({'job_id': 1, 'name': 'a"; /system reset', 'upload_url': 'https://t.x/api/router-files/1/upload/', 'upload_token': 'a' * 30},
                   {'job_id': 1, 'name': 'a.backup', 'upload_url': 'https://evil.example/steal', 'upload_token': 'a' * 30},

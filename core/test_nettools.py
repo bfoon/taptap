@@ -15,7 +15,7 @@ from django.utils import timezone
 from . import nettools as nt
 from .models import AgentCommand, Business, Router
 from .models_nettools import NetTest
-from .test_link_install import routeros_balanced
+from .test_link_install import link_text, routeros_balanced
 
 
 class FakeResource:
@@ -227,7 +227,7 @@ class LinkTests(PageTests):
         cmd = AgentCommand.objects.get(kind='nettest')
         self.assertEqual(cmd.params['test_id'], t['id'])
         from .agent import wrap
-        body = wrap(cmd, 'https://taptap.example', 'yes-without-crl')
+        body = link_text(wrap(cmd, 'https://taptap.example', 'yes-without-crl'))
         self.assertTrue(routeros_balanced(body))
         self.assertIn(':resolve "google.com"', body); self.assertIn('flood-ping address=$ip count=1 size=56', body)
         self.assertIn(f'/api/agent/v1/nettest?c={cmd.pk}&n=', body)
@@ -239,7 +239,7 @@ class LinkTests(PageTests):
         t = self.link_run({'kind': 'doctor'})
         cmd = AgentCommand.objects.get(kind='nettest')
         from .agent import wrap
-        self.assertTrue(routeros_balanced(wrap(cmd, 'https://taptap.example', 'no')))
+        self.assertTrue(routeros_balanced(link_text(wrap(cmd, 'https://taptap.example', 'no'))))
         self.upload(cmd, b'gw=192.168.1.1\ngwp=3|2\np=1.1.1.1|3|18\np=8.8.8.8|3|20\ndns=x\nservers=\ndyn=41.223.1.1\nweb=x\n')
         got = NetTest.objects.get(pk=t['id'])
         self.assertEqual(got.status, 'done'); self.assertIn('DNS', got.result['title'])
@@ -250,7 +250,7 @@ class LinkTests(PageTests):
             cache.clear()
             self.link_run(data)
             cmd = AgentCommand.objects.filter(kind='nettest').order_by('-pk').first()
-            self.assertTrue(routeros_balanced(wrap(cmd, 'https://taptap.example', 'no')), data)
+            self.assertTrue(routeros_balanced(link_text(wrap(cmd, 'https://taptap.example', 'no'))), data)
 
     def test_trace_web_speed_answers(self):
         self.link_run({'kind': 'trace', 'target': '8.8.8.8'})
@@ -296,7 +296,7 @@ class LinkPingFixTests(LinkTests):
     def test_ping_script_uses_do_block_and_ping_fallback(self):
         from .agent import wrap
         self.link_run({'kind': 'ping', 'target': '8.8.8.8', 'count': 3})
-        body = wrap(AgentCommand.objects.get(kind='nettest'), 'https://taptap.example', 'no')
+        body = link_text(wrap(AgentCommand.objects.get(kind='nettest'), 'https://taptap.example', 'no'))
         self.assertNotIn('flood-ping address=$ip count=1 size=56 timeout', body)
         self.assertNotRegex(body, r'flood-ping[^\]]*as-value')
         self.assertIn('/tool flood-ping address=$ip count=1 size=56 do={ :if ($sent = 1) do={ :set rc $received; :set av $"avg-rtt" } }', body)
@@ -306,7 +306,7 @@ class LinkPingFixTests(LinkTests):
     def test_doctor_script_has_no_flood_ping_as_value(self):
         from .agent import wrap
         self.link_run({'kind': 'doctor'})
-        body = wrap(AgentCommand.objects.get(kind='nettest'), 'https://taptap.example', 'no')
+        body = link_text(wrap(AgentCommand.objects.get(kind='nettest'), 'https://taptap.example', 'no'))
         self.assertNotRegex(body, r'flood-ping[^\]]*as-value')
         for ip in ('$gip', '1.1.1.1', '8.8.8.8'):
             self.assertIn(f'/tool flood-ping address={ip} count=3 do=', body)

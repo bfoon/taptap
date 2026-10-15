@@ -1,0 +1,31 @@
+/* Control Center › Router clock (templates/core/router_control.html, static/js/router_clock.js) */
+.rclk-faces{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:14px;align-items:stretch}
+.rclk-face{border:1px solid var(--bs-border-color);border-radius:16px;padding:14px 16px;background:rgba(127,127,127,.035);display:flex;flex-direction:column;gap:2px;min-width:0}
+.rclk-face small{opacity:.62;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.rclk-time{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:clamp(26px,4vw,40px);font-weight:700;letter-spacing:.02em;font-variant-numeric:tabular-nums;line-height:1.1}
+.rclk-date{font-size:13px;opacity:.75}
+.rclk-ref .rclk-time{opacity:.8}
+.rclk-verdict{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:130px;border-radius:16px;padding:10px 14px;text-align:center;font-size:12px;font-weight:600;background:rgba(127,127,127,.07)}
+.rclk-verdict i{font-size:22px}
+.rclk-verdict.ok{color:#198754;background:rgba(25,135,84,.1)}
+.rclk-verdict.drift{color:#b58100;background:rgba(255,193,7,.14)}
+.rclk-verdict.wrong{color:#dc3545;background:rgba(220,53,69,.1)}
+.rclk-verdict.pending i{animation:rclk-spin 1.1s linear infinite}
+@keyframes rclk-spin{to{transform:rotate(360deg)}}
+.rclk-face.wrong{border-color:rgba(220,53,69,.5)}
+.rclk-meta{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.rclk-meta span{font-size:11px;border:1px solid var(--bs-border-color);border-radius:999px;padding:3px 9px}
+.rclk-meta span.bad{border-color:rgba(220,53,69,.5);color:#dc3545}
+.rclk-meta span.good{border-color:rgba(25,135,84,.45);color:#198754}
+.rclk-note{margin-top:10px;font-size:12px;border-left:3px solid #ffc107;padding:6px 10px;background:rgba(255,193,7,.08);border-radius:6px}
+.rclk-note.danger{border-left-color:#dc3545;background:rgba(220,53,69,.07)}
+.rclk-more{margin-top:12px}
+.rclk-more summary{cursor:pointer;font-size:13px;font-weight:600}
+.rclk-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;align-items:end;margin-top:10px}
+.rclk-form label{font-size:12px;display:flex;flex-direction:column;gap:4px}
+.rclk-form label small{opacity:.6}
+.rclk-check{flex-direction:row!important;align-items:center;gap:8px!important}
+.rclk-cmd{margin-top:12px}
+.rclk-cmd small{opacity:.7;font-size:12px}
+.rclk-cmd pre{font-size:11px;background:rgba(127,127,127,.08);border-radius:10px;padding:10px;margin:6px 0 0;white-space:pre-wrap;user-select:all}
+@media (max-width:720px){.rclk-faces{grid-template-columns:1fr}.rclk-verdict{flex-direction:row;min-width:0}}

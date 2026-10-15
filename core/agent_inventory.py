@@ -152,6 +152,9 @@ def _rs(value):
 def send_function():
     """RouterOS helper defined once per batch: uploads one table in ~30 KB chunks.
 
+    It is a :global (not a :local) because every Link command now runs in its own
+    [:parse] block (core/agent.wrap): a block like that cannot see the batch's locals.
+
     Works on RouterOS 6 and 7 (no :serialize needed). Each row is written as
     key=value fields separated by 0x1F and rows by 0x1E, so values containing
     commas, quotes or newlines (e.g. Mikhmon on-login scripts) survive intact.
@@ -159,7 +162,7 @@ def send_function():
     """
     post = ('/tool fetch url=($u . "&part=" . $part . "&final={final}&fmt=t") http-method=post '
             'http-header-field="Content-Type: text/plain" http-data=$buf output=none check-certificate=$chk duration=20s idle-timeout=15s')
-    return (':local ttSend do={ :local buf "#"; :local part 0; '
+    return (':global ttSend do={ :local buf "#"; :local part 0; '
             ':foreach row in=$rows do={ :local line ""; '
             ':foreach k,v in=$row do={ :set line ($line . $k . "=" . [:tostr $v] . "\\1F") }; '
             ':set buf ($buf . $line . "\\1E"); '
@@ -188,9 +191,11 @@ def inventory_piece_script(cmd, url, check, nonce_value):
     # invalidating the entire returned command batch.
     args = f' {src["args"]}' if src.get('args') else ''
     command = f'{menu} print{args} as-value{where}'
+    # The command is a quoted RouterOS string: a filter such as list~"^tt-share-" must be escaped, or its
+    # quotes end the string early and the syntax error stops every command sent in the same batch.
     return (
-        f':local rows [:toarray ""]; '
-        f':do {{ :set rows [[:parse ":return [{command}]"]] }} '
+        f':global ttSend; :local rows [:toarray ""]; '
+        f':do {{ :set rows [[:parse {_rs(":return [" + command + "]")}]] }} '
         f'on-error={{ :set rows [:toarray ""] }}; '
         f'$ttSend rows=$rows u={_rs(upload)} chk="{check}"'
     )
@@ -708,6 +713,33 @@ def process_piece(cmd_id):
         cache.delete(lock)
 
 
+# A piece the router acknowledged but whose upload TapTap never processed (worker busy or restarted)
+# counts as missing after this long, so a sync can finish instead of hanging until it is settled.
+UNPROCESSED_AFTER = timedelta(minutes=5)
+FAILED_STATES = ('failed', 'expired', 'cancelled')
+
+
+def job_pieces(router, job_id):
+    """The inventory commands of one sync job, filtered in the database.
+
+    Never load every inventory command of the router: traffic samples add a few every two
+    minutes, and reading them all for each of the 61 tables made the router's check-in so slow
+    that its fetch timed out, nothing ran and the sync ended with "router offline or busy".
+    """
+    if not job_id:
+        return []
+    return list(router.agent_commands.filter(kind='inventory_piece', params__job_id=job_id)
+                .only('id', 'status', 'params', 'done_at'))
+
+
+def _is_missing(cmd, now):
+    if (cmd.params or {}).get('received'):
+        return False
+    if cmd.status in FAILED_STATES:
+        return True
+    return cmd.status == 'done' and cmd.done_at is not None and now - cmd.done_at > UNPROCESSED_AFTER
+
+
 def _record_piece(router, job_id, piece_summary):
     """Add one table's result to the sync job and finish the job when every table is accounted for."""
     now = timezone.now()
@@ -716,9 +748,9 @@ def _record_piece(router, job_id, piece_summary):
         if not job or job.status not in {'queued', 'running'}:
             return
         job.summary = _merge_summary(job.summary, piece_summary)
-        pieces = [c for c in router.agent_commands.filter(kind='inventory_piece') if (c.params or {}).get('job_id') == job.pk]
+        pieces = job_pieces(router, job.pk)
         received = [c for c in pieces if (c.params or {}).get('received')]
-        failed = [c for c in pieces if not (c.params or {}).get('received') and c.status in ('failed', 'expired', 'cancelled')]
+        failed = [c for c in pieces if _is_missing(c, now)]
         done = len(received) + len(failed)
         job.summary['inventory_parts'] = len(pieces)
         job.summary['inventory_received'] = len(received)
@@ -746,7 +778,8 @@ def _record_piece(router, job_id, piece_summary):
                 job.summary = _merge_summary(job.summary, {'errors': [f'Topology rebuild: {exc}']})
         if not received:
             job.status, job.finished_at = 'failed', now
-            job.phase = 'No RouterOS data arrived (router offline or busy) — will retry automatically'
+            job.phase = ('No RouterOS data arrived — the router checks in but its uploads did not reach TapTap. '
+                         'Check the router clock (HTTPS needs the right date) — will retry automatically')
             job.save(update_fields=['status', 'phase', 'summary', 'finished_at', 'updated_at'])
             return
         job.status, job.progress, job.finished_at = 'success', 100, now
@@ -769,16 +802,60 @@ def _record_piece(router, job_id, piece_summary):
     log(router.business, 'Router Sync', f'{router.name}: full inventory synchronized through TapTap Link')
 
 
+def record_job(router_id, job_id, errors=None):
+    """Background half of note_unanswered(): update one sync job."""
+    router = Router.objects.select_related('business').filter(pk=router_id).first()
+    if router:
+        _record_piece(router, job_id, {'errors': list(errors or [])})
+
+
+def note_unanswered(router, cmds):
+    """Tables the router did not deliver. The job bookkeeping (and a possible topology rebuild)
+    runs in the worker, never inside the router's check-in or acknowledgement request: those
+    requests have an 8-second limit on the router, and a slow answer means no commands run at all."""
+    by_job = {}
+    for cmd in cmds:
+        params = cmd.params or {}
+        job_id = params.get('job_id')
+        if not job_id or params.get('received'):
+            continue
+        label = SOURCES.get(params.get('kind'), {}).get('label', params.get('kind', 'section'))
+        by_job.setdefault(job_id, []).append(f'{label}: {cmd.result or "not available on this router"}')
+    for job_id, errors in by_job.items():
+        try:
+            from .tasks import record_inventory_job
+            record_inventory_job.delay(router.pk, job_id, errors)
+        except Exception:
+            _record_piece(router, job_id, {'errors': errors})
+
+
 def inventory_command_ack(cmd, ok):
     """A table RouterOS could not provide is noted, never fatal: the sync still completes."""
     if ok:
         return
-    params = cmd.params or {}
-    label = SOURCES.get(params.get('kind'), {}).get('label', params.get('kind', 'section'))
-    _record_piece(cmd.router, params.get('job_id'), {'errors': [f'{label}: {cmd.result or "not available on this router"}']})
+    note_unanswered(cmd.router, [cmd])
 
 
 STALL_MINUTES = 12
+MAX_SYNC_MINUTES = 90   # a sync that still makes progress is allowed to take this long (slow or busy routers)
+
+
+def _heal_unprocessed(router, pieces, now):
+    """Uploads the router finished but TapTap never imported: import them now, or count them as missing."""
+    healed = 0
+    for cmd in pieces:
+        if cmd.status != 'done' or (cmd.params or {}).get('received'):
+            continue
+        if cache.get(f'tt:agent-inventory-rows:{cmd.pk}') is not None:
+            try:
+                process_piece(cmd.pk)
+                healed += 1
+                continue
+            except Exception:
+                pass
+        AgentCommand.objects.filter(pk=cmd.pk, status='done').update(
+            status='failed', result='Uploaded, but TapTap could not import it in time')
+    return healed
 
 
 def settle_stalled_jobs(router=None):
@@ -794,10 +871,7 @@ def settle_stalled_jobs(router=None):
         jobs = jobs.filter(router=router)
     settled = 0
     for job in jobs[:50]:
-        pieces = [
-            c for c in job.router.agent_commands.filter(kind='inventory_piece')
-            if (c.params or {}).get('job_id') == job.pk
-        ]
+        pieces = job_pieces(job.router, job.pk)
         if not pieces:
             RouterSyncJob.objects.filter(pk=job.pk, status__in=['queued', 'running']).update(
                 status='failed',
@@ -806,6 +880,7 @@ def settle_stalled_jobs(router=None):
             )
             settled += 1
             continue
+        _heal_unprocessed(job.router, pieces, now)
         pending = [c for c in pieces if c.status in ('queued', 'sent') and not (c.params or {}).get('received')]
         if pending:
             AgentCommand.objects.filter(pk__in=[c.pk for c in pending]).update(
@@ -825,3 +900,31 @@ def settle_stalled_jobs(router=None):
         )
         settled += 1
     return settled
+
+
+def settle_router(router):
+    """Housekeeping for one Link router, run in the worker (never inside its check-in)."""
+    now = timezone.now()
+    settle_stalled_jobs(router)
+    old = router.sync_jobs.filter(status__in=['queued', 'running'], created_at__lt=now - timedelta(minutes=MAX_SYNC_MINUTES))
+    for job in old:
+        _record_piece(router, job.pk, {'errors': [f'The sync ran longer than {MAX_SYNC_MINUTES} minutes and was stopped.']})
+        RouterSyncJob.objects.filter(pk=job.pk, status__in=['queued', 'running']).update(
+            status='failed', phase='Timed out waiting for the router — will retry automatically', finished_at=now)
+
+
+def prune_commands(batch=5000, max_rows=200_000):
+    """Delete finished Link commands nobody reads any more (inventory and traffic samples after
+    2 days, everything else after 30). Runs hourly, in batches, so a large backlog shrinks safely."""
+    now = timezone.now()
+    finished = ('done', 'failed', 'expired', 'cancelled')
+    removed = 0
+    for qs in (AgentCommand.objects.filter(kind='inventory_piece', status__in=finished, created_at__lt=now - timedelta(days=2)),
+               AgentCommand.objects.filter(status__in=finished, created_at__lt=now - timedelta(days=30))):
+        while removed < max_rows:
+            ids = list(qs.values_list('pk', flat=True)[:batch])
+            if not ids:
+                break
+            AgentCommand.objects.filter(pk__in=ids).delete()
+            removed += len(ids)
+    return removed

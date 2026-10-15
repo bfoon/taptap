@@ -143,6 +143,29 @@ def process_inventory_piece(cmd_id):
 
 
 @shared_task(ignore_result=True)
+def record_inventory_job(router_id, job_id, errors=None):
+    """Note missing Link inventory tables on their sync job (kept out of the router's check-in)."""
+    from .agent_inventory import record_job
+    record_job(router_id, job_id, errors)
+
+
+@shared_task(ignore_result=True)
+def settle_link_router(router_id):
+    """Finish stalled or overlong Link syncs for one router (kept out of the router's check-in)."""
+    from .agent_inventory import settle_router
+    router = Router.objects.select_related('business').filter(pk=router_id).first()
+    if router:
+        settle_router(router)
+
+
+@shared_task(ignore_result=True)
+def prune_agent_commands():
+    """Hourly: delete old finished TapTap Link commands so Link bookkeeping stays fast."""
+    from .agent_inventory import prune_commands
+    prune_commands()
+
+
+@shared_task(ignore_result=True)
 def redeploy_portal(business_id):
     """Re-install the voucher portal on routers that have it (after page, plan or branding changes)."""
     from .models import Business

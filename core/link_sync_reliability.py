@@ -27,6 +27,9 @@ BINDING_KINDS = ("binding_upsert", "binding_set", "binding_remove")
 MAX_HEALS_PER_PASS = 12
 HEAL_COOLDOWN_SECONDS = 90
 SYNC_RETRY_SECONDS = 300
+RECONCILE_EVERY_SECONDS = 60      # at most once a minute per router: it used to run twice in every check-in
+HEALS_DURING_SYNC = 2             # while a full sync runs, repairs must not crowd its tables out of every batch
+COMMAND_HISTORY = 2000
 
 
 def _norm_mac(value):
@@ -62,6 +65,24 @@ def _all_commands(router, mac):
         if _cmd_mac(cmd) == mac:
             rows.append(cmd)
     return rows
+
+
+def _commands_by_mac(router):
+    """Recent binding commands grouped by MAC, newest first: one query per pass instead of one per row
+    (300 rows x 300 commands on every check-in made the router's 8-second check-in time out)."""
+    from .models import AgentCommand
+    out = {}
+    for cmd in (AgentCommand.objects.filter(router=router, kind__in=BINDING_KINDS)
+                .only("id", "kind", "status", "params", "result", "created_at")
+                .order_by("-created_at", "-pk")[:COMMAND_HISTORY]):
+        mac = _cmd_mac(cmd)
+        if mac:
+            out.setdefault(mac, []).append(cmd)
+    return out
+
+
+def reconcile_due(router):
+    return cache.add(f"tt:link:binding-reconcile:{router.pk}", 1, RECONCILE_EVERY_SECONDS)
 
 
 def _cancel_older_queued(router, mac, keep_id=None):
@@ -184,13 +205,17 @@ def _reconcile_rows(router, heal=True):
 
     healed = 0
     now = timezone.now()
+    by_mac = _commands_by_mac(router)
+    max_heals = MAX_HEALS_PER_PASS
+    if router.agent_commands.filter(kind="inventory_piece", status__in=["queued", "sent"], params__job_id__isnull=False).exists():
+        max_heals = HEALS_DURING_SYNC
 
     for row in rows:
         mac = _norm_mac(row.mac_address)
         if not mac:
             continue
 
-        commands = _all_commands(router, mac)
+        commands = by_mac.get(mac, [])
         latest = commands[0] if commands else None
 
         if latest and latest.status in ("queued", "sent"):
@@ -224,7 +249,7 @@ def _reconcile_rows(router, heal=True):
 
         # Self-heal only the current desired TapTap mirror. The cache prevents
         # hammering a router that is genuinely having trouble.
-        if healed >= MAX_HEALS_PER_PASS:
+        if healed >= max_heals:
             break
         if not row.is_present and row.source != "taptap":
             continue
@@ -402,17 +427,15 @@ def install():
         return outcome
 
     def reliable_build_response(router, url):
-        text = original_build_response(router, url)
-        try:
-            _reconcile_rows(router, heal=True)
-        except Exception:
-            logger.exception("Binding queue reconciliation failed for %s", router)
-        return text
+        # Reconciliation used to run here as well as after the poll: twice per check-in, inside the
+        # request the router waits only 8 s for. It now runs once a minute, after the reply is built.
+        return original_build_response(router, url)
 
     def reliable_handle_poll(agent, data, ip, url):
         result = original_handle_poll(agent, data, ip, url)
         try:
-            _reconcile_rows(agent.router, heal=True)
+            if reconcile_due(agent.router):
+                _reconcile_rows(agent.router, heal=True)
         except Exception:
             logger.exception("Binding poll reconciliation failed for %s", agent.router)
         return result

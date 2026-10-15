@@ -64,7 +64,8 @@ class LinkProbeTests(SiteBase):
         from .agent import wrap
         self.probe_link(f'sr:{self.saved.pk}')
         cmd = AgentCommand.objects.get(kind='site_probe')
-        body = wrap(cmd, 'https://taptap.example', 'yes-without-crl')
+        from .test_link_install import link_text
+        body = link_text(wrap(cmd, 'https://taptap.example', 'yes-without-crl'))   # each command runs in its own [:parse]
         self.assertIn('/ping "192.168.0.1" count=3', body)
         self.assertIn('url=("http://" . "192.168.0.1" . "/") output=user as-value', body)
         self.assertIn(f'/api/agent/v1/probe?c={cmd.pk}&n=', body)

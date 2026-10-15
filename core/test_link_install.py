@@ -35,6 +35,28 @@ def routeros_balanced(script):
     return depth == 0 and not inq
 
 
+
+def link_text(chunk):
+    """The RouterOS code of one Link command as the router compiles it.
+
+    core/agent.wrap() runs every command in its own [:parse] block (so a syntax error fails only that
+    command); the command text is then an escaped string. This returns it unescaped, or the chunk itself
+    for commands sent without the block (reboot, self-update, very large commands)."""
+    marker = ':local ttRun [:parse "'
+    i = chunk.find(marker)
+    if i < 0:
+        return chunk
+    j, out = i + len(marker), []
+    while chunk[j] != '"':
+        if chunk[j] == '\\':
+            nxt = chunk[j + 1]
+            out.append('\n' if nxt == 'n' else nxt)
+            j += 2
+            continue
+        out.append(chunk[j])
+        j += 1
+    return ''.join(out)
+
 @override_settings(SITE_URL='https://taptapnetwork.com', AUTH_EMAIL_OTP=False)
 class QuickInstallTests(TestCase):
     def setUp(self):
