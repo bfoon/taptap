@@ -28,6 +28,70 @@ def profile_values(business):
             'keepalive-timeout': business.sticky_keepalive or '2h'}
 
 
+MEMBER_PROFILE_PREFIXES = ('taptap-member-plan-', 'taptap-unlimited-member-plan-')
+
+
+def is_member_profile(name):
+    return str(name or '').lower().startswith(MEMBER_PROFILE_PREFIXES)
+
+
+def member_profile_values(business):
+    """Values for a Member Plan profile — always "stay signed in", whatever the voucher setting.
+
+    Members type a username and password, so every forced sign-in costs them. A phone with its screen
+    off stops answering the router for minutes at a time; with RouterOS defaults (keepalive 2m) it was
+    signed out and had to type the password again. So member profiles always get:
+      idle-timeout=none, keepalive-timeout=the business choice (at least the sticky default),
+      a MAC cookie (a signed-out phone comes back by itself) and no session-timeout
+      (the member's time is limit-uptime + TapTap's expiry, never the length of one session).
+    """
+    keep = getattr(business, 'sticky_keepalive', '') or '2h'
+    if not getattr(business, 'sticky_sessions', True):
+        keep = '2h'
+    return {'add-mac-cookie': 'yes', 'mac-cookie-timeout': COOKIE_TIMEOUT, 'idle-timeout': 'none',
+            'keepalive-timeout': keep, 'session-timeout': '0s'}
+
+
+def server_login_script():
+    """RouterOS: every hotspot server also accepts MAC-cookie and browser-cookie sign-in (keeps its others)."""
+    return (':foreach p in=[/ip hotspot profile find] do={ :local have ""; :local out ""; '
+            ':foreach x in=[/ip hotspot profile get $p login-by] do={ :set out ($out . $x . ","); :set have ($have . "|" . $x . "|") }; '
+            ':if ([:typeof [:find $have "|mac-cookie|"]] = "nil") do={ :set out ($out . "mac-cookie,") }; '
+            ':if ([:typeof [:find $have "|cookie|"]] = "nil") do={ :set out ($out . "cookie,") }; '
+            '/ip hotspot profile set $p login-by=[:pick $out 0 ([:len $out] - 1)] }')
+
+
+def member_profile_lines(names, business):
+    """RouterOS lines making member profiles keep idle members signed in (TapTap Link)."""
+    from .agent import rs
+    vals = ' '.join(f'{k}={v}' for k, v in member_profile_values(business).items())
+    names = [n for n in dict.fromkeys(names) if is_member_profile(n)]
+    if not names:
+        return []
+    lines = [f':do {{ /ip hotspot user profile set [find name={rs(n)}] {vals} }} on-error={{}}' for n in names]
+    lines.append(f':do {{ {server_login_script()} }} on-error={{}}')
+    return lines
+
+
+def apply_member_api(svc, business, names=None):
+    """Direct API / Tunnel: same as member_profile_lines. Returns the number of member profiles updated."""
+    vals = {k.replace('-', '_'): v for k, v in member_profile_values(business).items()}
+    profiles = svc.resource('/ip/hotspot/user/profile')
+    n = 0
+    for row in profiles.get():
+        if row.get('id') and is_member_profile(row.get('name')) and (names is None or row.get('name') in names):
+            profiles.set(id=row['id'], **vals)
+            n += 1
+    if n:
+        servers = svc.resource('/ip/hotspot/profile')
+        for row in servers.get():
+            have = [x for x in str(row.get('login-by', '')).split(',') if x]
+            want = have + [x for x in ('mac-cookie', 'cookie') if x not in have]
+            if row.get('id') and want != have:
+                servers.set(id=row['id'], login_by=','.join(want))
+    return n
+
+
 def api_values(business):
     return {k.replace('-', '_'): v for k, v in profile_values(business).items()}
 

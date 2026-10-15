@@ -227,6 +227,8 @@ def _wrap_link_users_import(original):
                 summary["member_alignments_queued"] = (
                     int(summary.get("member_alignments_queued") or 0) + fixed
                 )
+            from .member_keepalive import ensure_member_profiles
+            ensure_member_profiles(router)
             from .router_time import repair_link
             timed = repair_link(router, now)
             if timed:

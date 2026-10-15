@@ -101,6 +101,8 @@ def _same_phone(voucher, rows, mac, hints):
     if not hints or 'online_macs' not in hints:
         return None, ''
     online = {norm_mac(m) for m in hints.get('online_macs', ())}
+    if protected_member(voucher):
+        online |= {norm_mac(m) for m in hints.get('connected_macs', ())}   # idle but signed in = still here
     router_id = (hints or {}).get('router_id') or voucher.router_id
     away = [b for b in rows if b.current_mac and b.current_mac not in online]     # its old MAC is offline now
     if not away:
@@ -126,6 +128,26 @@ def norm_mac(mac):
 
 def slots(voucher):
     return max(1, int(voucher.max_devices or 1))
+
+
+def protected_member(voucher):
+    """A member whose time is not finished is never disconnected by TapTap's device lock.
+
+    Members sign in with a username and password. Removing one of their sessions (and its cookie)
+    sends that phone back to the login page, so the member has to type the password again. The router
+    already limits a member to the plan's number of devices (shared-users on the plan's profile), so
+    TapTap only records which devices they use — it never kicks a member who still has time.
+    Ordinary vouchers keep the full device lock.
+    """
+    if getattr(voucher, 'login_type', '') != 'member':
+        return False
+    if getattr(voucher, 'status', 'active') != 'active' or getattr(voucher, 'frozen_at', None):
+        return False
+    try:
+        from .voucher_history import time_is_up
+        return not time_is_up(voucher)
+    except Exception:
+        return True
 
 
 def enabled(voucher):
@@ -289,6 +311,11 @@ def _forget_mac(voucher, mac):
     router, mac = voucher.router, norm_mac(mac)
     if not router or not mac:
         return
+    if protected_member(voucher):
+        # "Not moving data for 90 s" is how a member's phone looks when its screen is off: it is idle, not gone.
+        # Its session and cookie stay, so it never has to sign in again.
+        logger.info('member %s: kept session of %s (time not finished)', voucher.code, mac)
+        return
     try:
         from .voucher_history import channel
         if channel(router) == 'TapTap Link':
@@ -329,6 +356,8 @@ def unlock_on_router(voucher):
 
 def kick(router, voucher, mac, session_id='', svc=None, quiet=False):
     """Disconnect one foreign device from a voucher (keeps the locked devices online)."""
+    if protected_member(voucher):
+        return False          # members: the router's shared-users limit applies, TapTap never signs them out
     key = f'lock:kick:{router.pk}:{voucher.pk}:{mac}'
     if cache.get(key):
         return False
@@ -395,7 +424,9 @@ def enforce_sessions(router, voucher_rows, svc=None):
             continue
         if mac in ghosts.get(v.pk, set()):
             continue          # a ghost is not a device in use: it must not take (or take back) a slot
-        out = claim(v, mac=mac, source='router', hints={'online_macs': live.get(v.pk, set()) - {mac}, 'router_id': router.pk})
+        connected = (live.get(v.pk, set()) | ghosts.get(v.pk, set())) - {mac}
+        out = claim(v, mac=mac, source='router', hints={'online_macs': live.get(v.pk, set()) - {mac},
+                                                       'connected_macs': connected, 'router_id': router.pk})
         if out.status == 'moved':
             continue          # claim() already removed the ghost's session and cookie (_forget_mac)
         if out.status != 'denied':
@@ -445,6 +476,8 @@ def release_stale(voucher, mac):
     mac = norm_mac(mac)
     if not voucher.router_id or not mac:
         return 0
+    if protected_member(voucher):
+        return 0              # never sign out a member's other (idle) devices to make room
     snap = cache.get(f'tt:tr:users:{voucher.router_id}') or {}
     sessions = (snap.get('users') or {}).get(voucher.code.upper(), [])
     keep = {norm_mac(m) for m in voucher.device_bindings.values_list('current_mac', flat=True)} - {mac}

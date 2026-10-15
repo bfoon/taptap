@@ -288,6 +288,12 @@ class MikroTikService:
         if str(profile_name).startswith('taptap-unlimited-'):
             # TapTap's own unlimited profile: no session timeout, no login script (nothing may limit the time)
             values.update({'session_timeout': '0s', 'on_login': '', 'on_logout': ''})
+        try:   # members always stay signed in while idle (core/sticky.member_profile_values)
+            from .sticky import is_member_profile, member_profile_values
+            if is_member_profile(profile_name):
+                values.update({k.replace('-', '_'): v for k, v in member_profile_values(self.router.business).items()})
+        except Exception:
+            pass
         if existing:
             profiles.set(id=existing[0]['id'], **values)
             return existing[0]['id']

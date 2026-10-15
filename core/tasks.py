@@ -45,6 +45,11 @@ def _complete_job(job, summary):
     job.error = ""
     job.finished_at = timezone.now()
     job.save(update_fields=["status", "progress", "phase", "summary", "error", "finished_at", "updated_at"])
+    try:    # member profiles that sign idle members out are corrected right after a sync
+        from .member_keepalive import ensure_member_profiles
+        ensure_member_profiles(job.router)
+    except Exception:
+        pass
     return summary
 
 
