@@ -1,0 +1,43 @@
+{% extends "core/investor/base.html" %}{% load taptap_extras %}
+{% block title %}{{ opp.title }}{% endblock %}
+{% block content %}
+<p class="small"><a href="{% url 'investor_portal' %}">My investments</a></p>
+<h1 style="margin-bottom:6px">{{ opp.title }}</h1>
+<p class="muted" style="max-width:70ch;margin-top:0">{{ opp.summary }}</p>
+
+<div class="cols">
+<div>
+  <section class="panel">
+    <div class="panel-head"><h2>Raised so far</h2><span class="num">{{ raised|money2:cur }} of {{ opp.target_amount|money2:cur }}</span></div>
+    <div class="fund" style="height:12px"><span style="width:{{ pct }}%"></span></div>
+    <p class="small muted">{{ left|money2:cur }} still open{% if opp.closes_at %}, closes {{ opp.closes_at|date:"d M Y" }}{% endif %}. {% if opp.scope == 'sites' %}Shares the profit of {{ sites }}.{% else %}Shares the profit of the whole business.{% endif %}</p>
+    {% if opp.description %}<div style="white-space:pre-wrap;max-width:70ch">{{ opp.description }}</div>{% endif %}
+    {% if uses %}<h3 style="font-size:1rem;margin-top:18px">What the money buys</h3><ul>{% for u in uses %}<li>{{ u }}</li>{% endfor %}</ul>{% endif %}
+    {% if opp.risks %}<h3 style="font-size:1rem;margin-top:18px">Risks to know</h3><div class="small" style="white-space:pre-wrap;max-width:70ch">{{ opp.risks }}</div>{% endif %}
+  </section>
+  {% if mine %}<section class="panel"><h2>Your offers here</h2>{% for m in mine %}<a class="deal" href="{% url 'investor_investment' m.reference %}"><div class="deal-top"><b class="num">{{ m.principal|money2:cur }}</b><span class="state {{ m.status }}">{{ m.get_status_display }}</span></div></a>{% endfor %}</section>{% endif %}
+</div>
+<div>
+  <section class="panel">
+    <h2>If I invest…</h2>
+    <label for="ttiAmount">Amount ({{ cur }})</label>
+    <input id="ttiAmount" type="number" min="{{ opp.min_ticket|floatformat:0 }}" {% if opp.max_ticket %}max="{{ opp.max_ticket|floatformat:0 }}"{% endif %} step="1" value="{{ suggested|floatformat:0 }}" inputmode="decimal">
+    <p class="small muted">{% if opp.min_ticket %}From {{ opp.min_ticket|money2:cur }}{% endif %}{% if opp.max_ticket %}, up to {{ opp.max_ticket|money2:cur }}{% endif %}</p>
+    <p style="margin:12px 0 2px">You would get <b class="num" id="ttiShare">—</b>{% if opp.terms == 'fixed' %}, until you are paid capital plus {{ opp.fixed_return_pct|floatformat:"-2" }}%{% endif %}.</p>
+    <p class="small muted" id="ttiDue"></p>
+    <div class="split" id="ttiSplit"></div>
+    <div class="calc-out" id="ttiCalc"></div>
+    <p class="small muted">Confidence: <span id="ttiConf">—</span>. Estimates use past performance and are not promises.</p>
+    {% if opp.status == 'open' %}
+    <form method="post" action="{% url 'investor_offer' opp.reference %}" onsubmit="this.amount.value=document.getElementById('ttiAmount').value">{% csrf_token %}
+      <input type="hidden" name="amount">
+      <label for="nt">Message to the business (optional)</label><textarea id="nt" name="note" rows="2" maxlength="500"></textarea>
+      <p><button class="btn go" style="width:100%">Send my offer</button></p>
+      <p class="small muted">Nothing is paid now. If the business accepts, you get payment instructions by email.</p>
+    </form>
+    {% else %}<p class="flash">This opportunity is fully funded.</p>{% endif %}
+  </section>
+</div>
+</div>
+{% endblock %}
+{% block scripts %}<script>TTI.calculator("{% url 'investor_estimate' opp.reference %}");</script>{% endblock %}

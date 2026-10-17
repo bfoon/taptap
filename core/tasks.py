@@ -207,3 +207,10 @@ def forget_mac_task(voucher_id, mac):
     v = Voucher.objects.filter(pk=voucher_id).select_related('router').first()
     if v and v.router_id:
         forget_mac_now(v, mac)
+
+
+@shared_task(ignore_result=True)
+def investor_tick():
+    """Investors: book finished days of earnings, then send the daily summaries that are due (core/investors.py)."""
+    from .investors import tick
+    return tick()

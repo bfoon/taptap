@@ -1,0 +1,8 @@
+Hello {{ investor.name }},
+
+{% for l in lines %}{{ l }}
+
+{% endfor %}{{ button }}: {{ url }}
+(This link works once, for 12 hours.)
+
+{{ business.business_name }}

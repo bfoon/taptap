@@ -1,0 +1,14 @@
+{% extends "core/investor/base.html" %}
+{% block title %}Sign in{% endblock %}
+{% block content %}
+<div class="login">
+  <h1>Investor portal</h1>
+  {% if expired %}<p class="flash error">That sign-in link has expired or was already used. Ask for a new one below.</p>{% endif %}
+  {% if sent %}<p class="flash">If that email belongs to an investor, a sign-in link is on its way. It works once, for 30 minutes.</p>{% endif %}
+  <p class="muted">Enter the email the business registered for you. We will send you a one-time sign-in link — there is no password to remember.</p>
+  <form method="post" action="{% url 'investor_request_link' %}">{% csrf_token %}
+    <label for="em">Email</label><input id="em" type="email" name="email" required autocomplete="email">
+    <p><button class="btn primary" style="width:100%">Email me a sign-in link</button></p>
+  </form>
+</div>
+{% endblock %}

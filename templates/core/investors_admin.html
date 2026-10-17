@@ -1,0 +1,145 @@
+{% extends "core/base.html" %}{% load taptap_extras %}
+{% block title %}Investors — TapTap{% endblock %}
+{% block heading %}Investors{% endblock %}
+{% block extra_head %}<style>
+.iv-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.8rem;margin-bottom:1rem}.iv-kpi{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:14px;padding:.8rem 1rem}.iv-kpi small{color:#6b7a8c;display:block}.iv-kpi b{font-size:1.25rem;font-variant-numeric:tabular-nums}
+.iv-card{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:1rem;margin-bottom:1rem}.iv-card h3{font-size:1rem;font-weight:800}
+.iv-todo{border-left:4px solid #f2b134;padding:.6rem .8rem;background:#fffaf0;border-radius:8px;margin-bottom:.5rem;display:flex;justify-content:space-between;gap:.6rem;align-items:center}
+.iv-bar{height:7px;border-radius:4px;background:#e5eefc;display:flex;overflow:hidden}.iv-bar span:first-child{background:#2f6fdb}.iv-bar span:last-child{background:#12a27a}
+.iv-fund{height:7px;border-radius:4px;background:#eef1f5;overflow:hidden}.iv-fund span{display:block;height:100%;background:#14213d}
+.iv-terms .terms-fixed,.iv-terms.fixed .terms-share{display:none}.iv-terms.fixed .terms-fixed{display:block}
+@media(max-width:900px){.iv-kpis{grid-template-columns:repeat(2,1fr)}}
+</style>{% endblock %}
+{% block content %}
+<ul class="nav nav-pills mb-3 flex-wrap gap-1">
+  <li class="nav-item"><a class="nav-link {% if tab == 'overview' %}active{% endif %}" href="?tab=overview">Overview</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'investors' %}active{% endif %}" href="?tab=investors">Investors</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'opportunities' %}active{% endif %}" href="?tab=opportunities">Opportunities</a></li>
+  {% if can_manage %}<li class="nav-item"><a class="nav-link {% if tab == 'deal' %}active{% endif %}" href="?tab=deal">Add a deal</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'settings' %}active{% endif %}" href="?tab=settings">Settings</a></li>{% endif %}
+  <li class="nav-item ms-auto"><a class="nav-link" href="{% url 'investor_portal' %}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Investor portal</a></li>
+</ul>
+
+{% if tab == 'overview' %}
+<div class="iv-kpis">
+  <div class="iv-kpi"><small>Capital invested</small><b>{{ kpi.capital|money2:business.currency }}</b></div>
+  <div class="iv-kpi"><small>Earned by investors</small><b>{{ kpi.earned|money2:business.currency }}</b></div>
+  <div class="iv-kpi"><small>Capital paid back</small><b>{{ kpi.repaid|money2:business.currency }}</b></div>
+  <div class="iv-kpi"><small>Owed to investors now</small><b>{{ kpi.owed|money2:business.currency }}</b></div>
+  <div class="iv-kpi"><small>Active investors</small><b>{{ kpi.investors }}</b></div>
+</div>
+{% if offers or payments %}<div class="iv-card"><h3><i class="bi bi-bell"></i> Waiting for you</h3>
+  {% for d in offers %}<div class="iv-todo"><span><b>{{ d.investor.name }}</b> offers <b>{{ d.principal|money2:business.currency }}</b> on {{ d.title }}</span><a class="btn btn-sm btn-dark" href="{% url 'investment_admin' d.pk %}">Review offer</a></div>{% endfor %}
+  {% for d in payments %}{% if d.status == 'payment_review' %}<div class="iv-todo"><span><b>{{ d.investor.name }}</b> says they paid <b>{{ d.principal|money2:business.currency }}</b> (ref {{ d.payment_reference }})</span><a class="btn btn-sm btn-success" href="{% url 'investment_admin' d.pk %}">Confirm payment</a></div>{% endif %}{% endfor %}
+</div>{% endif %}
+{% if load.business > 0 or load.sites %}<div class="alert {% if load.business > 50 %}alert-warning{% else %}alert-light border{% endif %} small">
+  <b>Profit promised to investors:</b> {{ load.business|floatformat:"-2" }}% of whole-business profit{% for site, pct in load.sites.items %}, plus {{ pct|floatformat:"-2" }}% of {{ site }}{% endfor %}. Site deals and whole-business deals stack.
+</div>{% endif %}
+<div class="iv-card"><h3>Deals</h3><div class="table-responsive"><table class="table table-sm align-middle">
+<thead><tr><th>Investor</th><th>Deal</th><th>Status</th><th class="text-end">Capital</th><th>Payback</th><th class="text-end">Earned</th><th class="text-end">Owed now</th><th></th></tr></thead><tbody>
+{% for d in deals %}<tr><td>{{ d.investor.name }}</td><td>{{ d.title }}<div class="small text-muted">{{ d.reference }}, {{ d.get_terms_display|lower }} {{ d.share_pct|floatformat:"-3" }}%</div></td>
+<td><span class="badge {% if d.status == 'active' %}text-bg-success{% elif d.status == 'completed' %}text-bg-primary{% elif d.status in 'offered awaiting_payment payment_review' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">{{ d.get_status_display|cut:" — waiting for the business"|cut:" — waiting for payment"|cut:" — being confirmed"|cut:" — earning" }}</span></td>
+<td class="text-end">{{ d.principal|money2:business.currency }}</td><td style="min-width:110px"><div class="iv-bar"><span style="width:{{ d.payback_progress|floatformat:0 }}%"></span></div><small>{{ d.payback_progress|floatformat:0 }}%</small></td>
+<td class="text-end">{{ d.earned_total|money2:business.currency }}</td><td class="text-end">{{ d.balance|money2:business.currency }}</td><td><a href="{% url 'investment_admin' d.pk %}" class="btn btn-sm btn-outline-secondary">Open</a></td></tr>
+{% empty %}<tr><td colspan="8" class="text-muted">No deals yet. Publish an opportunity for your investors, or add a deal you already have.</td></tr>{% endfor %}</tbody></table></div></div>
+{% endif %}
+
+{% if tab == 'investors' %}
+<div class="row g-3"><div class="col-lg-7"><div class="iv-card"><h3>Investors</h3><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Name</th><th>Deals</th><th class="text-end">Invested</th><th>Last seen</th><th></th></tr></thead><tbody>
+{% for i in investors %}<tr><td><b>{{ i.name }}</b>{% if i.status == 'paused' %} <span class="badge text-bg-secondary">Paused</span>{% endif %}<div class="small text-muted">{{ i.email }}{% if i.company %}, {{ i.company }}{% endif %}</div></td><td>{{ i.n }}</td><td class="text-end">{{ i.invested|default:0|money2:business.currency }}</td><td class="small">{{ i.last_login_at|date:"d M H:i"|default:"never" }}</td>
+<td class="text-nowrap">{% if can_manage %}<a class="btn btn-sm btn-outline-secondary" href="?tab=investors&edit_investor={{ i.pk }}">Edit</a>
+<form method="post" action="{% url 'investors_action' %}" class="d-inline">{% csrf_token %}<input type="hidden" name="do" value="investor_link"><input type="hidden" name="id" value="{{ i.pk }}"><input type="hidden" name="next" value="?tab=investors"><button class="btn btn-sm btn-outline-primary" title="Email a sign-in link">Send link</button></form>
+<div class="dropdown d-inline"><button class="btn btn-sm btn-light" data-bs-toggle="dropdown" aria-label="More"><i class="bi bi-three-dots"></i></button><div class="dropdown-menu dropdown-menu-end p-1">
+<form method="post" action="{% url 'investors_action' %}">{% csrf_token %}<input type="hidden" name="do" value="investor_summary_now"><input type="hidden" name="id" value="{{ i.pk }}"><input type="hidden" name="next" value="?tab=investors"><button class="dropdown-item">Send today’s summary now</button></form>
+<form method="post" action="{% url 'investors_action' %}">{% csrf_token %}<input type="hidden" name="do" value="investor_signout"><input type="hidden" name="id" value="{{ i.pk }}"><input type="hidden" name="next" value="?tab=investors"><button class="dropdown-item text-danger">Sign out of every device</button></form></div></div>{% endif %}</td></tr>
+{% empty %}<tr><td colspan="5" class="text-muted">Add your first investor on the right.</td></tr>{% endfor %}</tbody></table></div></div></div>
+{% if can_manage %}<div class="col-lg-5"><form method="post" action="{% url 'investors_action' %}" class="iv-card">{% csrf_token %}<input type="hidden" name="do" value="investor_save"><input type="hidden" name="next" value="?tab=investors">
+{% if edit_investor %}<input type="hidden" name="id" value="{{ edit_investor.pk }}">{% endif %}
+<h3>{% if edit_investor %}Edit {{ edit_investor.name }}{% else %}Add an investor{% endif %}</h3>
+<label class="form-label">Name</label><input class="form-control mb-2" name="name" required maxlength="150" value="{{ edit_investor.name|default:'' }}">
+<label class="form-label">Email (their sign-in)</label><input class="form-control mb-2" type="email" name="email" required value="{{ edit_investor.email|default:'' }}">
+<div class="row g-2"><div class="col"><label class="form-label">Phone</label><input class="form-control" name="phone" value="{{ edit_investor.phone|default:'' }}"></div><div class="col"><label class="form-label">Company</label><input class="form-control" name="company" value="{{ edit_investor.company|default:'' }}"></div></div>
+<label class="form-label mt-2">Private notes</label><input class="form-control mb-2" name="notes" maxlength="500" value="{{ edit_investor.notes|default:'' }}">
+<div class="form-check"><input class="form-check-input" type="checkbox" name="daily_summary" value="1" id="ds" {% if not edit_investor or edit_investor.daily_summary %}checked{% endif %}><label class="form-check-label" for="ds">Email a daily summary</label></div>
+<div class="form-check"><input class="form-check-input" type="checkbox" name="allow_fit" value="1" id="af" {% if not edit_investor or edit_investor.allow_fit %}checked{% endif %}><label class="form-check-label" for="af">May ask Fit about their own investments</label></div>
+{% if edit_investor %}<div class="form-check"><input class="form-check-input" type="checkbox" name="status" value="paused" id="ps" {% if edit_investor.status == 'paused' %}checked{% endif %}><label class="form-check-label" for="ps">Pause portal access</label></div>
+{% else %}<div class="form-check"><input class="form-check-input" type="checkbox" name="send_link" value="1" id="sl" checked><label class="form-check-label" for="sl">Email them a sign-in link now</label></div>{% endif %}
+<button class="btn btn-dark mt-3">{% if edit_investor %}Save changes{% else %}Add investor{% endif %}</button>{% if edit_investor %} <a href="?tab=investors" class="btn btn-link">Cancel</a>{% endif %}
+</form></div>{% endif %}</div>
+{% endif %}
+
+{% if tab == 'opportunities' %}
+<div class="row g-3"><div class="col-lg-6">
+{% for o in opps %}<div class="iv-card"><div class="d-flex justify-content-between gap-2"><div><h3 class="mb-0">{{ o.title }}</h3><small class="text-muted">{{ o.reference }}, {{ o.get_scope_display|lower }}{% if o.scope == 'sites' %}: {% for r in o.routers.all %}{{ r.name }}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}</small></div>
+<span class="badge {% if o.status == 'open' %}text-bg-success{% elif o.status == 'draft' %}text-bg-secondary{% else %}text-bg-primary{% endif %} align-self-start">{{ o.get_status_display }}</span></div>
+<div class="iv-fund my-2"><span style="width:{{ o.pct }}%"></span></div>
+<div class="small">{{ o.raised|money2:business.currency }} of {{ o.target_amount|money2:business.currency }} committed{% if o.pending %}, {{ o.pending|money2:business.currency }} in offers waiting{% endif %}. {{ o.get_terms_display }}: {{ o.share_pct|floatformat:"-3" }}% of profit for the full amount{% if o.terms == 'fixed' %}, {{ o.fixed_return_pct|floatformat:"-2" }}% return{% endif %}.</div>
+{% if can_manage %}<a class="btn btn-sm btn-outline-secondary mt-2" href="?tab=opportunities&edit_opp={{ o.pk }}">Edit</a>{% endif %}</div>
+{% empty %}<div class="iv-card text-muted">No opportunities yet. Describe a project (a new site, more access points, a backup link) and open it to your investors.</div>{% endfor %}
+</div>
+{% if can_manage %}<div class="col-lg-6"><form method="post" action="{% url 'investors_action' %}" class="iv-card">{% csrf_token %}<input type="hidden" name="do" value="opp_save">{% if edit_opp %}<input type="hidden" name="id" value="{{ edit_opp.pk }}">{% endif %}
+<h3>{% if edit_opp %}Edit {{ edit_opp.title }}{% else %}New opportunity{% endif %}</h3>
+<label class="form-label">Title</label><input class="form-control mb-2" name="title" required maxlength="150" value="{{ edit_opp.title|default:'' }}" placeholder="New hotspot site in Brikama market">
+<label class="form-label">One-line summary</label><input class="form-control mb-2" name="summary" required maxlength="300" value="{{ edit_opp.summary|default:'' }}">
+<label class="form-label">Description</label><textarea class="form-control mb-2" name="description" rows="3">{{ edit_opp.description|default:'' }}</textarea>
+<label class="form-label">What the money buys (one per line)</label><textarea class="form-control mb-2" name="use_of_funds" rows="3">{{ edit_opp.use_of_funds|default:'' }}</textarea>
+<label class="form-label">Risks</label><textarea class="form-control mb-2" name="risks" rows="2">{{ edit_opp.risks|default:'' }}</textarea>
+<div class="row g-2"><div class="col"><label class="form-label">Raising ({{ business.currency }})</label><input class="form-control" name="target_amount" type="number" step="0.01" min="1" required value="{{ edit_opp.target_amount|default:'' }}"></div>
+<div class="col"><label class="form-label">Minimum ticket</label><input class="form-control" name="min_ticket" type="number" step="0.01" min="0" value="{{ edit_opp.min_ticket|default:'0' }}"></div>
+<div class="col"><label class="form-label">Maximum ticket</label><input class="form-control" name="max_ticket" type="number" step="0.01" min="0" value="{{ edit_opp.max_ticket|default:'' }}"></div></div>
+<label class="form-label mt-2">Profit from</label>
+<select class="form-select mb-2" name="scope" onchange="document.getElementById('oppSites').hidden=this.value!=='sites'"><option value="business">The whole business</option><option value="sites" {% if edit_opp.scope == 'sites' %}selected{% endif %}>Chosen sites only</option></select>
+<div id="oppSites" {% if edit_opp.scope != 'sites' %}hidden{% endif %} class="mb-2">{% for r in routers %}<label class="d-block small"><input type="checkbox" class="form-check-input me-1" name="routers" value="{{ r.pk }}" {% if r.pk in edit_opp_router_ids %}checked{% endif %}> {{ r.name }}</label>{% endfor %}</div>
+<div class="iv-terms {% if edit_opp.terms == 'fixed' %}fixed{% endif %}" id="oppTerms">
+<label class="form-label">Terms</label>
+<select class="form-select mb-2" name="terms" onchange="document.getElementById('oppTerms').classList.toggle('fixed',this.value==='fixed')"><option value="profit_share">Share of profit</option><option value="fixed" {% if edit_opp.terms == 'fixed' %}selected{% endif %}>Fixed return</option></select>
+<label class="form-label">% of profit offered for the full amount</label><input class="form-control mb-1" name="share_pct" type="number" step="0.001" min="0.001" max="100" required value="{{ edit_opp.share_pct|default:'' }}">
+<div class="form-text mb-2">Each investor gets their part pro-rata: a quarter of the money earns a quarter of this share.</div>
+<div class="terms-share"><div class="row g-2"><div class="col"><label class="form-label">% of each earning that repays capital</label><input class="form-control" name="payback_pct" type="number" step="0.01" min="0" max="100" value="{{ edit_opp.payback_pct|default:'70' }}"></div>
+<div class="col"><label class="form-label">Share after payback (full amount)</label><input class="form-control" name="after_payback_share_pct" type="number" step="0.001" min="0" max="100" value="{{ edit_opp.after_payback_share_pct|default:'' }}" placeholder="unchanged"></div></div>
+<label class="form-label mt-2">Stop when paid (% of capital)</label><input class="form-control mb-2" name="cap_pct" type="number" step="0.01" min="0" value="{{ edit_opp.cap_pct|default:'' }}" placeholder="no cap — e.g. 250"></div>
+<div class="terms-fixed"><label class="form-label">Fixed return %</label><input class="form-control mb-1" name="fixed_return_pct" type="number" step="0.01" min="0" value="{{ edit_opp.fixed_return_pct|default:'0' }}"><div class="form-text mb-2">Investor is paid capital plus this %. Each earning splits in that same proportion.</div></div>
+</div>
+<label class="form-label">Expected monthly profit (for a new site with no history)</label><input class="form-control mb-2" name="expected_monthly_profit" type="number" step="0.01" min="0" value="{{ edit_opp.expected_monthly_profit|default:'' }}">
+<div class="row g-2"><div class="col"><label class="form-label">Who can see it</label><select class="form-select" name="visibility" onchange="document.getElementById('oppInv').hidden=this.value!=='invited'"><option value="all">All my investors</option><option value="invited" {% if edit_opp.visibility == 'invited' %}selected{% endif %}>Invited only</option></select></div>
+<div class="col"><label class="form-label">Closes</label><input class="form-control" type="date" name="closes_at" value="{{ edit_opp.closes_at|date:'Y-m-d' }}"></div>
+<div class="col"><label class="form-label">Status</label><select class="form-select" name="status"><option value="draft">Draft</option><option value="open" {% if edit_opp.status == 'open' %}selected{% endif %}>Open for offers</option><option value="funded" {% if edit_opp.status == 'funded' %}selected{% endif %}>Fully funded</option><option value="closed" {% if edit_opp.status == 'closed' %}selected{% endif %}>Closed</option></select></div></div>
+<div id="oppInv" {% if edit_opp.visibility != 'invited' %}hidden{% endif %} class="mt-2">{% for i in investors %}<label class="d-block small"><input type="checkbox" class="form-check-input me-1" name="invited" value="{{ i.pk }}" {% if i.pk in edit_opp_invited_ids %}checked{% endif %}> {{ i.name }}</label>{% endfor %}</div>
+<button class="btn btn-dark mt-3">{% if edit_opp %}Save opportunity{% else %}Create opportunity{% endif %}</button>{% if edit_opp %} <a class="btn btn-link" href="?tab=opportunities">Cancel</a>{% endif %}
+</form></div>{% endif %}</div>
+{% endif %}
+
+{% if tab == 'deal' and can_manage %}
+<form method="post" action="{% url 'investors_action' %}" class="iv-card" style="max-width:760px">{% csrf_token %}<input type="hidden" name="do" value="deal_create">
+<h3>Add a deal you already agreed</h3><p class="small text-muted">For money received outside the portal. With a past start date, every day since is calculated straight away.</p>
+<div class="row g-2"><div class="col-md-6"><label class="form-label">Investor</label><select class="form-select" name="investor" required>{% for i in investors %}<option value="{{ i.pk }}">{{ i.name }}</option>{% endfor %}</select></div>
+<div class="col-md-6"><label class="form-label">Title</label><input class="form-control" name="title" required maxlength="150" placeholder="Westfield site expansion"></div>
+<div class="col-md-4"><label class="form-label">Capital ({{ business.currency }})</label><input class="form-control" name="principal" type="number" step="0.01" min="1" required></div>
+<div class="col-md-4"><label class="form-label">Terms</label><select class="form-select" name="terms"><option value="profit_share">Share of profit</option><option value="fixed">Fixed return</option></select></div>
+<div class="col-md-4"><label class="form-label">% of profit</label><input class="form-control" name="share_pct" type="number" step="0.001" min="0.001" max="100" required></div>
+<div class="col-md-4"><label class="form-label">% of each earning to capital</label><input class="form-control" name="payback_pct" type="number" step="0.01" min="0" max="100" value="70"></div>
+<div class="col-md-4"><label class="form-label">Share after payback</label><input class="form-control" name="after_payback_share_pct" type="number" step="0.001" min="0" placeholder="unchanged"></div>
+<div class="col-md-4"><label class="form-label">Cap (% of capital)</label><input class="form-control" name="cap_pct" type="number" step="0.01" min="0" placeholder="none"></div>
+<div class="col-md-4"><label class="form-label">Fixed return % (fixed terms)</label><input class="form-control" name="fixed_return_pct" type="number" step="0.01" min="0" value="0"></div>
+<div class="col-md-4"><label class="form-label">Profit from</label><select class="form-select" name="scope" onchange="document.getElementById('dealSites').hidden=this.value!=='sites'"><option value="business">The whole business</option><option value="sites">Chosen sites only</option></select></div>
+<div class="col-md-4"><label class="form-label">Earnings count from</label><input class="form-control" type="date" name="start_date"></div></div>
+<div id="dealSites" hidden class="mt-2">{% for r in routers %}<label class="d-block small"><input type="checkbox" class="form-check-input me-1" name="routers" value="{{ r.pk }}"> {{ r.name }}</label>{% endfor %}</div>
+<div class="form-check mt-3"><input class="form-check-input" type="checkbox" name="already_paid" value="1" id="ap" checked><label class="form-check-label" for="ap">Money already received — make it live now</label></div>
+<div class="form-check"><input class="form-check-input" type="checkbox" name="carry_losses" value="1" id="cl" checked><label class="form-check-label" for="cl">Offset loss-making days against later profit</label></div>
+<div class="form-check"><input class="form-check-input" type="checkbox" name="show_basis" value="1" id="sb" checked><label class="form-check-label" for="sb">Show the investor the revenue, costs and profit their share is based on</label></div>
+<label class="form-label mt-2">Payment reference (optional)</label><input class="form-control" name="payment_reference" maxlength="120">
+<button class="btn btn-dark mt-3">Create deal</button></form>
+{% endif %}
+
+{% if tab == 'settings' and can_manage %}
+<form method="post" action="{% url 'investors_action' %}" class="iv-card" style="max-width:760px">{% csrf_token %}<input type="hidden" name="do" value="settings">
+<h3>Investor settings</h3>
+<div class="form-check form-switch mb-3"><input class="form-check-input" type="checkbox" name="enabled" value="1" id="en" {% if settings_obj.enabled %}checked{% endif %}><label class="form-check-label fw-bold" for="en">Investor portal is on</label></div>
+<label class="form-label">Welcome line on the portal</label><input class="form-control mb-2" name="portal_intro" maxlength="300" value="{{ settings_obj.portal_intro }}">
+<label class="form-label">How investors pay you (shown after you accept an offer)</label><textarea class="form-control mb-2" name="payment_instructions" rows="4" placeholder="Bank: … Account: … or Wave: …">{{ settings_obj.payment_instructions }}</textarea>
+<label class="form-label">Daily summary email goes out at</label><div class="input-group mb-2" style="max-width:200px"><input class="form-control" type="number" min="0" max="23" name="summary_hour" value="{{ settings_obj.summary_hour }}"><span class="input-group-text">:00</span></div>
+<p class="small text-muted">Online checkout for investors is {% if checkout_configured %}<b>on</b>{% else %}off — set INVESTOR_PAYMENT_CHECKOUT_URL and INVESTOR_PAYMENT_WEBHOOK_SECRET on the server to turn it on{% endif %}.</p>
+<p class="small text-muted">Portal address for your investors: <code>{{ request.scheme }}://{{ request.get_host }}{% url 'investor_portal' %}</code></p>
+<button class="btn btn-dark">Save settings</button></form>
+{% endif %}
+{% endblock %}

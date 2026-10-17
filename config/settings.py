@@ -159,6 +159,11 @@ CELERY_BEAT_SCHEDULE['taptap-chat-email'] = {'task': 'core.tasks.chat_email_miss
 CELERY_TASK_ROUTES['core.tasks.chat_email_missed'] = {'queue': 'live'}
 # Old finished TapTap Link commands are deleted hourly (a huge command table made Link check-ins time out).
 CELERY_BEAT_SCHEDULE['taptap-prune-link-commands'] = {'task': 'core.tasks.prune_agent_commands', 'schedule': 3600.0, 'options': {'expires': 1800}}
+# Investors: earnings are booked for every finished day and the daily summaries go out at each business's hour.
+CELERY_BEAT_SCHEDULE['taptap-investors'] = {'task': 'core.tasks.investor_tick', 'schedule': 900.0, 'options': {'expires': 800}}
+# Optional hosted checkout for investor payments (same contract as the member portal checkout; HMAC-SHA256 webhook).
+INVESTOR_PAYMENT_CHECKOUT_URL = os.getenv('INVESTOR_PAYMENT_CHECKOUT_URL', '')
+INVESTOR_PAYMENT_WEBHOOK_SECRET = os.getenv('INVESTOR_PAYMENT_WEBHOOK_SECRET', '')
 
 # Map tiles (Topology › Geo map, field mapping). OpenStreetMap's own servers only serve sites that say who they
 # are (the Referer header) and are meant for light use; set your own provider here for heavy use.

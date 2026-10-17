@@ -1,0 +1,22 @@
+{% load taptap_extras %}Hello {{ investor.name }},
+
+Your investments on {{ day|date:"l d F Y" }}:
+
+Earned that day: {{ yesterday.earned|money2:cur }} ({{ yesterday.capital|money2:cur }} capital back, {{ yesterday.return|money2:cur }} profit)
+This month so far: {{ data.totals.mtd|money2:cur }}
+Earned in total: {{ data.totals.earned|money2:cur }} from {{ data.totals.invested|money2:cur }} invested
+Capital back: {{ data.totals.payback_progress }}%
+Paid out to you: {{ data.totals.paid_out|money2:cur }}
+Waiting to be paid: {{ data.totals.balance|money2:cur }}
+
+{% for d in deals %}- {{ d.title }} ({{ d.status_label }}): {{ d.earned|money2:cur }} earned, {{ d.payback_progress }}% of capital back
+{% endfor %}{% if projections %}
+Looking ahead (expected scenario):
+{% for p in projections %}- {{ p.title }}: about {{ p.monthly|money2:cur }} a month{% if p.payback_date and p.payback_date != 'repaid' %}, capital back around {{ p.payback_date }}{% endif %}
+{% endfor %}Projections are estimates from past performance, not promises.
+{% endif %}{% if open_opps %}
+{{ open_opps|length }} opportunit{{ open_opps|length|pluralize:"y is,ies are" }} open to you in the portal.
+{% endif %}
+Open your portal (link works once, for 12 hours): {{ url }}
+
+{{ business.business_name }}

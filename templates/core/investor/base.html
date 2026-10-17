@@ -1,0 +1,19 @@
+{% load static %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}Investor portal{% endblock %} — {{ business.business_name|default:"TapTap" }}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="{% static 'css/investor.css' %}?v=1" rel="stylesheet">{% if business.brand_color %}<style>:root{--ink:{{ business.brand_color }}}</style>{% endif %}</head>
+<body>
+<header class="top"><div class="top-in">
+  <a class="brand" href="{% url 'investor_portal' %}">{% if business.logo_data %}<img src="{{ business.logo_data }}" alt="">{% endif %}{{ business.business_name|default:"Investor portal" }}</a>
+  {% if investor %}<span class="who">{{ investor.name }}</span>
+  <form method="post" action="{% url 'investor_logout' %}">{% csrf_token %}<button class="ghost">Sign out</button></form>{% endif %}
+</div></header>
+<main class="wrap">
+{% for m in messages %}<div class="flash {{ m.tags }}" role="status">{{ m }}</div>{% endfor %}
+{% block content %}{% endblock %}
+</main>
+<script>window.TTI_CUR="{{ cur|default:'D'|escapejs }}";</script>
+<script src="{% static 'vendor/chart.umd.min.js' %}"></script><script src="{% static 'js/investor.js' %}?v=1"></script>
+{% block scripts %}{% endblock %}
+</body></html>

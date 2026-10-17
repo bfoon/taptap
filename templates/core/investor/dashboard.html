@@ -1,0 +1,49 @@
+{% extends "core/investor/base.html" %}
+{% block title %}My investments{% endblock %}
+{% block content %}
+<section class="hero" aria-live="polite">
+  <div class="hero-row">
+    <div>
+      <h1 class="earned num" id="ttiEarned">{{ cur }}0.00</h1>
+      <div class="sub">earned in total, from <span class="num" id="ttiInvested">{{ cur }}0</span> invested</div>
+    </div>
+    <span class="today"><i></i>Today so far <span class="num" id="ttiToday">{{ cur }}0.00</span></span>
+  </div>
+  <div class="meter" id="ttiMeter" role="img"><div class="meter-track"><div class="meter-cap"></div><div class="meter-ret"></div><div class="meter-mark"></div></div>
+    <div class="meter-legend"><span><span class="dot cap"></span>Capital back <b class="num" id="ttiRepaid"></b></span><span><span class="dot ret"></span>Your profit <b class="num" id="ttiReturned"></b></span><span id="ttiPct"></span></div>
+  </div>
+  <div class="figs">
+    <div><small>This month</small><b id="ttiMtd">—</b></div>
+    <div><small>Paid out to you</small><b id="ttiPaid">—</b></div>
+    <div><small>Waiting to be paid</small><b id="ttiBalance">—</b></div>
+    <div><small>Live</small><b class="small" id="ttiUpdated" style="font-family:inherit;font-weight:500">—</b></div>
+  </div>
+</section>
+
+<div class="cols">
+  <div>
+    <section class="panel">
+      <div class="panel-head"><h2>Daily earnings</h2><span class="small muted">Last 60 days</span></div>
+      <div class="chart"><canvas id="ttiEarnings" aria-label="Daily earnings split into capital back and profit"></canvas></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Opportunities</h2></div>
+      <div id="ttiOpps"><p class="empty">Loading…</p></div>
+    </section>
+  </div>
+  <div>
+    <section class="panel"><h2>My investments</h2><div id="ttiDeals"><p class="empty">Loading…</p></div></section>
+    {% if fit_ready %}
+    <section class="panel">
+      <h2>Ask Fit</h2>
+      <p class="small muted">Fit sees only your own investments and the opportunities offered to you.</p>
+      <div class="chips"><button type="button" data-ask="How am I doing this month?">How am I doing?</button><button type="button" data-ask="When will I get my capital back?">When is my money back?</button><button type="button" data-ask="Which opportunity looks best for 25000?">Compare opportunities</button></div>
+      <div class="fit-log" id="ttiFitLog"></div>
+      <form class="fit-form" id="ttiFitForm"><input aria-label="Your question" placeholder="Ask about your investments" maxlength="1500"><button class="btn primary">Ask</button></form>
+    </section>
+    {% endif %}
+    {% if settings_obj.portal_intro %}<section class="panel small muted">{{ settings_obj.portal_intro }}</section>{% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script>TTI.dashboard("{% url 'investor_live' %}");TTI.fit("{% url 'investor_fit' %}");</script>{% endblock %}

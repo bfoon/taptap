@@ -1,0 +1,7 @@
+Hello {{ investor.name }},
+
+Here is your sign-in link for the {{ business.business_name }} investor portal:
+
+{{ url }}
+
+It works once and expires in {{ minutes }} minutes. Do not forward it — anyone with the link can open your portal.

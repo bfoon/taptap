@@ -1,0 +1,22 @@
+{% load taptap_extras %}<!doctype html><html><body style="margin:0;background:#f6f8f7;font-family:Arial,sans-serif;color:#14213d"><div style="max-width:620px;margin:auto;padding:28px 18px"><div style="background:#fff;border:1px solid #dde5e2;border-radius:16px;padding:26px">
+<p style="margin:0;color:#4a5874;font-size:13px">{{ business.business_name }}, {{ day|date:"l d F Y" }}</p>
+<h1 style="margin:6px 0 2px;font-size:30px">{{ yesterday.earned|money2:cur }}</h1>
+<p style="margin:0 0 18px;color:#4a5874">earned that day: <span style="color:#2f6fdb;font-weight:bold">{{ yesterday.capital|money2:cur }} capital back</span>, <span style="color:#12a27a;font-weight:bold">{{ yesterday.return|money2:cur }} profit</span></p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:6px"><tr>
+<td style="background:#2f6fdb;height:14px;width:{% widthratio data.totals.repaid data.totals.invested|default:1 100 %}%;border-radius:7px 0 0 7px"></td>
+<td style="background:#e5eefc;height:14px;border-radius:0 7px 7px 0"></td></tr></table>
+<p style="margin:0 0 18px;font-size:13px;color:#4a5874">{{ data.totals.payback_progress }}% of your {{ data.totals.invested|money2:cur }} capital is back</p>
+<table role="presentation" width="100%" cellpadding="8" cellspacing="0" style="border-collapse:collapse;font-size:14px">
+<tr><td style="border-bottom:1px solid #eef2f0">This month so far</td><td align="right" style="border-bottom:1px solid #eef2f0"><b>{{ data.totals.mtd|money2:cur }}</b></td></tr>
+<tr><td style="border-bottom:1px solid #eef2f0">Earned in total</td><td align="right" style="border-bottom:1px solid #eef2f0"><b>{{ data.totals.earned|money2:cur }}</b></td></tr>
+<tr><td style="border-bottom:1px solid #eef2f0">Paid out to you</td><td align="right" style="border-bottom:1px solid #eef2f0">{{ data.totals.paid_out|money2:cur }}</td></tr>
+<tr><td>Waiting to be paid</td><td align="right"><b>{{ data.totals.balance|money2:cur }}</b></td></tr></table>
+<h3 style="margin:22px 0 6px;font-size:16px">Your investments</h3>
+{% for d in deals %}<p style="margin:6px 0;font-size:14px"><b>{{ d.title }}</b><br><span style="color:#4a5874">{{ d.earned|money2:cur }} earned, {{ d.payback_progress }}% of capital back{% if d.status != 'active' %} ({{ d.status_label }}){% endif %}</span></p>{% endfor %}
+{% if projections %}<h3 style="margin:22px 0 6px;font-size:16px">Looking ahead</h3>
+{% for p in projections %}<p style="margin:6px 0;font-size:14px">{{ p.title }}: about <b>{{ p.monthly|money2:cur }}</b> a month{% if p.payback_date and p.payback_date != 'repaid' %}, capital back around {{ p.payback_date }}{% endif %}.</p>{% endfor %}
+<p style="font-size:12px;color:#4a5874">Expected scenario. Projections are estimates from past performance, not promises.</p>{% endif %}
+{% if open_opps %}<p style="background:#fff7e6;border-radius:9px;padding:10px 12px;font-size:14px">{{ open_opps|length }} investment opportunit{{ open_opps|length|pluralize:"y is,ies are" }} open to you.</p>{% endif %}
+<p style="margin:24px 0 8px"><a href="{{ url }}" style="background:#14213d;color:#fff;text-decoration:none;padding:12px 18px;border-radius:9px;font-weight:bold">See it live</a></p>
+<p style="font-size:12px;color:#4a5874">The button signs you in once and works for 12 hours. To stop these emails, ask {{ business.business_name }}.</p>
+</div></div></body></html>

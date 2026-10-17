@@ -1,0 +1,81 @@
+{% extends "core/base.html" %}{% load static taptap_extras %}
+{% block title %}{{ inv.reference }} — Investors{% endblock %}
+{% block heading %}{{ inv.title }}{% endblock %}
+{% block extra_head %}<link href="{% static 'css/investor.css' %}?v=1" rel="stylesheet"><style>
+.iv-scope .hero,.iv-scope .panel{background:var(--panel,#fff);color:inherit}.iv-scope{--paper:transparent}
+.iv-scope h1,.iv-scope h2{font-family:inherit}.iv-scope .num{font-family:inherit}
+</style>{% endblock %}
+{% block content %}
+<p class="small"><a href="{% url 'investors_admin' %}">Investors</a> / {{ inv.investor.name }} / {{ inv.reference }}
+  <span class="badge {% if inv.status == 'active' %}text-bg-success{% elif inv.status == 'completed' %}text-bg-primary{% elif inv.status in 'offered awaiting_payment payment_review' %}text-bg-warning{% else %}text-bg-secondary{% endif %} ms-2">{{ inv.get_status_display }}</span></p>
+
+<div class="iv-scope">
+{% if can_manage and inv.status == 'offered' %}
+<div class="panel"><h2>Offer from {{ inv.investor.name }}</h2>
+<p><b>{{ inv.principal|money2:business.currency }}</b> on {{ inv.opportunity.title|default:inv.title }} for <b>{{ inv.share_pct|floatformat:"-3" }}%</b> of profit.{% if remaining is not None %} Still open on this opportunity: {{ remaining|money2:business.currency }}.{% endif %}</p>
+{% if inv.offer_note %}<p class="muted">“{{ inv.offer_note }}”</p>{% endif %}
+<form method="post" action="{% url 'investors_action' %}" class="row g-2 align-items-end">{% csrf_token %}<input type="hidden" name="id" value="{{ inv.pk }}">
+<div class="col-md-3"><label class="form-label">Accept amount</label><input class="form-control" name="amount" type="number" step="0.01" max="{{ inv.principal|stringformat:'s' }}" placeholder="{{ inv.principal }}"></div>
+<div class="col-md-5"><label class="form-label">Note to the investor</label><input class="form-control" name="note" maxlength="500"></div>
+<div class="col-md-4 d-flex gap-2"><button name="do" value="accept" class="btn btn-success">Accept offer</button><button name="do" value="reject" class="btn btn-outline-danger" onclick="return confirm('Decline this offer?')">Decline</button></div></form>
+{% if not instructions %}<p class="small text-warning mt-2">Add your payment instructions in Investors › Settings so the investor knows how to pay.</p>{% endif %}</div>
+{% endif %}
+
+{% if can_manage and inv.status == 'awaiting_payment' or can_manage and inv.status == 'payment_review' %}
+<div class="panel"><h2>{% if inv.status == 'payment_review' %}Confirm the payment{% else %}Waiting for {{ inv.investor.name }} to pay{% endif %}</h2>
+{% if inv.status == 'payment_review' %}<p>The investor says they paid <b>{{ inv.principal|money2:business.currency }}</b> by {{ inv.payment_method|default:"—" }}, reference <b>{{ inv.payment_reference }}</b>. Check your account, then confirm.</p>{% else %}<p class="muted">If you already received the money, you can confirm it now.</p>{% endif %}
+<form method="post" action="{% url 'investors_action' %}" class="row g-2 align-items-end">{% csrf_token %}<input type="hidden" name="id" value="{{ inv.pk }}">
+<div class="col-md-4"><label class="form-label">Earnings count from</label><input class="form-control" type="date" name="start_date" value="{{ today }}"></div>
+<div class="col-md-4"><label class="form-label">Your reference</label><input class="form-control" name="reference" value="{{ inv.payment_reference }}"></div>
+<div class="col-md-4 d-flex gap-2"><button name="do" value="confirm" class="btn btn-success">Money received — go live</button><button name="do" value="cancel" class="btn btn-outline-secondary" onclick="return confirm('Cancel this investment?')">Cancel</button></div></form></div>
+{% endif %}
+
+{% if inv.status == 'active' or inv.status == 'completed' %}
+<section class="hero">
+  <div class="hero-row"><div><div class="earned num" id="ttiEarned">{{ card.earned|money2:business.currency }}</div><div class="sub">earned by {{ inv.investor.name }} from {{ inv.principal|money2:business.currency }}</div></div>
+  {% if inv.status == 'active' %}<span class="today"><i></i>Today so far <span class="num" id="ttiToday"></span></span>{% endif %}</div>
+  <div class="meter" id="ttiMeter" role="img"><div class="meter-track"><div class="meter-cap"></div><div class="meter-ret"></div><div class="meter-mark"></div></div>
+  <div class="meter-legend"><span><span class="dot cap"></span>Capital back <b id="ttiRepaid"></b></span><span><span class="dot ret"></span>Their profit <b id="ttiReturned"></b></span><span id="ttiPct"></span></div></div>
+  <div class="figs"><div><small>Paid out</small><b id="ttiPaid">—</b></div><div><small>Owed now</small><b id="ttiBalance">—</b></div><div><small>Since</small><b>{{ inv.start_date|date:"d M Y" }}</b></div><div><small>Booked through</small><b>{{ inv.accrued_through|date:"d M Y"|default:"—" }}</b></div></div>
+</section>
+{% endif %}
+
+<div class="row g-3">
+<div class="col-lg-8">
+  {% if inv.status == 'active' or inv.status == 'completed' %}<div class="panel"><h2>Daily earnings</h2><div class="chart"><canvas id="ttiEarnings"></canvas></div></div>{% endif %}
+  {% if inv.status != 'completed' and inv.status != 'rejected' and inv.status != 'cancelled' %}
+  <div class="panel"><div class="panel-head"><h2>Projection</h2><div class="seg"><button type="button" data-scenario="" aria-pressed="true">All</button><button type="button" data-scenario="cautious" aria-pressed="false">Cautious</button><button type="button" data-scenario="expected" aria-pressed="false">Expected</button><button type="button" data-scenario="strong" aria-pressed="false">Strong</button></div></div>
+  <div class="chart tall"><canvas id="ttiProjection"></canvas></div><div class="calc-out" id="ttiScen"></div><p class="small muted">Confidence: <span id="ttiConf">—</span></p></div>
+  {% endif %}
+  <div class="panel"><h2>Scope performance</h2><div class="chart"><canvas id="ttiBasis"></canvas></div>{% if not inv.show_basis %}<p class="small muted">The investor does not see this chart.</p>{% endif %}</div>
+  <div class="panel"><h2>Daily ledger</h2><div class="table-responsive"><table class="t"><thead><tr><th>Day</th><th>Revenue</th><th>Costs</th><th>Profit</th><th>Share</th><th>Earned</th><th>Capital</th><th>Profit to them</th></tr></thead><tbody>
+  {% for a in accruals %}<tr><td>{{ a.day|date:"d M" }}</td><td>{{ a.revenue|money2:business.currency }}</td><td>{{ a.costs|money2:business.currency }}</td><td>{{ a.profit|money2:business.currency }}{% if a.loss_offset %} <small class="muted">−{{ a.loss_offset }} offset</small>{% endif %}</td><td>{{ a.share_pct|floatformat:"-3" }}%</td><td><b>{{ a.earned|money2:business.currency }}</b></td><td>{{ a.to_principal|money2:business.currency }}</td><td>{{ a.to_return|money2:business.currency }}</td></tr>
+  {% empty %}<tr><td colspan="8" class="muted">No days booked yet. Days are booked after midnight.</td></tr>{% endfor %}</tbody></table></div></div>
+</div>
+<div class="col-lg-4">
+  <div class="panel"><h2>Terms</h2><p>{{ inv.get_terms_display }}: <b>{{ card.share_pct|floatformat:"-3" }}%</b> of {{ card.scope_label|lower }}.</p>
+  <div class="split"><div class="c" style="flex:{{ card.split_capital_pct }}">{{ card.split_capital_pct|floatformat:"-1" }}% capital</div><div class="r" style="flex:{{ card.split_return_pct }}">{{ card.split_return_pct|floatformat:"-1" }}% profit</div></div>
+  <ul class="small">{% if inv.terms == 'fixed' %}<li>Owed in total: {{ inv.total_due|money2:business.currency }} ({{ inv.fixed_return_pct|floatformat:"-2" }}% return)</li>{% endif %}
+  {% if card.after_payback_share_pct is not None %}<li>After payback: {{ card.after_payback_share_pct|floatformat:"-3" }}%</li>{% endif %}
+  {% if inv.cap_pct and inv.terms == 'profit_share' %}<li>Ends at {{ inv.total_due|money2:business.currency }} ({{ inv.cap_pct|floatformat:"-0" }}%)</li>{% endif %}
+  <li>Loss carried: {{ inv.loss_carry|money2:business.currency }}</li></ul>
+  {% if can_manage %}<form method="post" action="{% url 'investors_action' %}">{% csrf_token %}<input type="hidden" name="do" value="deal_flags"><input type="hidden" name="id" value="{{ inv.pk }}">
+  <div class="form-check"><input class="form-check-input" type="checkbox" name="show_basis" value="1" id="fb" {% if inv.show_basis %}checked{% endif %}><label class="form-check-label small" for="fb">Investor sees revenue, costs and profit</label></div>
+  <div class="form-check"><input class="form-check-input" type="checkbox" name="carry_losses" value="1" id="fc" {% if inv.carry_losses %}checked{% endif %}><label class="form-check-label small" for="fc">Offset losses against later profit</label></div>
+  <button class="btn btn-sm btn-outline-secondary mt-2">Save</button></form>{% endif %}</div>
+
+  {% if can_manage and inv.status == 'active' or can_manage and inv.status == 'completed' %}
+  <div class="panel"><h2>Pay out</h2><form method="post" action="{% url 'investors_action' %}">{% csrf_token %}<input type="hidden" name="do" value="payout"><input type="hidden" name="id" value="{{ inv.pk }}">
+  <label class="form-label">Amount (owed now {{ card.balance|money2:business.currency }})</label><input class="form-control mb-2" name="amount" type="number" step="0.01" min="0.01" required>
+  <div class="row g-2"><div class="col"><input class="form-control" name="method" placeholder="Wave, bank…"></div><div class="col"><input class="form-control" name="reference" placeholder="Reference"></div></div>
+  <button class="btn btn-dark mt-2">Record payout</button></form>
+  <form method="post" action="{% url 'investors_action' %}" class="mt-3">{% csrf_token %}<input type="hidden" name="do" value="recalc"><input type="hidden" name="id" value="{{ inv.pk }}"><button class="btn btn-sm btn-link px-0" onclick="return confirm('Rebuild every day from the start date? Use this after changing old sales or expenses.')">Recalculate from the start date</button></form></div>
+  {% endif %}
+
+  <div class="panel"><h2>Payouts</h2><table class="t"><tbody>{% for p in payouts %}<tr><td>{{ p.paid_at|date:"d M Y" }}</td><td>{{ p.amount|money2:business.currency }}</td><td class="small">{{ p.method }} {{ p.reference }}</td></tr>{% empty %}<tr><td class="muted">None yet.</td></tr>{% endfor %}</tbody></table></div>
+  <div class="panel"><h2>History</h2><table class="t"><tbody>{% for e in events %}<tr><td class="small muted" style="width:96px">{{ e.created_at|date:"d M H:i" }}</td><td class="small">{{ e.text }}{% if e.by %} <span class="muted">({{ e.by }})</span>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+</div></div>
+</div>
+{% endblock %}
+{% block scripts %}<script>window.TTI_CUR="{{ business.currency|escapejs }}";</script><script src="{% static 'vendor/chart.umd.min.js' %}"></script><script src="{% static 'js/investor.js' %}?v=1"></script>
+<script>TTI.deal("{% url 'investment_admin_data' inv.pk %}");</script>{% endblock %}
