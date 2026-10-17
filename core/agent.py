@@ -279,7 +279,8 @@ def chunked_script_add(name, policy, comment, source, extra=''):
     lines = ['{', '  :local s ""']
     lines += [f'  :set s ($s . {rs(piece)})' for piece in pieces]
     lines.append(f'  /system script add name="{name}" policy={policy}{(" " + extra) if extra else ""} comment="{comment}" source=$s')
-    lines.append(f'  :if ([:len [/system script find where name="{name}"]] = 0) do={{ :put "FAILED: the {name} script was not created - paste the block again" }}')
+    need = max(1, len(source) // 2)
+    lines.append(f'  :if (([:len [/system script find where name="{name}"]] = 0) or ([:len [/system script get [find where name="{name}"] source]] < {need})) do={{ :error "TapTap: the {name} script was not saved completely - paste the whole block again" }}')
     lines.append('}')
     return '\n'.join(lines)
 
@@ -325,8 +326,9 @@ def enrollment_script(router, token, request=None):
     body = agent_script(url, token, check)
     name = re.sub(r'[^\x20-\x7e]', '?', router.name)
     from .link_trust import trust_block, tunnel_block, update_block
-    return f'''# --- TapTap Link for "{name}" ---
-# Paste the whole block into WinBox > New Terminal. It runs 4 steps:
+    text = f'''# --- TapTap Link for "{name}" ---
+# Paste the whole block into WinBox > New Terminal. It is ONE block: nothing runs until the last line
+# has arrived (the terminal drops text pasted while a command is still running). It runs 4 steps:
 #   1) clock + certificates  2) TapTap Link  3) TapTap Tunnel (RouterOS 7)  4) RouterOS update (reboots, last)
 # The router connects OUT to {url}; no port-forwarding or public IP is required.
 # Keep the token private. Rotate it from TapTap if it is ever exposed.
@@ -343,6 +345,57 @@ def enrollment_script(router, token, request=None):
 :log info "TapTap Link installed"
 :put "Step 2 OK: TapTap Link installed - the TapTap Link page turns green after the first check-in"
 ''' + _backup_helper_block() + (tunnel_block(token) or _tunnel_trigger(token)) + update_block()
+    return one_block(text)
+
+
+def _quote_aware_depth(line, depth):
+    """Brace depth after one RouterOS line, ignoring braces inside "strings"."""
+    in_str = esc = False
+    for ch in line:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == '\\':
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == '#' and depth >= 0 and not line.strip().startswith(('/', ':', '{', '}')):
+            break
+        elif ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+    return depth
+
+
+def one_block(text):
+    """Turn a pasted installer into ONE RouterOS block.
+
+    The WinBox terminal reads a { } block completely before running any of it, so text pasted while an
+    earlier step is still busy (a fetch, a :delay) can no longer be lost. Inside a block an error stops
+    the rest, so every top-level command is wrapped to report its failure and carry on.
+    """
+    head, body, started = [], [], False
+    for line in text.split('\n'):
+        if not started and (not line.strip() or line.lstrip().startswith('#')):
+            head.append(line)
+            continue
+        started = True
+        body.append(line)
+    out, depth = [], 0
+    for line in body:
+        stripped = line.strip()
+        if depth == 0 and stripped and not stripped.startswith(('#', '{', '}')) and stripped.startswith(('/', ':')) \
+                and not stripped.startswith((':put ', ':log ', ':local ', ':global ')):
+            label = stripped[:60].replace('"', "'").replace('\\', '').replace('$', '')
+            out.append(f'  :do {{ {stripped} }} on-error={{ :put "TapTap: this line failed and was skipped: {label}" }}')
+        else:
+            out.append(('  ' + line) if line else line)
+        depth = _quote_aware_depth(line, depth)
+    return '\n'.join(head + ['{', '  :put "TapTap: installing - please wait for the last step..."'] + out
+                      + ['  :put "TapTap: all steps finished - open the TapTap Link page"', '}']) + '\n'
 
 
 def _tunnel_trigger(token):

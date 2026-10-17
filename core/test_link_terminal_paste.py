@@ -27,9 +27,10 @@ def unescape(lit):
 
 def rebuilt(block, name):
     """What the router assembles from the :set s lines of one chunked script add."""
-    start = block.index('{\n  :local s ""')
+    m = re.search(r'\{\n\s*:local s ""', block)
+    start = m.start()
     end = block.index(f'/system script add name="{name}"', start)
-    return ''.join(unescape(m.group(1)) for m in re.finditer(r'^  :set s \(\$s \. (".*")\)$', block[start:end], re.M))
+    return ''.join(unescape(m.group(1)) for m in re.finditer(r'^\s+:set s \(\$s \. (".*")\)$', block[start:end], re.M))
 
 
 @override_settings(SITE_URL='https://taptapnetwork.com')
@@ -61,3 +62,35 @@ class TerminalPasteTests(TestCase):
         lines = [x for x in text.split('\n') if x and not x.startswith('#')]
         self.assertEqual((lines[0], lines[-1]), ('{', '}'))     # locals survive from line to line
         self.assertTrue(routeros_balanced(text))
+
+
+@override_settings(SITE_URL='https://taptapnetwork.com')
+class OneBlockTests(TestCase):
+    """The terminal drops text pasted while an earlier command is still running: the installer is one block."""
+    def setUp(self):
+        u = User.objects.create_user('q@x.gm', 'q@x.gm', 'pw12345678')
+        b = Business.objects.create(user=u, business_name='B', owner_name='O', phone='1',
+                                    trial_ends_at=timezone.now() + timedelta(days=9), is_unlimited=True)
+        self.r = Router.objects.create(business=b, name='TapTap K', connection_mode='agent')
+
+    def test_everything_after_the_comments_is_one_block(self):
+        text = link.enrollment_script(self.r, 'ttl_' + 'B' * 43)
+        code = [x for x in text.split('\n') if x.strip() and not x.lstrip().startswith('#')]
+        self.assertEqual((code[0], code[-1]), ('{', '}'))
+        depth, closed_early = 0, False
+        for line in code:
+            depth = link._quote_aware_depth(line, depth)
+            if depth == 0 and line is not code[-1]:
+                closed_early = True
+        self.assertFalse(closed_early, 'the outer block closes before the end')
+        self.assertTrue(routeros_balanced(text))
+
+    def test_an_empty_or_cut_script_is_reported_not_called_ok(self):
+        text = link.enrollment_script(self.r, 'ttl_' + 'B' * 43)
+        self.assertIn('[:len [/system script get [find where name="taptap-link"] source]] <', text)
+        self.assertIn(':error "TapTap: the taptap-link script was not saved completely', text)
+
+    def test_top_level_commands_cannot_stop_the_rest(self):
+        text = link.enrollment_script(self.r, 'ttl_' + 'B' * 43)
+        self.assertIn(':do { /system scheduler add name="taptap-link"', text)
+        self.assertIn(':do { /system script remove [find where name="taptap-link"] }', text)
