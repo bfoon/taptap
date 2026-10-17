@@ -116,3 +116,16 @@ class RefusalVisibilityTests(TestCase):
                              HTTP_AUTHORIZATION=f'Bearer {token}', REMOTE_ADDR='98.97.1.2')
         self.assertEqual(r.status_code, 403)
         self.assertIn('pinned to 179.64.95.60', refusal_for(agent)['why'])
+
+
+class HelloTellsWhatArrivedTests(TestCase):
+    def test_hello_explains_missing_or_broken_token(self):
+        r = self.client.get('/api/agent/v1/hello')
+        self.assertIn('server time ', r.content.decode())               # the clock repair still finds it
+        self.assertIn('no Authorization header arrived', r.content.decode())
+        r = self.client.get('/api/agent/v1/hello', HTTP_AUTHORIZATION='Bearer ')
+        self.assertIn('empty token', r.content.decode())
+        r = self.client.get('/api/agent/v1/hello', HTTP_AUTHORIZATION='# TapTap Link v6')
+        self.assertIn('not "Bearer <token>"', r.content.decode())
+        r = self.client.get('/api/agent/v1/hello', HTTP_AUTHORIZATION='Bearer ttl_' + 'z' * 43)
+        self.assertEqual(r.status_code, 401)

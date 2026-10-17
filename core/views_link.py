@@ -109,7 +109,15 @@ def agent_hello(request):
             return HttpResponse('TapTap Link: reachable, but this token is NOT accepted (revoked or mistyped)', status=401, content_type='text/plain')
         cache.set(f'tt:link:hello:{agent.pk}', {'at': timezone.localtime().strftime('%d %b %H:%M:%S'), 'ip': _client_ip(request)}, 86400)
         return HttpResponse(f'TapTap Link OK - token accepted for {agent.router.name}', content_type='text/plain')
-    return HttpResponse(f'TapTap Link OK - server time {timezone.now():%Y-%m-%d %H:%M} UTC', content_type='text/plain')
+    # Say what arrived, so a router test can tell "no token sent" from "token refused" (keep "server time
+    # YYYY-MM-DD HH:MM UTC" first: the heartbeat's clock repair reads it).
+    if 'HTTP_AUTHORIZATION' not in request.META:
+        note = 'no Authorization header arrived'
+    elif not auth.lower().startswith('bearer '):
+        note = f'Authorization header arrived but is not "Bearer <token>" ({len(auth)} characters)'
+    else:
+        note = 'Authorization header arrived with an empty token'
+    return HttpResponse(f'TapTap Link OK - server time {timezone.now():%Y-%m-%d %H:%M} UTC - {note}', content_type='text/plain')
 
 
 @csrf_exempt
