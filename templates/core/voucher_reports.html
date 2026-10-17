@@ -34,7 +34,7 @@
   {% if r.now.state != r.diagnosis.state %}<p class="small text-secondary mb-0 mt-1">When sent: {{ r.diagnosis.title }}.</p>{% endif %}
   <form method="post" class="d-flex gap-2 mt-2">{% csrf_token %}<input type="hidden" name="report" value="{{ r.id }}">
     {% if r.status == 'open' %}<input class="form-control form-control-sm" name="note" placeholder="What you did (optional)"><button class="btn btn-sm btn-success text-nowrap" name="action" value="resolve"><i class="bi bi-check2"></i> Resolved</button>
-    {% else %}<span class="small text-secondary flex-grow-1">{{ r.staff_note|default:'Resolved' }} — {{ r.resolved_by.get_full_name|default:r.resolved_by.username }} {{ r.resolved_at|date:'d M H:i' }}</span><button class="btn btn-sm btn-outline-secondary" name="action" value="reopen">Reopen</button>{% endif %}
+    {% else %}<span class="small text-secondary flex-grow-1">{{ r.staff_note|default:'Resolved' }}{% if r.resolved_by %} — {% firstof r.resolved_by.get_full_name r.resolved_by.username %}{% endif %} {{ r.resolved_at|date:'d M H:i' }}</span><button class="btn btn-sm btn-outline-secondary" name="action" value="reopen">Reopen</button>{% endif %}
   </form>
 </div>
 {% empty %}
