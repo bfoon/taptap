@@ -81,3 +81,38 @@ class OutageReportTests(TestCase):
     def test_dns_reason(self):
         self.poll(lf='9', lw='dns', lg='')
         self.assertIn('DNS', cache.get(f'tt:link:outage:{self.r.pk}')['detail'])
+
+
+@override_settings(SITE_URL='https://taptap.example.com')
+class RefusalVisibilityTests(TestCase):
+    """The Link page says why a router is not checking in (old token, pinned IP, token test passed)."""
+    def setUp(self):
+        cache.clear()
+        self.u = User.objects.create_user('p@x.gm', 'p@x.gm', 'pw12345678')
+        self.b = Business.objects.create(user=self.u, business_name='B', owner_name='O', phone='1',
+                                         trial_ends_at=timezone.now() + timedelta(days=9), is_unlimited=True)
+        self.r = Router.objects.create(business=self.b, name='Tower', status='Online', connection_mode='agent')
+        self.token, self.agent = link.enroll(self.r) if hasattr(link, 'enroll') else (None, None)
+
+    def test_old_token_is_reported_for_the_routers_ip(self):
+        from .views_link import refusal_for
+        from .models import RouterAgent
+        agent = RouterAgent.objects.filter(router=self.r).first() or RouterAgent.objects.create(router=self.r)
+        RouterAgent.objects.filter(pk=agent.pk).update(last_ip='179.64.95.60')
+        agent.refresh_from_db()
+        r = self.client.post('/api/agent/v1/poll', 'id=x', content_type='application/x-www-form-urlencoded',
+                             HTTP_AUTHORIZATION='Bearer ttl_old_token_that_is_not_valid_anymore_xxxxxxxx', REMOTE_ADDR='179.64.95.60')
+        self.assertEqual(r.status_code, 401)
+        self.assertIn('unknown token', refusal_for(agent)['why'])
+
+    def test_pinned_ip_refusal_is_reported(self):
+        from .views_link import refusal_for
+        from .models import RouterAgent
+        token = 'ttl_' + 'Q' * 43
+        agent = RouterAgent.objects.filter(router=self.r).first() or RouterAgent.objects.create(router=self.r)
+        RouterAgent.objects.filter(pk=agent.pk).update(token_hash=link._hash(token), pinned_ip='179.64.95.60', revoked=False)
+        agent.refresh_from_db()
+        r = self.client.post('/api/agent/v1/poll', 'id=x', content_type='application/x-www-form-urlencoded',
+                             HTTP_AUTHORIZATION=f'Bearer {token}', REMOTE_ADDR='98.97.1.2')
+        self.assertEqual(r.status_code, 403)
+        self.assertIn('pinned to 179.64.95.60', refusal_for(agent)['why'])

@@ -27,6 +27,22 @@ def _client_ip(request):
     return request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', '')).split(',')[0].strip()
 
 
+def _note_refusal(agent, ip, why):
+    """Keep the last refused check-ins: per router when known, otherwise per public IP (unknown token)."""
+    item = {'at': timezone.localtime().strftime('%d %b %H:%M:%S'), 'ip': ip, 'why': why}
+    key = f'tt:link:refused:agent:{agent.pk}' if agent else f'tt:link:refused:ip:{ip}'
+    if not cache.get(key + ':n'):
+        cache.set(key, item, 86400)
+    cache.set(key + ':n', 1, 30)            # at most one write per 30 s per router / IP
+
+
+def refusal_for(agent):
+    """The latest refusal that concerns this router (by router, or by its last public IP)."""
+    if not agent:
+        return None
+    return cache.get(f'tt:link:refused:agent:{agent.pk}') or (cache.get(f'tt:link:refused:ip:{agent.last_ip}') if agent.last_ip else None)
+
+
 def _unauthorized():
     # RouterOS expects a WWW-Authenticate header on HTTP 401; without it Fetch
     # reports "401 should contain www-authenticate header" instead of a clean
@@ -57,8 +73,10 @@ def agent_poll(request):
                 f'A router at {ip} tried to connect with the revoked token of {revoked.router.name}. It was refused.',
                 key=f'link:revoked:{revoked.pk}',
             )
+        _note_refusal(None, ip, 'unknown token (revoked, mistyped or from an old install)')
         return _unauthorized()
     if agent.pinned_ip and agent.pinned_ip != ip:
+        _note_refusal(agent, ip, f'pinned to {agent.pinned_ip}, came from {ip}')
         notify(
             agent.router.business,
             'link_rejected',
@@ -70,6 +88,7 @@ def agent_poll(request):
     if not cache.add(f'tt:link:rate:{agent.pk}', 1, 2):
         return HttpResponse('', content_type='text/plain')
     if len(request.body or b'') > 200_000:
+        _note_refusal(agent, ip, f'check-in too large ({len(request.body)} bytes)')
         return HttpResponse('', status=413, content_type='text/plain')
     data = request.POST if request.POST else {}
     if not data:
@@ -86,7 +105,9 @@ def agent_hello(request):
     if token:
         agent = link.agent_for_token(token)
         if not agent:
+            _note_refusal(None, _client_ip(request), 'token test: token not accepted')
             return HttpResponse('TapTap Link: reachable, but this token is NOT accepted (revoked or mistyped)', status=401, content_type='text/plain')
+        cache.set(f'tt:link:hello:{agent.pk}', {'at': timezone.localtime().strftime('%d %b %H:%M:%S'), 'ip': _client_ip(request)}, 86400)
         return HttpResponse(f'TapTap Link OK - token accepted for {agent.router.name}', content_type='text/plain')
     return HttpResponse(f'TapTap Link OK - server time {timezone.now():%Y-%m-%d %H:%M} UTC', content_type='text/plain')
 
@@ -281,6 +302,8 @@ def router_link(request, pk):
                                and not router.agent_commands.filter(kind='self_update', status__in=['queued', 'sent']).exists()),
         'fixes': troubleshooting_steps(link.base_url(request)),
         'last_outage': cache.get(f'tt:link:outage:{router.pk}'),
+        'last_refusal': refusal_for(agent),
+        'last_hello': cache.get(f'tt:link:hello:{agent.pk}') if agent else None,
         'pin_refused': bool(agent and agent.pinned_ip and agent.last_ip and agent.pinned_ip != agent.last_ip),
         'commands': cmds,
         'site': link.base_url(request),

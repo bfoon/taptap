@@ -253,7 +253,7 @@ def agent_script(url, token, check):
     }}
     # 3) Route: which internet link the router itself uses (a dead WAN with failover off is the usual cause).
     :local gw ""
-    :do {{ :foreach rt in=[/ip route find where dst-address="0.0.0.0/0" and active] do={{ :set gw ($gw . [:tostr [/ip route get $rt gateway]] . " ") }} }} on-error={{}}
+    :do {{ :set gw [[:parse ":local g \\"\\"; :foreach rt in=[/ip route find where dst-address=\\"0.0.0.0/0\\" and active] do={{ :set g (\\$g . [:tostr [/ip route get \\$rt gateway]] . \\" \\") }}; :return \\$g"]] }} on-error={{}}
     :set ttLinkGw $gw
     :set ttLinkWhy $why
     :if ($why = "route" or $why = "dns-route") do={{

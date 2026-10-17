@@ -41,6 +41,13 @@
         If the router has two internet links, it gets a different public IP when it switches to the other one — and is refused.
         Clear <i>Only accept public IP</i> below if it uses more than one link.</div>
     {% endif %}
+    {% if last_refusal %}
+      <div class="alert alert-danger py-2 small mb-2"><i class="bi bi-shield-x"></i> <b>Last refused check-in</b> ({{ last_refusal.at }}, from {{ last_refusal.ip }}): {{ last_refusal.why }}.
+        {% if 'unknown token' in last_refusal.why %}The router is still using an old token — paste the newest install block (or press Rotate token and paste that one).{% endif %}</div>
+    {% endif %}
+    {% if last_hello %}
+      <div class="alert alert-success py-2 small mb-2"><i class="bi bi-check2-circle"></i> The router reached TapTap with this token at {{ last_hello.at }} (from {{ last_hello.ip }}) — the connection and the token are fine.</div>
+    {% endif %}
     {% if last_outage %}
       <div class="alert alert-info py-2 small mb-2"><i class="bi bi-activity"></i> <b>Last outage</b> ({{ last_outage.at }}): {{ last_outage.detail }}</div>
     {% endif %}
