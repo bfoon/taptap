@@ -3,45 +3,90 @@
 {% block heading %}Customer reports{% endblock %}
 {% block content %}
 <style>
-.vr-card{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:18px;padding:1rem 1.1rem;margin-bottom:.8rem}
+.vr-card{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:18px;padding:1rem 1.1rem 1rem 1.35rem;margin-bottom:.8rem;position:relative;overflow:hidden}
+.vr-card::before{content:"";position:absolute;left:0;top:0;bottom:0;width:5px;background:#cfd8e3}
+.vr-card.warm::before{background:#f2b134}.vr-card.hot::before{background:#e5484d}.vr-card.done::before{background:#16a34a}
 .vr-top{display:flex;justify-content:space-between;gap:.8rem;flex-wrap:wrap;align-items:flex-start}
 .vr-code{font-family:ui-monospace,Menlo,monospace;font-weight:800;font-size:1.15rem}
+a.vr-code{color:inherit;text-decoration:none;border-bottom:2px solid #9cc0f5}a.vr-code:hover{border-bottom-color:#1769e0;color:#1769e0}
 .vr-pill{display:inline-block;border-radius:999px;padding:.12rem .6rem;font-size:.72rem;font-weight:800}
 .vr-pill.ok{background:#e6f6ee;color:#127a4d}.vr-pill.bad,.vr-pill.expired,.vr-pill.disabled,.vr-pill.deleted,.vr-pill.unknown{background:#fdeaea;color:#a12b2b}
 .vr-pill.slots_full,.vr-pill.paused{background:#fff4dc;color:#8a5a00}
+.vr-count{display:inline-flex;align-items:center;gap:.3rem;border-radius:999px;padding:.12rem .6rem;font-size:.72rem;font-weight:800;background:#eef2f7;color:#41536b}
+.vr-card.warm .vr-count{background:#fff4dc;color:#8a5a00}.vr-card.hot .vr-count{background:#fdeaea;color:#a12b2b}
+.vr-meta{font-size:.82rem;color:#5d6f86;margin-top:.3rem;display:flex;flex-wrap:wrap;gap:.35rem .9rem}
+.vr-people{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.6rem}
+.vr-chip{display:inline-flex;align-items:center;gap:.35rem;border:1px solid var(--border,#e3e9f1);border-radius:999px;padding:.2rem .65rem;font-size:.8rem;text-decoration:none;color:inherit;background:var(--panel,#fff)}
+a.vr-chip:hover{border-color:#1769e0;color:#1769e0}.vr-chip.plain{color:#7a8899}
+.vr-share{margin-top:.6rem;font-size:.82rem;background:#fff7e6;border-radius:10px;padding:.45rem .7rem;color:#7a5200}
 .vr-checks{list-style:none;padding:0;margin:.6rem 0 0}.vr-checks li{font-size:.84rem;padding:.2rem 0 .2rem 1.4rem;position:relative}
 .vr-checks li::before{position:absolute;left:0;font-weight:800}.vr-checks li.ok::before{content:"✓";color:#16a34a}.vr-checks li.bad::before{content:"✕";color:#dc2626}
 .vr-checks li.warn::before{content:"!";color:#d97706}.vr-checks li.info::before{content:"•";color:#64748b}
 .vr-said{background:#f6f9fc;border-radius:12px;padding:.55rem .75rem;font-size:.86rem;margin-top:.6rem}
-a.vr-code{color:inherit;text-decoration:none;border-bottom:2px solid #9cc0f5}a.vr-code:hover{border-bottom-color:#1769e0;color:#1769e0}
+.vr-thread{margin:.6rem 0 0;padding:0;list-style:none;border-left:2px solid #e3e9f1}
+.vr-thread li{position:relative;padding:.35rem 0 .45rem .9rem;font-size:.84rem}
+.vr-thread li::before{content:"";position:absolute;left:-5px;top:.75rem;width:8px;height:8px;border-radius:50%;background:#9fb2c8}
+.vr-thread li:first-child::before{background:#1769e0}
+.vr-thread .when{color:#6b7c92;font-size:.76rem}
+.vr-thread .err{color:#6b7c92;font-size:.78rem}
+details.vr-more summary{cursor:pointer;font-size:.8rem;color:#1769e0;margin-top:.4rem;list-style:none}
+details.vr-more summary::-webkit-details-marker{display:none}
 .vr-fix{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin-top:.7rem;padding:.55rem .7rem;border-radius:12px;background:#f3f8ff;border:1px solid #d6e6fb}
 .vr-fix .why{font-size:.8rem;color:#52637a}.vr-fix.none{background:#fafbfc;border-color:#e6ebf1}
 </style>
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-  <p class="text-secondary m-0">Vouchers customers sent from the online sign-in page. TapTap checks each one again when you open this page.</p>
+  <p class="text-secondary m-0">Vouchers customers sent from the sign-in page. Every report for the same voucher is one card — fixing or resolving it closes them all.</p>
   <div class="btn-group">
-    <a class="btn btn-sm {% if not show_all %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="?">New ({{ open_count }})</a>
+    <a class="btn btn-sm {% if not show_all %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="?">New ({{ open_count }}){% if open_sends > open_count %} <span class="opacity-75 small">from {{ open_sends }} reports</span>{% endif %}</a>
     <a class="btn btn-sm {% if show_all %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="?show=all">All</a>
   </div>
 </div>
-{% for r in reports %}
-<div class="vr-card">
+
+{% for c in cases %}
+<div class="vr-card {% if c.status == 'resolved' %}done{% else %}{{ c.heat }}{% endif %}">
   <div class="vr-top">
-    <div>{% if r.now.found %}<a class="vr-code" href="{% if r.now.member %}{% url 'member_detail' r.now.voucher_id %}{% else %}{% url 'voucher_detail' r.now.voucher_id %}{% endif %}" title="Open {% if r.now.member %}member{% else %}voucher{% endif %} {{ r.code }}">{{ r.code }}</a>{% else %}<span class="vr-code" title="Not a voucher in TapTap">{{ r.code }}</span>{% endif %} <span class="vr-pill {{ r.now.state }}">{{ r.now.title }}</span>
-      {% if r.status == 'resolved' %}<span class="vr-pill ok">Resolved</span>{% endif %}
-      <div class="small text-secondary mt-1">{{ r.created_at|date:'d M Y H:i' }} · {{ r.name|default:'Customer' }} · <a href="tel:{{ r.phone }}">{{ r.phone }}</a>{% if r.mac %} · {% if r.device_id %}<a href="{% url 'device_detail' r.device_id %}" title="Open device {{ r.mac_norm }}"><i class="bi bi-phone"></i> {{ r.mac_norm }}</a>{% else %}<span title="TapTap has no page for this device yet">{{ r.mac_norm }}</span>{% endif %}{% endif %}</div></div>
-    <div class="d-flex gap-2">{% if r.now.found %}<a class="btn btn-sm btn-outline-primary" href="{% if r.now.member %}{% url 'member_detail' r.now.voucher_id %}{% else %}{% url 'voucher_detail' r.now.voucher_id %}{% endif %}"><i class="bi bi-ticket-perforated"></i> Open</a>{% endif %}{% if r.device_id %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'device_detail' r.device_id %}"><i class="bi bi-phone"></i> Device</a>{% endif %}</div>
+    <div>
+      {% if c.now.found %}<a class="vr-code" href="{% if c.now.member %}{% url 'member_detail' c.now.voucher_id %}{% else %}{% url 'voucher_detail' c.now.voucher_id %}{% endif %}" title="Open {% if c.now.member %}member{% else %}voucher{% endif %} {{ c.code }}">{{ c.code }}</a>{% else %}<span class="vr-code" title="Not a voucher in TapTap">{{ c.code }}</span>{% endif %}
+      <span class="vr-pill {{ c.now.state }}">{{ c.now.title }}</span>
+      {% if c.count > 1 %}<span class="vr-count" title="The same voucher was sent {{ c.count }} times"><i class="bi bi-arrow-repeat"></i> Sent {{ c.count }} times</span>{% endif %}
+      {% if c.status == 'resolved' %}<span class="vr-pill ok">Resolved</span>{% endif %}
+      <div class="vr-meta">
+        {% if c.count > 1 %}<span><i class="bi bi-hourglass-split"></i> First sent {{ c.waiting }}, last {{ c.last_seen }}</span>{% else %}<span><i class="bi bi-clock"></i> {{ c.latest.created_at|date:'d M Y H:i' }} ({{ c.last_seen }})</span>{% endif %}
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      {% if c.now.found %}<a class="btn btn-sm btn-outline-primary" href="{% if c.now.member %}{% url 'member_detail' c.now.voucher_id %}{% else %}{% url 'voucher_detail' c.now.voucher_id %}{% endif %}"><i class="bi bi-ticket-perforated"></i> Open</a>{% endif %}
+    </div>
   </div>
-  {% if r.message or r.shown_error %}<div class="vr-said">{% if r.message %}<b>Customer:</b> {{ r.message }}{% endif %}{% if r.shown_error %}<div class="text-secondary small mt-1">The page told them: {{ r.shown_error }}</div>{% endif %}</div>{% endif %}
-  <ul class="vr-checks">{% for level, text in r.now.checks %}<li class="{{ level }}">{{ text }}</li>{% endfor %}</ul>
-  {% if r.now.state != r.diagnosis.state %}<p class="small text-secondary mb-0 mt-1">When sent: {{ r.diagnosis.title }}.</p>{% endif %}
-  {% if r.status == 'open' and r.fix %}{% if r.fix.kind %}<form method="post" class="vr-fix">{% csrf_token %}<input type="hidden" name="report" value="{{ r.id }}">
-    <button class="btn btn-sm {% if r.fix.kind == 'close_report' %}btn-outline-success{% else %}btn-primary{% endif %} text-nowrap" name="action" value="fix" {% if not r.fix.can %}disabled{% endif %} onclick="this.form.classList.add('busy');this.innerHTML='<span class=&quot;spinner-border spinner-border-sm&quot;></span> Fit is fixing…'"><i class="bi bi-magic"></i> Fix it: {{ r.fix.label }}</button>
-    <span class="why">{% if r.fix.can %}{{ r.fix.why }} Fit does it, then closes this report.{% else %}{{ r.fix.hint }}{% endif %}</span></form>
-  {% else %}<div class="vr-fix none"><span class="why"><i class="bi bi-person"></i> {{ r.fix.why }}</span></div>{% endif %}{% endif %}
-  <form method="post" class="d-flex gap-2 mt-2">{% csrf_token %}<input type="hidden" name="report" value="{{ r.id }}">
-    {% if r.status == 'open' %}<input class="form-control form-control-sm" name="note" placeholder="What you did (optional)"><button class="btn btn-sm btn-success text-nowrap" name="action" value="resolve"><i class="bi bi-check2"></i> Resolved</button>
-    {% else %}<span class="small text-secondary flex-grow-1">{{ r.staff_note|default:'Resolved' }}{% if r.resolved_by %} — {% firstof r.resolved_by.get_full_name r.resolved_by.username %}{% endif %} {{ r.resolved_at|date:'d M H:i' }}</span><button class="btn btn-sm btn-outline-secondary" name="action" value="reopen">Reopen</button>{% endif %}
+
+  <div class="vr-people">
+    {% for p in c.phones %}<a class="vr-chip" href="tel:{{ p.phone }}" title="Call back"><i class="bi bi-telephone"></i> {{ p.name|default:'Customer' }} {{ p.phone }}</a>{% endfor %}
+    {% for m in c.macs %}{% if m.device_id %}<a class="vr-chip" href="{% url 'device_detail' m.device_id %}" title="Open device {{ m.mac }}"><i class="bi bi-phone"></i> {{ m.mac }}</a>{% else %}<span class="vr-chip plain" title="TapTap has no page for this device yet"><i class="bi bi-phone"></i> {{ m.mac }}</span>{% endif %}{% endfor %}
+  </div>
+  {% if c.more_devices_than_allowed %}<div class="vr-share"><i class="bi bi-people"></i> Sent from {{ c.macs|length }} different devices, but the voucher allows {{ c.allowed_devices }}. The customer may be sharing it — check before freeing slots.</div>{% endif %}
+
+  {% if c.count == 1 %}
+    {% with r=c.latest %}{% if r.message or r.shown_error %}<div class="vr-said">{% if r.message %}<b>Customer:</b> {{ r.message }}{% endif %}{% if r.shown_error %}<div class="text-secondary small mt-1">The page told them: {{ r.shown_error }}</div>{% endif %}</div>{% endif %}{% endwith %}
+  {% else %}
+    <ul class="vr-thread">
+      {% for r in c.reports|slice:":3" %}<li><span class="when">{{ r.created_at|date:'d M H:i' }}{% if r.name %} — {{ r.name }}{% endif %}{% if r.mac_norm %}, {{ r.mac_norm }}{% endif %}</span><div>{{ r.message|default:'(no message)' }}</div>{% if r.shown_error %}<div class="err">The page told them: {{ r.shown_error }}</div>{% endif %}</li>{% endfor %}
+    </ul>
+    {% if c.count > 3 %}<details class="vr-more"><summary><i class="bi bi-chevron-down"></i> {{ c.count|add:"-3" }} earlier report{{ c.count|add:"-3"|pluralize }}</summary>
+      <ul class="vr-thread">{% for r in c.reports|slice:"3:" %}<li><span class="when">{{ r.created_at|date:'d M H:i' }}{% if r.name %} — {{ r.name }}{% endif %}{% if r.mac_norm %}, {{ r.mac_norm }}{% endif %}</span><div>{{ r.message|default:'(no message)' }}</div>{% if r.shown_error %}<div class="err">The page told them: {{ r.shown_error }}</div>{% endif %}</li>{% endfor %}</ul>
+    </details>{% endif %}
+  {% endif %}
+
+  <ul class="vr-checks">{% for level, text in c.now.checks %}<li class="{{ level }}">{{ text }}</li>{% endfor %}</ul>
+  {% if c.now.state != c.when_sent.state and c.when_sent.title %}<p class="small text-secondary mb-0 mt-1">When {% if c.count > 1 %}first {% endif %}sent: {{ c.when_sent.title }}.</p>{% endif %}
+
+  {% if c.status == 'open' and c.fix %}{% if c.fix.kind %}<form method="post" class="vr-fix">{% csrf_token %}<input type="hidden" name="report" value="{{ c.id }}">
+    <button class="btn btn-sm {% if c.fix.kind == 'close_report' %}btn-outline-success{% else %}btn-primary{% endif %} text-nowrap" name="action" value="fix" {% if not c.fix.can %}disabled{% endif %} onclick="this.innerHTML='<span class=&quot;spinner-border spinner-border-sm&quot;></span> Fit is fixing…'"><i class="bi bi-magic"></i> Fix it: {{ c.fix.label }}</button>
+    <span class="why">{% if c.fix.can %}{{ c.fix.why }} Fit does it, then closes {% if c.count > 1 %}all {{ c.count }} reports{% else %}this report{% endif %}.{% else %}{{ c.fix.hint }}{% endif %}</span></form>
+  {% else %}<div class="vr-fix none"><span class="why"><i class="bi bi-person"></i> {{ c.fix.why }}</span></div>{% endif %}{% endif %}
+
+  <form method="post" class="d-flex gap-2 mt-2">{% csrf_token %}<input type="hidden" name="report" value="{{ c.id }}">
+    {% if c.status == 'open' %}<input class="form-control form-control-sm" name="note" placeholder="What you did (optional)"><button class="btn btn-sm btn-success text-nowrap" name="action" value="resolve"><i class="bi bi-check2"></i> Resolved{% if c.count > 1 %} ({{ c.count }}){% endif %}</button>
+    {% else %}<span class="small text-secondary flex-grow-1">{{ c.staff_note|default:'Resolved' }}{% if c.resolved_by %} — {% firstof c.resolved_by.get_full_name c.resolved_by.username %}{% endif %} {{ c.resolved_at|date:'d M H:i' }}{% if c.count > 1 %} ({{ c.count }} reports){% endif %}</span><button class="btn btn-sm btn-outline-secondary" name="action" value="reopen">Reopen</button>{% endif %}
   </form>
 </div>
 {% empty %}

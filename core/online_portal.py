@@ -357,9 +357,11 @@ def voucher_reports(request):
         if c.status == 'open':
             c.fix = report_fix.plan(c.latest, c.now, macs=[r.mac for r in c.reports])
             c.fix['can'], c.fix['hint'] = report_fix.availability(c.fix, b, perms, settings)
+        for r in c.reports:                                  # the per-report template still works if it is deployed
+            r.fix = c.fix
     open_codes = list(qs.filter(status='open').values_list('code', flat=True))
     return render(request, 'core/voucher_reports.html', {
-        'cases': cases, 'show_all': show_all, 'open_count': len({report_cases.norm_code(c) for c in open_codes}),
+        'cases': cases, 'reports': [c.latest for c in cases], 'show_all': show_all, 'open_count': len({report_cases.norm_code(c) for c in open_codes}),
         'open_sends': len(open_codes)})
 
 
