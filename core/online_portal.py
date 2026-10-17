@@ -281,23 +281,63 @@ def online_report(request, slug):
 
 # ─────────────────────────────── staff ───────────────────────────────
 
+def _device_pages(business, macs):
+    """{MAC: device page id} for the MACs TapTap has a device page for (current MAC first, then a phone's older MACs)."""
+    from .fit_actions import norm_mac
+    want = {norm_mac(m) for m in macs if norm_mac(m)}
+    if not want:
+        return {}
+    sigs = business.device_signatures
+    out = {}
+    for pk, mac in sigs.filter(last_mac__in=want).order_by('-pk').values_list('pk', 'last_mac'):
+        out.setdefault(norm_mac(mac), pk)
+    left = want - set(out)
+    if left:
+        for row in sigs.only('pk', 'macs').iterator():
+            for m in (row.macs or []):
+                m = norm_mac(m)
+                if m in left:
+                    out[m] = row.pk
+                    left.discard(m)
+            if not left:
+                break
+    return out
+
+
 @login_required
 def voucher_reports(request):
-    b = request.user.business
+    from . import report_fix
+    from .fit_actions import norm_mac
+    b = getattr(request, 'tt_business', None) or request.user.business
+    back = request.path + ('?show=all' if request.GET.get('show') == 'all' else '')
     if request.method == 'POST':
         r = get_object_or_404(VoucherReport, business=b, pk=request.POST.get('report') or 0)
-        if request.POST.get('action') == 'reopen':
+        action = request.POST.get('action')
+        if action == 'fix':
+            from django.contrib import messages
+            ok, msg = report_fix.fix(r, request.user, getattr(request, 'tt_perms', frozenset()))
+            (messages.success if ok else messages.error)(request, msg)
+            return redirect(back)
+        if action == 'reopen':
             r.status, r.resolved_at, r.resolved_by = 'open', None, None
         else:
             r.status, r.resolved_at, r.resolved_by = 'resolved', timezone.now(), request.user
             r.staff_note = request.POST.get('note', '').strip()[:500]
         r.save()
-        return redirect(request.path + ('?show=all' if request.GET.get('show') == 'all' else ''))
+        return redirect(back)
     show_all = request.GET.get('show') == 'all'
-    qs = VoucherReport.objects.filter(business=b).select_related('voucher', 'resolved_by')
+    qs = VoucherReport.objects.filter(business=b).select_related('voucher', 'resolved_by', 'business')
     reports = list((qs if show_all else qs.filter(status='open'))[:200])
+    perms = getattr(request, 'tt_perms', frozenset())
+    settings = report_fix._settings(b)
+    devices = _device_pages(b, [r.mac for r in reports])
     for r in reports:                                        # the voucher today, not only when it was sent
         r.now = diagnose(b, r.code)
+        r.device_id = devices.get(norm_mac(r.mac))
+        r.mac_norm = norm_mac(r.mac) or r.mac
+        if r.status == 'open':
+            r.fix = report_fix.plan(r, r.now)
+            r.fix['can'], r.fix['hint'] = report_fix.availability(r.fix, b, perms, settings)
     return render(request, 'core/voucher_reports.html', {'reports': reports, 'show_all': show_all,
                                                          'open_count': qs.filter(status='open').count()})
 
