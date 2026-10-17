@@ -148,3 +148,20 @@ class FitMonitorEvent(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+
+class FitDashboard(models.Model):
+    """A live dashboard Fit built on request: a list of chart specs (core/fit_charts.SOURCES) that refresh."""
+    business = models.ForeignKey('core.Business', on_delete=models.CASCADE, related_name='fit_dashboards')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    title = models.CharField(max_length=120)
+    widgets = models.JSONField(default=list, blank=True)
+    refresh_seconds = models.PositiveIntegerField(default=30)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at']
+
+    def __str__(self):
+        return f'{self.business}: {self.title}'

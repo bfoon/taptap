@@ -426,6 +426,75 @@ def t_router_live(ctx, router='', what='resources', refresh=False):
             'note': note, 'link': reverse('router_control', args=[r.pk])}
 
 
+def t_router_query(ctx, router='', menu='resources', where=None, limit=30):
+    """Read straight from a MikroTik (live API / Tunnel; else the latest TapTap Link copy)."""
+    from . import fit_router
+    r = _router(ctx, router)
+    try:
+        out = fit_router.query(r, menu, where or [], limit)
+    except fit_router.RouterOpError as exc:
+        raise ToolError(str(exc))
+    out['link'] = reverse('router_control', args=[r.pk])
+    return out
+
+
+def t_make_chart(ctx, source, type='', title='', period='', days=None, hours=None, router=''):
+    """Draw a chart in the chat from a TapTap data source (figures computed by TapTap, never by the model)."""
+    from . import fit_charts
+    spec = {'source': source, 'type': type, 'title': title, 'period': period, 'days': days, 'hours': hours, 'router': router}
+    try:
+        d = fit_charts.data(ctx, {k: v for k, v in spec.items() if v not in (None, '')})
+    except (fit_charts.ChartError, ValueError) as exc:
+        raise ToolError(str(exc))
+    if d.get('error'):
+        raise ToolError(d['error'])
+    ctx.cards.setdefault('charts', []).append(d)
+    return {'chart_shown': True, 'title': d['spec']['title'], 'live': d['live'], 'figures': fit_charts.summary_for_model(d),
+            'next': 'The chart is now shown under your reply. Comment on what it shows in one or two sentences.'}
+
+
+def t_create_dashboard(ctx, title, widgets, refresh_seconds=30, dashboard_id=None):
+    """Save (or extend) a live dashboard of charts. It refreshes itself on its own page."""
+    from . import fit_charts
+    from .models_fit import FitDashboard
+    specs = []
+    for w in (widgets or [])[:12]:
+        try:
+            spec = fit_charts.clean_spec(w if isinstance(w, dict) else {'source': str(w)})
+        except fit_charts.ChartError as exc:
+            raise ToolError(str(exc))
+        if not ctx.can(fit_charts.SOURCES[spec['source']][1]):
+            raise ToolError(f'Your role cannot see “{spec["title"]}”.')
+        specs.append(spec)
+    if not specs:
+        raise ToolError('A dashboard needs at least one chart (widgets).')
+    refresh = max(10, min(600, int(refresh_seconds or 30)))
+    if dashboard_id:
+        d = FitDashboard.objects.filter(business=ctx.business, pk=dashboard_id).first()
+        if not d:
+            raise ToolError('There is no such dashboard in this business.')
+        d.widgets = (d.widgets or []) + specs
+        d.refresh_seconds = refresh
+        if title:
+            d.title = str(title)[:120]
+        d.save()
+    else:
+        d = FitDashboard.objects.create(business=ctx.business, created_by=ctx.user, title=str(title or 'My dashboard')[:120],
+                                        widgets=specs, refresh_seconds=refresh)
+    link = reverse('fit_dashboard', args=[d.pk])
+    ctx.cards.setdefault('dashboards', []).append({'id': d.pk, 'title': d.title, 'link': link, 'widgets': len(d.widgets),
+                                                   'refresh_seconds': d.refresh_seconds})
+    return {'saved': True, 'dashboard_id': d.pk, 'title': d.title, 'widgets': len(d.widgets), 'refresh_seconds': d.refresh_seconds,
+            'link': link, 'next': f'Give the person the link as markdown: [Open {d.title}]({link}).'}
+
+
+def t_dashboards(ctx):
+    from .models_fit import FitDashboard
+    return {'dashboards': [{'id': d.pk, 'title': d.title, 'widgets': [w.get('title') for w in d.widgets or []],
+                            'refresh_seconds': d.refresh_seconds, 'link': reverse('fit_dashboard', args=[d.pk])}
+                           for d in FitDashboard.objects.filter(business=ctx.business)[:20]]}
+
+
 # ─────────────────────────────── network tests ───────────────────────────────
 
 def t_run_test(ctx, router='', kind='doctor', target=''):
@@ -619,6 +688,26 @@ TOOLS = {
                     'send failed), plus each router\'s last sync and waiting/failed commands. scope: voucher, batch, plan, '
                     'members, unsynced, router.', _obj({'scope': S, 'codes': S, 'batch': S, 'plan': S, 'router': S})),
     'help_guides': (None, t_help, 'Find TapTap how-to guides with links.', _obj({'query': S}, ['query'])),
+    'router_query': (NETWORK_PERMS, t_router_query, 'Read straight from a MikroTik router (live over the API / TapTap Tunnel; '
+                     'TapTap Link routers return the latest synced copy). Filter rows with where. Read only — to change '
+                     'something use propose_action kind=router_change or router_task.',
+                     _obj({'router': {**S, 'description': 'Router name (empty = the only router)'},
+                           'menu': {'type': 'string', 'enum': None},
+                           'where': {'type': 'array', 'items': {'type': 'object', 'properties': {
+                               'field': S, 'op': {'type': 'string', 'enum': ['=', '!=', '~']}, 'value': S}}},
+                           'limit': {'type': 'integer'}}, ['menu'])),
+    'make_chart': (None, t_make_chart, 'Draw a chart in the chat. Pick a data source; TapTap computes the figures. '
+                   'Use it whenever a picture explains better than a list (trends, shares, comparisons, live load).',
+                   _obj({'source': {'type': 'string', 'enum': None}, 'type': {'type': 'string', 'enum': None},
+                         'title': S, 'period': {'type': 'string', 'enum': list(PERIODS)},
+                         'days': {'type': 'integer'}, 'hours': {'type': 'integer'}, 'router': S}, ['source'])),
+    'create_dashboard': (None, t_create_dashboard, 'Save a live dashboard (a page of charts that refreshes itself) — or add '
+                         'charts to an existing one with dashboard_id. Each widget is {source, type?, title?, period?, days?, hours?, router?}.',
+                         _obj({'title': S, 'widgets': {'type': 'array', 'items': {'type': 'object', 'properties': {
+                             'source': {'type': 'string'}, 'type': {'type': 'string'}, 'title': S, 'period': S,
+                             'days': {'type': 'integer'}, 'hours': {'type': 'integer'}, 'router': S}, 'required': ['source']}},
+                               'refresh_seconds': {'type': 'integer'}, 'dashboard_id': {'type': 'integer'}}, ['title', 'widgets'])),
+    'dashboards': (None, t_dashboards, 'The saved live dashboards of this business.', _obj({})),
 }
 
 
@@ -666,12 +755,39 @@ def propose_spec(ctx):
                   'description': 'sync: ' + '; '.join(f'{k} = {v}' for k, v in SYNC_SCOPES.items())},
         'batch': {**S, 'description': 'sync scope=batch: the batch name'},
         'plan': {**S, 'description': 'sync scope=plan: the plan name'},
-        'router': {**S, 'description': 'sync: one router name (empty or "all" = every router)'},
+        'router': {**S, 'description': 'sync: one router name (empty or "all" = every router) · router_change / router_task: the router'},
+        # router control (core/fit_router)
+        'menu': {'type': 'string', 'enum': list(_router_menus()), 'description': 'router_change: what to change'},
+        'verb': {'type': 'string', 'enum': ['add', 'set', 'remove', 'enable', 'disable', 'make-static'],
+                 'description': 'router_change: the action (each menu allows some of them)'},
+        'where': {'type': 'array', 'description': 'router_change: which entries, e.g. [{"field":"user","op":"=","value":"ABC123"}]',
+                  'items': {'type': 'object', 'properties': {'field': S, 'op': {'type': 'string', 'enum': ['=', '!=', '~']}, 'value': S}}},
+        'values': {'type': 'array', 'description': 'router_change add/set: [{"field":"max-limit","value":"5M/5M"}]',
+                   'items': {'type': 'object', 'properties': {'field': S, 'value': S}}},
+        'task': {'type': 'string', 'enum': list(_router_tasks()), 'description': 'router_task: reboot · flush_dns · sync_clock'},
     }, ['kind'])
+
+
+def _router_menus():
+    from .fit_router import MENUS
+    return MENUS
+
+
+def _router_tasks():
+    from .fit_router import TASKS
+    return TASKS
+
+
+def _fill_enums():
+    from . import fit_charts, fit_router
+    TOOLS['router_query'][3]['properties']['menu']['enum'] = list(fit_router.READ_MENUS)
+    TOOLS['make_chart'][3]['properties']['source']['enum'] = list(fit_charts.SOURCES)
+    TOOLS['make_chart'][3]['properties']['type']['enum'] = list(fit_charts.TYPES)
 
 
 def specs(ctx):
     """OpenAI-style tool list for this person (only the tools their role can use)."""
+    _fill_enums()
     out = []
     for name, (need, _, desc, schema) in TOOLS.items():
         if ctx.can(need):
@@ -683,7 +799,7 @@ def specs(ctx):
             'description': 'Offer a change for the person to approve (freeze/unfreeze/warn/disable/enable a voucher, add_time, '
                            'reduce_time, reset_devices, block_device, unblock_device, disconnect_session, resolve_report, '
                            'track_voucher, send_chat, free_idle_slot, create_monitor, pause_monitor, resume_monitor, '
-                           'delete_monitor, sync). It is NOT carried out: a card with “Take action” appears.',
+                           'delete_monitor, sync, router_change, router_task). It is NOT carried out: a card with “Take action” appears.',
             'parameters': propose_spec(ctx)}})
     return out
 

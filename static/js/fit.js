@@ -325,7 +325,7 @@
     b.innerHTML = '';
     if (!d.ready) {
       b.innerHTML = '<div class="fit-hello"><h3>Fit is almost ready</h3><p>' + (d.settings.can_manage
-        ? 'Add your Gemini key to the server’s <code>.env</code> as <code>GEMINI_API_KEY=…</code> and restart TapTap. Fit can already show you what needs attention:'
+        ? 'Add <code>GEMINI_API_KEY</code> (and optionally <code>GROQ_API_KEY</code>) to the server’s <code>.env</code> and restart TapTap. Fit can already show you what needs attention:'
         : 'The business owner still needs to switch Fit on. Meanwhile, here is what needs attention:') + '</p></div>';
     } else if (!d.messages.length) {
       b.innerHTML = '<div class="fit-hello"><h3>Hi ' + esc(d.me.name) + ', I’m Fit.</h3><p>Ask me anything about your vouchers, agents, money or network. ' +
@@ -357,6 +357,8 @@
       var c = cards || {};
       (c.tests || []).forEach(function (t) { tx.appendChild(testCard(t)); });
       (c.actions || []).forEach(function (a) { tx.appendChild(actionCard(a)); });
+      (c.charts || []).forEach(function (ch) { tx.appendChild(chartCard(ch)); });
+      (c.dashboards || []).forEach(function (db) { tx.appendChild(dashCard(db)); });
       scroll();
     };
     if (!animate || REDUCED) { tx.innerHTML = md(text); after(); return el; }
@@ -371,6 +373,50 @@
       else { setMood(''); face(''); after(); }
     })();
     return el;
+  }
+
+  // ── charts and live dashboards (core/fit_charts.py, static/js/fit-charts.js) ──
+  var STATIC = (function () { var el = document.querySelector('script[src*="js/fit.js"]'); return el ? el.src.replace(/js\/fit\.js.*$/, '') : '/static/'; })();
+  var chartLibs = null;
+  function chartLibsReady() {
+    if (chartLibs) return chartLibs;
+    if (!document.querySelector('link[href*="css/fit-dash.css"]')) {
+      var l = document.createElement('link'); l.rel = 'stylesheet'; l.href = STATIC + 'css/fit-dash.css?v=1'; document.head.appendChild(l);
+    }
+    var load = function (src) { return new Promise(function (ok, bad) { var s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = bad; document.head.appendChild(s); }); };
+    chartLibs = (window.FitCharts ? Promise.resolve() : load(STATIC + 'js/fit-charts.js?v=1'))
+      .then(function () { return window.FitCharts.ensure(STATIC + 'vendor/chart.umd.min.js'); });
+    return chartLibs;
+  }
+  var liveCards = [];
+  function chartCard(d) {
+    var s = d.spec || {}, el = document.createElement('div');
+    el.className = 'fit-chart t-' + (s.type || 'bar');
+    el.innerHTML = '<header><span>' + esc(s.title || 'Chart') + (d.live ? ' <small class="fdash-live"><i></i>live</small>' : '') + '</span></header><div class="fch-box"></div>';
+    var box = el.querySelector('.fch-box');
+    chartLibsReady().then(function () { FitCharts.render(box, d); if (d.live) refreshLive(box, s); }).catch(function () { box.textContent = 'Charts could not load.'; });
+    return el;
+  }
+  function refreshLive(box, spec) {
+    liveCards.push({ box: box, spec: spec });
+    if (liveCards.length > 4) liveCards.shift();
+    if (refreshLive.t) return;
+    refreshLive.t = setInterval(function () {
+      if (document.hidden || !P) return;
+      liveCards = liveCards.filter(function (c) { return document.body.contains(c.box); });
+      liveCards.forEach(function (c) {
+        var q = Object.keys(c.spec).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(c.spec[k]); }).join('&');
+        fetch('/fit/chart/?' + q, { credentials: 'same-origin' }).then(function (r) { return r.json(); }).then(function (j) { if (j.ok) FitCharts.render(c.box, j); }).catch(function () {});
+      });
+    }, 15000);
+  }
+  function dashCard(db) {
+    var a = document.createElement('a');
+    a.className = 'fit-dashcard'; a.href = db.link;
+    a.innerHTML = '<span>📊</span><div><b>' + esc(db.title) + '</b><small>Live dashboard · ' + db.widgets + ' chart' + (db.widgets === 1 ? '' : 's') +
+      ' · refreshes every ' + db.refresh_seconds + ' s — open it</small></div>';
+    if (!document.querySelector('link[href*="css/fit-dash.css"]')) chartLibsReady();
+    return a;
   }
 
   function actionCard(a) {

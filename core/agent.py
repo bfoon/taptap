@@ -42,7 +42,7 @@ SAFE_KINDS = {
     'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'remote_nat', 'remote_close', 'hotspot_kick_mac', 'share_rules', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
-    'hotspot_users_limit', 'admin_password', 'port_blink', 'protection', 'site_probe', 'nettest', 'cleanup', 'filecopy', 'restore', 'online_signin', 'clock', 'member_profiles',
+    'hotspot_users_limit', 'admin_password', 'port_blink', 'protection', 'site_probe', 'nettest', 'cleanup', 'filecopy', 'restore', 'online_signin', 'clock', 'member_profiles', 'fit_router_op',
 }
 # Delivery order for queued commands: anything about vouchers first (a customer is waiting), then the rest,
 # and the pieces of a full inventory sync last — 61 of them must never hold up a voucher.
@@ -350,6 +350,9 @@ def command_body(cmd):
 
 def _catalogue_body(cmd):
     p, k = cmd.params or {}, cmd.kind
+    if k == 'fit_router_op':
+        from .fit_router import link_body as fit_body, link_task_body
+        return link_task_body(p) or fit_body(p)
     if k == 'member_profiles':
         from .sticky import member_profile_lines
         return '; '.join(member_profile_lines(p.get('names', []), cmd.router.business)) or ':nothing'
@@ -663,6 +666,10 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
             raise ValueError('Only routers on the local network can be checked.')
         if not re.match(r'^(sr:\d+|auto:([0-9A-F]{2}:){5}[0-9A-F]{2})$', str((params or {}).get('key', ''))):
             raise ValueError('Invalid router.')
+    if kind == 'fit_router_op':
+        from .fit_router import link_task_body, validate as fit_validate
+        if not link_task_body(params or {}):
+            fit_validate(params or {})            # raises RouterOpError (a ValueError) when not allowed
     if kind == 'member_profiles':
         from .sticky import is_member_profile
         names = (params or {}).get('names') or []

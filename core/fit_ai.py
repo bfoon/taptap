@@ -1,23 +1,29 @@
-"""Fit — TapTap AI technician, powered by Google Gemini.
+"""Fit — TapTap AI technician: Google Gemini first, Groq as the second engine.
 
-Models are tried in order: the main model (Pro), then Flash, then Flash-Lite — the next one whenever the
-current one is rate-limited, out of quota, overloaded or not offered for the key. All are reached through
-Gemini's OpenAI-compatible endpoint, so the chat messages and the tool-call schema stay the same.
+Every model is reached through an OpenAI-compatible endpoint, so the chat messages and the tool-call
+schema are the same everywhere. Models are tried in order — the next one whenever the current one is
+rate-limited, out of quota, overloaded or unknown:
 
-Free plan: a model that has no free quota (Pro previews: "limit: 0"), or whose daily quota is used up, is
-skipped for hours instead of being asked again on every question; a per-minute limit is skipped only for the
-delay Google gives. An overloaded model (503) is retried once after 2 seconds, then the next one is used.
+    Gemini:  GEMINI_MODEL → GEMINI_FALLBACK_MODEL → GEMINI_LITE_MODEL   (duplicates are skipped)
+    Groq:    GROQ_MODEL → GROQ_FALLBACK_MODEL
+
+FIT_PROVIDERS sets the engine order (default "gemini,groq"; "groq,gemini" puts Groq first). An engine
+without its API key is left out. A provider failure never runs tools, so moving to the next model can
+never repeat an action.
+
+Free plans: a model with no quota ("limit: 0") is skipped for 12 h, a used-up daily quota for an hour, a
+per-minute limit for the delay the provider gives (at least FIT_PROVIDER_COOLDOWN seconds). An overloaded
+model (5xx) is retried once after 2 seconds.
+
+Switching engines mid-conversation is safe: Gemini 3 needs a thought signature on every earlier tool call
+(a call Groq made gets Google's documented placeholder), and Groq is never sent Gemini's extra fields.
 
 Environment:
- GEMINI_API_KEY                         (required — https://aistudio.google.com/apikey)
- GEMINI_MODEL           default gemini-3.1-pro-preview   (free plan: use gemini-3.5-flash)
- GEMINI_FALLBACK_MODEL  default gemini-3.5-flash
- GEMINI_LITE_MODEL      default gemini-3.1-flash-lite     (last resort: the most generous free quota)
- GEMINI_FALLBACK_MODELS optional, comma-separated: replaces the two fallbacks above with your own list
- GEMINI_BASE_URL        default https://generativelanguage.googleapis.com/v1beta/openai
- GEMINI_REASONING       default low   (thinking effort: low | medium | high)
- FIT_MAX_TOKENS         default 4096  (Gemini counts its thinking in this budget)
- FIT_TIMEOUT (seconds, default 60), FIT_PROVIDER_COOLDOWN (seconds, default 60)
+ GEMINI_API_KEY, GEMINI_MODEL, GEMINI_FALLBACK_MODEL, GEMINI_LITE_MODEL, GEMINI_FALLBACK_MODELS (optional list),
+ GEMINI_BASE_URL, GEMINI_REASONING (low | medium | high)
+ GROQ_API_KEY, GROQ_MODEL (default openai/gpt-oss-20b), GROQ_FALLBACK_MODEL (default openai/gpt-oss-120b),
+ GROQ_BASE_URL, GROQ_REASONING (low | medium | high)
+ FIT_PROVIDERS, FIT_MAX_TOKENS (default 4096), FIT_TIMEOUT (seconds, default 60), FIT_PROVIDER_COOLDOWN (default 60)
 
 Business isolation and permissions are enforced by FitContext / fit_tools, not the AI provider.
 """
@@ -49,6 +55,12 @@ DEFAULT_LITE = 'gemini-3.1-flash-lite'
 NO_QUOTA_COOLDOWN = 12 * 3600    # the plan has no quota for this model at all ("limit: 0")
 DAILY_COOLDOWN = 3600            # daily quota used up: look again in an hour (it resets once a day)
 DEFAULT_BASE = 'https://generativelanguage.googleapis.com/v1beta/openai'
+GROQ_BASE = 'https://api.groq.com/openai/v1'
+DEFAULT_GROQ = 'openai/gpt-oss-20b'
+DEFAULT_GROQ_FALLBACK = 'openai/gpt-oss-120b'
+NAMES = {'gemini': 'Gemini', 'groq': 'Groq'}
+# Google's documented placeholder for a tool call that was not made by Gemini (no real thought signature).
+PLACEHOLDER_SIGNATURE = 'skip_thought_signature_validator'
 
 
 class FitAIError(Exception):
@@ -63,6 +75,34 @@ def base_url():
     return os.getenv('GEMINI_BASE_URL', DEFAULT_BASE).strip().rstrip('/')
 
 
+def groq_key():
+    return os.getenv('GROQ_API_KEY', '').strip()
+
+
+def groq_models():
+    out = [os.getenv('GROQ_MODEL', DEFAULT_GROQ).strip(), os.getenv('GROQ_FALLBACK_MODEL', DEFAULT_GROQ_FALLBACK).strip()]
+    return list(dict.fromkeys(m for m in out if m))
+
+
+def providers():
+    order = [x.strip().lower() for x in os.getenv('FIT_PROVIDERS', 'gemini,groq').split(',') if x.strip()]
+    order = [x for x in dict.fromkeys(order) if x in NAMES] or ['gemini', 'groq']
+    have = {'gemini': bool(api_key()), 'groq': bool(groq_key())}
+    return [x for x in order if have[x]]
+
+
+def routes():
+    """[(provider, model), …] in the order they are tried."""
+    out = []
+    for prov in providers():
+        out += [(prov, m) for m in (models() if prov == 'gemini' else groq_models())]
+    return out
+
+
+def ready():
+    return bool(routes())
+
+
 def models():
     """[main, fallbacks…] in the order they are tried — duplicates and blanks removed."""
     main = os.getenv('GEMINI_MODEL', DEFAULT_MODEL).strip()
@@ -74,8 +114,38 @@ def models():
     return list(dict.fromkeys(m.removeprefix('models/') for m in [main, *fallbacks] if m))
 
 
+def _messages_for(provider, messages):
+    """Gemini needs a thought signature on every earlier tool call; Groq refuses Gemini's extra fields."""
+    out = []
+    for m in messages or []:
+        if m.get('role') == 'assistant' and m.get('tool_calls'):
+            m = dict(m)
+            calls = []
+            for c in m['tool_calls']:
+                c = dict(c)
+                if provider == 'groq':
+                    c.pop('extra_content', None)
+                elif not ((c.get('extra_content') or {}).get('google') or {}).get('thought_signature'):
+                    c['extra_content'] = {'google': {'thought_signature': PLACEHOLDER_SIGNATURE}}
+                calls.append(c)
+            m['tool_calls'] = calls
+        out.append(m)
+    return out
+
+
+def _groq_body(model, payload):
+    body = dict(payload, model=model)
+    body['messages'] = _messages_for('groq', body.get('messages'))
+    body.pop('temperature', None)
+    if model.startswith('openai/gpt-oss'):
+        body.setdefault('reasoning_effort', os.getenv('GROQ_REASONING', 'low').strip() or 'low')
+    return body
+
+
 def _body(model, payload):
     body = dict(payload, model=model)
+    if body.get('messages'):
+        body['messages'] = _messages_for('gemini', body['messages'])
     # Gemini counts its thinking inside the output budget, and recommends its default temperature for Gemini 3
     # (a low temperature can make it loop). Thinking stays light: Fit's answers are short and tool-driven.
     body.pop('temperature', None)
@@ -85,14 +155,18 @@ def _body(model, payload):
     return body
 
 
-def _post(model, payload):
-    """One request to Gemini (OpenAI-compatible chat completions). Tests replace this function."""
+def _post(model, payload, provider='gemini'):
+    """One request (OpenAI-compatible chat completions). Tests replace this function."""
+    if provider == 'groq':
+        url, key, body = os.getenv('GROQ_BASE_URL', GROQ_BASE).strip().rstrip('/'), groq_key(), _groq_body(model, payload)
+    else:
+        url, key, body = base_url(), api_key(), _body(model, payload)
     req = urllib.request.Request(
-        base_url() + '/chat/completions',
-        data=json.dumps(_body(model, payload)).encode('utf-8'),
+        url + '/chat/completions',
+        data=json.dumps(body).encode('utf-8'),
         method='POST',
         headers={
-            'Authorization': f'Bearer {api_key()}',
+            'Authorization': f'Bearer {key}',
             'Content-Type': 'application/json',
             'User-Agent': 'TapTap-Fit/2.0',
         },
@@ -115,13 +189,13 @@ def explain(exc, model='', provider=PROVIDER):
         msg = ' '.join(str(msg).split())[:220]
         code = exc.code
         if code in (400, 401) and ('API key' in msg or 'API_KEY' in msg):
-            return f'{name} rejected its API key ({code}). Check GEMINI_API_KEY in .env.'
+            return f'{name} rejected its API key ({code}). Check {name.upper()}_API_KEY in .env.'
         if code == 401:
-            return f'{name} rejected its API key (401). Check GEMINI_API_KEY in .env.'
+            return f'{name} rejected its API key (401). Check {name.upper()}_API_KEY in .env.'
         if code == 403:
             return f'{name} refused access (403): {msg or "forbidden"}. Is the Generative Language API enabled for this key?'
         if code == 404:
-            return f'{name} model “{model}” is unavailable (404). Check GEMINI_MODEL / GEMINI_FALLBACK_MODEL.'
+            return f'{name} model “{model}” is unavailable (404). Check {name.upper()}_MODEL / {name.upper()}_FALLBACK_MODEL.'
         if code == 413:
             return f'{name} request exceeds the model size limit (413).'
         if code == 429:
@@ -147,69 +221,74 @@ def explain(exc, model='', provider=PROVIDER):
     return f'{name} connection failed: {reason}'
 
 
-def _cooldown_key(model):
-    return 'fit:ai:cooldown:gemini:' + model
+def _cooldown_key(model, provider='gemini'):
+    return f'fit:ai:cooldown:{provider}:' + model
 
 
 def complete(messages, tools):
-    """Ask the main Gemini model; on a rate limit, outage or unknown model, ask the Flash fallback.
+    """Ask the models in order (Gemini, then Groq — see FIT_PROVIDERS) until one answers.
 
     A provider failure never executes tools, so trying the next model cannot duplicate actions.
     """
-    if not api_key():
-        raise FitAIError('Fit needs a Gemini API key. Configure GEMINI_API_KEY on the server.')
-    chain = models()
+    chain = routes()
+    if not chain:
+        raise FitAIError('Fit needs an AI key. Configure GEMINI_API_KEY (and optionally GROQ_API_KEY) on the server.')
     payload = {'messages': messages, 'max_completion_tokens': int(os.getenv('FIT_MAX_TOKENS', '4096'))}
     if tools:
         payload.update(tools=tools, tool_choice='auto')
-    reasons = []          # (model, reason, was_rate_limited)
+    reasons = []          # (label, reason, was_rate_limited)
     cooldown = max(1, int(os.getenv('FIT_PROVIDER_COOLDOWN', '60')))
-    for i, model in enumerate(chain):
+    for i, (prov, model) in enumerate(chain):
         last = i == len(chain) - 1
-        skipped = cache.get(_cooldown_key(model))
+        name = NAMES[prov]
+        label = model if prov == 'gemini' else f'{name} {model}'
+        key = _cooldown_key(model, prov)
+        skipped = cache.get(key)
         if skipped and not last:                              # the last model is always tried
-            reasons.append((model, skipped if isinstance(skipped, str) else 'Skipped for now after an earlier limit or outage.',
+            reasons.append((label, skipped if isinstance(skipped, str) else 'Skipped for now after an earlier limit or outage.',
                             'quota' in str(skipped) or 'limit' in str(skipped)))
             continue
         for attempt in range(2):
             try:
-                response = _post(model, payload)
+                response = _post(model, payload) if prov == 'gemini' else _post(model, payload, provider=prov)
                 if not response.get('choices'):
-                    raise ValueError('Gemini returned no choices.')
+                    raise ValueError(f'{name} returned no choices.')
+                response.setdefault('_fit_engine', f'{name} · {model}')
                 return response
             except urllib.error.HTTPError as exc:
                 exc._fit_detail = exc.read().decode(errors='replace')[:4000]
-                logger.warning('Fit Gemini %s HTTP %s: %s', model, exc.code, exc._fit_detail[:600])
+                logger.warning('Fit %s %s HTTP %s: %s', name, model, exc.code, exc._fit_detail[:600])
                 if exc.code == 429:
                     kind = _quota_kind(exc._fit_detail)
                     wait = _retry_after(exc)
                     if kind == 'minute' and attempt == 0 and wait is not None and wait <= 5:
                         time.sleep(wait)          # a short per-minute limit: wait it out on the same model
                         continue
-                    why_ = explain(exc, model)
-                    reasons.append((model, why_, True))
+                    why_ = explain(exc, model, name)
+                    reasons.append((label, why_, True))
                     hold = NO_QUOTA_COOLDOWN if kind == 'none' else DAILY_COOLDOWN if kind == 'daily' else max(cooldown, int(wait or 0))
-                    cache.set(_cooldown_key(model), f'Skipped: {why_}', timeout=hold)
+                    cache.set(key, f'Skipped: {why_}', timeout=hold)
                     break
                 if exc.code in (500, 502, 503, 504) and attempt == 0:
                     time.sleep(2)                 # overloaded for a moment: one more try on the same model
                     continue
-                reasons.append((model, explain(exc, model), False))
+                reasons.append((label, explain(exc, model, name), False))
                 if exc.code in (500, 502, 503, 504):
-                    cache.set(_cooldown_key(model), f'Skipped: {model} was overloaded a moment ago.', timeout=cooldown)
+                    cache.set(key, f'Skipped: {model} was overloaded a moment ago.', timeout=cooldown)
                 break
             except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
-                logger.warning('Fit Gemini %s unavailable: %r', model, exc)
-                reasons.append((model, explain(exc, model), False))
-                cache.set(_cooldown_key(model), True, timeout=cooldown)
+                logger.warning('Fit %s %s unavailable: %r', name, model, exc)
+                reasons.append((label, explain(exc, model, name), False))
+                cache.set(key, True, timeout=cooldown)
                 break
 
     limited = any(r[2] for r in reasons)
+    engines = ' and '.join(NAMES[p] for p in providers())
     err = FitAIError('Fit has had too many questions for a moment — wait a minute and ask again.' if limited
-                     else 'Fit’s AI (Gemini) is temporarily unavailable. Please try again shortly.')
+                     else f'Fit’s AI ({engines}) is temporarily unavailable. Please try again shortly.')
     # A rate limit on the main model is the real reason; never let a fallback's error hide it.
     reasons.sort(key=lambda r: not r[2])
-    err.detail = ' · '.join(f'{model}: {reason}' for model, reason, _ in reasons)
+    err.detail = ' · '.join(f'{label}: {reason}' for label, reason, _ in reasons)
     raise err
 
 
@@ -294,6 +373,19 @@ def system_prompt(ctx, page=None):
         'sync_status first when it helps to show what is actually different, and prefer the smallest scope that fixes it '
         '(one voucher before a batch, a batch before a full router sync). Router-made vouchers are read from the router, never '
         'overwritten.',
+        '12. The router itself: use router_query to look straight at a MikroTik (sessions, bindings, walled garden, address '
+        'lists, queues, DNS, interfaces, Wi-Fi, logs, clock…) — live over the API / Tunnel, or the latest copy on TapTap Link. '
+        'When the person asks you to change something ON the router, first query it, then offer ONE propose_action '
+        'kind=router_change (menu, verb, where filters that hit exactly the right rows, values) or kind=router_task '
+        '(reboot, flush_dns, sync_clock). The card shows the exact RouterOS command and the rows it touches; the person '
+        'presses Take action. Vouchers, members and plans are changed with TapTap’s own actions (TapTap is the source '
+        'of truth; the router follows) — never by editing hotspot users on the router. Never offer to touch TapTap’s own '
+        'entries. Warn clearly before anything that disconnects people (reboot, disabling a port or Wi-Fi).',
+        '13. Pictures: when numbers make a trend, a share or a comparison, call make_chart (TapTap computes the figures — '
+        'never type numbers into a chart yourself) and comment in one or two sentences. When the person wants to keep '
+        'watching something, build a live dashboard with create_dashboard (4–8 well-chosen widgets, kpis first, live '
+        'sources like online_users / router_load / sales_by_hour for a wall screen) and give its link. To add charts to an '
+        'existing dashboard, check dashboards first and pass dashboard_id.',
     ]
     if page and page.get('path'):
         lines += ['', f'The person is looking at the TapTap page “{str(page.get("title", ""))[:80]}” ({str(page["path"])[:120]}). '

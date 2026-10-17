@@ -1,0 +1,23 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}{% if dash %}{{ dash.title }}{% else %}Live dashboards{% endif %} — TapTap{% endblock %}{% block heading %}Live dashboards{% endblock %}
+{% block content %}
+<link href="{% static 'css/fit-dash.css' %}?v=1" rel="stylesheet">
+<div class="fdash-top">
+  <div>
+    <h2 class="section-title mb-1">🤖 {% if dash %}{{ dash.title }}{% else %}Live dashboards{% endif %}</h2>
+    <p class="text-secondary m-0">{% if dash %}Built by Fit · refreshes every {{ dash.refresh_seconds }} s · <span id="fdashAt">loading…</span>{% else %}Ask Fit: <i>“Build me a wall-screen dashboard with users online, router load and today’s sales by hour.”</i>{% endif %}</p>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    {% for d in dashboards %}<a class="btn btn-sm {% if dash and d.pk == dash.pk %}btn-primary{% else %}btn-outline-secondary{% endif %}" href="{% url 'fit_dashboard' d.pk %}">{{ d.title }}</a>{% endfor %}
+    {% if dash %}<button class="btn btn-sm btn-outline-secondary" type="button" id="fdashFull"><i class="bi bi-arrows-fullscreen"></i> Wall screen</button>
+    <form method="post" onsubmit="return confirm('Delete this dashboard?')">{% csrf_token %}<input type="hidden" name="delete" value="1"><button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button></form>{% endif %}
+  </div>
+</div>
+{% if dash %}
+<div class="fdash-grid" id="fdash" data-url="{% url 'fit_dashboard_data' dash.pk %}" data-refresh="{{ dash.refresh_seconds }}"></div>
+{% elif not dashboards %}
+<section class="panel text-center py-5"><div class="fs-1">📊</div><h3 class="h5">No dashboards yet</h3>
+  <p class="text-secondary">Open Fit (bottom right) and ask for one — Fit picks the charts, TapTap fills in the live numbers.</p></section>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="{% static 'vendor/chart.umd.min.js' %}"></script><script src="{% static 'js/taptap-charts.js' %}"></script><script>window.TT_CURRENCY = '{{ current_business.currency|default:"D"|escapejs }}';</script><script src="{% static 'js/fit-charts.js' %}?v=1"></script><script src="{% static 'js/fit-dash.js' %}?v=1"></script>{% endblock %}

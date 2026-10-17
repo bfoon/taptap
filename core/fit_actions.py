@@ -42,6 +42,8 @@ GROUPS = {
                                   'routers, or run a full router sync'),
     'monitors': ('Monitors', 'Set up standing watches (slots full, sharing, heavy users, drops, routers) that alert '
                              'you or the member, and may free an idle slot or disconnect extra devices'),
+    'router': ('Router control', 'Change things directly on your MikroTik routers: sessions, cookies, IP bindings, walled garden, '
+                                 'address lists, queues, DNS, ports, Wi-Fi name, router name; reboot, flush DNS, fix the clock'),
 }
 
 
@@ -586,6 +588,74 @@ def _do_sync(business, p, user):
         raise FitActionError(str(exc))
 
 
+# ─────────────────────────────── router control (core/fit_router) ───────────────────────────────
+
+def _fit_router(business, a):
+    if a.get('router_id'):                       # re-check of a stored proposal
+        r = business.routers.filter(pk=a['router_id']).first()
+        if not r:
+            raise FitActionError('That router is no longer in this business.')
+        return r
+    name = str(a.get('router') or '').strip()
+    qs = business.routers.all()
+    r = (qs.filter(pk=int(name)).first() if name.isdigit() else qs.filter(name__iexact=name).first()) if name else None
+    if r is None:
+        if not name and qs.count() == 1:
+            return qs.first()
+        raise FitActionError('Which router? ' + ', '.join(qs.values_list('name', flat=True)[:12]))
+    return r
+
+
+def _check_router_change(business, a):
+    from . import fit_router
+    r = _fit_router(business, a)
+    values = a.get('values') or {}
+    if isinstance(values, list):                 # the model sends [{field, value}, …]
+        values = {str(x.get('field') or ''): x.get('value') for x in values if isinstance(x, dict) and x.get('field')}
+    op = a.get('op') or {'menu': a.get('menu'), 'verb': a.get('verb'), 'where': a.get('where') or [], 'values': values}
+    try:
+        op, title, detail, danger, _ = fit_router.describe(r, op)
+    except fit_router.RouterOpError as exc:
+        raise FitActionError(str(exc))
+    reason = _reason(a, '')
+    if reason:
+        detail = f'{detail} Reason: {reason}'
+    return {'router_id': r.pk, 'op': op, 'danger': danger, 'reason': reason}, title, detail, reverse('router_control', args=[r.pk])
+
+
+def _do_router_change(business, p, user):
+    from . import fit_router
+    r = business.routers.filter(pk=p['router_id']).first()
+    if not r:
+        raise FitActionError('That router is no longer in this business.')
+    try:
+        return fit_router.apply(r, p['op'], user=user)
+    except fit_router.RouterOpError as exc:
+        raise FitActionError(str(exc))
+
+
+def _check_router_task(business, a):
+    from . import fit_router
+    r = _fit_router(business, a)
+    task = str(a.get('task') or '').strip()
+    if task not in fit_router.TASKS:
+        raise FitActionError(f'Which router task? One of: {", ".join(fit_router.TASKS)}.')
+    label, danger, what = fit_router.TASKS[task]
+    return {'router_id': r.pk, 'task': task, 'danger': danger}, f'{label} — {r.name}', \
+        f'{what} Via {fit_router.channel(r)}.', reverse('router_control', args=[r.pk])
+
+
+def _do_router_task(business, p, user):
+    from . import fit_router
+    r = business.routers.filter(pk=p['router_id']).first()
+    if not r:
+        raise FitActionError('That router is no longer in this business.')
+    try:
+        return fit_router.run_task(r, p['task'], user=user)
+    except fit_router.RouterOpError as exc:
+        raise FitActionError(str(exc))
+
+
 # ─────────────────────────────── registry ───────────────────────────────
 # kind: (group, permissions (any of), check(business, args) -> (params, title, detail, link), do(business, params, user), danger)
 KINDS = {
@@ -609,6 +679,8 @@ KINDS = {
     'delete_monitor': ('monitors', MONITOR_PERMS, _check_delete_monitor, _do_delete_monitor, 'warn'),
     'sync': ('sync', ('vouchers.support', 'network.manage'), _check_sync, _do_sync, 'ok'),
     'free_idle_slot': ('devices', ('vouchers.support',), _check_free_idle_slot, _do_free_idle_slot, 'warn'),
+    'router_change': ('router', ('network.manage',), _check_router_change, _do_router_change, 'warn'),
+    'router_task': ('router', ('network.manage',), _check_router_task, _do_router_task, 'warn'),
 }
 
 
@@ -641,7 +713,7 @@ def propose(ctx, kind, args):
     params, title, detail, link = _validate(ctx.business, ctx.user, kind, args or {})
     a = FitAction.objects.create(business=ctx.business, conversation=ctx.conversation, proposed_to=ctx.user,
                                  kind=kind, params=params, title=title[:200], detail=(detail or '')[:500])
-    card = card_json(a, ctx.settings, link=link, danger=danger)
+    card = card_json(a, ctx.settings, link=link, danger=params.get('danger') if isinstance(params, dict) and params.get('danger') else danger)
     ctx.cards.setdefault('actions', []).append(card)
     return card
 
@@ -652,7 +724,7 @@ def card_json(a, settings, link='', danger=None):
     return {'id': a.pk, 'kind': a.kind, 'title': a.title, 'detail': a.detail, 'status': 'expired' if expired else a.status,
             'result': a.result, 'group': group, 'group_label': GROUPS.get(group, (group,))[0],
             'authorized': bool(settings and settings.allows(group)), 'link': link,
-            'danger': danger or KINDS.get(a.kind, (None,) * 5)[4] or 'ok'}
+            'danger': danger or (a.params or {}).get('danger') or KINDS.get(a.kind, (None,) * 5)[4] or 'ok'}
 
 
 def run(action, user, perms, settings):

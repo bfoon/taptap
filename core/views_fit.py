@@ -100,7 +100,7 @@ def fit_state(request):
     ctx = _ctx(request, b, s)
     u = request.user
     return JsonResponse({
-        'ok': True, 'enabled': s.enabled, 'ready': bool(fit_ai.api_key()),
+        'ok': True, 'enabled': s.enabled, 'ready': fit_ai.ready(),
         'me': {'name': u.first_name or u.get_full_name() or u.username},
         'business': {'name': b.business_name, 'color': b.brand_color or '#1769e0'},
         'settings': _settings_json(s, manage),
@@ -275,3 +275,53 @@ def fit_monitor_toggle(request, pk):
         ex = ', '.join(str(x if not isinstance(x, dict) else x.get('code')) for x in (r.get('examples') or [])[:6])
         messages.info(request, f'Test of “{m.name}”: {n} match{"es" if n != 1 else ""} right now' + (f' — {ex}' if ex else '') + '. Nothing was sent or changed.')
     return redirect('fit_monitors_page')
+
+
+# ─────────────────────────────── live dashboards (core/fit_charts) ───────────────────────────────
+
+def _chart_ctx(request):
+    b = _biz(request)
+    return _ctx(request, b, _settings(b))
+
+
+@login_required
+def fit_dashboards_page(request):
+    from django.shortcuts import render
+    from .models_fit import FitDashboard
+    ctx = _chart_ctx(request)
+    return render(request, 'core/fit_dashboards.html', {'dashboards': FitDashboard.objects.filter(business=ctx.business), 'dash': None})
+
+
+@login_required
+def fit_dashboard(request, pk):
+    from django.shortcuts import get_object_or_404, render
+    from .models_fit import FitDashboard
+    ctx = _chart_ctx(request)
+    dash = get_object_or_404(FitDashboard, business=ctx.business, pk=pk)
+    if request.method == 'POST' and request.POST.get('delete'):
+        from django.shortcuts import redirect
+        dash.delete()
+        return redirect('fit_dashboards_page')
+    return render(request, 'core/fit_dashboards.html', {'dashboards': FitDashboard.objects.filter(business=ctx.business), 'dash': dash})
+
+
+@login_required
+def fit_dashboard_data(request, pk):
+    from django.shortcuts import get_object_or_404
+    from . import fit_charts
+    from .models_fit import FitDashboard
+    ctx = _chart_ctx(request)
+    dash = get_object_or_404(FitDashboard, business=ctx.business, pk=pk)
+    return JsonResponse({'ok': True, 'currency': ctx.business.currency or 'D', **fit_charts.dashboard_data(ctx, dash)})
+
+
+@login_required
+def fit_chart_data(request):
+    """Refresh one chart card shown in the chat (live sources)."""
+    from . import fit_charts
+    ctx = _chart_ctx(request)
+    spec = {k: request.GET.get(k) for k in ('source', 'type', 'title', 'period', 'days', 'hours', 'router') if request.GET.get(k)}
+    try:
+        return JsonResponse({'ok': True, **fit_charts.data(ctx, spec)})
+    except (fit_charts.ChartError, ValueError) as exc:
+        return JsonResponse({'ok': False, 'error': str(exc)}, status=400)

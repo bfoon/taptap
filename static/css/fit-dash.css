@@ -1,0 +1,34 @@
+/* Fit live dashboards + chart cards in the Fit chat (static/js/fit-charts.js) */
+.fdash-top{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
+.fdash-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
+.fdash-card{background:var(--bs-body-bg);border:1px solid var(--bs-border-color);border-radius:18px;padding:14px 16px;min-height:270px;display:flex;flex-direction:column}
+.fdash-card.t-kpi{grid-column:1/-1;min-height:0}
+.fdash-card header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.fdash-card h3{font-size:14px;font-weight:700;margin:0}
+.fdash-live{font-size:11px;font-weight:700;color:#18a66a;display:flex;align-items:center;gap:5px;text-transform:uppercase;letter-spacing:.05em}
+.fdash-live i,.fch-tile.live small i{width:8px;height:8px;border-radius:50%;background:#18a66a;display:inline-block;animation:fch-pulse 1.6s ease-out infinite}
+@keyframes fch-pulse{0%{box-shadow:0 0 0 0 rgba(24,166,106,.55)}100%{box-shadow:0 0 0 9px rgba(24,166,106,0)}}
+.fch-box{position:relative;flex:1;min-height:210px}
+.fdash-card.t-kpi .fch-box{min-height:0}
+.fch-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.fch-tile{border-radius:14px;padding:12px 14px;background:rgba(23,105,224,.06);display:flex;flex-direction:column;gap:2px}
+.fch-tile small{font-size:11px;text-transform:uppercase;letter-spacing:.05em;opacity:.7;display:flex;align-items:center;gap:6px}
+.fch-tile b{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.15}
+.fch-tile b span{font-size:15px;opacity:.55;font-weight:600}
+.fch-tile em{font-style:normal;font-size:11px;font-weight:600}
+.fch-tile em.up{color:#18a66a}.fch-tile em.down{color:#e5484d}
+.fch-empty{opacity:.6;font-size:13px;margin:auto;text-align:center;padding:30px 0}
+body.fdash-wall .sidebar,body.fdash-wall .topbar,body.fdash-wall #ttFit,body.fdash-wall #ttChat{display:none!important}
+body.fdash-wall .fdash-grid{grid-template-columns:repeat(auto-fill,minmax(420px,1fr))}
+body.fdash-wall .fdash-card{min-height:330px}
+body.fdash-wall .fch-tile b{font-size:38px}
+/* inside the Fit chat */
+.fit-chart{margin-top:10px;border:1px solid rgba(127,127,127,.22);border-radius:14px;padding:10px 12px;background:rgba(127,127,127,.04)}
+.fit-chart header{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12.5px;font-weight:700;margin-bottom:6px}
+.fit-chart header a{font-size:11.5px;font-weight:600}
+.fit-chart .fch-box{min-height:180px}
+.fit-chart.t-kpi .fch-box{min-height:0}
+.fit-chart .fch-tile b{font-size:19px}
+.fit-dashcard{margin-top:10px;display:flex;align-items:center;gap:10px;border-radius:14px;padding:10px 12px;background:linear-gradient(135deg,rgba(23,105,224,.1),rgba(24,166,106,.1));text-decoration:none;color:inherit}
+.fit-dashcard b{display:block;font-size:13px}.fit-dashcard small{opacity:.7;font-size:11.5px}
+.fit-dashcard span{font-size:24px}
