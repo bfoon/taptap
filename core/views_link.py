@@ -280,6 +280,8 @@ def router_link(request, pk):
                                and (cache.get(f'tt:link:upgrade-tries:{router.pk}:{link.SCRIPT_VERSION}') or 0) >= 2
                                and not router.agent_commands.filter(kind='self_update', status__in=['queued', 'sent']).exists()),
         'fixes': troubleshooting_steps(link.base_url(request)),
+        'last_outage': cache.get(f'tt:link:outage:{router.pk}'),
+        'pin_refused': bool(agent and agent.pinned_ip and agent.last_ip and agent.pinned_ip != agent.last_ip),
         'commands': cmds,
         'site': link.base_url(request),
         'https': link.base_url(request).startswith('https://'),

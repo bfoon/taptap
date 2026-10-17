@@ -124,7 +124,7 @@ def free_login(user_expr):
             f':do {{ /ip hotspot cookie remove $c }} on-error={{}}; $drop m=$m }}')
 
 
-SCRIPT_VERSION = 5   # v5: reports IP-binding bypass devices (fair usage); v4: direct scheduler execution + single-instance guard
+SCRIPT_VERSION = 6   # v6: self-healing check-in (DNS fallback, wrong-clock repair, dead-WAN diagnosis) and outage report; v5: reports IP-binding bypass devices (fair usage); v4: direct scheduler execution + single-instance guard
 
 
 def agent_script(url, token, check):
@@ -135,14 +135,24 @@ def agent_script(url, token, check):
     a separate background job (:execute), so a slow router command does not block
     future heartbeats.
     """
+    from urllib.parse import urlparse
+    host = urlparse(url).hostname or ''
     return f'''# TapTap Link v{SCRIPT_VERSION}
 # Never allow heartbeat instances to overlap. The scheduler calls this script
 # directly, so :jobname resolves to taptap-link.
 :if ([/system script job print count-only as-value where script=[:jobname]] > 1) do={{
   :error "TapTap Link: previous check-in is still running"
 }}
+:global ttLinkFail
+:global ttLinkWhy
+:global ttLinkGw
+:global ttLinkOk
+:if ([:typeof $ttLinkFail] != "num") do={{ :set ttLinkFail 0 }}
+:if ([:typeof $ttLinkOk] != "num") do={{ :set ttLinkOk 0 }}
+:if ([:typeof $ttLinkWhy] != "str") do={{ :set ttLinkWhy "" }}
+:if ([:typeof $ttLinkGw] != "str") do={{ :set ttLinkGw "" }}
+:local url {rs(url + "/api/agent/v1")}
 :do {{
-  :local url {rs(url + "/api/agent/v1")}
   :local tok {rs(token)}
   :local ver [/system resource get version]
   :local up [/system resource get uptime]
@@ -177,14 +187,79 @@ def agent_script(url, token, check):
       :set m ($m + 1)
     }}
   }}
-  :local body ("id=" . [/system identity get name] . "&ver=" . $ver . "&up=" . $up . "&cpu=" . $cpu . "&mf=" . $mf . "&mt=" . $mt . "&board=" . $board . "&n=" . [:len [/ip hotspot active find]] . "&sv={SCRIPT_VERSION}&ifc=" . $ic . "&act=" . $a . "&bp=" . $bp)
+  :local body ("id=" . [/system identity get name] . "&ver=" . $ver . "&up=" . $up . "&cpu=" . $cpu . "&mf=" . $mf . "&mt=" . $mt . "&board=" . $board . "&n=" . [:len [/ip hotspot active find]] . "&sv={SCRIPT_VERSION}&ifc=" . $ic . "&act=" . $a . "&bp=" . $bp . "&lf=" . $ttLinkFail . "&lw=" . $ttLinkWhy . "&lg=" . $ttLinkGw)
   :local res [/tool fetch url=($url . "/poll") http-method=post http-data=$body http-header-field=("Authorization: Bearer " . $tok) output=user as-value check-certificate={check} duration=8s idle-timeout=5s]
   :if (($res->"status") = "finished") do={{
+    :if ($ttLinkFail > 0) do={{ :log info ("TapTap Link: connected again after " . $ttLinkFail . " missed check-ins") }}
+    :set ttLinkFail 0
+    :set ttLinkWhy ""
+    :set ttLinkGw ""
+    # A DNS fallback entry added during an outage is dropped after about an hour of good check-ins, so the
+    # router's own DNS takes over again (it is added back within 30 s if that DNS is still broken).
+    :if ([:len [/ip dns static find where comment="TapTap Link DNS fallback"]] > 0) do={{
+      :set ttLinkOk ($ttLinkOk + 1)
+      :if ($ttLinkOk > 360) do={{ :do {{ /ip dns static remove [find where comment="TapTap Link DNS fallback"] }} on-error={{}}; :set ttLinkOk 0 }}
+    }}
     :local cmd ($res->"data")
     :if ([:len $cmd] > 0) do={{ :execute script=$cmd }}
   }}
 }} on-error={{
-  :log warning "TapTap Link: cannot reach TapTap"
+  :set ttLinkFail ($ttLinkFail + 1)
+  :log warning ("TapTap Link: cannot reach TapTap (" . $ttLinkFail . " in a row)")
+  # Every third miss in a row: find out why, and repair what is safe to repair.
+  :if (($ttLinkFail % 3) = 0) do={{
+    :local host {rs(host)}
+    :local why "route"
+    # 1) Clock: HTTPS fails when the date is wrong (a board without a clock battery after a power cut).
+    :local d [/system clock get date]
+    :local y 0
+    :do {{ :if ([:pick $d 4 5] = "-") do={{ :set y [:tonum [:pick $d 0 4]] }} else={{ :set y [:tonum [:pick $d ([:len $d] - 4) [:len $d]]] }} }} on-error={{}}
+    :if ($y < 2025) do={{
+      :set why "clock"
+      :do {{
+        # Only the time is read here, without the token: nothing private travels unverified.
+        :local r [/tool fetch url=($url . "/hello") output=user as-value check-certificate=no duration=8s idle-timeout=5s]
+        :local t ($r->"data")
+        :local p [:find $t "time "]
+        :if ([:typeof $p] = "num") do={{
+          :local sd [:pick $t ($p + 5) ($p + 15)]
+          :local st ([:pick $t ($p + 16) ($p + 21)] . ":00")
+          :local mo [:pick $sd 5 7]
+          :if ([:pick $mo 0 1] = "0") do={{ :set mo [:pick $mo 1 2] }}
+          :local months {{"jan";"feb";"mar";"apr";"may";"jun";"jul";"aug";"sep";"oct";"nov";"dec"}}
+          :local legacy ([:pick $months ([:tonum $mo] - 1)] . "/" . [:pick $sd 8 10] . "/" . [:pick $sd 0 4])
+          :do {{ /system clock set date=$sd time=$st }} on-error={{ :do {{ /system clock set date=$legacy time=$st }} on-error={{}} }}
+          :log warning ("TapTap Link: the router date was wrong - set to " . $sd . " " . $st . " UTC (NTP refines it)")
+        }}
+      }} on-error={{}}
+    }}
+    # 2) DNS: the router's own DNS server can die with one internet link while customers still browse.
+    :if ($why = "route") do={{
+      :local ok false
+      :do {{ :resolve $host; :set ok true }} on-error={{}}
+      :if (!$ok) do={{
+        :set why "dns"
+        :local ip ""
+        :foreach srv in={{"1.1.1.1";"8.8.8.8"}} do={{
+          :if ([:len $ip] = 0) do={{ :do {{ :set ip [[:parse (":return [:resolve " . $host . " server=" . $srv . "]")]] }} on-error={{}} }}
+        }}
+        :if ([:len $ip] > 0) do={{
+          :do {{ /ip dns static remove [find where comment="TapTap Link DNS fallback"] }} on-error={{}}
+          :do {{ /ip dns static add name=$host address=$ip comment="TapTap Link DNS fallback" }} on-error={{}}
+          :set ttLinkOk 0
+          :log warning ("TapTap Link: the router DNS cannot find " . $host . " - added a fallback entry " . $ip)
+        }} else={{ :set why "dns-route" }}
+      }}
+    }}
+    # 3) Route: which internet link the router itself uses (a dead WAN with failover off is the usual cause).
+    :local gw ""
+    :do {{ :foreach rt in=[/ip route find where dst-address="0.0.0.0/0" and active] do={{ :set gw ($gw . [:tostr [/ip route get $rt gateway]] . " ") }} }} on-error={{}}
+    :set ttLinkGw $gw
+    :set ttLinkWhy $why
+    :if ($why = "route" or $why = "dns-route") do={{
+      :log warning ("TapTap Link: TapTap is unreachable through the router's active internet route via " . $gw . "- if that link is down, switch on failover for it (check-gateway / recursive route)")
+    }}
+  }}
 }}
 '''
 
@@ -864,6 +939,50 @@ def parse_bypass(raw):
     return rows
 
 
+OUTAGE_ADVICE = {
+    'clock': 'Its date was wrong, so HTTPS to TapTap failed. The router corrected the date itself; keep NTP on '
+             '(Control Center › Router clock).',
+    'dns': 'Its DNS server could not find TapTap (usually the DNS of an internet link that went down). The router added '
+           'a temporary DNS entry for TapTap and reconnected.',
+    'dns-route': 'It could reach neither its DNS server nor public DNS: its own traffic was going out through an internet '
+                 'link that was down.',
+    'route': 'Its own traffic was going out through an internet link that was down (customers may still have been online '
+             'through the other link). Turn on failover for that route on the router — check-gateway=ping, or a recursive '
+             'route — so the router switches links too.',
+}
+
+
+def note_outage(router, data, ip):
+    """The first check-in after missed ones: tell the owner how long, why, and what fixes it for good."""
+    try:
+        missed = int(str(data.get('lf', '0')).strip() or 0)
+    except ValueError:
+        return None
+    if missed < 3:
+        return None
+    why = str(data.get('lw', '')).strip()[:20] or 'route'
+    gw = ' '.join(str(data.get('lg', '')).split())[:120]
+    try:
+        secs = int(router.agent.poll_seconds or 10)
+    except Exception:
+        secs = 10
+    mins = max(1, missed * secs // 60)
+    took = f'{mins // 60} h {mins % 60} min' if mins >= 60 else f'{mins} min'
+    advice = OUTAGE_ADVICE.get(why, OUTAGE_ADVICE['route'])
+    detail = f'{router.name} missed {missed} check-ins (about {took}) and is connected again from {ip}. {advice}'
+    if gw and why in ('route', 'dns-route'):
+        detail += f' Its active internet route at the time: {gw}.'
+    cache.set(f'tt:link:outage:{router.pk}', {'at': timezone.localtime().strftime('%d %b %Y %H:%M'), 'missed': missed, 'why': why,
+                                               'gateway': gw, 'detail': detail}, 30 * 86400)
+    from .live import push_event
+    from .notify import notify
+    push_event(router.business_id, f'{router.name}: TapTap Link back after {took}', 'warn')
+    notify(router.business, 'link_outage', f'{router.name} could not reach TapTap for {took}', detail,
+           key=f'link:{router.pk}:outage:{timezone.now():%Y%m%d%H}')
+    log(router.business, 'TapTap Link', detail[:255], status='Failed')
+    return detail
+
+
 def handle_poll(agent, data, ip, url):
     """Record heartbeat/live sessions and return RouterOS commands to run."""
     from .notify import notify
@@ -905,6 +1024,11 @@ def handle_poll(agent, data, ip, url):
         notify(router.business, 'link_ip_change', f'{router.name} now connects from a new address',
                f'TapTap Link for {router.name} moved from {old_ip or "?"} to {ip}. This is normal after an ISP change or reconnect; '
                f'if you did not expect it, revoke the token in TapTap.', key=f'link:{router.pk}:ip:{ip}')
+
+    try:
+        note_outage(router, data, ip)
+    except Exception as exc:
+        logger.info('link outage note %s: %s', router, exc)
 
     try:
         sv = int(str(data.get('sv', '1')).strip() or 1)
