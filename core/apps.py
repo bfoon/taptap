@@ -73,4 +73,5 @@ class CoreConfig(AppConfig):
         _install_optional("backup_server")
         _install_optional("account_navigation")
         _install_optional("investors")
+        _install_optional("router_assign")
         _install_optional("fit_monitors")   # last: wraps device_lock.claim() outside every other rule

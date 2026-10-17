@@ -641,6 +641,15 @@ def t_monitor_test(ctx, monitor_id):
 
 # ─────────────────────────────── registry ───────────────────────────────
 
+def t_taptap_only(ctx):
+    from .router_assign import overview
+    ov = overview(ctx.business)
+    routers = [{'name': r.name, 'link': r.connection_mode == 'agent'} for r in ctx.business.routers.order_by('name')]
+    return {**ov, 'routers': routers, 'page': reverse('vouchers_to_router'),
+            'hint': 'Offer propose_action kind=put_on_router with router and which=batch (+batch name) / codes (+codes) / '
+                    'singles / everything. Ask the person which router if there are several and nothing tells you.'}
+
+
 def _obj(props, required=()):
     return {'type': 'object', 'properties': props, 'required': list(required)}
 
@@ -687,6 +696,9 @@ TOOLS = {
                     'given vouchers / batch / plan / members differ from the router (missing, profile, time limit, on/off, last '
                     'send failed), plus each router\'s last sync and waiting/failed commands. scope: voucher, batch, plan, '
                     'members, unsynced, router.', _obj({'scope': S, 'codes': S, 'batch': S, 'plan': S, 'router': S})),
+    'taptap_only': (VOUCHER_PERMS, t_taptap_only, 'Vouchers that exist only in TapTap (created "locally only", not on any '
+                    'router yet): how many, by batch, plus the routers they could go on. To send them use propose_action '
+                    'kind=put_on_router.', _obj({})),
     'help_guides': (None, t_help, 'Find TapTap how-to guides with links.', _obj({'query': S}, ['query'])),
     'router_query': (NETWORK_PERMS, t_router_query, 'Read straight from a MikroTik router (live over the API / TapTap Tunnel; '
                      'TapTap Link routers return the latest synced copy). Filter rows with where. Read only — to change '
@@ -733,7 +745,7 @@ def propose_spec(ctx):
                          'description': 'create_monitor: ' + '; '.join(f'{k} = {v[0]} ({v[1]})' for k, v in MONITOR_KINDS.items())},
         'name': {**S, 'description': 'create_monitor: short name'},
         'plans': {**S, 'description': 'create_monitor: comma-separated plan names (empty = all plans)'},
-        'codes': {**S, 'description': 'create_monitor: comma-separated voucher/member codes'},
+        'codes': {**S, 'description': 'create_monitor / put_on_router which=codes: comma-separated voucher/member codes'},
         'routers': {**S, 'description': 'create_monitor: comma-separated router names (empty = all)'},
         'members_only': {'type': 'boolean', 'description': 'create_monitor: only members'},
         'threshold': {'type': 'number', 'description': 'heavy_user Mbit/s · online_drop percent'},
@@ -753,9 +765,11 @@ def propose_spec(ctx):
         # sync
         'scope': {'type': 'string', 'enum': list(SYNC_SCOPES),
                   'description': 'sync: ' + '; '.join(f'{k} = {v}' for k, v in SYNC_SCOPES.items())},
-        'batch': {**S, 'description': 'sync scope=batch: the batch name'},
+        'batch': {**S, 'description': 'sync scope=batch / put_on_router which=batch: the batch name'},
+        'which': {'type': 'string', 'enum': ['batch', 'codes', 'singles', 'everything'],
+                  'description': 'put_on_router: which TapTap-only vouchers — a batch, some codes, the single (non-batch) ones, or everything waiting'},
         'plan': {**S, 'description': 'sync scope=plan: the plan name'},
-        'router': {**S, 'description': 'sync: one router name (empty or "all" = every router) · router_change / router_task: the router'},
+        'router': {**S, 'description': 'sync: one router name (empty or "all" = every router) · put_on_router / router_change / router_task: the router'},
         # router control (core/fit_router)
         'menu': {'type': 'string', 'enum': list(_router_menus()), 'description': 'router_change: what to change'},
         'verb': {'type': 'string', 'enum': ['add', 'set', 'remove', 'enable', 'disable', 'make-static'],
@@ -799,7 +813,7 @@ def specs(ctx):
             'description': 'Offer a change for the person to approve (freeze/unfreeze/warn/disable/enable a voucher, add_time, '
                            'reduce_time, reset_devices, block_device, unblock_device, disconnect_session, resolve_report, '
                            'track_voucher, send_chat, free_idle_slot, create_monitor, pause_monitor, resume_monitor, '
-                           'delete_monitor, sync, router_change, router_task). It is NOT carried out: a card with “Take action” appears.',
+                           'delete_monitor, sync, put_on_router, router_change, router_task). It is NOT carried out: a card with “Take action” appears.',
             'parameters': propose_spec(ctx)}})
     return out
 

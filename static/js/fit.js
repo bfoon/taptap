@@ -602,4 +602,12 @@
     if ((e.key === 'f' || e.key === 'F') && Date.now() - lastSlash < 800) { e.preventDefault(); open(); }
   });
   document.addEventListener('visibilitychange', function () { if (!document.hidden) S.lastMove = Date.now(); });
+  // Page buttons: <button data-fit-ask="question"> opens Fit and asks it (e.g. "Ask Fit" on TapTap-only vouchers).
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest && e.target.closest('[data-fit-ask]');
+    if (!t || t.closest('.fitp')) return;
+    e.preventDefault();
+    open(t.getAttribute('data-fit-ask'));
+  });
+  window.TTFit = { ask: function (q) { open(q); } };
 })();

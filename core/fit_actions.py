@@ -39,7 +39,7 @@ GROUPS = {
     'chat': ('Chat', 'Send chat messages you approved to your team or TapTap support'),
     'tests': ('Network tests', 'Run ping, DNS, website, traceroute and speed tests from your routers'),
     'sync': ('Sync with routers', 'Send TapTap\'s vouchers, members, batches, plans, profiles or time limits to the '
-                                  'routers, or run a full router sync'),
+                                  'routers, put TapTap-only vouchers on a router, or run a full router sync'),
     'monitors': ('Monitors', 'Set up standing watches (slots full, sharing, heavy users, drops, routers) that alert '
                              'you or the member, and may free an idle slot or disconnect extra devices'),
     'router': ('Router control', 'Change things directly on your MikroTik routers: sessions, cookies, IP bindings, walled garden, '
@@ -588,6 +588,48 @@ def _do_sync(business, p, user):
         raise FitActionError(str(exc))
 
 
+def _put_args(a):
+    codes = a.get('codes') or a.get('code') or ''
+    which = str(a.get('which') or '').strip().lower()
+    if which not in ('batch', 'codes', 'singles', 'everything'):
+        which = 'batch' if a.get('batch') else ('codes' if codes else '')
+    return {'router': str(a.get('router') or '').strip(), 'which': which, 'batch': str(a.get('batch') or '').strip(),
+            'codes': codes if isinstance(codes, str) else ','.join(map(str, codes)), 'reason': _reason(a, 'Put on the router with Fit')}
+
+
+def _put_select(business, p):
+    from . import router_assign as ra
+    router = ra.find_router(business, p['router'])
+    qs = ra.select(business, codes=p['codes'] if p['which'] == 'codes' else '', batch=p['batch'] if p['which'] == 'batch' else '',
+                   everything=p['which'] == 'everything', singles=p['which'] == 'singles')
+    return router, qs
+
+
+def _check_put_on_router(business, a):
+    from . import router_assign as ra
+    p = _put_args(a)
+    try:
+        router, qs = _put_select(business, p)
+        n, detail = ra.describe(business, qs, router)
+    except ra.AssignError as exc:
+        raise FitActionError(str(exc))
+    if not n:
+        raise FitActionError('None of those vouchers is waiting — they are already on a router, used up or deleted.')
+    p['router'] = str(router.pk)
+    what = {'batch': f'batch {p["batch"]}', 'singles': 'the single vouchers', 'everything': 'every TapTap-only voucher'}.get(
+        p['which'], p['codes'].replace(',', ', ')[:60])
+    return p, f'Put {n} voucher{"s" if n != 1 else ""} on {router.name} ({what})', detail, reverse('vouchers_to_router')
+
+
+def _do_put_on_router(business, p, user):
+    from . import router_assign as ra
+    try:
+        router, qs = _put_select(business, p)
+        return ra.place(business, qs, router, user=user, reason=p.get('reason', ''), via_fit=True)
+    except ra.AssignError as exc:
+        raise FitActionError(str(exc))
+
+
 # ─────────────────────────────── router control (core/fit_router) ───────────────────────────────
 
 def _fit_router(business, a):
@@ -678,6 +720,7 @@ KINDS = {
     'resume_monitor': ('monitors', MONITOR_PERMS, _check_resume_monitor, _do_resume_monitor, 'ok'),
     'delete_monitor': ('monitors', MONITOR_PERMS, _check_delete_monitor, _do_delete_monitor, 'warn'),
     'sync': ('sync', ('vouchers.support', 'network.manage'), _check_sync, _do_sync, 'ok'),
+    'put_on_router': ('sync', ('vouchers.create', 'vouchers.support'), _check_put_on_router, _do_put_on_router, 'ok'),
     'free_idle_slot': ('devices', ('vouchers.support',), _check_free_idle_slot, _do_free_idle_slot, 'warn'),
     'router_change': ('router', ('network.manage',), _check_router_change, _do_router_change, 'warn'),
     'router_task': ('router', ('network.manage',), _check_router_task, _do_router_task, 'warn'),

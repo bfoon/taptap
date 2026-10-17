@@ -216,6 +216,7 @@ html[data-theme="dark"] .tb-planned{background:#083344;border-color:#155e75;colo
   </div></div>
   {% else %}
   <p class="vd-channel"><i class="bi bi-arrow-left-right"></i> Changes reach {{ v.router.name|default:'no router (TapTap only)' }} through <b>{{ channel }}</b>.</p>
+  {% load router_assign_tags %}{% put_on_router voucher=v %}
   {% endif %}
 </section>
 

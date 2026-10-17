@@ -1,0 +1,15 @@
+{% if show %}
+<div class="alert alert-info d-flex flex-wrap align-items-center gap-2 mt-3" style="border-radius:14px">
+  <i class="bi bi-cloud-arrow-up fs-5"></i>
+  <div class="flex-grow-1" style="min-width:220px"><b>TapTap only.</b> {{ label|capfirst }} {% if n == 1 %}is{% else %}are{% endif %} not on any router yet — customers cannot log in with {% if n == 1 %}it{% else %}them{% endif %} until you put {% if n == 1 %}it{% else %}them{% endif %} on one.</div>
+  {% if routers %}
+  <form method="post" action="{% url 'vouchers_to_router' %}" class="d-flex flex-wrap gap-2 align-items-center">
+    <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}"><input type="hidden" name="next" value="{{ next }}">
+    {% if batch %}<input type="hidden" name="batch" value="{{ batch }}">{% else %}<input type="hidden" name="codes" value="{{ codes }}">{% endif %}
+    <select name="router" class="form-select form-select-sm" style="width:auto" required aria-label="Router">{% if routers|length > 1 %}<option value="">Choose router…</option>{% endif %}{% for r in routers %}<option value="{{ r.pk }}">{{ r.name }}{% if r.connection_mode == 'agent' %} (TapTap Link){% endif %}</option>{% endfor %}</select>
+    <button class="btn btn-sm btn-primary text-nowrap"><i class="bi bi-router"></i> Put on router</button>
+    <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap" data-fit-ask="{{ ask }}" title="Let Fit suggest a router and get it ready for you"><i class="bi bi-stars"></i> Ask Fit</button>
+  </form>
+  {% else %}<span class="small">Add a router first (MikroTik Control).</span>{% endif %}
+</div>
+{% endif %}

@@ -1,0 +1,70 @@
+{% extends 'core/base.html' %}
+{% block title %}TapTap-only vouchers — TapTap{% endblock %}
+{% block heading %}TapTap-only vouchers{% endblock %}
+{% block content %}
+<style>
+.tr-card{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:16px;padding:1rem 1.1rem;margin-bottom:.8rem}
+.tr-row{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;padding:.65rem 0;border-top:1px solid var(--border,#eef2f6)}
+.tr-row:first-of-type{border-top:0}
+.tr-row .what{flex:1;min-width:200px}
+.tr-row form{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin:0}
+.tr-count{font-variant-numeric:tabular-nums;font-weight:800}
+</style>
+
+<p class="text-secondary">Vouchers created with “Create locally only” live in TapTap until you put them on a router. You can print, sell and give them to agents now, and send them to a router whenever you are ready — customers can only log in once they are on one. Only these vouchers are sent; nothing else on the router changes.</p>
+
+{% if not ov.total %}
+<div class="tr-card text-center text-secondary py-5"><i class="bi bi-check2-circle fs-1"></i><p class="mt-2 mb-0">Every voucher is on a router. When you generate with “Create locally only”, they wait here.</p></div>
+{% elif not routers %}
+<div class="alert alert-warning">You have {{ ov.total }} TapTap-only voucher{{ ov.total|pluralize }} but no router yet. Add one in MikroTik Control first.</div>
+{% else %}
+
+<div class="tr-card">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <div><span class="tr-count fs-4">{{ ov.total }}</span> voucher{{ ov.total|pluralize }} waiting{% if ov.batches %} in {{ ov.batches|length }} batch{{ ov.batches|length|pluralize:"es" }}{% endif %}{% if ov.singles %}, {{ ov.singles }} single{% endif %}{% if ov.members %}, {{ ov.members }} member{{ ov.members|pluralize }}{% endif %}.</div>
+    <div class="d-flex flex-wrap gap-2">
+      <form method="post" class="d-flex flex-wrap gap-2 align-items-center" onsubmit="return confirm('Put all {{ ov.total }} TapTap-only vouchers on this router?')">{% csrf_token %}<input type="hidden" name="scope" value="everything">
+        <select name="router" class="form-select form-select-sm" style="width:auto" required aria-label="Router">{% if routers|length > 1 %}<option value="">Choose router…</option>{% endif %}{% for r in routers %}<option value="{{ r.pk }}">{{ r.name }}</option>{% endfor %}</select>
+        <button class="btn btn-sm btn-primary"><i class="bi bi-router"></i> Put all on router</button>
+      </form>
+      <button type="button" class="btn btn-sm btn-outline-secondary" data-fit-ask="I have {{ ov.total }} TapTap-only vouchers waiting. Look at my batches and routers and suggest which router each batch should go on, then get it ready for me."><i class="bi bi-stars"></i> Ask Fit to plan it</button>
+    </div>
+  </div>
+</div>
+
+{% if ov.batches %}
+<div class="tr-card"><h3 class="h6 fw-bold mb-2"><i class="bi bi-collection"></i> Batches</h3>
+  {% for b in ov.batches %}<div class="tr-row">
+    <div class="what"><a href="{% url 'batch_detail' b.id %}" class="fw-semibold">{{ b.name }}</a> <span class="text-secondary small">— <span class="tr-count">{{ b.count }}</span> waiting{% if b.agent %}, held by {{ b.agent }}{% endif %}</span></div>
+    <form method="post">{% csrf_token %}<input type="hidden" name="batch" value="{{ b.id }}">
+      <select name="router" class="form-select form-select-sm" style="width:auto" required aria-label="Router for {{ b.name }}">{% if routers|length > 1 %}<option value="">Choose router…</option>{% endif %}{% for r in routers %}<option value="{{ r.pk }}">{{ r.name }}</option>{% endfor %}</select>
+      <button class="btn btn-sm btn-outline-primary">Put on router</button>
+    </form>
+  </div>{% endfor %}
+</div>
+{% endif %}
+
+{% if recent %}
+<div class="tr-card"><h3 class="h6 fw-bold mb-2"><i class="bi bi-ticket-perforated"></i> Single vouchers{% if ov.singles > recent|length %} <span class="text-secondary fw-normal small">(newest {{ recent|length }} of {{ ov.singles }})</span>{% endif %}</h3>
+  <form method="post">{% csrf_token %}<input type="hidden" name="scope" value="singles">
+    <div class="d-flex flex-wrap gap-2 mb-2">{% for v in recent %}<a class="badge text-bg-light border font-monospace text-decoration-none" href="{% url 'voucher_detail' v.pk %}">{{ v.code }}</a>{% endfor %}</div>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <select name="router" class="form-select form-select-sm" style="width:auto" required aria-label="Router">{% if routers|length > 1 %}<option value="">Choose router…</option>{% endif %}{% for r in routers %}<option value="{{ r.pk }}">{{ r.name }}</option>{% endfor %}</select>
+      <button class="btn btn-sm btn-outline-primary">Put all {{ ov.singles }} single voucher{{ ov.singles|pluralize }} on router</button>
+    </div>
+  </form>
+</div>
+{% endif %}
+
+<div class="tr-card"><h3 class="h6 fw-bold mb-2"><i class="bi bi-input-cursor-text"></i> Particular codes</h3>
+  <form method="post">{% csrf_token %}
+    <textarea name="codes" class="form-control font-monospace mb-2" rows="2" placeholder="Paste codes, separated by spaces, commas or new lines"></textarea>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <select name="router" class="form-select form-select-sm" style="width:auto" required aria-label="Router">{% if routers|length > 1 %}<option value="">Choose router…</option>{% endif %}{% for r in routers %}<option value="{{ r.pk }}">{{ r.name }}</option>{% endfor %}</select>
+      <button class="btn btn-sm btn-outline-primary">Put these on router</button>
+      <span class="small text-secondary">Codes already on a router are skipped.</span>
+    </div>
+  </form>
+</div>
+{% endif %}
+{% endblock %}
