@@ -13,6 +13,11 @@ The rule
 --------
     limit-uptime = uptime already counted on the router + time left in TapTap × device slots
 
+"Device slots" is the larger of the voucher's own devices and the shared-users of the profile it is on
+ON THE ROUTER. The router counts every concurrent session, so a 1-device voucher on a profile that allows
+3 sessions (an older/Mikhmon profile, a hand-made one, "unlimited", or sticky ghosts of a phone that changed
+its MAC) burns 3 hours per hour: a 24 h voucher was cut after 8 h with 16 h still left in TapTap.
+
 When the router's counter is not known yet, the largest value it could have is assumed (time since first
 login × device slots), so an unknown counter can never cause an early cut either. For a one-device voucher
 this gives exactly the old value (its whole period), so nothing changes on routers for those; only
@@ -40,6 +45,8 @@ from django.utils import timezone
 
 logger = logging.getLogger('taptap.router_time')
 
+UNLIMITED_SHARED = 10      # shared-users=unlimited on the router: assume this many sessions at once
+SHARED_TTL = 300
 TOLERANCE_S = 120          # headroom may be this much short before it counts as drift
 REPAIR_EVERY_S = 600       # one repair per voucher per 10 minutes, at most
 UPTIME_TTL = 3 * 86400
@@ -59,8 +66,50 @@ def routeros_text(seconds):
     return UNLIMITED_ROUTEROS if seconds <= 0 else routeros(max(1, math.ceil(seconds / 60)))
 
 
-def slots(v):
-    return max(1, int(getattr(v, 'max_devices', 1) or 1))
+def _profile_shared(row):
+    """shared-users of a mirrored router profile (unlimited → UNLIMITED_SHARED)."""
+    raw = str((row.raw_data or {}).get('shared-users', (row.raw_data or {}).get('shared_users', '')) or '').strip().lower()
+    if raw in ('unlimited', 'none'):
+        return UNLIMITED_SHARED
+    try:
+        n = int(raw) if raw else int(row.shared_users or 1)
+    except (TypeError, ValueError):
+        n = int(row.shared_users or 1)
+    return max(1, min(n, UNLIMITED_SHARED))
+
+
+def router_shared(v, plan=None):
+    """How many sessions the ROUTER lets this voucher run at once (its profile's shared-users). None = unknown."""
+    router_id = getattr(v, 'router_id', None)
+    code = str(getattr(v, 'code', '') or '').upper()
+    if not router_id or not code:
+        return None
+    key = f'tt:rt:sh:{router_id}:{code}'
+    hit = cache.get(key)
+    if hit is not None:
+        return int(hit) or None
+    found = 0
+    try:
+        from .models import RouterHotspotProfile, RouterHotspotUser
+        name = (RouterHotspotUser.objects.filter(router_id=router_id, username__iexact=code, is_present=True)
+                .values_list('profile', flat=True).first())
+        if not name:
+            from .utils import voucher_profile
+            name = voucher_profile(v, plan)[0]
+        row = RouterHotspotProfile.objects.filter(router_id=router_id, name=name, is_present=True).first() if name else None
+        if row is not None:
+            found = _profile_shared(row)
+    except Exception:
+        logger.debug('router shared-users for %s', code, exc_info=True)
+    cache.set(key, found, SHARED_TTL)
+    return found or None
+
+
+def slots(v, plan=None):
+    """Sessions that can burn the router's uptime counter at the same time: the voucher's devices, or more
+    when the router profile it is on allows more (the router counts what IT allows, not what TapTap sold)."""
+    own = max(1, int(getattr(v, 'max_devices', 1) or 1))
+    return max(own, router_shared(v, plan) or 1)
 
 
 def platform_owned(v):
@@ -110,7 +159,7 @@ def uptime_s(v):
     return secs(text) if str(text or '').strip() else None      # blank = the router did not report it
 
 
-def assumed_uptime(v, now=None):
+def assumed_uptime(v, now=None, plan=None):
     """The most the router can have counted: time since the period started × device slots."""
     now = now or timezone.now()
     start = v.used_at
@@ -119,7 +168,7 @@ def assumed_uptime(v, now=None):
         start = v.expires_at - timedelta(minutes=int(v.duration_minutes))
     if not start:
         return 0
-    return max(0, int((now - start).total_seconds())) * slots(v)
+    return max(0, int((now - start).total_seconds())) * slots(v, plan)
 
 
 # ─────────────────────────────── the rule ───────────────────────────────
@@ -130,10 +179,10 @@ def limit_seconds(v, plan=None, uptime=None, now=None):
         return 0
     if uptime is None:
         uptime = uptime_s(v)
-    up = assumed_uptime(v, now) if uptime is None else int(uptime or 0)
+    up = assumed_uptime(v, now, plan) if uptime is None else int(uptime or 0)
     if rem <= 0:
         return max(60, up)                       # time is up: the router refuses it as well
-    return up + rem * slots(v)
+    return up + rem * slots(v, plan)
 
 
 def limit_for(v, plan=None, uptime=None, now=None):
@@ -153,11 +202,11 @@ def acceptable(v, have_text, uptime_text=None, plan=None, now=None):
         return False                             # router says "no limit" for a voucher that has an end
     if uptime_text is None:
         up = uptime_s(v)
-        up = assumed_uptime(v, now) if up is None else up
+        up = assumed_uptime(v, now, plan) if up is None else up
     else:
         up = secs(uptime_text)
     head = have - up
-    need = rem * slots(v)
+    need = rem * slots(v, plan)
     return need - TOLERANCE_S <= head <= need + max(need, 86400) + TOLERANCE_S
 
 
@@ -165,14 +214,14 @@ def why(v, have_text, uptime_text=None, plan=None, now=None):
     """Plain words for the history when the router disagreed."""
     rem = remaining_s(v, plan, now)
     have, up = secs(have_text), (uptime_s(v) if uptime_text is None else secs(uptime_text))
-    up = assumed_uptime(v, now) if up is None else up
+    up = assumed_uptime(v, now, plan) if up is None else up
     if rem is None:
         return f'router had limit {have_text or "0s"} for a voucher without an end'
     if have <= 0:
         return 'router had no time limit'
     left = max(0, have - up)
     return (f'router allowed {routeros_text(left) if left else "nothing"} more (uptime {routeros_text(up) if up else "0s"} of '
-            f'{have_text}), TapTap has {routeros_text(rem)} left × {slots(v)} device{"s" if slots(v) != 1 else ""}')
+            f'{have_text}), TapTap has {routeros_text(rem)} left × {slots(v, plan)} session{"s" if slots(v, plan) != 1 else ""}')
 
 
 # ─────────────────────────────── repairs ───────────────────────────────
