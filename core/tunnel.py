@@ -550,7 +550,10 @@ def existing_router_bootstrap_script() -> str:
     """
     site = _site() or "https://taptapnetwork.com"
     url = site + "/api/tunnel/v1/bootstrap"
+    # One { } block: in WinBox › New Terminal every top-level line is a separate command, so a :local set
+    # on one line is gone on the next ("TapTap Tunnel needs RouterOS 7" on a RouterOS 7 router).
     return f'''# TapTap Tunnel - router that already has TapTap Link (RouterOS 7)
+{{
 :local ver [/system resource get version]
 :if ([:tonum [:pick $ver 0 [:find $ver "."]]] < 7) do={{ :error "TapTap Tunnel needs RouterOS 7; TapTap Link keeps working" }}
 :local sid [/system script find where name="taptap-link"]
@@ -566,6 +569,7 @@ def existing_router_bootstrap_script() -> str:
 :if ([:len $code] < 20) do={{ :error "TapTap returned no tunnel bootstrap" }}
 :execute $code
 :put "TapTap Tunnel bootstrap started. Wait around 30 seconds, then check the TapTap Link page."
+}}
 '''
 
 

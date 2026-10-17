@@ -49,7 +49,14 @@ def trust_block(url, check):
     if check == 'no':          # TapTap is not checked over HTTPS: nothing to trust
         return ''
     hello = _rs(url + '/api/agent/v1/hello')
-    pems = ';'.join(_rs(p) for p in root_pems())
+    # Each certificate is rebuilt from short lines: one ~10 KB line is cut by the WinBox terminal.
+    roots = root_pems()
+    build = []
+    for n, pem in enumerate(roots, 1):
+        build.append(f'    :local c{n} ""')
+        build += [f'    :set c{n} ($c{n} . {_rs(pem[i:i + 600])})' for i in range(0, len(pem), 600)]
+    build = '\n'.join(build)
+    pems = ';'.join(f'$c{n}' for n in range(1, len(roots) + 1))
     return f'''
 # === 1) Clock and certificates: HTTPS to TapTap needs the right date and a trusted root certificate ===
 :do {{ /system ntp client set enabled=yes servers=pool.ntp.org }} on-error={{ :do {{ /system ntp client set enabled=yes server-dns-names=pool.ntp.org }} on-error={{}} }}
@@ -66,6 +73,7 @@ def trust_block(url, check):
   }}
   :if (!$ok) do={{
     :put "Installing the root certificates carried in this block..."
+{build}
     :local pems {{{pems}}}
     :local i 0
     :foreach pem in=$pems do={{

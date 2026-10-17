@@ -264,6 +264,26 @@ def agent_script(url, token, check):
 '''
 
 
+TERMINAL_CHUNK = 600
+
+
+def chunked_script_add(name, policy, comment, source, extra=''):
+    """``/system script add`` for WinBox › New Terminal, built from short lines.
+
+    The terminal cuts a pasted line of several kilobytes: the start of the line is lost ("bad command
+    name -name", "syntax error (line 1 column 3)"), the script is never created and the scheduler then
+    fails with "no such item". So the source is assembled in a { } block, a few hundred characters per
+    line (each piece escaped on its own, so no escape sequence is ever split), and added in one go.
+    """
+    pieces = [source[i:i + TERMINAL_CHUNK] for i in range(0, len(source), TERMINAL_CHUNK)] or ['']
+    lines = ['{', '  :local s ""']
+    lines += [f'  :set s ($s . {rs(piece)})' for piece in pieces]
+    lines.append(f'  /system script add name="{name}" policy={policy}{(" " + extra) if extra else ""} comment="{comment}" source=$s')
+    lines.append(f'  :if ([:len [/system script find where name="{name}"]] = 0) do={{ :put "FAILED: the {name} script was not created - paste the block again" }}')
+    lines.append('}')
+    return '\n'.join(lines)
+
+
 def self_update_body(url, check):
     """Replace the router heartbeat with the current version and repair its scheduler.
 
@@ -317,7 +337,7 @@ def enrollment_script(router, token, request=None):
 :do {{ /system script job remove [find where script="taptap-link"] }} on-error={{}}
 /system scheduler remove [find where name="taptap-link"]
 /system script remove [find where name="taptap-link"]
-/system script add name="taptap-link" policy={POLICY} comment="TapTap Link - do not edit" source={rs(body)}
+{chunked_script_add("taptap-link", POLICY, "TapTap Link - do not edit", body)}
 /system scheduler add name="taptap-link" interval={secs}s start-time=startup policy={POLICY} on-event=taptap-link comment="TapTap Link"
 /system script run taptap-link
 :log info "TapTap Link installed"

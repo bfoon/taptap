@@ -283,13 +283,12 @@ def helper_source(check):
 
 def helper_install_command(base_url=None):
     """RouterOS commands that put the helper on a router (WinBox → New Terminal, once; also part of quick install)."""
-    from .agent import base_url as agent_base, rs, tls_flag
+    from .agent import base_url as agent_base, chunked_script_add, rs, tls_flag
     url = (base_url or agent_base(None)).rstrip("/")
     check = tls_flag(url)
     return ("# TapTap: allow backups through TapTap Link (one small script that only makes backups)\n"
             f'/system script remove [find where name="{HELPER_NAME}"]\n'
-            f'/system script add name="{HELPER_NAME}" policy={HELPER_POLICY} dont-require-permissions=yes '
-            f'comment="{HELPER_COMMENT}" source={rs(helper_source(check))}\n'
+            + chunked_script_add(HELPER_NAME, HELPER_POLICY, HELPER_COMMENT, helper_source(check), 'dont-require-permissions=yes') + '\n'
             f'/system script remove [find where name="{LOCAL_HELPER}"]\n'
             f'/system script add name="{LOCAL_HELPER}" policy={HELPER_POLICY} dont-require-permissions=yes '
             f'comment="TapTap backup helper (on-router copy)" source={rs(LOCAL_SOURCE)}\n'
