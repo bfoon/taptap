@@ -35,19 +35,23 @@ def _settings(business):
     return FitSettings.objects.get_or_create(business=business)[0]
 
 
-def plan(report, now_diag=None):
-    """What "Fix it" would do. {'kind', 'args', 'label', 'why'} or {'kind': None, 'why'} when a person must decide."""
+def plan(report, now_diag=None, macs=None):
+    """What "Fix it" would do. {'kind', 'args', 'label', 'why'} or {'kind': None, 'why'} when a person must decide.
+
+    ``macs``: every MAC in the report's case (a customer may have sent from more than one phone)."""
     from .online_portal import diagnose
     d = now_diag or diagnose(report.business, report.code)
     if not d.get('found'):
         return {'kind': None, 'why': 'The code is not in TapTap — check it with the customer.'}
     code = d.get('code') or report.code
-    mac = fa.norm_mac(report.mac)
-    if mac:
+    wanted = [m for m in (fa.norm_mac(x) for x in (macs if macs is not None else [report.mac])) if m]
+    if wanted:
         try:
             from .device_block import blocked_macs
-            if mac in blocked_macs(report.business):
-                return {'kind': 'unblock_device', 'args': {'mac': mac}, 'label': f'Unblock {mac}',
+            blocked = set(blocked_macs(report.business))
+            hit = next((m for m in wanted if m in blocked), None)
+            if hit:
+                return {'kind': 'unblock_device', 'args': {'mac': hit}, 'label': f'Unblock {hit}',
                         'why': 'The customer’s phone is blocked by TapTap.'}
         except Exception:
             logger.exception('blocked check for report %s', report.pk)
@@ -98,34 +102,45 @@ def availability(p, business, perms, settings=None):
     return True, ''
 
 
-def _close(report, user, note):
-    report.status, report.resolved_at, report.resolved_by = 'resolved', timezone.now(), user
-    report.staff_note = note[:500]
-    report.save(update_fields=['status', 'resolved_at', 'resolved_by', 'staff_note'])
+def _close(reports, user, note):
+    """Close every report of the case with ONE timestamp, so the case can be reopened as a whole."""
+    from .models_voucher_reports import VoucherReport
+    when = timezone.now()
+    VoucherReport.objects.filter(pk__in=[r.pk for r in reports], status='open').update(
+        status='resolved', resolved_at=when, resolved_by=user, staff_note=note[:500])
+    for r in reports:
+        r.status, r.resolved_at, r.resolved_by, r.staff_note = 'resolved', when, user, note[:500]
 
 
-def fix(report, user, perms):
-    """Run the fix and close the ticket when it worked. Returns (ok, message)."""
+def fix(reports, user, perms):
+    """Fix the case once and close all its reports when it worked. ``reports``: the case, newest first
+    (a single report is accepted too). Returns (ok, message)."""
     from .models_fit import FitAction
-    if report.status != 'open':
+    if not isinstance(reports, (list, tuple)):
+        reports = [reports]
+    reports = [r for r in reports if r.status == 'open']
+    if not reports:
         return False, 'This report is already resolved.'
+    report = reports[0]
     business = report.business
     settings = _settings(business)
-    p = plan(report)
+    p = plan(report, macs=[r.mac for r in reports])
     ok, hint = availability(p, business, perms, settings)
     if not ok:
         return False, hint or 'There is nothing Fit can fix automatically here.'
+    sends = f' ({len(reports)} reports closed)' if len(reports) > 1 else ''
     if p['kind'] == CLOSE:
-        _close(report, user, 'Checked by Fit — the voucher works now.')
-        return True, f'{report.code} works now — report closed.'
+        _close(reports, user, 'Checked by Fit — the voucher works now.')
+        return True, f'{report.code} works now — report closed{sends}.'
     try:
         params, title, detail, _link = fa._validate(business, user, p['kind'], p['args'])
     except fa.FitActionError as exc:
         return False, str(exc)
+    ids = ', '.join(f'#{r.pk}' for r in reports[:6])
     action = FitAction.objects.create(business=business, proposed_to=user, kind=p['kind'], params=params,
-                                      title=title[:200], detail=f'Customer report #{report.pk}: {p["why"]}'[:500])
+                                      title=title[:200], detail=f'Customer report {ids}: {p["why"]}'[:500])
     done, result = fa.run(action, user, perms, settings)
     if not done:
         return False, f'Fit could not fix it: {result}'
-    _close(report, user, f'Fixed by Fit: {title}. {result}')
-    return True, f'{title} — done. Report closed.'
+    _close(reports, user, f'Fixed by Fit: {title}. {result}')
+    return True, f'{title} — done. Report closed{sends}.'

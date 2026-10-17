@@ -256,6 +256,8 @@ def online_report(request, slug):
         return _cors(JsonResponse({'ok': False, 'message': 'Add a phone number so staff can reach you.'}, status=400))
     d = diagnose(page.business, code)
     mac = str(data.get('mac') or '').upper()[:20]
+    from . import report_cases
+    earlier = list(report_cases.open_siblings(page.business, code, d.get('voucher_id')).only('pk', 'created_at')[:50])
     report = VoucherReport.objects.create(
         business=page.business, voucher_id=d.get('voucher_id'), code=code, name=str(data.get('name') or '')[:80].strip(),
         phone=phone, message=str(data.get('message') or '')[:500].strip(), shown_error=_with_clock(data)[:300],
@@ -266,15 +268,26 @@ def online_report(request, slug):
     except Exception:
         pass
     from django.urls import reverse
+    n = len(earlier) + 1                     # this voucher's case now holds n open reports
     try:                                     # the report is saved either way; a notification hiccup must not lose it
-        from .notify import notify
-        notify(page.business, 'voucher_report', f'Voucher {code} sent to staff — {d["title"]}',
-               f'{report.name or "A customer"} ({phone}) says: {report.message or "the voucher does not work"}.\nTapTap found: {d["title"]}.',
-               link=reverse('voucher_reports'), key=f'vreport:{report.pk}')
+        if report_cases.should_notify(n):
+            from .notify import notify
+            if n == 1:
+                title = f'Voucher {code} sent to staff — {d["title"]}'
+                body = f'{report.name or "A customer"} ({phone}) says: {report.message or "the voucher does not work"}.\nTapTap found: {d["title"]}.'
+            else:
+                title = f'Voucher {code} sent for the {report_cases.ordinal(n)} time — customer is waiting'
+                body = (f'{report.name or "A customer"} ({phone}) sent it again: {report.message or "the voucher still does not work"}.\n'
+                        f'First sent {report_cases._ago(earlier[-1].created_at, timezone.now())}. TapTap found: {d["title"]}.')
+            notify(page.business, 'voucher_report', title, body, link=reverse('voucher_reports'), key=f'vreport:{report.pk}')
     except Exception:
         import logging
         logging.getLogger('taptap.portal').exception('voucher report %s: notification failed', report.pk)
-    resp = JsonResponse({'ok': True, 'title': d['title'], 'message': d['customer']})
+    message = d['customer']
+    if earlier:
+        message += (f' Staff already have your report from {report_cases._ago(earlier[-1].created_at, timezone.now())} — '
+                    'this one was added to it, so there is no need to send it again.')
+    resp = JsonResponse({'ok': True, 'title': d['title'], 'message': message, 'repeat': n})
     resp['Access-Control-Allow-Origin'] = '*'
     return resp
 
@@ -306,40 +319,48 @@ def _device_pages(business, macs):
 
 @login_required
 def voucher_reports(request):
-    from . import report_fix
+    """Customer reports, one card per voucher: every report for the same voucher is one case (core/report_cases.py)."""
+    from . import report_cases, report_fix
     from .fit_actions import norm_mac
     b = getattr(request, 'tt_business', None) or request.user.business
     back = request.path + ('?show=all' if request.GET.get('show') == 'all' else '')
     if request.method == 'POST':
-        r = get_object_or_404(VoucherReport, business=b, pk=request.POST.get('report') or 0)
+        from django.contrib import messages
+        r = get_object_or_404(VoucherReport.objects.select_related('business'), business=b, pk=request.POST.get('report') or 0)
+        case = report_cases.case_reports(r)
         action = request.POST.get('action')
         if action == 'fix':
-            from django.contrib import messages
-            ok, msg = report_fix.fix(r, request.user, getattr(request, 'tt_perms', frozenset()))
+            ok, msg = report_fix.fix(case, request.user, getattr(request, 'tt_perms', frozenset()))
             (messages.success if ok else messages.error)(request, msg)
-            return redirect(back)
-        if action == 'reopen':
-            r.status, r.resolved_at, r.resolved_by = 'open', None, None
+        elif action == 'reopen':
+            VoucherReport.objects.filter(pk__in=[x.pk for x in case]).update(status='open', resolved_at=None, resolved_by=None)
         else:
-            r.status, r.resolved_at, r.resolved_by = 'resolved', timezone.now(), request.user
-            r.staff_note = request.POST.get('note', '').strip()[:500]
-        r.save()
+            report_fix._close([x for x in case if x.status == 'open'], request.user,
+                              request.POST.get('note', '').strip()[:500])
         return redirect(back)
     show_all = request.GET.get('show') == 'all'
     qs = VoucherReport.objects.filter(business=b).select_related('voucher', 'resolved_by', 'business')
-    reports = list((qs if show_all else qs.filter(status='open'))[:200])
+    reports = list((qs if show_all else qs.filter(status='open'))[:300])
     perms = getattr(request, 'tt_perms', frozenset())
     settings = report_fix._settings(b)
     devices = _device_pages(b, [r.mac for r in reports])
+    diag = {}
     for r in reports:                                        # the voucher today, not only when it was sent
-        r.now = diagnose(b, r.code)
+        k = report_cases.norm_code(r.code)
+        if k not in diag:
+            diag[k] = diagnose(b, r.code)
+        r.now = diag[k]
         r.device_id = devices.get(norm_mac(r.mac))
         r.mac_norm = norm_mac(r.mac) or r.mac
-        if r.status == 'open':
-            r.fix = report_fix.plan(r, r.now)
-            r.fix['can'], r.fix['hint'] = report_fix.availability(r.fix, b, perms, settings)
-    return render(request, 'core/voucher_reports.html', {'reports': reports, 'show_all': show_all,
-                                                         'open_count': qs.filter(status='open').count()})
+    cases = report_cases.build(reports)
+    for c in cases:
+        if c.status == 'open':
+            c.fix = report_fix.plan(c.latest, c.now, macs=[r.mac for r in c.reports])
+            c.fix['can'], c.fix['hint'] = report_fix.availability(c.fix, b, perms, settings)
+    open_codes = list(qs.filter(status='open').values_list('code', flat=True))
+    return render(request, 'core/voucher_reports.html', {
+        'cases': cases, 'show_all': show_all, 'open_count': len({report_cases.norm_code(c) for c in open_codes}),
+        'open_sends': len(open_codes)})
 
 
 @login_required
