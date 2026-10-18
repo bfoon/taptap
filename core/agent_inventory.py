@@ -640,6 +640,12 @@ def receive_inventory_chunk(cmd, rows, part=0, final=False):
         combined.extend(parts[pkey])
     cache.delete(key)
     cache.set(f'tt:agent-inventory-rows:{cmd.pk}', combined, 3600)
+    # The data HAS arrived: note it now, in the web request. Importing happens in a Celery worker that may be
+    # busy for minutes; before this, a busy worker made every table look "never arrived" and the whole sync
+    # failed with "No RouterOS data arrived", although the router had uploaded everything.
+    if not params.get('uploaded'):
+        params.update(uploaded=True, uploaded_at=timezone.now().isoformat(), uploaded_rows=len(combined))
+        AgentCommand.objects.filter(pk=cmd.pk).update(params=params)
     from .tasks import process_inventory_piece
     try:
         process_inventory_piece.delay(cmd.pk)
@@ -729,15 +735,40 @@ def job_pieces(router, job_id):
     if not job_id:
         return []
     return list(router.agent_commands.filter(kind='inventory_piece', params__job_id=job_id)
-                .only('id', 'status', 'params', 'done_at'))
+                .only('id', 'status', 'params', 'done_at', 'attempts'))
+
+
+def _awaiting_import(cmd):
+    """Uploaded by the router, rows still waiting in the cache, not imported yet."""
+    p = cmd.params or {}
+    return bool(p.get('uploaded')) and not p.get('received') and cache.get(f'tt:agent-inventory-rows:{cmd.pk}') is not None
 
 
 def _is_missing(cmd, now):
     if (cmd.params or {}).get('received'):
         return False
+    if _awaiting_import(cmd):
+        return False          # it arrived; the worker just has not imported it yet (settle imports it)
     if cmd.status in FAILED_STATES:
         return True
     return cmd.status == 'done' and cmd.done_at is not None and now - cmd.done_at > UNPROCESSED_AFTER
+
+
+def _no_data_reason(pieces):
+    """Say WHICH step failed instead of always blaming the router clock."""
+    uploaded = sum(1 for c in pieces if (c.params or {}).get('uploaded'))
+    ran = sum(1 for c in pieces if c.status == 'done' or (c.params or {}).get('uploaded'))
+    sent = sum(1 for c in pieces if c.attempts or c.status in ('sent', 'done'))
+    if uploaded:
+        return (f'The router uploaded {uploaded} table(s) but TapTap’s background worker did not import them in time '
+                '(worker busy or stopped). Restart the worker and live services; the next sync retries automatically')
+    if ran:
+        return ('The router ran the sync but none of its uploads reached TapTap — check the router clock (HTTPS needs '
+                'the right date) and /log print where message~"fetch" on the router — will retry automatically')
+    if sent:
+        return ('The router took the sync commands but never reported back — it may be busy, or an earlier command '
+                'failed on it. Check /log print where message~"TapTap" — will retry automatically')
+    return 'The sync commands never reached the router (it did not ask for them in time) — will retry automatically'
 
 
 def _record_piece(router, job_id, piece_summary):
@@ -778,8 +809,7 @@ def _record_piece(router, job_id, piece_summary):
                 job.summary = _merge_summary(job.summary, {'errors': [f'Topology rebuild: {exc}']})
         if not received:
             job.status, job.finished_at = 'failed', now
-            job.phase = ('No RouterOS data arrived — the router checks in but its uploads did not reach TapTap. '
-                         'Check the router clock (HTTPS needs the right date) — will retry automatically')
+            job.phase = _no_data_reason(pieces)
             job.save(update_fields=['status', 'phase', 'summary', 'finished_at', 'updated_at'])
             return
         job.status, job.progress, job.finished_at = 'success', 100, now
@@ -844,7 +874,8 @@ def _heal_unprocessed(router, pieces, now):
     """Uploads the router finished but TapTap never imported: import them now, or count them as missing."""
     healed = 0
     for cmd in pieces:
-        if cmd.status != 'done' or (cmd.params or {}).get('received'):
+        p = cmd.params or {}
+        if p.get('received') or (cmd.status != 'done' and not p.get('uploaded')):
             continue
         if cache.get(f'tt:agent-inventory-rows:{cmd.pk}') is not None:
             try:

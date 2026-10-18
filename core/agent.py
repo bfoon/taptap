@@ -578,22 +578,16 @@ def _catalogue_body(cmd):
         lines = [f':if ([:len [/ip hotspot user profile find name={rs(pr["name"])}]] = 0) do={{ /ip hotspot user profile add '
                  f'name={rs(pr["name"])} shared-users={int(pr.get("shared") or 1)}' + (f' rate-limit={rs(pr["rate"])}' if pr.get('rate') else '') + ' }'
                  for pr in p.get('profiles', [])]
-        # Verified write: "set [find name=X]" silently does nothing when X is not on the router (or differs in
-        # letter case), and the batch was still acknowledged "ok" — TapTap then saw 0s again at every sync and
-        # "corrected" the same voucher forever. Now each user is found, set, read back, and any user that did
-        # not take the limit makes the command FAIL with the names, so it shows on the Link page.
-        lines.append(':local ttBad ""')
+        # Verified write: "set [find name=X]" silently does nothing when X is not on the router, and the batch was
+        # still acknowledged "ok". Each user is now set and read back; any that did not take the limit makes the
+        # command FAIL with its names. Kept compact: Link batches are limited to MAX_SCRIPT bytes.
+        lines.append(':local b ""')
         for u in p.get('users', []):
-            n, lim = rs(u['n']), rs(u['lim'])
-            check = '' if str(u['lim']) in ('0s', '0') else (
-                f':local g [/ip hotspot user get $i limit-uptime]; '
-                f':if ([:typeof $g] != "time" || $g = 0s) do={{ :error "kept no limit" }}; ')
-            lines.append(f':do {{ :local i [/ip hotspot user find name={n}]; :if ([:len $i] = 0) do={{ :error "missing" }}; '
-                         f':set i [:pick $i 0]; /ip hotspot user set $i limit-uptime={lim}'
-                         + (f' profile={rs(u["prof"])}' if u.get('prof') else '') + f'; {check}'
-                         f'}} on-error={{ :set ttBad ($ttBad . {n} . " ") }}')
-        lines.append(':if ([:len $ttBad] > 0) do={ :log warning ("TapTap: limit-uptime not applied for " . $ttBad); '
-                     ':error ("TapTap: limit-uptime not applied for " . $ttBad) }')
+            n = rs(u['n'])
+            chk = '' if str(u['lim']) in ('0s', '0') else '; :if ([/ip hotspot user get $i limit-uptime] = 0s) do={ :error x }'
+            lines.append(f':do {{ :local i [:pick [/ip hotspot user find name={n}] 0]; /ip hotspot user set $i limit-uptime={u["lim"]}'
+                         + (f' profile={rs(u["prof"])}' if u.get('prof') else '') + f'{chk} }} on-error={{ :set b ($b . " " . {n}) }}')
+        lines.append(':if ([:len $b] > 0) do={ :log warning ("TapTap: limit-uptime not applied for" . $b); :error ("not applied for" . $b) }')
         return '; '.join(lines)
     if k == 'admin_password':
         # New password for the default admin account (Security). The password is wiped from TapTap once acknowledged.

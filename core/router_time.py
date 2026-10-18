@@ -49,6 +49,7 @@ logger = logging.getLogger('taptap.router_time')
 UNLIMITED_SHARED = 10      # shared-users=unlimited on the router: assume this many sessions at once
 SHARED_TTL = 300
 TOLERANCE_S = 120          # headroom may be this much short before it counts as drift
+LINK_CHUNK = 8             # vouchers per Link time correction (keeps each command under agent.MAX_SCRIPT)
 REPAIR_EVERY_S = 600       # one repair per voucher per 10 minutes, at most
 UPTIME_TTL = 3 * 86400
 SESSION_TTL = 300          # live-session uptimes from the last Link check-in / API pass
@@ -398,8 +399,8 @@ def repair_link(router, now=None):
         want = limit_for(v, plan, counted(v, m.uptime), now)
         users.append({'n': m.username, 'lim': want})     # the router's own spelling: [find name=] is case-sensitive
         notes.append((v, m.limit_uptime, want, why(v, m.limit_uptime, m.uptime, plan, now)))
-    for i in range(0, len(users), 60):
-        part = users[i:i + 60]
+    for i in range(0, len(users), LINK_CHUNK):            # small commands: a Link batch is at most MAX_SCRIPT bytes
+        part = users[i:i + LINK_CHUNK]
         queue(router, 'hotspot_users_limit', {'users': part, 'profiles': [], 'router_time': True},
               label=f'Match router time to TapTap ({len(part)} voucher{"s" if len(part) != 1 else ""})', minutes=60)
     for v, before, after, reason in notes:
