@@ -42,7 +42,7 @@ SAFE_KINDS = {
     'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'remote_nat', 'remote_close', 'hotspot_kick_mac', 'share_rules', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
-    'hotspot_users_limit', 'admin_password', 'port_blink', 'protection', 'site_probe', 'nettest', 'cleanup', 'filecopy', 'restore', 'online_signin', 'clock', 'member_profiles', 'fit_router_op',
+    'hotspot_users_limit', 'speed_queues', 'admin_password', 'port_blink', 'protection', 'site_probe', 'nettest', 'cleanup', 'filecopy', 'restore', 'online_signin', 'clock', 'member_profiles', 'fit_router_op',
 }
 # Delivery order for queued commands: anything about vouchers first (a customer is waiting), then the rest,
 # and the pieces of a full inventory sync last — 61 of them must never hold up a voucher.
@@ -720,6 +720,17 @@ def _catalogue_body(cmd):
     if k == 'fup_queues':
         from .fair_usage import link_script
         return link_script(p)
+    if k == 'speed_queues':
+        # Traffic speed (core/traffic_speed.py): many TTSPD- queues in ONE command instead of one command per
+        # device. Names/IPs/limits are validated in validate(); kept compact for the MAX_SCRIPT batch budget.
+        out = []
+        for qn, ip, lim in p.get('set', []):
+            out.append(f':do {{ :local q [/queue simple find name="{qn}"]; :if ([:len $q] = 0) do={{ /queue simple add '
+                       f'name="{qn}" target={ip}/32 max-limit={lim} comment="TapTap traffic speed" }} else={{ '
+                       f'/queue simple set $q target={ip}/32 max-limit={lim} disabled=no }} }} on-error={{}}')
+        for qn in p.get('remove', []):
+            out.append(f':do {{ /queue simple remove [find name="{qn}"] }} on-error={{}}')
+        return '; '.join(out) or ':nothing'
     if k == 'unlimit':
         return f'/queue simple remove [find name={rs(p.get("queue") or ("TapTap limit " + p["name"]))}]'
     if k == 'backup':
@@ -924,6 +935,16 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
     if kind == 'fup_queues':
         from .fair_usage import validate_link_params
         validate_link_params(params or {})
+    if kind == 'speed_queues':
+        p = params or {}
+        qn_ok = lambda x: bool(re.match(r'^TTSPD-[0-9-]{3,60}$', str(x)))
+        ip_ok = lambda x: bool(re.match(r'^\d{1,3}(\.\d{1,3}){3}$', str(x)))
+        lim_ok = lambda x: bool(re.match(r'^\d{1,7}k/\d{1,7}k$', str(x)))
+        sets, rems = p.get('set') or [], p.get('remove') or []
+        if not isinstance(sets, list) or not isinstance(rems, list) or not 1 <= len(sets) + len(rems) <= 20 \
+                or not all(isinstance(r, (list, tuple)) and len(r) == 3 and qn_ok(r[0]) and ip_ok(r[1]) and lim_ok(r[2]) for r in sets) \
+                or not all(qn_ok(n) for n in rems):
+            raise ValueError('Invalid traffic speed queues.')
     if kind == 'hotspot_user_extend':
         secs = (params or {}).get('seconds')
         if secs is not None:

@@ -274,71 +274,120 @@ def _reconcile_api(svc, router, want):
     }
 
 
+LINK_CHUNK = 8           # queues per Link command (keeps each one well under agent.MAX_SCRIPT)
+LINK_MAX_PENDING = 3     # never more than this many speed commands waiting for one router
+GONE_AFTER = 900         # a device must be offline this long before its queue is removed (sessions flicker)
+VERIFY_EVERY = 1800      # compare with the router's real queues (last Link sync) at most this often
+
+
+def _limit_text(up, down):
+    return f'{int(up)}k/{int(down)}k'
+
+
+def _router_queues(router):
+    """{queue name: (ip, max-limit)} of TTSPD queues in the last Link inventory, or None when unknown."""
+    try:
+        from .linkops import snapshot_rows
+        rows, _label, _at = snapshot_rows(router, '/queue/simple')
+    except Exception:
+        return None
+    if rows is None:
+        return None
+    out = {}
+    for r in rows:
+        name = str(r.get('name', ''))
+        if name.startswith(f'{PREFIX}{router.pk}-'):
+            out[name] = (str(r.get('target', '')).split('/')[0], str(r.get('max-limit', '')))
+    return out
+
+
 def _reconcile_link(router, want, force=False):
-    """Use TapTap Link's existing safe limit/unlimit commands."""
-    from .linkops import send
+    """TapTap Link: send only what CHANGED, many queues per command, never piling commands up.
+
+    Before, every check-in (~30 s) re-evaluated the caps and every 5 minutes re-sent ONE 'limit' command per
+    device, changed or not. With many bypass devices that filled the Link queue with dozens of identical
+    "Speed …: Waiting for the router" commands. They expired after 10 minutes, were queued again, and — sorted
+    ahead of the full-sync tables — kept the sync tables from ever reaching the router.
+    """
+    from django.db.models import Q
+    from .agent import queue
+    from .models import AgentCommand
+
+    # Old one-per-device commands still waiting: superseded by the batched ones (re-sent below as needed).
+    old_style = AgentCommand.objects.filter(router=router, status='queued', kind__in=['limit', 'unlimit']).filter(
+        Q(label__startswith='Speed ') | Q(label='Remove Traffic speed limit'))
+    if old_style.update(status='cancelled', done_at=timezone.now(), result='Replaced by batched Traffic speed commands'):
+        cache.delete(f'tt:spd:link:{router.pk}')
+        force = True
+
+    pending = AgentCommand.objects.filter(router=router, status__in=['queued', 'sent'],
+                                          kind__in=['speed_queues', 'limit', 'unlimit'], label__startswith='Speed')
+    waiting = pending.count()
+    if waiting >= LINK_MAX_PENDING:
+        return {'set': 0, 'removed': 0, 'active': len(want), 'waiting': True}   # let the router catch up first
 
     key = f'tt:spd:link:{router.pk}'
-    had = cache.get(key) or {}
+    had = cache.get(key) or {}            # {queue: {'state': [ip, up, down], 'at': sent ts, 'seen': ts}}
     now = timezone.now().timestamp()
 
-    changed = {}
-    for name, (ip, up, down, rule_id, label) in want.items():
+    # What the router really has, from the last full sync — used to re-send only missing/different queues.
+    real = None
+    if force or cache.add(f'tt:spd:verify:{router.pk}', 1, VERIFY_EVERY):
+        real = _router_queues(router)
+
+    sets = []
+    for name, (ip, up, down, _rule_id, _label) in want.items():
         state = [ip, up, down]
-        if force or had.get(name, {}).get('state') != state:
-            changed[name] = (ip, up, down, rule_id, label)
+        old = had.get(name) or {}
+        differs = old.get('state') != state
+        if not differs and real is not None:
+            r = real.get(name)
+            differs = r is None or r[0] != ip or r[1].replace(' ', '') not in (_limit_text(up, down), f'{up}000/{down}000')
+        if differs:
+            sets.append((name, ip, _limit_text(up, down), state))
 
-    removed = [name for name in had if name not in want]
+    removes = []
+    for name, old in had.items():
+        if name in want:
+            continue
+        if now - float(old.get('seen') or old.get('at') or 0) >= GONE_AFTER:
+            removes.append(name)
 
-    for name, (ip, up, down, rule_id, label) in changed.items():
+    commands, sent_sets, sent_removes = 0, [], []
+    items = [('s', x) for x in sets] + [('r', x) for x in removes]
+    for i in range(0, len(items), LINK_CHUNK):
+        if waiting + commands >= LINK_MAX_PENDING:
+            break                                              # the rest goes next pass
+        part = items[i:i + LINK_CHUNK]
+        ps = [[n, ip, lim] for t, (n, ip, lim, _st) in [x for x in part if x[0] == 's']]
+        pr = [n for t, n in part if t == 'r']
         try:
-            send(
-                router,
-                'limit',
-                {
-                    'name': ip,
-                    'up': up / 1000,
-                    'down': down / 1000,
-                    'queue': name,
-                },
-                label=f'Speed {label}: {down / 1000:g}↓/{up / 1000:g}↑ Mb/s',
-                minutes=10,
-            )
+            queue(router, 'speed_queues', {'set': ps, 'remove': pr},
+                  label=f'Speed: {len(ps)} cap(s) set, {len(pr)} removed', minutes=30)
+            commands += 1
+            sent_sets += [x for t, x in part if t == 's']
+            sent_removes += pr
         except Exception as exc:
-            logger.info('traffic speed Link set %s %s: %s', router, name, exc)
+            logger.info('traffic speed Link %s: %s', router, exc)
+            break
 
-    for name in removed:
-        try:
-            send(
-                router,
-                'unlimit',
-                {
-                    'name': had[name].get('state', [''])[0],
-                    'queue': name,
-                },
-                label='Remove Traffic speed limit',
-                minutes=10,
-            )
-        except Exception as exc:
-            logger.info('traffic speed Link remove %s %s: %s', router, name, exc)
+    # Remember only what was actually queued; anything else is tried again next pass.
+    new_state = {}
+    for name, (ip, up, down, _rule_id, _label) in want.items():
+        old = had.get(name) or {}
+        st = old.get('state')
+        at = old.get('at')
+        for n, _ip, _lim, state in sent_sets:
+            if n == name:
+                st, at = state, now
+        if st is not None:
+            new_state[name] = {'state': st, 'at': at, 'seen': now}
+    for name, old in had.items():
+        if name not in want and name not in sent_removes:
+            new_state[name] = old                              # offline for now: kept until GONE_AFTER
+    cache.set(key, new_state, STATE_TTL)
 
-    cache.set(
-        key,
-        {
-            name: {
-                'state': [ip, up, down],
-                'at': now,
-            }
-            for name, (ip, up, down, _rule_id, _label) in want.items()
-        },
-        STATE_TTL,
-    )
-
-    return {
-        'set': len(changed),
-        'removed': len(removed),
-        'active': len(want),
-    }
+    return {'set': len(sent_sets), 'removed': len(sent_removes), 'active': len(want), 'commands': commands}
 
 
 def enforce(router, active, now=None, svc=None, force=False):
@@ -351,9 +400,7 @@ def enforce(router, active, now=None, svc=None, force=False):
     from .linkops import uses_link
 
     if uses_link(router):
-        key = f'tt:spd:refresh:{router.pk}'
-        periodic = force or cache.add(key, 1, LINK_REFRESH)
-        return _reconcile_link(router, want, force=periodic)
+        return _reconcile_link(router, want, force=force)
 
     from .mikrotik import MikroTikService
 
