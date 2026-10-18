@@ -96,6 +96,11 @@ def rates(router, names=None):
 
 def store_sessions(router, rows):
     cache.set(f'tt:linkactive:{router.pk}', rows, RATES_TTL)
+    try:   # live session time is not in /ip/hotspot/user uptime until logout (core/router_time.note_sessions)
+        from .router_time import note_sessions
+        note_sessions(router.pk, rows)
+    except Exception:
+        pass
 
 
 def sessions(router):

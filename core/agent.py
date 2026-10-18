@@ -578,9 +578,23 @@ def _catalogue_body(cmd):
         lines = [f':if ([:len [/ip hotspot user profile find name={rs(pr["name"])}]] = 0) do={{ /ip hotspot user profile add '
                  f'name={rs(pr["name"])} shared-users={int(pr.get("shared") or 1)}' + (f' rate-limit={rs(pr["rate"])}' if pr.get('rate') else '') + ' }'
                  for pr in p.get('profiles', [])]
-        lines += [f'/ip hotspot user set [find name={rs(u["n"])}] limit-uptime={rs(u["lim"])}' + (f' profile={rs(u["prof"])}' if u.get('prof') else '')
-                  for u in p.get('users', [])]
-        return '; '.join(lines) or ':nothing'
+        # Verified write: "set [find name=X]" silently does nothing when X is not on the router (or differs in
+        # letter case), and the batch was still acknowledged "ok" — TapTap then saw 0s again at every sync and
+        # "corrected" the same voucher forever. Now each user is found, set, read back, and any user that did
+        # not take the limit makes the command FAIL with the names, so it shows on the Link page.
+        lines.append(':local ttBad ""')
+        for u in p.get('users', []):
+            n, lim = rs(u['n']), rs(u['lim'])
+            check = '' if str(u['lim']) in ('0s', '0') else (
+                f':local g [/ip hotspot user get $i limit-uptime]; '
+                f':if ([:typeof $g] != "time" || $g = 0s) do={{ :error "kept no limit" }}; ')
+            lines.append(f':do {{ :local i [/ip hotspot user find name={n}]; :if ([:len $i] = 0) do={{ :error "missing" }}; '
+                         f':set i [:pick $i 0]; /ip hotspot user set $i limit-uptime={lim}'
+                         + (f' profile={rs(u["prof"])}' if u.get('prof') else '') + f'; {check}'
+                         f'}} on-error={{ :set ttBad ($ttBad . {n} . " ") }}')
+        lines.append(':if ([:len $ttBad] > 0) do={ :log warning ("TapTap: limit-uptime not applied for " . $ttBad); '
+                     ':error ("TapTap: limit-uptime not applied for " . $ttBad) }')
+        return '; '.join(lines)
     if k == 'admin_password':
         # New password for the default admin account (Security). The password is wiped from TapTap once acknowledged.
         return f'/user set [find name="admin"] password={rs(p["password"])}'

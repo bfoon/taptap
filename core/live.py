@@ -154,6 +154,11 @@ def watch_router(router, force=False):
     try:
         users = svc.hotspot_users()
         active = svc.active_users()
+        try:   # live session time is not in the user's uptime counter until logout (core/router_time.note_sessions)
+            from .router_time import note_sessions
+            note_sessions(router.pk, active)
+        except Exception:
+            logger.debug('router time sessions for %s', router, exc_info=True)
         bindings = svc.bindings()
         baseline = router.sales_baseline_at
 

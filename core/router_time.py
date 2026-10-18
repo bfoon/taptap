@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import logging
 import math
+import zlib
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -50,6 +51,9 @@ SHARED_TTL = 300
 TOLERANCE_S = 120          # headroom may be this much short before it counts as drift
 REPAIR_EVERY_S = 600       # one repair per voucher per 10 minutes, at most
 UPTIME_TTL = 3 * 86400
+SESSION_TTL = 300          # live-session uptimes from the last Link check-in / API pass
+NOTE_EVERY_S = 6 * 3600    # one "Router time corrected" history note per voucher per reason per 6 hours
+STUBBORN_AFTER = 3         # the same voucher losing its limit this many times in a day → tell the owner once
 
 
 def secs(value):
@@ -140,7 +144,7 @@ def _key(router_id, code):
 
 def note_uptime(router_id, code, uptime_text):
     """Remember the freshest uptime the router reported for a user (live API rows, inventory rows)."""
-    if router_id and code:
+    if router_id and code and str(uptime_text or '').strip():     # blank = not reported: never cache it as 0
         cache.set(_key(router_id, code), secs(uptime_text), UPTIME_TTL)
 
 
@@ -157,6 +161,58 @@ def uptime_s(v):
     except Exception:
         text = None
     return secs(text) if str(text or '').strip() else None      # blank = the router did not report it
+
+
+def _skey(router_id, code):
+    return f'tt:rt:sess:{router_id}:{str(code).upper()}'
+
+
+def note_sessions(router_id, rows):
+    """Remember how long each user's CURRENT sessions have run (Link check-in rows / API active rows).
+
+    RouterOS adds a session's time to /ip/hotspot/user ``uptime`` only when the session ENDS, and fixes the
+    session's own time left at LOGIN (limit-uptime − uptime). A limit written while a customer is online is
+    therefore judged at the next login against an uptime that has grown by the whole session in between.
+    Without this, the repair set ``limit = uptime(0) + time left`` and the customer was cut that much early
+    at the next login — and the next inventory "corrected" the voucher again, every login, for every voucher."""
+    if not router_id:
+        return
+    total = {}
+    for r in rows or []:
+        name = str(r.get('user', '') or r.get('name', '')).strip().upper()
+        if name and not name.startswith('T-'):
+            total[name] = total.get(name, 0) + secs(r.get('uptime', ''))
+    cache.set_many({_skey(router_id, n): t for n, t in total.items()}, SESSION_TTL)
+    cache.set(f'tt:rt:sess-seen:{router_id}', 1, SESSION_TTL)
+
+
+def session_s(v):
+    """Seconds the voucher's live sessions have run (not yet in the router's uptime counter). 0 = none/unknown."""
+    router_id = getattr(v, 'router_id', None)
+    if not router_id:
+        return 0
+    hit = cache.get(_skey(router_id, v.code))
+    if hit is not None:
+        return int(hit)
+    if cache.get(f'tt:rt:sess-seen:{router_id}') is None:
+        try:                                    # TapTap Link routers: the last check-in's session list
+            from .linklive import sessions
+            rows = sessions(v.router) if getattr(v, 'router', None) is not None else []
+            if rows:
+                note_sessions(router_id, rows)
+                return int(cache.get(_skey(router_id, v.code)) or 0)
+        except Exception:
+            logger.debug('live sessions for %s', v.code, exc_info=True)
+    return 0
+
+
+def counted(v, uptime_text):
+    """What the router will have counted by the next login: its uptime counter + the sessions still running.
+    None when the router did not report the counter (blank) — the caller then assumes the most it could be,
+    as the module rule says. Never 0 for "unknown": that is what let a repair cut customers early."""
+    if uptime_text is None or not str(uptime_text).strip():
+        return None
+    return secs(uptime_text) + session_s(v)
 
 
 def assumed_uptime(v, now=None, plan=None):
@@ -179,6 +235,8 @@ def limit_seconds(v, plan=None, uptime=None, now=None):
         return 0
     if uptime is None:
         uptime = uptime_s(v)
+        if uptime is not None:
+            uptime += session_s(v)          # sessions still running are not in the router's counter yet
     up = assumed_uptime(v, now, plan) if uptime is None else int(uptime or 0)
     if rem <= 0:
         return max(60, up)                       # time is up: the router refuses it as well
@@ -200,11 +258,10 @@ def acceptable(v, have_text, uptime_text=None, plan=None, now=None):
         return True                              # expired: the expiry pass disables it; the limit no longer matters
     if have <= 0:
         return False                             # router says "no limit" for a voucher that has an end
-    if uptime_text is None:
+    up = counted(v, uptime_text) if uptime_text is not None else None
+    if up is None:
         up = uptime_s(v)
-        up = assumed_uptime(v, now, plan) if up is None else up
-    else:
-        up = secs(uptime_text)
+        up = assumed_uptime(v, now, plan) if up is None else up + session_s(v)
     head = have - up
     need = rem * slots(v, plan)
     return need - TOLERANCE_S <= head <= need + max(need, 86400) + TOLERANCE_S
@@ -213,8 +270,11 @@ def acceptable(v, have_text, uptime_text=None, plan=None, now=None):
 def why(v, have_text, uptime_text=None, plan=None, now=None):
     """Plain words for the history when the router disagreed."""
     rem = remaining_s(v, plan, now)
-    have, up = secs(have_text), (uptime_s(v) if uptime_text is None else secs(uptime_text))
-    up = assumed_uptime(v, now, plan) if up is None else up
+    have = secs(have_text)
+    up = counted(v, uptime_text) if uptime_text is not None else None
+    if up is None:
+        up = uptime_s(v)
+        up = assumed_uptime(v, now, plan) if up is None else up + session_s(v)
     if rem is None:
         return f'router had limit {have_text or "0s"} for a voucher without an end'
     if have <= 0:
@@ -230,7 +290,39 @@ def _once(router_id, code):
     return cache.add(f'tt:rt:fix:{router_id}:{str(code).upper()}', 1, REPAIR_EVERY_S)
 
 
+def _stubborn(v, reason):
+    """Count "router had no time limit" repairs per voucher per day. The rule only ever WRITES a limit, so a
+    voucher that keeps coming back at 0s means something on the router keeps removing it (a scheduler or
+    on-login script, Mikhmon, another app, a reset/restore). Tell the owner once a day per router."""
+    if reason != 'router had no time limit' or not getattr(v, 'router_id', None):
+        return
+    key = f'tt:rt:zero:{v.router_id}:{v.code.upper()}'
+    cache.add(key, 0, 86400)
+    try:
+        n = cache.incr(key)
+    except ValueError:
+        cache.set(key, 1, 86400)
+        n = 1
+    if n == STUBBORN_AFTER and cache.add(f'tt:rt:zero-told:{v.router_id}', 1, 86400):
+        try:
+            from .notify import notify
+            notify(v.business, 'router_time', f'{v.router.name} keeps removing voucher time limits',
+                   f'{v.code} (and maybe others) lost its limit-uptime on the router {n} times today, although '
+                   'TapTap only ever sets one. Something on the router clears it: check System › Scheduler and '
+                   'Scripts, the on-login scripts of the hotspot user profiles, Mikhmon or another app using the '
+                   'same router, or a backup being restored. TapTap still ends every voucher on time.',
+                   severity='warning', link='/routers/', key=f'router:{v.router_id}:time-cleared')
+        except Exception:
+            logger.exception('stubborn router time notice for %s', v.code)
+
+
 def _record(v, before, after, reason, via):
+    """One history note per voucher and reason every NOTE_EVERY_S: the repair itself still runs every time,
+    but a voucher's history no longer fills up with the same line after every sync."""
+    _stubborn(v, reason)
+    if not cache.add(f'tt:rt:note:{v.pk}:{zlib.crc32(reason[:40].encode())}', 1, NOTE_EVERY_S):
+        logger.info('router time %s: %s → %s (%s) — note already written', v.code, before or '0s', after, reason)
+        return
     try:
         from .voucher_history import record
         record(v, 'note', source='auto', via=via, router_result=f'limit-uptime {before or "0s"} → {after}',
@@ -268,7 +360,7 @@ def repair_api(router, svc, rows, now=None):
         plan = plans.get(v.plan_name)
         if acceptable(v, have, row.get('uptime', ''), plan, now) or not row.get('id') or not _once(router.pk, v.code):
             continue
-        want = limit_for(v, plan, secs(row.get('uptime', '')), now)
+        want = limit_for(v, plan, counted(v, row.get('uptime', '')), now)
         try:
             res.set(id=row['id'], limit_uptime=want)
             fixed += 1
@@ -288,19 +380,23 @@ def repair_link(router, now=None):
     if not mirrors:
         return 0
     plans, users, notes = _plans(router.business), [], []
+    from .models import AgentCommand
+    waiting = {str(u.get('n', '')).upper()                      # a correction still on its way: do not queue another
+               for c in AgentCommand.objects.filter(router=router, kind='hotspot_users_limit', status__in=['queued', 'sent'])
+               if (c.params or {}).get('router_time') for u in (c.params or {}).get('users') or []}
     for v in Voucher.objects.filter(business=router.business, router=router, status='active', frozen_at__isnull=True,
                                     deleted_at__isnull=True):
         if not platform_owned(v):
             continue
         m = mirrors.get(v.code.upper())
-        if m is None:
+        if m is None or v.code.upper() in waiting:
             continue
         note_uptime(router.pk, v.code, m.uptime)
         plan = plans.get(v.plan_name)
         if acceptable(v, m.limit_uptime, m.uptime, plan, now) or not _once(router.pk, v.code):
             continue
-        want = limit_for(v, plan, secs(m.uptime), now)
-        users.append({'n': v.code, 'lim': want})
+        want = limit_for(v, plan, counted(v, m.uptime), now)
+        users.append({'n': m.username, 'lim': want})     # the router's own spelling: [find name=] is case-sensitive
         notes.append((v, m.limit_uptime, want, why(v, m.limit_uptime, m.uptime, plan, now)))
     for i in range(0, len(users), 60):
         part = users[i:i + 60]
