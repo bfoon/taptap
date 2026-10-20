@@ -38,23 +38,37 @@
       rows.map(function (r) { return '<li><b>' + esc(r.time) + '</b>' + esc(r.message) + '</li>'; }).join('') + '</ul></div>';
   }
 
-  var FIX = { refresh: ['bi-arrow-repeat', 'Renew connection'], new_mac: ['bi-shuffle', 'Give the port a new MAC'], reset_mac: ['bi-arrow-counterclockwise', 'Put original MAC back'] };
+  var FIX = { refresh: ['bi-arrow-repeat', 'Renew connection'], new_mac: ['bi-shuffle', 'Give the port a new MAC'], reset_mac: ['bi-arrow-counterclockwise', 'Put original MAC back'],
+    turn_on: ['bi-power', 'Switch on'], turn_off: ['bi-power', 'Switch off'], use: ['bi-people', 'Put in use'], unuse: ['bi-sign-stop', 'Take out of use'] };
+  var USE = { managed: ['on', 'Customers use it'], plain: ['plain', 'Customers use it (emergency route)'], out: ['out', 'Customers don’t use it'] };
+  var WAIT = { turn_on: 12000, turn_off: 3000, use: 4000, unuse: 3000 };
+  var ASK = { turn_off: 'Switch off {l}? It stops getting an address from its modem until you switch it on again.',
+              unuse: 'Take {l} out of use? Customers move to the other line(s). It stays connected so you can test it.',
+              new_mac: 'Give {l} a new MAC address? The modem will see the router as a new device. Customers on this line pause for about 20 seconds.' };
   var LABEL = { ok: 'Working', holding: 'Modem answers, no internet', down: 'Modem not answering', off: 'Switched off', error: 'Could not check' };
 
   function renderCheck(d) {
     var html = '<div class="doc-head">' + esc(d.headline) + '</div>';
     (d.lines || []).forEach(function (l) {
-      var acts = [];
-      if (l.fix) acts.push(l.fix);
-      if (l.mac_changed && acts.indexOf('reset_mac') < 0) acts.push('reset_mac');
-      if (l.state === 'holding' && acts.indexOf('refresh') < 0) acts.push('refresh');
+      var acts = [], use = l.use || { state: 'out' };
+      if (l.state === 'off') { if (l.switchable) acts.push('turn_on'); }
+      else {
+        if (l.state === 'ok' && use.state !== 'managed' && (use.has_routes || use.state === 'out')) acts.push('use');
+        if (l.fix) acts.push(l.fix);
+        if (l.mac_changed && acts.indexOf('reset_mac') < 0) acts.push('reset_mac');
+        if (l.state === 'holding' && acts.indexOf('refresh') < 0) acts.push('refresh');
+        if (use.state !== 'out') acts.push('unuse');
+        if (l.switchable) acts.push('turn_off');
+      }
       var probes = (l.reached || []).length + (l.missed || []).length
         ? '<div class="probes">Internet test: ' + (l.reached || []).length + ' of 3 answered' + (l.gateway ? ' · modem ' + esc(l.gateway) : '') + (l.mac ? ' · MAC ' + esc(l.mac) : '') + '</div>' : '';
       html += '<div class="doc-line ' + esc(l.state) + '"><span class="dot"></span><div class="body">' +
-        '<div class="t">' + esc(l.label) + ' <small>' + esc(l.interface) + ' · ' + esc(LABEL[l.state] || l.state) + '</small></div>' +
+        '<div class="t">' + esc(l.label) + ' <small>' + esc(l.interface) + ' · ' + esc(LABEL[l.state] || l.state) + '</small>' +
+          (l.state !== 'off' ? ' <span class="use ' + USE[use.state][0] + '">' + USE[use.state][1] + '</span>' : '') + '</div>' +
         '<p class="f">' + esc(l.finding) + '</p>' + probes +
         (acts.length ? '<div class="acts">' + acts.map(function (a, i) {
-          return '<button class="btn btn-sm ' + (i === 0 ? 'btn-warning' : 'btn-light') + '" data-fix="' + a + '" data-if="' + esc(l.interface) + '"><i class="bi ' + FIX[a][0] + '"></i> ' + FIX[a][1] + '</button>';
+          var main = i === 0 && a !== 'unuse' && a !== 'turn_off';
+          return '<button class="btn btn-sm ' + (main ? (a === 'use' || a === 'turn_on' ? 'btn-success' : 'btn-warning') : 'btn-light') + '" data-fix="' + a + '" data-if="' + esc(l.interface) + '" data-label="' + esc(l.label) + '"><i class="bi ' + FIX[a][0] + '"></i> ' + FIX[a][1] + '</button>';
         }).join('') + '</div>' : '') + '</div></div>';
     });
     $('#docResult').innerHTML = html;
@@ -87,13 +101,15 @@
   $('#docResult').addEventListener('click', function (e) {
     var b = e.target.closest('[data-fix]');
     if (!b) return;
-    var step = b.getAttribute('data-fix'), iface = b.getAttribute('data-if');
-    if (step === 'new_mac' && !confirm('Give ' + iface + ' a new MAC address? The modem will see the router as a new device. Customers on this line pause for about 20 seconds.')) return;
+    var step = b.getAttribute('data-fix'), iface = b.getAttribute('data-if'), label = b.getAttribute('data-label') || iface;
+    if (ASK[step] && !confirm(ASK[step].replace('{l}', label + ' (' + iface + ')'))) return;
+    var html = b.innerHTML;
     b.disabled = true; b.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Working…';
     req(U.fix, { interface: iface, step: step }).then(function (d) {
-      if (!d._ok) { b.disabled = false; b.textContent = 'Try again'; msg(d.message || 'The fix failed.'); return; }
-      msg(d.message + ' Checking again in 25 seconds…', true);
-      setTimeout(check, 25000);
+      if (!d._ok) { b.disabled = false; b.innerHTML = html; msg(d.message || 'That did not work.'); return; }
+      var wait = WAIT[step] || 25000;
+      msg(d.message + ' Checking again in ' + Math.round(wait / 1000) + ' seconds…', true);
+      setTimeout(check, wait);
     });
   });
 

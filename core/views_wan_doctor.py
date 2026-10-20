@@ -115,6 +115,10 @@ def doctor_remove(request, pk):
     return JsonResponse({'success': True, 'installed': False, 'removed': removed})
 
 
+# fixes, plus switching a line on/off and putting it in or out of use
+STEPS = {'refresh', 'new_mac', 'reset_mac', 'turn_on', 'turn_off', 'use', 'unuse'}
+
+
 @login_required
 @require_POST
 def doctor_fix(request, pk):
@@ -122,15 +126,21 @@ def doctor_fix(request, pk):
     iface, step = str(data.get('interface') or '').strip(), str(data.get('step') or '')
     if _on_link(router):
         return _link_only(router)
-    if step not in {'refresh', 'new_mac', 'reset_mac'} or not iface:
-        return JsonResponse({'success': False, 'message': 'Choose a line and a fix.'}, status=400)
+    if step not in STEPS or not iface:
+        return JsonResponse({'success': False, 'message': 'Choose a line and an action.'}, status=400)
     svc, err = _connect(router)
     if err:
         return err
     try:
-        if iface not in {l['interface'] for l in doc.lines_for(svc, _setup(router))}:
+        lines = doc.lines_for(svc, _setup(router))
+        if iface not in {l['interface'] for l in lines}:
             return JsonResponse({'success': False, 'message': f'{iface} is not one of this router’s internet lines.'}, status=400)
-        message = doc.fix(svc, iface, step)
+        if step in {'turn_on', 'turn_off'}:
+            message = doc.turn_line(svc, iface, step == 'turn_on', lines)
+        elif step in {'use', 'unuse'}:
+            message = doc.set_in_use(svc, iface, step == 'use', lines)
+        else:
+            message = doc.fix(svc, iface, step)
     except doc.DoctorError as exc:
         return JsonResponse({'success': False, 'message': str(exc)}, status=400)
     except Exception as exc:
@@ -139,7 +149,7 @@ def doctor_fix(request, pk):
     finally:
         svc.close()
     _audit(request, router, f'doctor_{step}', {'interface': iface})
-    log(router.business, 'Internet Doctor Fix', f'{router.name}: {message}')
+    log(router.business, 'Internet Line Change' if step in {'turn_on', 'turn_off', 'use', 'unuse'} else 'Internet Doctor Fix', f'{router.name}: {message}')
     return JsonResponse({'success': True, 'message': message})
 
 

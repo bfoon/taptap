@@ -537,12 +537,23 @@ def diagnose(svc, lines):
     rows = []
     for l in _assign_probes([dict(x) for x in lines]):
         try:
-            rows.append(check_line(svc, l))
+            row = check_line(svc, l)
         except Exception as exc:
-            rows.append({'interface': l['interface'], 'label': l['label'], 'state': 'error', 'finding': f'Could not check {l["label"]}: {exc}', 'fix': ''})
+            row = {'interface': l['interface'], 'label': l['label'], 'state': 'error', 'finding': f'Could not check {l["label"]}: {exc}', 'fix': ''}
+        try:
+            row['use'] = use_state(svc, l['interface'])
+            row['switchable'] = _client(svc, l['interface'])[1] is not None
+        except Exception:
+            row['use'], row['switchable'] = {'state': 'out', 'has_routes': False, 'routes_off': 0}, False
+        if row['state'] == 'ok' and row['use']['state'] == 'out':
+            row['finding'] += ' Customers are not using it yet — press “Put in use”.'
+        rows.append(row)
     working = [r for r in rows if r['state'] == 'ok']
+    idle = [r for r in working if r.get('use', {}).get('state') == 'out']
     broken = [r for r in rows if r['state'] in {'down', 'holding'}]
-    if not broken and working:
+    if idle:
+        headline = ', '.join(r['label'] for r in idle) + ' works but customers are not using it — press “Put in use”.'
+    elif not broken and working:
         headline = 'Every connected line reaches the internet.'
     elif broken and working:
         headline = f'{len(working)} line(s) working, {len(broken)} with a problem — customers use the working line(s).'
@@ -591,6 +602,97 @@ def fix(svc, iface, step):
         _release(svc, iface)
         return f'{iface} is back on its original MAC address.'
     raise DoctorError('Unknown fix.')
+
+
+# ═══════════════════════════ line control (on/off, in use) ═══════════════════════════
+def _managed(row):
+    c = _s(row.get('comment'))
+    return c.startswith('TapTap') and not c.startswith(TAG) and not _yes(row.get('dynamic'))
+
+
+def line_routes(svc, iface):
+    """TapTap's routes for one line: its health-check /32 routes and its default routes.
+    Works for current Internet Lines routes ('TapTap WAN …') and older ones ('TapTap <label> pinned')."""
+    rows = svc.resource('/ip/route').get()
+    checks = [r for r in rows if _managed(r) and _s(r.get('dst-address')).endswith('/32')
+              and _s(r.get('gateway')).endswith('%' + iface)]
+    hosts = {_s(r.get('dst-address')).split('/')[0] for r in checks}
+    defaults = [r for r in rows if _managed(r) and _s(r.get('dst-address')) == '0.0.0.0/0'
+                and (_s(r.get('gateway')) in hosts or _s(r.get('gateway')).endswith('%' + iface) or _s(r.get('gateway')) == iface)]
+    plain = [r for r in rows if _yes(r.get('dynamic')) and _s(r.get('dst-address')) == '0.0.0.0/0'
+             and _s(r.get('vrf-interface') or r.get('immediate-gw')).split('%')[-1] == iface]
+    return checks, defaults, plain
+
+
+def use_state(svc, iface):
+    """'managed' = customers use it through TapTap's routes, 'plain' = only through the line's own
+    DHCP default route (an emergency setup), 'out' = customers do not use it."""
+    checks, defaults, plain = line_routes(svc, iface)
+    on = [r for r in defaults if not _yes(r.get('disabled'))]
+    active = [r for r in on if _yes(r.get('active'))]
+    if active:
+        state = 'managed'
+    elif any(_yes(r.get('active')) for r in plain):
+        state = 'plain'
+    else:
+        state = 'out'
+    return {'state': state, 'has_routes': bool(defaults), 'routes_off': len(defaults) - len(on)}
+
+
+def _client(svc, iface):
+    for path, key in (('/ip/dhcp-client', 'interface'), ('/interface/pppoe-client', 'name')):
+        res = svc.resource(path)
+        rows = _find(res, **{key: iface})
+        if rows:
+            return res, rows[0], path
+    return None, None, None
+
+
+def _others_in_use(svc, iface, lines):
+    return [l['label'] for l in lines if l['interface'] != iface and use_state(svc, l['interface'])['state'] != 'out']
+
+
+def turn_line(svc, iface, on, lines):
+    res, row, path = _client(svc, iface)
+    if not row:
+        raise DoctorError(f'{iface} has no DHCP or PPPoE client, so it cannot be switched on or off here.')
+    label = next((l['label'] for l in lines if l['interface'] == iface), iface)
+    if not on and not _others_in_use(svc, iface, lines):
+        raise DoctorError(f'{label} is the only line customers use right now — switching it off would cut the internet '
+                          'and TapTap’s connection to the router. Put another line in use first.')
+    res.set(id=row['id'], disabled='no' if on else 'yes')
+    if on:
+        return f'{label} is switched on. Give the modem about 10 seconds, then check the line before putting it in use.'
+    return f'{label} is switched off.'
+
+
+def set_in_use(svc, iface, on, lines):
+    label = next((l['label'] for l in lines if l['interface'] == iface), iface)
+    routes = svc.resource('/ip/route')
+    checks, defaults, plain = line_routes(svc, iface)
+    res, client, path = _client(svc, iface)
+    is_dhcp = path == '/ip/dhcp-client'
+    if on:
+        if client is not None and _yes(client.get('disabled')):
+            raise DoctorError(f'{label} is switched off. Switch it on and check it first.')
+        for r in checks + defaults:
+            c = _s(r.get('comment'))
+            routes.set(id=r['id'], disabled='no', comment=c.split(OFF_MARK)[0] if OFF_MARK in c else c)
+        if is_dhcp:
+            # TapTap's own routes carry this line now, so drop the DHCP route added during an emergency;
+            # a line without TapTap routes gets its plain DHCP route instead.
+            res.set(id=client['id'], add_default_route='no' if defaults else 'yes')
+        if not defaults and not is_dhcp:
+            raise DoctorError(f'{label} has no TapTap routes yet — set it up in step 1 above and apply.')
+        return f'{label} is in use again — customers are shared across it.'
+    if not _others_in_use(svc, iface, lines):
+        raise DoctorError(f'{label} is the only line customers use right now. Put another line in use first.')
+    for r in defaults:
+        if not _yes(r.get('disabled')):
+            routes.set(id=r['id'], disabled='yes')
+    if is_dhcp and client is not None:
+        res.set(id=client['id'], add_default_route='no')
+    return f'{label} is out of use — customers use the other line(s). It stays connected so you can test it.'
 
 
 # ═══════════════════════════ hooks into Internet Lines ═══════════════════════════
@@ -677,8 +779,10 @@ def t_internet_doctor(ctx, router=''):
         svc.close()
     out['router'] = r.name
     out['fix_page'] = page
-    out['note'] = ('Fixes (new MAC, renew, original MAC) and turning the Doctor on are buttons in Internet lines › Internet Doctor. '
-                   'state=holding means the modem answers but the internet does not get through — usually fixed by a new MAC.')
+    out['note'] = ('Every action is a button in Internet lines › Internet Doctor: switch a line on/off, put it in use or take it out, '
+                   'new MAC, renew, original MAC, and turning the Doctor on. state=holding means the modem answers but the internet '
+                   'does not get through — usually fixed by a new MAC. use.state: managed = customers use it, plain = only an emergency '
+                   'DHCP route, out = not used.')
     return out
 
 
