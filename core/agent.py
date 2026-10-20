@@ -124,7 +124,7 @@ def free_login(user_expr):
             f':do {{ /ip hotspot cookie remove $c }} on-error={{}}; $drop m=$m }}')
 
 
-SCRIPT_VERSION = 7   # v7: resets the TapTap Tunnel when the router's internet line changes (multi-WAN failover), longer check-in timeout at busy hours; v6: self-healing check-in (DNS fallback, wrong-clock repair, dead-WAN diagnosis) and outage report; v5: reports IP-binding bypass devices (fair usage); v4: direct scheduler execution + single-instance guard
+SCRIPT_VERSION = 8   # v8: globals re-declared inside nested blocks (the missed-check-in counter stayed at 1 on RouterOS 7, so self-repair never ran); v7: resets the TapTap Tunnel when the router's internet line changes (multi-WAN failover), longer check-in timeout at busy hours; v6: self-healing check-in (DNS fallback, wrong-clock repair, dead-WAN diagnosis) and outage report; v5: reports IP-binding bypass devices (fair usage); v4: direct scheduler execution + single-instance guard
 
 
 def _wan_watch_block():
@@ -147,6 +147,7 @@ def _wan_watch_block():
     return f''':global ttWanGw
 :if ([:typeof $ttWanGw] != "str") do={{ :set ttWanGw "" }}
 :do {{
+  :global ttWanGw
   :local wanNow ""
   :foreach rt in=[/ip route find where dst-address="0.0.0.0/0" and active] do={{ :set wanNow ($wanNow . [:tostr [/ip route get $rt gateway]] . " ") }}
   :if ([:len $ttWanGw] > 0 and $wanNow != $ttWanGw) do={{
@@ -188,6 +189,7 @@ def agent_script(url, token, check):
 :if ([:typeof $ttLinkGw] != "str") do={{ :set ttLinkGw "" }}
 {_wan_watch_block()}:local url {rs(url + "/api/agent/v1")}
 :do {{
+  :global ttLinkFail; :global ttLinkWhy; :global ttLinkGw; :global ttLinkOk
   :local tok {rs(token)}
   :local ver [/system resource get version]
   :local up [/system resource get uptime]
@@ -239,6 +241,7 @@ def agent_script(url, token, check):
     :if ([:len $cmd] > 0) do={{ :execute script=$cmd }}
   }}
 }} on-error={{
+  :global ttLinkFail; :global ttLinkWhy; :global ttLinkGw; :global ttLinkOk
   :set ttLinkFail ($ttLinkFail + 1)
   :log warning ("TapTap Link: cannot reach TapTap (" . $ttLinkFail . " in a row)")
   # Every third miss in a row: find out why, and repair what is safe to repair.
