@@ -111,10 +111,10 @@ class Command(BaseCommand):
         )
 
         update_pos = script.find("# === 4) Update RouterOS")
-        if getattr(settings, "LINK_INSTALL_UPDATE", True):
+        if getattr(settings, "LINK_INSTALL_UPDATE", False):
             check("RouterOS update is last", update_pos > positions[1])
         else:
-            self.stdout.write(self.style.WARNING("INFO  RouterOS auto-update disabled by LINK_INSTALL_UPDATE=False"))
+            self.stdout.write(self.style.WARNING("INFO  RouterOS update is only checked, not installed (LINK_INSTALL_UPDATE=False)"))
 
         required = {"hotspot_user_mac", "hotspot_kick", "hotspot_sticky"}
         missing = required - set(agent.SAFE_KINDS)

@@ -350,6 +350,14 @@ def router_link_action(request, pk):
     if action in ('enroll', 'rotate'):
         token, agent = link.new_token(router)
         request.session[f'link_token_{router.pk}'] = token
+        # A reinstall usually follows a lost connection; an old pin (Starlink and 4G public IPs change,
+        # a second line has its own IP) would refuse the router again on its first check-in.
+        if agent and agent.pinned_ip:
+            old_pin = agent.pinned_ip
+            RouterAgent.objects.filter(pk=agent.pk).update(pinned_ip=None)
+            agent.pinned_ip = None
+            messages.info(request, f'The IP pin ({old_pin}) was cleared so the reinstalled router is not refused. '
+                                   'Set it again under Settings & security once the router checks in, listing every internet line.')
         if action == 'enroll':
             # TapTap Link becomes authoritative. Never keep retrying a private IP
             # from the cloud after the owner has chosen agent mode.

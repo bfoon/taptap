@@ -12,7 +12,8 @@ bootstrap) fails with "no trusted CA". The quick-install block therefore starts 
 2. **TapTap Link** (core/agent.enrollment_script).
 3. **TapTap Tunnel** (RouterOS 7), now saying clearly whether it started.
 4. **RouterOS update — last**, because installing an update reboots the router: placed first, nothing after
-   it would run. TapTap Link starts again by itself after the reboot. Off with LINK_INSTALL_UPDATE=False.
+   it would run. By default it only reports an available update (installing reboots the router and cuts
+   customers off); set LINK_INSTALL_UPDATE=True to install it automatically.
 
 Each step is wrapped in ``{ … }`` so its local variables live for the whole step when pasted into a terminal.
 """
@@ -113,15 +114,69 @@ def tunnel_block(token):
 # === 3) TapTap Tunnel (RouterOS 7): the fast permanent connection ===
 {{
 {trigger}
-:if ([:tonum [:pick [/system resource get version] 0 1]] >= 7) do={{ :put "Step 3: tunnel requested - it shows as connected on the TapTap Link page within about a minute" }} else={{ :put "Step 3 skipped: the tunnel needs RouterOS 7 - TapTap Link works without it" }}
+:if ([:tonum [:pick [/system resource get version] 0 1]] < 7) do={{ :put "Step 3 skipped: the tunnel needs RouterOS 7 - TapTap Link works without it" }}
 }}
 '''
 
 
+def wan_check_block():
+    """Read-only check of the router's internet lines, printed during Quick Start / Rotate token.
+
+    The two set-ups that make a multi-line router drop off TapTap while customers still browse:
+    default routes with no health check (a modem that answers while its internet is down keeps the
+    router's own traffic on the dead line), and two lines with the SAME gateway (two Starlinks are
+    both 192.168.1.1) written without %port, so both routes and checks go out of one modem."""
+    return '''
+# === Check: internet lines (read-only, changes nothing) ===
+{
+  :do {
+    :local n 0
+    :local unchecked 0
+    :local seen "|"
+    :local same false
+    :foreach rt in=[/ip route find where dst-address="0.0.0.0/0" and disabled=no] do={
+      :set n ($n + 1)
+      :local gw [:tostr [/ip route get $rt gateway]]
+      :local cg ""
+      :do { :set cg [:tostr [/ip route get $rt check-gateway]] } on-error={}
+      :if (([:len $cg] = 0) or ($cg = "none")) do={ :set unchecked ($unchecked + 1) }
+      :if ([:typeof [:find $gw "%"]] != "num") do={
+        :if ([:typeof [:find $seen ("|" . $gw . "|")]] = "num") do={ :set same true }
+        :set seen ($seen . $gw . "|")
+      }
+    }
+    :if (($n > 1) and ($unchecked > 0)) do={
+      :put ("Check: " . $unchecked . " of " . $n . " internet routes have NO health check. If a line loses internet while its modem stays on, the router (and TapTap) stay stuck on it. Set them up in TapTap > Internet Lines, or add check-gateway=ping / a recursive route.")
+      :log warning "TapTap: internet routes without a health check"
+    }
+    :if ($same) do={
+      :put "Check: two internet lines use the SAME gateway address (e.g. two Starlinks on 192.168.1.1). Write each route as gateway=192.168.1.1%ether1 / %ether3, or set the Starlinks to Bypass mode."
+      :log warning "TapTap: two internet lines share one gateway address"
+    }
+    :if (((($n <= 1) or ($unchecked = 0))) and (!$same)) do={ :put "Check: internet lines OK" }
+  } on-error={ :put "Check: internet lines could not be read (skipped)" }
+}
+'''
+
+
 def update_block():
-    """Step 4: install a RouterOS update if one exists — last, because it reboots the router."""
-    if not getattr(settings, 'LINK_INSTALL_UPDATE', True):
-        return ''
+    """Step 4: RouterOS update — last. By default it only REPORTS a new version: installing reboots the
+    router (customers drop, and a background step still running is cut off). LINK_INSTALL_UPDATE=True
+    installs it automatically, as before."""
+    if not getattr(settings, 'LINK_INSTALL_UPDATE', False):
+        return '''
+# === 4) RouterOS update check (nothing is installed, no reboot) ===
+{
+  :do {
+    /system package update check-for-updates once
+    :delay 8s
+    :local st [/system package update get status]
+    :if ($st ~ "New version") do={
+      :put ("Step 4: " . $st . " - install it at a quiet time from System > Packages (the router reboots)")
+    } else={ :put ("Step 4: RouterOS - " . $st) }
+  } on-error={ :put "Step 4: could not check for RouterOS updates" }
+}
+'''
     return '''
 # === 4) Update RouterOS - LAST: installing an update reboots the router ===
 #     TapTap Link starts again by itself after the reboot. Afterwards you can also run: /system routerboard upgrade

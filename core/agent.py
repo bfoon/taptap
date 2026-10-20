@@ -363,11 +363,11 @@ def enrollment_script(router, token, request=None):
     secs = max(10, int(agent.poll_seconds if agent else 10))
     body = agent_script(url, token, check)
     name = re.sub(r'[^\x20-\x7e]', '?', router.name)
-    from .link_trust import trust_block, tunnel_block, update_block
+    from .link_trust import trust_block, tunnel_block, update_block, wan_check_block
     text = f'''# --- TapTap Link for "{name}" ---
 # Paste the whole block into WinBox > New Terminal. It is ONE block: nothing runs until the last line
 # has arrived (the terminal drops text pasted while a command is still running). It runs 4 steps:
-#   1) clock + certificates  2) TapTap Link  3) TapTap Tunnel (RouterOS 7)  4) RouterOS update (reboots, last)
+#   1) clock + certificates  2) TapTap Link  3) TapTap Tunnel (RouterOS 7)  4) internet-lines check + RouterOS update check (no reboot)
 # The router connects OUT to {url}; no port-forwarding or public IP is required.
 # Keep the token private. Rotate it from TapTap if it is ever exposed.
 ''' + trust_block(url, check) + f'''
@@ -382,7 +382,7 @@ def enrollment_script(router, token, request=None):
 /system script run taptap-link
 :log info "TapTap Link installed"
 :put "Step 2 OK: TapTap Link installed - the TapTap Link page turns green after the first check-in"
-''' + _backup_helper_block() + (tunnel_block(token) or _tunnel_trigger(token)) + update_block()
+''' + _backup_helper_block() + (tunnel_block(token) or _tunnel_trigger(token)) + wan_check_block() + update_block()
     return one_block(text)
 
 

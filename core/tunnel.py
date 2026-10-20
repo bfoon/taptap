@@ -535,9 +535,16 @@ def enrollment_bootstrap_trigger(link_token: str) -> str:
   :do {{
     :local ttBoot [/tool fetch url={_rs(url)} http-method=post http-header-field={_rs("Authorization: Bearer " + link_token)} output=user as-value check-certificate={_tls_check()} duration=12s idle-timeout=8s]
     :local ttCode ($ttBoot->"data")
-    :if ([:len $ttCode] > 20) do={{ :execute $ttCode }}
+    # Run it here, not with :execute in the background: the next step may reboot the router, and a
+    # background job cut off half-way left the tunnel without its 10.77 address.
+    :if ([:len $ttCode] > 20) do={{ :local ttRun [:parse $ttCode]; $ttRun }}
   }} on-error={{
     :log warning "TapTap Tunnel bootstrap did not start; TapTap Link remains active"
+  }}
+  :if ([:len [/ip address find where interface="{ROUTER_IFNAME}"]] > 0) do={{
+    :put ("Step 3 OK: TapTap Tunnel address " . [/ip address get [:pick [/ip address find where interface="{ROUTER_IFNAME}"] 0] address])
+  }} else={{
+    :put "Step 3 NOT finished: the tunnel has no address yet - the router could not reach TapTap. TapTap Link keeps working and repairs the tunnel once the router is online."
   }}
 }}
 '''
@@ -567,8 +574,11 @@ def existing_router_bootstrap_script() -> str:
 :local r [/tool fetch url={_rs(url)} http-method=post http-header-field=("Authorization: Bearer " . $tok) output=user as-value check-certificate={_tls_check()} duration=12s idle-timeout=8s]
 :local code ($r->"data")
 :if ([:len $code] < 20) do={{ :error "TapTap returned no tunnel bootstrap" }}
-:execute $code
-:put "TapTap Tunnel bootstrap started. Wait around 30 seconds, then check the TapTap Link page."
+:local run [:parse $code]
+$run
+:if ([:len [/ip address find where interface="{ROUTER_IFNAME}"]] > 0) do={{
+  :put ("TapTap Tunnel configured - address " . [/ip address get [:pick [/ip address find where interface="{ROUTER_IFNAME}"] 0] address] . ". It shows as connected on the TapTap Link page within about a minute.")
+}} else={{ :put "TapTap Tunnel is not complete: no tunnel address was added. Paste this block again." }}
 }}
 '''
 
