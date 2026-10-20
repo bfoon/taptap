@@ -295,8 +295,12 @@ def build_plan(cfg, facts, run=None):
     if multi:
         mangle({'chain': 'prerouting', 'dst-address-list': 'TT-local', 'action': 'accept'}, 'leave local traffic alone')
         for l in links:
-            mangle({'chain': 'prerouting', 'in-interface': l['interface'], 'connection-mark': 'no-mark', 'action': 'mark-connection',
-                    'new-connection-mark': f'TT-{l["id"]}', 'passthrough': 'yes'}, f'arrived on {l["label"]}')
+            # connection-state=new: only connections that START on this line (port forwards, remote WinBox) are tied to it.
+            # Without it, the first reply to one of the router's OWN connections (TapTap Tunnel, TapTap Link check-in,
+            # DNS) marked that connection too, so the router's traffic stayed pinned to a line after it failed and
+            # TapTap lost the router while customers were still online through the other line.
+            mangle({'chain': 'prerouting', 'in-interface': l['interface'], 'connection-state': 'new', 'connection-mark': 'no-mark',
+                    'action': 'mark-connection', 'new-connection-mark': f'TT-{l["id"]}', 'passthrough': 'yes'}, f'arrived on {l["label"]}')
         if strategy == 'balance':
             slots = interleave([l['weight'] for l in links]); n = len(slots)
             for k, idx in enumerate(slots):

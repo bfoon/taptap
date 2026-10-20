@@ -75,7 +75,7 @@ def agent_poll(request):
             )
         _note_refusal(None, ip, 'unknown token (revoked, mistyped or from an old install)')
         return _unauthorized()
-    if agent.pinned_ip and agent.pinned_ip != ip:
+    if not agent.ip_allowed(ip):
         _note_refusal(agent, ip, f'pinned to {agent.pinned_ip}, came from {ip}')
         notify(
             agent.router.business,
@@ -94,7 +94,15 @@ def agent_poll(request):
     if not data:
         from urllib.parse import parse_qsl
         data = dict(parse_qsl(request.body.decode('utf-8', 'ignore'), keep_blank_values=True))
+    import logging, time
+    started = time.monotonic()
     script = link.handle_poll(agent, data, ip, link.base_url(request))
+    took = time.monotonic() - started
+    if took > 6:
+        # The router gives up on a check-in after 20 s (8 s before heartbeat v7). Slow answers at busy hours
+        # (many active sessions on many routers) show up here before routers start to look offline.
+        logging.getLogger('taptap.link').warning(
+            'Slow TapTap Link check-in: %s took %.1f s (%s active sessions)', agent.router_id, took, data.get('n', '?'))
     return HttpResponse(script, content_type='text/plain; charset=utf-8')
 
 
@@ -312,7 +320,7 @@ def router_link(request, pk):
         'last_outage': cache.get(f'tt:link:outage:{router.pk}'),
         'last_refusal': refusal_for(agent),
         'last_hello': cache.get(f'tt:link:hello:{agent.pk}') if agent else None,
-        'pin_refused': bool(agent and agent.pinned_ip and agent.last_ip and agent.pinned_ip != agent.last_ip),
+        'pin_refused': bool(agent and agent.last_ip and not agent.ip_allowed(agent.last_ip)),
         'commands': cmds,
         'site': link.base_url(request),
         'https': link.base_url(request).startswith('https://'),
@@ -370,8 +378,23 @@ def router_link_action(request, pk):
             agent.poll_seconds = max(10, min(120, int(request.POST.get('poll_seconds') or 10)))
         except ValueError:
             pass
-        ip = request.POST.get('pinned_ip', '').strip()
-        agent.pinned_ip = ip or None
+        # Several IPs allowed (comma-separated): a router with two internet lines checks in from either.
+        import ipaddress
+        raw = request.POST.get('pinned_ip', '').replace(';', ',')
+        pins, bad = [], []
+        for part in (x.strip() for x in raw.split(',')):
+            if not part:
+                continue
+            try:
+                ipaddress.ip_address(part)
+                if part not in pins:
+                    pins.append(part)
+            except ValueError:
+                bad.append(part)
+        if bad:
+            messages.error(request, f'Not saved: {", ".join(bad)} is not a valid IP address. Separate several IPs with commas.')
+            return redirect('router_link', pk=router.pk)
+        agent.pinned_ip = ', '.join(pins)[:255] or None
         agent.allow_scripts = request.POST.get('allow_scripts') == 'on'
         agent.save(update_fields=['poll_seconds', 'pinned_ip', 'allow_scripts'])
         messages.success(request, 'Saved. Rotate the token and reinstall the generated script if you changed the check-in interval.')

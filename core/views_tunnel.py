@@ -35,7 +35,8 @@ def _agent(request):
         return None, None
 
     ip = _client_ip(request)
-    if agent.pinned_ip and not hmac.compare_digest(agent.pinned_ip, ip):
+    pins = agent.pinned_ips()
+    if pins and not any(hmac.compare_digest(pin, ip) for pin in pins):
         return None, None
     return agent, token
 

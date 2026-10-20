@@ -124,7 +124,42 @@ def free_login(user_expr):
             f':do {{ /ip hotspot cookie remove $c }} on-error={{}}; $drop m=$m }}')
 
 
-SCRIPT_VERSION = 6   # v6: self-healing check-in (DNS fallback, wrong-clock repair, dead-WAN diagnosis) and outage report; v5: reports IP-binding bypass devices (fair usage); v4: direct scheduler execution + single-instance guard
+SCRIPT_VERSION = 7   # v7: resets the TapTap Tunnel when the router's internet line changes (multi-WAN failover), longer check-in timeout at busy hours; v6: self-healing check-in (DNS fallback, wrong-clock repair, dead-WAN diagnosis) and outage report; v5: reports IP-binding bypass devices (fair usage); v4: direct scheduler execution + single-instance guard
+
+
+def _wan_watch_block():
+    """RouterOS lines that keep the TapTap Tunnel alive across internet-line failover.
+
+    WireGuard is one long-lived UDP flow. When a line fails, the router's routes move to the other
+    line, but that flow's connection-tracking entry (and WireGuard's remembered source address) still
+    belong to the failed line, and the 25 s keepalive stops them from ever expiring. Packets then leave
+    through the working line carrying the dead line's address and are dropped: the tunnel stays down
+    although the Internet works. This watch notices the route change on the next heartbeat, removes
+    that one entry and restarts the TapTap peer, so the tunnel reconnects through the working line.
+    Customer connections are not touched. WireGuard commands go through :parse so RouterOS 6
+    (no WireGuard) can still load the heartbeat.
+    """
+    try:
+        from .tunnel import ROUTER_IFNAME, wg_port
+        port, ifname = int(wg_port()), ROUTER_IFNAME
+    except Exception:
+        port, ifname = 51820, 'taptap-wg'
+    return f''':global ttWanGw
+:if ([:typeof $ttWanGw] != "str") do={{ :set ttWanGw "" }}
+:do {{
+  :local wanNow ""
+  :foreach rt in=[/ip route find where dst-address="0.0.0.0/0" and active] do={{ :set wanNow ($wanNow . [:tostr [/ip route get $rt gateway]] . " ") }}
+  :if ([:len $ttWanGw] > 0 and $wanNow != $ttWanGw) do={{
+    :log warning ("TapTap: internet route changed (" . $ttWanGw . "-> " . $wanNow . ") - moving the TapTap Tunnel to the working line")
+    :do {{ /ip firewall connection remove [find where protocol="udp" and dst-address~":{port}"] }} on-error={{}}
+    :do {{
+      :local wgReset [:parse "/interface wireguard peers disable [find where interface=\\"{ifname}\\"]; :delay 1s; /interface wireguard peers enable [find where interface=\\"{ifname}\\"]"]
+      $wgReset
+    }} on-error={{}}
+  }}
+  :set ttWanGw $wanNow
+}} on-error={{}}
+'''
 
 
 def agent_script(url, token, check):
@@ -151,7 +186,7 @@ def agent_script(url, token, check):
 :if ([:typeof $ttLinkOk] != "num") do={{ :set ttLinkOk 0 }}
 :if ([:typeof $ttLinkWhy] != "str") do={{ :set ttLinkWhy "" }}
 :if ([:typeof $ttLinkGw] != "str") do={{ :set ttLinkGw "" }}
-:local url {rs(url + "/api/agent/v1")}
+{_wan_watch_block()}:local url {rs(url + "/api/agent/v1")}
 :do {{
   :local tok {rs(token)}
   :local ver [/system resource get version]
@@ -188,7 +223,7 @@ def agent_script(url, token, check):
     }}
   }}
   :local body ("id=" . [/system identity get name] . "&ver=" . $ver . "&up=" . $up . "&cpu=" . $cpu . "&mf=" . $mf . "&mt=" . $mt . "&board=" . $board . "&n=" . [:len [/ip hotspot active find]] . "&sv={SCRIPT_VERSION}&ifc=" . $ic . "&act=" . $a . "&bp=" . $bp . "&lf=" . $ttLinkFail . "&lw=" . $ttLinkWhy . "&lg=" . $ttLinkGw)
-  :local res [/tool fetch url=($url . "/poll") http-method=post http-data=$body http-header-field=("Authorization: Bearer " . $tok) output=user as-value check-certificate={check} duration=8s idle-timeout=5s]
+  :local res [/tool fetch url=($url . "/poll") http-method=post http-data=$body http-header-field=("Authorization: Bearer " . $tok) output=user as-value check-certificate={check} duration=20s idle-timeout=10s]
   :if (($res->"status") = "finished") do={{
     :if ($ttLinkFail > 0) do={{ :log info ("TapTap Link: connected again after " . $ttLinkFail . " missed check-ins") }}
     :set ttLinkFail 0

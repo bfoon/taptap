@@ -39,7 +39,7 @@
     {% if agent and agent.pinned_ip %}
       <div class="alert alert-warning py-2 small mb-2"><i class="bi bi-pin-angle"></i> TapTap Link only accepts this router from <b>{{ agent.pinned_ip }}</b>.
         If the router has two internet links, it gets a different public IP when it switches to the other one — and is refused.
-        Clear <i>Only accept public IP</i> below if it uses more than one link.</div>
+        List the public IP of <b>every</b> link below, separated by commas, or clear the field.</div>
     {% endif %}
     {% if last_refusal %}
       <div class="alert alert-danger py-2 small mb-2"><i class="bi bi-shield-x"></i> <b>Last refused check-in</b> ({{ last_refusal.at }}, from {{ last_refusal.ip }}): {{ last_refusal.why }}.
@@ -105,7 +105,7 @@
     <div class="panel-head"><div><h3>Settings &amp; security</h3></div></div>
     <form method="post" action="{% url 'router_link_action' router.id %}" class="row g-2">{% csrf_token %}<input type="hidden" name="action" value="settings">
       <div class="col-6"><label class="form-label small">Check in every</label><select class="form-select form-select-sm" name="poll_seconds"><option value="10" {% if agent.poll_seconds == 10 %}selected{% endif %}>10 s</option><option value="15" {% if agent.poll_seconds == 15 %}selected{% endif %}>15 s</option><option value="30" {% if agent.poll_seconds == 30 %}selected{% endif %}>30 s</option><option value="60" {% if agent.poll_seconds == 60 %}selected{% endif %}>60 s</option></select></div>
-      <div class="col-6"><label class="form-label small">Only accept public IP <small class="text-secondary">(optional)</small></label><input class="form-control form-control-sm" name="pinned_ip" value="{{ agent.pinned_ip|default:'' }}" placeholder="{{ agent.last_ip|default:'e.g. 41.223.x.x' }}"></div>
+      <div class="col-6"><label class="form-label small">Only accept public IPs <small class="text-secondary">(optional, comma-separated — one per internet link)</small></label><input class="form-control form-control-sm" name="pinned_ip" value="{{ agent.pinned_ip|default:'' }}" placeholder="{{ agent.last_ip|default:'e.g. 41.223.x.x' }}"></div>
       <div class="col-12"><label class="form-check"><input class="form-check-input" type="checkbox" name="allow_scripts" {% if agent.allow_scripts %}checked{% endif %}> <span class="form-check-label small">Allow custom scripts from TapTap <span class="text-secondary">(off: only built-in safe commands)</span></span></label></div>
       <div class="col-12"><button class="btn btn-sm btn-primary">Save</button></div>
     </form>

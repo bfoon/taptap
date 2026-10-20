@@ -1088,7 +1088,8 @@ class RouterAgent(models.Model):
     token_hint=models.CharField(max_length=12,blank=True,help_text='First characters of the token, to recognise it')
     poll_seconds=models.PositiveSmallIntegerField(default=10)
     allow_scripts=models.BooleanField(default=False,help_text='Allow custom RouterOS scripts from TapTap (off = only the built-in safe commands)')
-    pinned_ip=models.GenericIPAddressField(null=True,blank=True,help_text='Only accept this public IP (optional)')
+    # One public IP, or several separated by commas (one per internet line on a multi-WAN router).
+    pinned_ip=models.CharField(max_length=255,null=True,blank=True,help_text='Only accept these public IPs, comma-separated (optional)')
     revoked=models.BooleanField(default=False)
     created_at=models.DateTimeField(auto_now_add=True)
     enrolled_at=models.DateTimeField(null=True,blank=True)
@@ -1109,6 +1110,15 @@ class RouterAgent(models.Model):
     def online(self):
         from datetime import timedelta
         return bool(self.last_seen_at) and not self.revoked and timezone.now()-self.last_seen_at < timedelta(seconds=max(45,self.poll_seconds*4))
+
+    def pinned_ips(self):
+        """The public IPs this Link is pinned to ([] = not pinned)."""
+        return [p.strip() for p in str(self.pinned_ip or '').replace(';', ',').split(',') if p.strip()]
+
+    def ip_allowed(self, ip):
+        """True when the Link is not pinned, or ip is one of its pinned public IPs (one per internet line)."""
+        pins = self.pinned_ips()
+        return not pins or str(ip or '').strip() in pins
 
 
 class AgentCommand(models.Model):
