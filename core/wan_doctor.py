@@ -629,13 +629,18 @@ def use_state(svc, iface):
     DHCP default route (an emergency setup), 'out' = customers do not use it."""
     checks, defaults, plain = line_routes(svc, iface)
     on = [r for r in defaults if not _yes(r.get('disabled'))]
-    active = [r for r in on if _yes(r.get('active'))]
-    if active:
+    # A Link snapshot may not carry the "active" flag; an enabled route then counts as in use.
+    live = lambda r: _yes(r.get('active')) if 'active' in r else not _yes(r.get('disabled'))
+    if any(live(r) for r in on):
         state = 'managed'
-    elif any(_yes(r.get('active')) for r in plain):
+    elif any(live(r) for r in plain):
         state = 'plain'
     else:
         state = 'out'
+        res, client, path = _client(svc, iface)
+        if path == '/ip/dhcp-client' and client and not _yes(client.get('disabled')) \
+                and _yes(client.get('add-default-route')) and _s(client.get('status')) == 'bound':
+            state = 'plain'
     return {'state': state, 'has_routes': bool(defaults), 'routes_off': len(defaults) - len(on)}
 
 
@@ -693,6 +698,180 @@ def set_in_use(svc, iface, on, lines):
     if is_dhcp and client is not None:
         res.set(id=client['id'], add_default_route='no')
     return f'{label} is out of use — customers use the other line(s). It stays connected so you can test it.'
+
+
+# ═══════════════════════════ through TapTap Link (no live connection) ═══════════════════════════
+# Each action is a queued Link command of kind "wan_doctor". Only the step and its validated
+# parameters are stored; the RouterOS text is rebuilt here when the router checks in.
+import re as _re
+
+LINK_KIND = 'wan_doctor'
+LINK_STEPS = {'turn_on', 'turn_off', 'use', 'unuse', 'refresh', 'new_mac', 'reset_mac', 'install_part', 'remove', 'run'}
+_IFACE = _re.compile(r'^[A-Za-z0-9._:-]{1,40}$')
+_MAC = _re.compile(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$')
+CHUNK = 1000                      # raw characters of the Doctor script per Link command (Link batch budget)
+
+
+def _lit(text):
+    """Text as a one-line RouterOS string literal."""
+    return '"' + str(text).replace('\\', '\\\\').replace('"', '\\"').replace('$', '\\$').replace('\r', '').replace('\n', '\\n') + '"'
+
+
+def _q(iface):
+    if not _IFACE.match(_s(iface)):
+        raise ValueError('Invalid interface.')
+    return '"' + _s(iface) + '"'
+
+
+def _link_lines(raw):
+    out = []
+    for l in (raw or [])[:MAX_LINES]:
+        _q(l.get('interface'))
+        out.append(_clean(l.get('interface'), l.get('type'), l.get('gateway'), l.get('label')))
+    if not out:
+        raise ValueError('No lines.')
+    return _assign_probes(out)
+
+
+def _chunks(text):
+    return [text[i:i + CHUNK] for i in range(0, len(text), CHUNK)] or ['']
+
+
+def link_body(p):
+    """RouterOS commands for one queued wan_doctor Link command (validated, never trusted as text)."""
+    step = _s(p.get('step'))
+    if step not in LINK_STEPS:
+        raise ValueError('Unknown Internet Doctor step.')
+    if step == 'remove':
+        return '; '.join(f':do {{ {c} }} on-error={{}}' for c in removal_commands())
+    if step == 'run':
+        return f':if ([:len [/system script find where name="{NAME}"]] > 0) do={{ /system script run {NAME} }}'
+    if step == 'install_part':
+        lines = _link_lines(p.get('lines'))
+        src = render_source(lines, bool(p.get('allow_mac', True)), _s(p.get('title'))[:40].replace('"', ''))
+        parts = _chunks(src)
+        k = int(p.get('part', 0))
+        if not 0 <= k < len(parts) or int(p.get('parts', 0)) != len(parts):
+            raise ValueError('The Internet Doctor script changed while it was being sent — turn it on again.')
+        sched = (f'/system scheduler add name={NAME} interval=1m policy=read,write,test on-event="/system script run {NAME}" '
+                 f'comment="{TAG} - checks the internet lines every minute"')
+        out = []
+        if k == 0:
+            out += [f':do {{ {c} }} on-error={{}}' for c in removal_commands()]
+            out += [':global ttdocParts 1',
+                    f'/system script add name={NAME} policy=read,write,test comment="{TAG} v{VERSION}" source={_lit(parts[0])}']
+        else:
+            out += [':global ttdocParts',
+                    f'/system script set [find where name="{NAME}"] source=([/system script get [find where name="{NAME}"] source] . {_lit(parts[k])})',
+                    ':set ttdocParts ($ttdocParts + 1)']
+        if k == len(parts) - 1:
+            out.append(f':if ($ttdocParts = {len(parts)}) do={{ {sched}; :log warning "TapTap Doctor: installed through TapTap Link" }} '
+                       f'else={{ :error "TapTap Doctor: install incomplete - turn it on again" }}')
+        return '; '.join(out)
+
+    q = _q(p.get('interface'))
+    rel = f':do {{ /ip dhcp-client release [find where interface={q}] }} on-error={{}}'
+    if step in {'turn_on', 'turn_off'}:
+        v = 'no' if step == 'turn_on' else 'yes'
+        return (f':do {{ /ip dhcp-client set [find where interface={q}] disabled={v} }} on-error={{}}; '
+                f':do {{ /interface pppoe-client set [find where name={q}] disabled={v} }} on-error={{}}')
+    if step == 'refresh':
+        return f':do {{ /ip arp remove [find where interface={q} and dynamic=yes] }} on-error={{}}; {rel}'
+    if step == 'new_mac':
+        mac = _s(p.get('mac')).upper()
+        if not _MAC.match(mac):
+            raise ValueError('Invalid MAC.')
+        return f'/interface ethernet set [find where name={q}] mac-address={mac}; :delay 2s; {rel}'
+    if step == 'reset_mac':
+        return f'/interface ethernet reset-mac-address [find where name={q}]; :delay 2s; {rel}'
+    # the line's TapTap default routes: gateway is one of its check hosts, or <gw>%<port>, or the port itself
+    mine = ('[/ip route find where dst-address=0.0.0.0/0 and dynamic=no and comment~"^TapTap" and !(comment~"^TapTap Doctor")]')
+    match = (f':local g [:tostr [/ip route get $r gateway]]; :if (([:typeof [:find $hosts $g]] = "num") || '
+             f'($g ~ ("%" . {q} . "\\$")) || ($g = {q})) do={{ ')
+    hosts = (f':local hosts [:toarray ""]; :foreach r in=[/ip route find where dynamic=no and comment~"^TapTap" and '
+             f'!(comment~"^TapTap Doctor") and dst-address~"/32" and gateway~("%" . {q} . "\\$")] do={{ '
+             + ('/ip route set $r disabled=no; ' if step == 'use' else '')
+             + ':local d [:tostr [/ip route get $r dst-address]]; :set hosts ($hosts, [:pick $d 0 [:find $d "/"]]) }')
+    if step == 'use':
+        return (f'{hosts}; :local n 0; :foreach r in={mine} do={{ {match}:local c [:tostr [/ip route get $r comment]]; '
+                f':local x [:find $c " ~doctor-off:"]; :if ([:typeof $x] = "num") do={{ :set c [:pick $c 0 $x] }}; '
+                f'/ip route set $r disabled=no comment=$c; :set n ($n + 1) }} }}; '
+                f':if ($n > 0) do={{ :do {{ /ip dhcp-client set [find where interface={q}] add-default-route=no }} on-error={{}} }} '
+                f'else={{ :do {{ /ip dhcp-client set [find where interface={q}] add-default-route=yes }} on-error={{}} }}')
+    # unuse
+    return (f'{hosts}; :foreach r in={mine} do={{ {match}/ip route set $r disabled=yes }} }}; '
+            f':do {{ /ip dhcp-client set [find where interface={q}] add-default-route=no }} on-error={{}}')
+
+
+def link_lines_state(router, setup):
+    """Lines and their state from the latest TapTap Link sync (no pings — the router is not reachable live)."""
+    from .linkops import SnapshotService
+    svc = SnapshotService(router)
+    rows = []
+    for l in lines_for(svc, setup):
+        iface = l['interface']
+        res, client, path = _client(svc, iface)
+        row = {'interface': iface, 'label': l['label'], 'type': l['type'], 'gateway': '', 'reached': [], 'missed': [],
+               'fix': '', 'mac': '', 'switchable': client is not None, 'probes': l['probes']}
+        eth = [r for r in svc.safe_get('/interface/ethernet') if _s(r.get('name')) == iface]
+        if eth:
+            row['mac'] = _s(eth[0].get('mac-address'))
+            orig = _s(eth[0].get('orig-mac-address'))
+            row['mac_changed'] = bool(orig) and orig.upper() != row['mac'].upper()
+        if client is not None and _yes(client.get('disabled')):
+            row.update(state='off', finding=f'{l["label"]} is switched off on the router.')
+        elif path == '/ip/dhcp-client' and _s(client.get('status')) != 'bound':
+            row.update(state='down', fix='refresh', finding=f'{l["label"]}: no address from the modem at the last sync ({_s(client.get("status")) or "not bound"}).')
+        else:
+            row['gateway'] = _s(client.get('gateway')) if client else l.get('gateway', '')
+            row.update(state='connected', finding=f'{l["label"]} has an address from its modem. The internet itself is only tested on the router '
+                                                  '(Internet Doctor) or over a live connection.')
+            if eth:
+                row['extra_fixes'] = ['new_mac', 'refresh']
+        row['use'] = use_state(svc, iface)
+        rows.append(row)
+    return rows
+
+
+def link_installed(router):
+    """True / False / None (unknown) from the Doctor's last Link commands."""
+    from .models import AgentCommand
+    for c in AgentCommand.objects.filter(router=router, kind=LINK_KIND).order_by('-created_at')[:40]:
+        step = (c.params or {}).get('step')
+        if step == 'remove':
+            return False if c.status in {'done', 'queued', 'sent'} else None
+        if step == 'install_part' and int((c.params or {}).get('part', -1)) == int((c.params or {}).get('parts', 0)) - 1:
+            return True if c.status in {'done', 'queued', 'sent'} else None
+    return None
+
+
+def link_pending(router):
+    from .models import AgentCommand
+    return AgentCommand.objects.filter(router=router, kind=LINK_KIND, status__in=['queued', 'sent']).count()
+
+
+def link_send(router, step, user=None, **params):
+    from .linkops import send
+    return send(router, LINK_KIND, {'step': step, **params}, label=f'Internet Doctor: {step.replace("_", " ")}'
+                + (f' {params["interface"]}' if params.get('interface') else ''), user=user, minutes=30)
+
+
+def link_install(router, lines, allow_mac=True, user=None):
+    lines = _assign_probes([dict(l) for l in lines])
+    parts = _chunks(render_source(lines, allow_mac, router.name))
+    raw = [{k: l[k] for k in ('interface', 'type', 'gateway', 'label')} for l in lines]
+    for k in range(len(parts)):
+        link_send(router, 'install_part', user=user, part=k, parts=len(parts), lines=raw, allow_mac=allow_mac, title=router.name[:40])
+    return [l['interface'] for l in lines], len(parts)
+
+
+def _wrap_command_body(original):
+    @wraps(original)
+    def command_body(cmd):
+        if cmd.kind == LINK_KIND:
+            return link_body(cmd.params or {})
+        return original(cmd)
+    return command_body
 
 
 # ═══════════════════════════ hooks into Internet Lines ═══════════════════════════
@@ -797,6 +976,12 @@ def install():
     wan.undo = _wrap_undo(wan.undo)
     wan.render_undo = _wrap_render_undo(wan.render_undo)
     wan.render_script = _wrap_render_script(wan.render_script)
+    try:   # TapTap Link: a "wan_doctor" command kind for routers without a live connection
+        from . import agent
+        agent.SAFE_KINDS.add(LINK_KIND)
+        agent.command_body = _wrap_command_body(agent.command_body)
+    except Exception as exc:
+        logger.warning('Internet Doctor: Link commands not available (%s)', exc)
     try:
         from . import fit_tools
         fit_tools.TOOLS['internet_doctor'] = (

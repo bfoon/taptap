@@ -39,13 +39,14 @@
     <section class="step doc" id="doctor"><header><span class="n"><i class="bi bi-heart-pulse"></i></span><div><h3>Internet Doctor</h3><p>Checks every line from the router itself and fixes a modem that answers while the internet doesn’t get through (for example a Starlink holding back the router) — even when TapTap can’t reach the router. Switch a line on or off and put it in or out of use from here too.</p></div></header>
       <div class="doc-state" id="docState"><span class="spinner-border spinner-border-sm"></span> Reading the Doctor’s state on {{ router.name }}…</div>
       <div class="d-flex gap-2 flex-wrap align-items-center mt-2">
-        <button class="btn btn-sm btn-primary" id="docCheck"><i class="bi bi-activity"></i> Check my lines now</button>
+        <button class="btn btn-sm btn-primary" id="docCheck" disabled><i class="bi bi-activity"></i> Check my lines now</button>
         <button class="btn btn-sm btn-outline-success" id="docToggle" hidden></button>
         <label class="chk small d-flex gap-1 align-items-center" id="docMacWrap" hidden><input type="checkbox" id="docMac" checked> Allow a new MAC address when a modem holds the router back</label>
         <div class="dropdown ms-auto"><button class="btn btn-sm btn-light dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-terminal"></i> Script</button><ul class="dropdown-menu dropdown-menu-end">
           <li><a class="dropdown-item" href="{% url 'wan_doctor_script' router.id %}?kind=install">Download Doctor script (.rsc)</a></li>
           <li><a class="dropdown-item" href="{% url 'wan_doctor_script' router.id %}?kind=remove">Download remove script (.rsc)</a></li></ul></div>
       </div>
+      <div id="docMsgs"></div>
       <div id="docResult"></div>
       <details class="mt-2" id="docHow"><summary class="small fw-bold text-secondary">What it does when a line breaks</summary><ul class="small text-secondary mb-0 mt-2" id="docSteps"></ul></details>
       <div id="docRecent"></div>

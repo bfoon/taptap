@@ -6,7 +6,7 @@
 .doc-head{font-weight:800;font-size:.92rem;margin:.9rem 0 .5rem}
 .doc-line{border:1px solid var(--border);border-radius:14px;padding:.7rem .85rem;margin-bottom:.5rem;display:flex;gap:.75rem;align-items:flex-start}
 .doc-line .dot{width:12px;height:12px;border-radius:50%;flex:none;margin-top:.3rem}
-.doc-line.ok .dot{background:#22b07d}.doc-line.holding .dot{background:#e79b00}.doc-line.down .dot,.doc-line.error .dot{background:#e5484d}.doc-line.off .dot{background:#b8c2cc}
+.doc-line.ok .dot{background:#22b07d}.doc-line.connected .dot{background:#3b82f6}.doc-line.holding .dot{background:#e79b00}.doc-line.down .dot,.doc-line.error .dot{background:#e5484d}.doc-line.off .dot{background:#b8c2cc}
 .doc-line.holding{background:#fffaf0;border-color:#f3d38f}.doc-line.down{background:#fff6f5;border-color:#f4c3bd}
 .doc-line .body{flex:1;min-width:0}.doc-line .t{font-weight:700;font-size:.9rem}.doc-line .t small{font-weight:600;color:var(--muted)}
 .doc-line .use{font-size:.7rem;font-weight:800;border-radius:99px;padding:.15rem .5rem;margin-left:.3rem;white-space:nowrap}
