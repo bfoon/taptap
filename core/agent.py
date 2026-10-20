@@ -1481,11 +1481,22 @@ def ingest_sessions(router, rows, now):
         SessionIncident.objects.filter(pk__in=ended).update(status='ended', fixed_at=now, fixed_by='router')
 
 
+def _already_pending(router, kind, **params):
+    """True when the same command is still waiting for (or on its way to) the router."""
+    q = AgentCommand.objects.filter(router=router, kind=kind, status__in=['queued', 'sent'])
+    return q.filter(**{f'params__{k}': v for k, v in params.items()}).exists()
+
+
 def fix_incident_via_link(inc, user=None, by='user'):
     from .live import push_event
     from .notify import notify
-    queue(inc.router, 'disconnect', {'user': inc.username}, label=f'Disconnect {inc.username}', minutes=10)
-    queue(inc.router, 'hotspot_user_set', {'name': inc.username, 'disabled': True}, label=f'Disable voucher {inc.username}', minutes=60)
+    # While the router has not picked up the last disconnect/disable yet, the session is still reported
+    # active and a new incident is opened at every heartbeat. Queue each command only once — copies
+    # added every 10 seconds piled up at the front of the queue and held back everything else.
+    if not _already_pending(inc.router, 'disconnect', user=inc.username):
+        queue(inc.router, 'disconnect', {'user': inc.username}, label=f'Disconnect {inc.username}', minutes=10)
+    if not _already_pending(inc.router, 'hotspot_user_set', name=inc.username, disabled=True):
+        queue(inc.router, 'hotspot_user_set', {'name': inc.username, 'disabled': True}, label=f'Disable voucher {inc.username}', minutes=60)
     if inc.voucher_id:
         new_status = 'expired' if inc.reason == 'expired' else 'disabled'
         v = Voucher.objects.filter(pk=inc.voucher_id).first()
