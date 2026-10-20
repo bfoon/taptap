@@ -41,6 +41,18 @@ def _is_ip(v):
         return False
 
 
+def gw_on_port(l):
+    """The line's gateway tied to its own port, e.g. 192.168.1.1%ether1.
+
+    Two Starlinks (or any two modems of the same brand) usually hand out the same gateway, 192.168.1.1.
+    A bare 192.168.1.1 then resolves through whichever port RouterOS picks first, so both lines' health
+    checks and routes silently use the same modem. %port keeps every line on its own port.
+    PPPoE lines are already named by their interface."""
+    if l.get('type') == 'pppoe':
+        return l['gateway']
+    return f"{l['gateway']}%{l['interface']}"
+
+
 def safe_name(iface):
     return re.sub(r'[^A-Za-z0-9_-]', '-', _s(iface))[:40] or 'wan'
 
@@ -245,10 +257,10 @@ def build_plan(cfg, facts, run=None):
         # With health checks each line reaches the internet "through" its own check host (recursive route):
         # if that host stops answering through this line, the route goes inactive and traffic moves on.
         if health:
-            route(f'{l["check"]}/32', l['gateway'], tbl=tbl, scope=10, note=f'check {l["check"]} via {l["label"]}', gw_marker=gwm(l))
+            route(f'{l["check"]}/32', gw_on_port(l), tbl=tbl, scope=10, note=f'check {l["check"]} via {l["label"]}', gw_marker=gwm(l))
             route('0.0.0.0/0', l['check'], tbl=tbl, distance=distance, target=11, check=True, note=note)
         else:
-            route('0.0.0.0/0', l['gateway'], tbl=tbl, distance=distance, check=l['type'] != 'pppoe', note=note, gw_marker=gwm(l))
+            route('0.0.0.0/0', gw_on_port(l), tbl=tbl, distance=distance, check=l['type'] != 'pppoe', note=note, gw_marker=gwm(l))
 
     mangle = lambda f, note: B['mangle'].append({'op': 'add', 'path': '/ip/firewall/mangle', 'fields': {**f, 'comment': c(note)}, 'group': 'mangle'})
 
@@ -273,8 +285,8 @@ def build_plan(cfg, facts, run=None):
         else:    # v6: one route listing every gateway
             for l in links:
                 if health:
-                    route(f'{l["check"]}/32', l['gateway'], scope=10, note=f'check {l["check"]} via {l["label"]}', gw_marker=gwm(l))
-            route('0.0.0.0/0', ','.join(l['check'] if health else l['gateway'] for l in links), distance=1,
+                    route(f'{l["check"]}/32', gw_on_port(l), scope=10, note=f'check {l["check"]} via {l["label"]}', gw_marker=gwm(l))
+            route('0.0.0.0/0', ','.join(l['check'] if health else gw_on_port(l) for l in links), distance=1,
                   target=11 if health else None, check=True, note='combined lines')
     else:        # failover chain — also the safety net for balance / split
         for i, l in enumerate(links):
@@ -289,7 +301,7 @@ def build_plan(cfg, facts, run=None):
                 for i, x in enumerate([l] + [o for o in links if o is not l]):
                     default_via(x, i + 1, tbl=t, note=f'{t}: {"own line" if i == 0 else "fallback " + str(i)} {x["label"]}')
             else:              # failover / ecmp: table only carries replies for connections that arrived on this line
-                route('0.0.0.0/0', l['gateway'], tbl=t, distance=1, check=l['type'] != 'pppoe', note=f'{t}: replies via {l["label"]}', gw_marker=gwm(l))
+                route('0.0.0.0/0', gw_on_port(l), tbl=t, distance=1, check=l['type'] != 'pppoe', note=f'{t}: replies via {l["label"]}', gw_marker=gwm(l))
 
     # ── marks ──
     if multi:
@@ -354,7 +366,7 @@ def build_plan(cfg, facts, run=None):
 
 def dhcp_script(iface):
     return (f':if ($bound=1) do={{/ip route set [find where comment~"^{TAG}" and comment~"gw={iface};"] '
-            f'gateway=$"gateway-address"}} # {TAG}')
+            f'gateway=($"gateway-address" . "%{iface}")}} # {TAG}')
 
 
 # ═══════════════════════════ script rendering ═══════════════════════════
@@ -620,7 +632,7 @@ def health(svc, cfg):
     out = []
     for l in cfg.get('links', []):
         mine = [r for r in routes if _s(r.get('comment')).startswith(TAG) and _s(r.get('dst-address')) == '0.0.0.0/0'
-                and (l['check'] == _s(r.get('gateway')) or l['gateway'] == _s(r.get('gateway')) or l['check'] in _s(r.get('gateway')).split(','))
+                and (_s(r.get('gateway')) in {l['check'], l['gateway'], gw_on_port(l)} or l['check'] in _s(r.get('gateway')).split(','))
                 and _s(r.get('routing-table') or r.get('routing-mark') or 'main') == 'main']
         active = any(_s(r.get('active')).lower() in {'true', 'yes'} for r in mine)
         p = ping(svc, l['check'])
