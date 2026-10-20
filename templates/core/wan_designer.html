@@ -1,6 +1,6 @@
 {% extends 'core/base.html' %}{% load static %}
 {% block title %}Internet lines — {{ router.name }}{% endblock %}{% block heading %}Internet lines · {{ router.name }}{% endblock %}
-{% block extra_head %}<link href="{% static 'css/wan.css' %}" rel="stylesheet">{% endblock %}
+{% block extra_head %}<link href="{% static 'css/wan.css' %}" rel="stylesheet"><link href="{% static 'css/wan-doctor.css' %}" rel="stylesheet">{% endblock %}
 {% block content %}
 <div class="wan-now"><span class="pill" id="nowMethod">{{ current.method|default:'Checking…' }}</span><p id="nowDesc">{{ current.description|default:'Reading how this router reaches the internet right now.' }}</p>
   <a class="btn btn-sm btn-light" href="{% url 'router_control' router.id %}"><i class="bi bi-sliders"></i> Router control</a></div>
@@ -35,6 +35,21 @@
       <p class="small text-secondary mt-2 mb-0" id="applyNote">With the safety timer on, the router puts everything back by itself if you don’t confirm — so a mistake can’t lock you out for good.</p>
       <div class="script-box" id="script" hidden></div>
     </section>
+
+    <section class="step doc" id="doctor"><header><span class="n"><i class="bi bi-heart-pulse"></i></span><div><h3>Internet Doctor</h3><p>Checks every line from the router itself. When a modem answers but the internet doesn’t get through (for example a Starlink holding back the router), it fixes it — even when TapTap can’t reach the router.</p></div></header>
+      <div class="doc-state" id="docState"><span class="spinner-border spinner-border-sm"></span> Reading the Doctor’s state on {{ router.name }}…</div>
+      <div class="d-flex gap-2 flex-wrap align-items-center mt-2">
+        <button class="btn btn-sm btn-primary" id="docCheck"><i class="bi bi-activity"></i> Check my lines now</button>
+        <button class="btn btn-sm btn-outline-success" id="docToggle" hidden></button>
+        <label class="chk small d-flex gap-1 align-items-center" id="docMacWrap" hidden><input type="checkbox" id="docMac" checked> Allow a new MAC address when a modem holds the router back</label>
+        <div class="dropdown ms-auto"><button class="btn btn-sm btn-light dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-terminal"></i> Script</button><ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item" href="{% url 'wan_doctor_script' router.id %}?kind=install">Download Doctor script (.rsc)</a></li>
+          <li><a class="dropdown-item" href="{% url 'wan_doctor_script' router.id %}?kind=remove">Download remove script (.rsc)</a></li></ul></div>
+      </div>
+      <div id="docResult"></div>
+      <details class="mt-2" id="docHow"><summary class="small fw-bold text-secondary">What it does when a line breaks</summary><ul class="small text-secondary mb-0 mt-2" id="docSteps"></ul></details>
+      <div id="docRecent"></div>
+    </section>
   </div>
 
   <div class="col-xl-5">
@@ -45,5 +60,6 @@
 </div>
 {{ state|json_script:"wanState" }}
 <script id="wanUrls" type="application/json">{"detect":"{% url 'wan_detect' router.id %}","preview":"{% url 'wan_preview' router.id %}","apply":"{% url 'wan_apply' router.id %}","confirm":"{% url 'wan_confirm' router.id %}","undo":"{% url 'wan_undo' router.id %}","status":"{% url 'wan_status' router.id %}","router":"{{ router.name|escapejs }}"}</script>
+<script id="doctorUrls" type="application/json">{"status":"{% url 'wan_doctor_status' router.id %}","check":"{% url 'wan_doctor_check' router.id %}","install":"{% url 'wan_doctor_install' router.id %}","remove":"{% url 'wan_doctor_remove' router.id %}","fix":"{% url 'wan_doctor_fix' router.id %}","router":"{{ router.name|escapejs }}"}</script>
 {% endblock %}
-{% block scripts %}<script src="{% static 'js/wan-designer.js' %}"></script>{% endblock %}
+{% block scripts %}<script src="{% static 'js/wan-designer.js' %}"></script><script src="{% static 'js/wan-doctor.js' %}"></script>{% endblock %}

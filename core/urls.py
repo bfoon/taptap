@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views, views_business as vb, views_studio as vs, views_wan as vw, views_agents as va, views_auth
+from . import views_wan_doctor as vdoc
 
 from . import views_help as vhelp
 from . import views_ads, views_ports, views_live, views_traffic, views_missing, views_link
@@ -70,6 +71,10 @@ urlpatterns = [
     path('routers/<int:pk>/internet/preview/',vw.wan_preview,name='wan_preview'), path('routers/<int:pk>/internet/apply/',vw.wan_apply,name='wan_apply'),
     path('routers/<int:pk>/internet/confirm/',vw.wan_confirm,name='wan_confirm'), path('routers/<int:pk>/internet/undo/',vw.wan_undo,name='wan_undo'),
     path('routers/<int:pk>/internet/status/',vw.wan_status,name='wan_status'), path('routers/<int:pk>/internet/script/',vw.wan_script,name='wan_script'),
+    # Internet Doctor: checks every line from the router and fixes "modem answers, internet doesn't" (core/wan_doctor.py)
+    path('routers/<int:pk>/internet/doctor/',vdoc.doctor_status,name='wan_doctor_status'), path('routers/<int:pk>/internet/doctor/check/',vdoc.doctor_check,name='wan_doctor_check'),
+    path('routers/<int:pk>/internet/doctor/install/',vdoc.doctor_install,name='wan_doctor_install'), path('routers/<int:pk>/internet/doctor/remove/',vdoc.doctor_remove,name='wan_doctor_remove'),
+    path('routers/<int:pk>/internet/doctor/fix/',vdoc.doctor_fix,name='wan_doctor_fix'), path('routers/<int:pk>/internet/doctor/script/',vdoc.doctor_script,name='wan_doctor_script'),
     # Agents, agent batches and one-off vouchers
     path('vouchers/single/',va.single_voucher,name='single_voucher'), path('vouchers/<int:pk>/card/',va.voucher_card,name='voucher_card'),
     path('batches/<int:pk>/assign/',va.batch_assign,name='batch_assign'), path('finance/agents/<int:pk>/',va.agent_detail,name='agent_detail'), path('finance/agents/<int:pk>/qr/',va.agent_portal_rotate,name='agent_portal_rotate'), path('finance/agents/<int:pk>/log/',va.agent_log_action,name='agent_log_action'), path('finance/agents/<int:pk>/order-plans/',va.agent_order_plans,name='agent_order_plans'), path('finance/agents/<int:pk>/checker-phone/',va.agent_portal_phone,name='agent_portal_phone'),

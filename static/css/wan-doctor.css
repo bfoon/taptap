@@ -1,0 +1,24 @@
+/* Internet Doctor card (Internet lines page) */
+.step.doc>header .n{background:#0f9d6b}
+.doc-state{font-size:.86rem;color:var(--muted);display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.doc-state .pill{font-size:.72rem;font-weight:800;border-radius:99px;padding:.25rem .6rem}
+.doc-state .pill.on{background:#e9f8f0;color:#137a4f}.doc-state .pill.off{background:#f1f3f6;color:#5b6b7c}.doc-state .pill.link{background:#fff7e6;color:#8a5a00}
+.doc-head{font-weight:800;font-size:.92rem;margin:.9rem 0 .5rem}
+.doc-line{border:1px solid var(--border);border-radius:14px;padding:.7rem .85rem;margin-bottom:.5rem;display:flex;gap:.75rem;align-items:flex-start}
+.doc-line .dot{width:12px;height:12px;border-radius:50%;flex:none;margin-top:.3rem}
+.doc-line.ok .dot{background:#22b07d}.doc-line.holding .dot{background:#e79b00}.doc-line.down .dot,.doc-line.error .dot{background:#e5484d}.doc-line.off .dot{background:#b8c2cc}
+.doc-line.holding{background:#fffaf0;border-color:#f3d38f}.doc-line.down{background:#fff6f5;border-color:#f4c3bd}
+.doc-line .body{flex:1;min-width:0}.doc-line .t{font-weight:700;font-size:.9rem}.doc-line .t small{font-weight:600;color:var(--muted)}
+.doc-line .f{font-size:.84rem;color:#4d6075;margin:.15rem 0 0}
+.doc-line .probes{font-size:.75rem;color:var(--muted);margin-top:.25rem;font-variant-numeric:tabular-nums}
+.doc-line .acts{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem}
+.doc-msg{font-size:.84rem;border-radius:12px;padding:.55rem .75rem;margin-top:.6rem}
+.doc-msg.good{background:#e9f8f0;color:#137a4f}.doc-msg.bad{background:#fdecea;color:#a3262a}
+.doc-recent{margin-top:.8rem}.doc-recent h4{font-size:.8rem;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:0 0 .35rem}
+.doc-recent li{font-size:.8rem;color:#4d6075;padding:.15rem 0}.doc-recent li b{font-variant-numeric:tabular-nums;color:var(--muted);font-weight:600;margin-right:.4rem}
+@media (prefers-color-scheme: dark){
+  .doc-line{border-color:#2b3644}.doc-line .f,.doc-recent li{color:#b9c6d3}
+  .doc-line.holding{background:#2c2410;border-color:#6b5410}.doc-line.down{background:#2c1516;border-color:#6b2a2c}
+  .doc-state .pill.on{background:#123527;color:#7fe0b4}.doc-state .pill.off{background:#253140;color:#b9c6d3}.doc-state .pill.link{background:#33290f;color:#f3cf7a}
+  .doc-msg.good{background:#123527;color:#7fe0b4}.doc-msg.bad{background:#3a1718;color:#ffb3b5}
+}
