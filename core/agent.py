@@ -1031,24 +1031,27 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
 
 
 def push_pending_vouchers(router, limit=25):
-    """Queue TapTap vouchers the router does not have yet."""
-    from .durations import router_limit
-    from .sync import voucher_profile
-    if AgentCommand.objects.filter(router=router, kind='hotspot_users', status__in=['queued', 'sent']).exists():
+    """Queue TapTap vouchers the router does not have yet (newest first: the voucher just sold is the one a
+    customer is waiting for)."""
+    from .voucher_fastlane import release_stuck, user_row
+    try:
+        release_stuck(router)          # 'Queued' vouchers no command carries any more are sent again
+    except Exception as exc:
+        logger.info('stuck voucher check %s: %s', router, exc)
+    # Only a batch still WAITING here holds the next one back (it goes out at this very check-in). A batch the
+    # router already has used to hold every new voucher back until it answered — up to 5 minutes, or for good.
+    if AgentCommand.objects.filter(router=router, kind='hotspot_users', status='queued').exists():
         return 0
     todo = list(router.vouchers.filter(source='taptap').exclude(mikrotik_sync_status__in=['Synced', 'Queued'])
-                .exclude(status__in=['expired', 'archived'])[:limit])   # vouchers that are over are never re-sent
+                .exclude(status__in=['expired', 'archived']).order_by('-pk')[:limit])   # vouchers that are over are never re-sent
     if not todo:
         return 0
+    plans = {p.name.lower(): p for p in router.business.plans.all()}
     users, profiles = [], {}
     for v in todo:
-        plan = router.business.plans.filter(name__iexact=v.plan_name).first()
-        prof, shared, rate = voucher_profile(v, plan)
-        profiles[prof] = {'name': prof, 'shared': shared, 'rate': rate}
-        row = {'n': v.code, 'prof': prof, 'lim': router_limit(v), 'dis': v.status != 'active',
-               'c': f'TapTap member {v.code}' if v.is_member else f'TapTap voucher {v.code}'}
-        if v.is_member:
-            row['pw'] = v.login_password   # set on add and on update (password changes)
+        # same row as every other path: the plan's time/devices, and frozen or deleted vouchers stay disabled
+        row, prof = user_row(v, plans.get((v.plan_name or '').lower()))
+        profiles[prof['name']] = prof
         users.append(row)
     from .sticky import profile_values
     queue(router, 'hotspot_users', {'users': users, 'profiles': list(profiles.values()), 'ids': [v.pk for v in todo], 'sticky': profile_values(router.business)},
@@ -1320,6 +1323,16 @@ def auto_sync(router, first=False):
         enqueue_router_sync(router)
 
 
+def _release_voucher_batches(cmds, why):
+    """Vouchers of a hotspot_users batch that will never be confirmed go back to Pending — before this they
+    stayed 'Queued' for good, push_pending_vouchers() skipped them, and the router never got those codes."""
+    ids = [i for c in cmds if c.kind == 'hotspot_users' for i in ((c.params or {}).get('ids') or [])]
+    if ids:
+        from .voucher_fastlane import release_ids, unclaim
+        release_ids(ids, why)
+        unclaim(ids)
+
+
 def build_response(router, url):
     """Return the next batch of commands, but only once the previous batch is acknowledged.
 
@@ -1332,29 +1345,45 @@ def build_response(router, url):
     expiring = list(AgentCommand.objects.filter(router=router, status__in=['queued', 'sent'], expires_at__lt=now))
     if expiring:
         AgentCommand.objects.filter(pk__in=[c.pk for c in expiring]).update(status='expired', done_at=now)
+        _release_voucher_batches(expiring, 'The batch expired before the router confirmed it — sending again')
         for cmd in expiring:
             if cmd.kind == 'inventory_piece' and not (cmd.params or {}).get('received'):
                 cmd.status, cmd.result = 'expired', 'Expired before the router answered'
                 unanswered.append(cmd)
     for cmd in AgentCommand.objects.filter(router=router, status='sent'):
         if cmd.sent_at and (now - cmd.sent_at).total_seconds() > ACK_WAIT.get(cmd.kind, 120):
-            if cmd.kind in NEVER_RESEND:
+            if (cmd.params or {}).get('superseded'):
+                # A newer voucher change replaced it (core/voucher_fastlane.py): sending it again would undo that.
+                AgentCommand.objects.filter(pk=cmd.pk).update(status='cancelled', result='Replaced by a newer voucher change', done_at=now)
+                _release_voucher_batches([cmd], 'Replaced by a newer change — sending the current state')
+            elif cmd.kind in NEVER_RESEND:
                 AgentCommand.objects.filter(pk=cmd.pk).update(status='done', result='Sent once (never re-sent)', done_at=now)
             elif cmd.attempts < 2:
                 AgentCommand.objects.filter(pk=cmd.pk).update(status='queued')
             else:
                 AgentCommand.objects.filter(pk=cmd.pk).update(status='failed', result='No answer from the router', done_at=now)
+                _release_voucher_batches([cmd], 'The router never answered — sending again')
                 if cmd.kind == 'inventory_piece':
                     cmd.status, cmd.result = 'failed', 'No answer from the router'
                     unanswered.append(cmd)
     if unanswered:
         from .agent_inventory import note_unanswered
         note_unanswered(router, unanswered)
-    if AgentCommand.objects.filter(router=router, status='sent', sent_at__gte=now - timedelta(seconds=BATCH_GAP)).exists():
-        return ''  # give the router a moment to finish the last batch (never longer than BATCH_GAP)
+    in_flight = AgentCommand.objects.filter(router=router, status='sent', sent_at__gte=now - timedelta(seconds=BATCH_GAP))
+    voucher_only = False
+    if in_flight.exists():
+        if in_flight.filter(kind__in=VOUCHER_KINDS).exists():
+            return ''  # give the router a moment to finish the last batch (never longer than BATCH_GAP)
+        # Voucher fast lane: a sync piece or other slow job is still running on the router, but a customer is
+        # waiting on a voucher change. Voucher commands are tiny and go now; the rest waits as before.
+        # Voucher commands still travel one batch at a time, so their order on the router is kept.
+        voucher_only = True
     from .agent_inventory import send_function
     parts, size, helper = [], 0, False
-    for cmd in AgentCommand.objects.filter(router=router, status='queued').annotate(prio=delivery_order()).order_by('prio', 'created_at')[:40]:
+    pending = AgentCommand.objects.filter(router=router, status='queued')
+    if voucher_only:
+        pending = pending.filter(kind__in=VOUCHER_KINDS)
+    for cmd in pending.annotate(prio=delivery_order()).order_by('prio', 'created_at')[:40]:
         if cmd.kind in ('reboot', 'self_update') and parts:
             break  # these always travel alone
         try:

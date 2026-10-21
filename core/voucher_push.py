@@ -60,11 +60,16 @@ def push_now(router, voucher_ids):
 def push_vouchers(vouchers, user=None):
     """Send just these vouchers to their routers. Returns {router: message}."""
     from .models import Voucher
-    by_router = {}
+    from .voucher_fastlane import claim
+    by_router, already = {}, {}
     for v in vouchers:
         if v.router_id and v.source == 'taptap' and v.status not in ('expired', 'archived'):
-            by_router.setdefault(v.router, []).append(v.pk)
-    out = {}
+            if claim(v):
+                by_router.setdefault(v.router, []).append(v.pk)
+            else:       # this exact state was sent by the voucher fast lane a moment ago
+                already.setdefault(v.router, 0)
+                already[v.router] += 1
+    out = {r: f'{n} voucher(s) already on their way to {r.name}' for r, n in already.items() if r not in by_router}
     for router, ids in by_router.items():
         Voucher.objects.filter(pk__in=ids).update(mikrotik_sync_status='Pending', mikrotik_sync_error='')
         if _on_link(router):
@@ -73,6 +78,9 @@ def push_vouchers(vouchers, user=None):
             out[router] = f'{len(ids)} voucher(s) going to {router.name} with its next check-ins'
             continue
         try:
+            from django.conf import settings
+            if getattr(settings, 'CELERY_TASK_ALWAYS_EAGER', False):
+                raise RuntimeError('no worker')
             from .tasks import push_vouchers_task
             push_vouchers_task.delay(router.pk, ids)
             out[router] = f'{len(ids)} voucher(s) being sent to {router.name}'

@@ -259,11 +259,16 @@ def reset_devices(voucher, user=None, reason=''):
     """Free every device slot of a sticky voucher: the next devices to log in are locked instead.
     Only people with voucher-support rights reach this (owner, admin, voucher support)."""
     from . import device_lock
+    from .voucher_fastlane import heal
+    before = voucher.status
     macs = device_lock.release_all(voucher)
-    device_lock.unlock_on_router(voucher)     # clear the router-side MAC lock and its MAC cookies
-    via, result, ok = _router_apply(voucher, 'reset', user=user)
-    record(voucher, 'mac_reset', user=user, reason=reason, via=via, router_result=result,
-           status_before=voucher.status, status_after=voucher.status, devices_removed=macs or None)
+    # The full reset (core/voucher_fastlane.py): forget old devices, lift a warning, unblock locked-out phones,
+    # cancel stale router commands and set the router user exactly right — not just "remove the session".
+    via, result, ok, notes = heal(voucher, user=user, reason=reason, released_macs=macs)
+    if notes:
+        result = (result + ' · ' if result else '') + '; '.join(notes)
+    record(voucher, 'mac_reset', user=user, reason=reason, via=via, router_result=result[:255],
+           status_before=before, status_after=voucher.status, devices_removed=macs or None)
     return ok, result
 
 

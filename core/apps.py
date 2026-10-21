@@ -75,4 +75,5 @@ class CoreConfig(AppConfig):
         _install_optional("investors")
         _install_optional("router_assign")
         _install_optional("wan_doctor")      # Internet Doctor: hooks Internet Lines apply/undo/script and adds a Fit tool
+        _install_optional("voucher_fastlane")   # voucher changes reach the router at once; newest Link command wins; real reset
         _install_optional("fit_monitors")   # last: wraps device_lock.claim() outside every other rule

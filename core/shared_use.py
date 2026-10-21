@@ -108,9 +108,9 @@ def resolve(voucher, action, user=None, note=''):
         _review(voucher, 'warned', user, note)
         msgs += vf.summary_messages(out, 'warned — the customer must accept the warning to continue')
     elif action == 'reset':
+        # reset_devices → voucher_fastlane.heal(): forgets the devices, records the review and lifts the warning
         ok, result = vh.reset_devices(voucher, user=user, reason=note or what)
-        forget(voucher)
-        _review(voucher, 'reset', user, note)
+        forget(voucher)          # also when a permanent-device guard refused the reset: counting starts fresh
         msgs.append(('success' if ok else 'warning', f'{voucher.code}: devices reset — the next devices to log in are counted fresh. {result}'))
     elif action == 'freeze':
         if voucher.frozen_at:

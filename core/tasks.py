@@ -189,7 +189,13 @@ def chat_email_missed():
     return email_missed()
 
 
-@shared_task(ignore_result=True, queue="live")      # vouchers first: never wait behind a full sync on the busy default worker
+# Vouchers first: their own queue and worker ("vouchers" in docker-compose.yml), so a voucher change never
+# waits behind a full sync (default worker) or the all-router live loop ("live" worker). The live worker also
+# listens to "vouchers", so nothing is stranded where the dedicated worker is not deployed yet.
+VOUCHER_QUEUE = "vouchers"
+
+
+@shared_task(ignore_result=True, queue=VOUCHER_QUEUE)
 def push_vouchers_task(router_id, voucher_ids):
     """Send only these vouchers to one router (no full sync)."""
     from .models import Router
@@ -199,7 +205,7 @@ def push_vouchers_task(router_id, voucher_ids):
         return push_now(router, voucher_ids)
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, queue=VOUCHER_QUEUE)
 def forget_mac_task(voucher_id, mac):
     """Remove a locked phone's old MAC (session + cookie) from the router after it changed MAC."""
     from .device_lock import forget_mac_now

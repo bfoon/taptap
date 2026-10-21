@@ -54,13 +54,26 @@ services:
     volumes:
       - static_volume:/app/staticfiles
 
+  vouchers:
+    # Voucher fast lane: pushes new/changed vouchers to Direct API / Tunnel routers the moment they change.
+    # Nothing else runs here, so a voucher never waits behind a full sync or the live loop.
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    entrypoint: ["sh", "-c", "until python manage.py migrate --check >/dev/null 2>&1; do echo 'vouchers: waiting for database migrations...'; sleep 5; done; exec celery -A config worker -Q vouchers -n vouchers@%h --concurrency=${VOUCHER_WORKER_CONCURRENCY:-2} --loglevel=INFO"]
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   live:
     # Scheduler + live-sync worker: checks every router every LIVE_WATCH_SECONDS (default 15).
     build: .
     restart: unless-stopped
     env_file: .env
     # Waits until the database is fully migrated so it never runs new code against an old schema.
-    entrypoint: ["sh", "-c", "until python manage.py migrate --check >/dev/null 2>&1; do echo 'live: waiting for database migrations...'; sleep 5; done; exec celery -A config worker -Q live -B --concurrency=2 --loglevel=INFO --schedule=/tmp/celerybeat-schedule"]
+    entrypoint: ["sh", "-c", "until python manage.py migrate --check >/dev/null 2>&1; do echo 'live: waiting for database migrations...'; sleep 5; done; exec celery -A config worker -Q live,vouchers -B --concurrency=2 --loglevel=INFO --schedule=/tmp/celerybeat-schedule"]
     depends_on:
       db:
         condition: service_healthy
