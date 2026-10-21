@@ -86,6 +86,14 @@
     $('#docResult').innerHTML = html;
   }
 
+  function staleNote() {
+    var L = D.link || {};
+    if (!D.viaLink || !(L.stale || []).length) return '';
+    return '<div class="doc-msg bad"><b>Out of date:</b> TapTap’s copy of this router’s ' + esc(L.stale.join(' and ')) + ' did not arrive in the last syncs (' +
+      L.stale.map(function (n) { return esc(n) + ': ' + esc((L.tables || {})[n] || 'unknown'); }).join(', ') +
+      '). The states below may be old — press “Refresh from router”. Switching lines and putting them in or out of use wait until it is fresh.</div>';
+  }
+
   function linkHeadline(lines) {
     var idle = (lines || []).filter(function (l) { return l.state === 'connected' && (l.use || {}).state === 'out'; });
     if (idle.length) return idle.map(function (l) { return l.label; }).join(', ') + ' is connected but customers don’t use it — press “Put in use”.';
@@ -95,7 +103,7 @@
   function applyStatus(d) {
     D.viaLink = !!d.via_link; D.installed = d.installed; D.link = d.link || null;
     renderState();
-    if (D.viaLink) renderLines(linkHeadline(d.lines_state), d.lines_state);
+    if (D.viaLink) { renderLines(linkHeadline(d.lines_state), d.lines_state); $('#docResult').insertAdjacentHTML('afterbegin', staleNote()); }
     renderRecent(d.recent);
   }
 

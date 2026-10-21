@@ -22,7 +22,9 @@ def _link_info(router):
     from .models import RouterConfigSnapshot
     snap = RouterConfigSnapshot.objects.filter(router=router).first()
     when = snap.captured_at if snap else None
-    return {'synced': f'{timesince(when)} ago' if when else 'never', 'pending': doc.link_pending(router)}
+    fresh = doc.link_freshness(router)
+    return {'synced': f'{timesince(when)} ago' if when else 'never', 'pending': doc.link_pending(router),
+            'tables': fresh['tables'], 'stale': fresh['stale']}
 
 
 def _link_status(router):
@@ -232,6 +234,11 @@ def _link_fix(request, router, iface, step):
     line = next((l for l in lines if l['interface'] == iface), None)
     if not line:
         return JsonResponse({'success': False, 'message': f'{iface} is not one of this router’s internet lines.'}, status=400)
+    stale = doc.link_freshness(router)['stale']
+    if stale and step in {'turn_off', 'unuse', 'use'}:
+        return JsonResponse({'success': False, 'message': 'TapTap’s copy of this router’s ' + ' and '.join(stale) + ' is out of date, so it cannot '
+                             'tell safely which line customers use. Press “Refresh from router” and try again when the warning is gone '
+                             '— or do it in the router’s terminal.'}, status=409)
     others = [l['label'] for l in lines if l['interface'] != iface and doc.use_state(snap, l['interface'])['state'] != 'out']
     if step in {'turn_off', 'unuse'} and not others:
         return JsonResponse({'success': False, 'message': f'{line["label"]} is the only line customers use — that would cut the internet '

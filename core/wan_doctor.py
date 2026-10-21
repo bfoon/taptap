@@ -833,6 +833,36 @@ def link_lines_state(router, setup):
     return rows
 
 
+LINK_TABLES = {'/ip/dhcp-client': 'DHCP clients', '/ip/route': 'routes', '/interface/ethernet': 'Ethernet ports'}
+STALE_MINUTES = 15
+
+
+def link_freshness(router):
+    """When each table the Doctor relies on last arrived through TapTap Link. A full sync sends its tables one
+    by one; when one does not get through, TapTap keeps the old copy — this says which ones are old."""
+    from datetime import datetime
+    from django.utils import timezone
+    from django.utils.timesince import timesince
+    from .models import RouterConfigSnapshot
+    snap = RouterConfigSnapshot.objects.filter(router=router).first()
+    out, stale = {}, []
+    for sec in ((snap.sections or {}).values() if snap else []):
+        if isinstance(sec, dict) and sec.get('path') in LINK_TABLES:
+            when = None
+            try:
+                when = datetime.fromisoformat(sec['at']) if sec.get('at') else None
+            except (TypeError, ValueError):
+                pass
+            name = LINK_TABLES[sec['path']]
+            out[name] = f'{timesince(when)} ago' if when else 'unknown'
+            if not when or (timezone.now() - when).total_seconds() > STALE_MINUTES * 60:
+                stale.append(name)
+    for path, name in LINK_TABLES.items():
+        if name not in out:
+            out[name] = 'never'; stale.append(name)
+    return {'tables': out, 'stale': stale}
+
+
 def link_installed(router):
     """True / False / None (unknown) from the Doctor's last Link commands."""
     from .models import AgentCommand

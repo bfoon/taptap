@@ -277,6 +277,7 @@ def _snapshot_store(router, kind, rows, now):
         'rows': redact(rows[:limit]),
         'count': len(rows),
         'transport': 'agent',
+        'at': now.isoformat(),          # when THIS table arrived (captured_at is the newest of all tables)
     }
     snap.sections = sections
     snap.captured_at = now
@@ -694,7 +695,8 @@ def process_piece(cmd_id):
             sections = dict(snap.sections or {})
             src = SOURCES[kind]
             limit = 2000 if kind in TOPOLOGY_KINDS else 500
-            sections[src['label']] = {'path': src['path'], 'rows': redact(clean_rows[:limit]), 'count': len(clean_rows), 'transport': 'agent'}
+            sections[src['label']] = {'path': src['path'], 'rows': redact(clean_rows[:limit]), 'count': len(clean_rows), 'transport': 'agent',
+                                      'at': now.isoformat()}   # when THIS table arrived (captured_at is the newest of all tables)
             snap.sections, snap.captured_at = sections, now
             snap.save(update_fields=['sections', 'captured_at', 'updated_at'])
         piece_summary = {}
