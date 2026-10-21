@@ -781,7 +781,9 @@ def _named_payload(router,payload):
 
 
 def _lb_signature(lb):
-    return json.dumps([lb.get('method')]+[(l.get('id'),l.get('state'),l.get('expected_share')) for l in lb.get('wan_links',[])],sort_keys=True)
+    # Port, gateway and warnings count too: a newly resolved port or a new warning must reach the saved analysis.
+    return json.dumps([lb.get('method'),lb.get('warnings') or []]+[(l.get('id'),l.get('state'),l.get('expected_share'),l.get('interface'),
+                       l.get('gateway'),l.get('next_hop')) for l in lb.get('wan_links',[])],sort_keys=True)
 
 
 @login_required

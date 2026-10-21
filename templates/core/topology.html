@@ -166,7 +166,7 @@
 {{ detail|json_script:"topology-detail" }}
 {% endblock %}
 {% block scripts %}
-<script src="{% static 'js/netviz-lb.js' %}?v=6"></script>
+<script src="{% static 'js/netviz-lb.js' %}?v=7"></script>
 <script src="{% static 'js/netviz-topology.js' %}?v=7"></script>
 <script src="{% static 'js/topology-detail.js' %}?v=2"></script>
 <script src="{% static 'js/topology-health.js' %}?v=1" data-resource-url="{% url 'router_resource_api' 0 %}" data-link-url="{% url 'router_link_status' 0 %}" data-reboot-url="{% url 'router_reboot' 0 %}"></script>

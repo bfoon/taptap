@@ -40,8 +40,18 @@ def apply_names(lb, names):
             link['label'] = name
     if out.get('warnings'):
         down = [l.get('label') or l.get('interface') or 'WAN' for l in links if l.get('state') == 'down']
-        out['warnings'] = [('Down: ' + ', '.join(down)) if w.startswith('Down: ') and down else w for w in out['warnings']]
+        out['warnings'] = [('Down: ' + ', '.join(down)) if w.startswith('Down: ') and down else _with_names(w, names)
+                           for w in out['warnings']]
     return out
+
+
+def _with_names(text, names):
+    """'ether3 is marked as WAN…' → 'QCell (ether3) is marked as WAN…' (ether1 never matches inside ether10)."""
+    import re
+    for iface in sorted(names, key=len, reverse=True):
+        if iface and names[iface]:
+            text = re.sub(r'(?<![\w-])' + re.escape(iface) + r'(?![\w-])', f'{names[iface]} ({iface})', text)
+    return text
 
 
 def named(router, lb):

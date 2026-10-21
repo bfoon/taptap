@@ -610,6 +610,18 @@ class MikroTikService:
             out[name] = {'rx_bps': int(max(0, rx - prx) * 8 / span), 'tx_bps': int(max(0, tx - ptx) * 8 / span), 'rx_pps': 0, 'tx_pps': 0}
         return out
 
+    @staticmethod
+    def _needs_recursion(routes):
+        """True when a default route's gateway is a bare IP that RouterOS did not already tie to a port."""
+        from .routeros_analysis import g, is_ip
+        for r in routes or []:
+            gw = str(g(r, 'gateway')).split(',')[0].strip()
+            if gw and is_ip(gw) and '%' not in gw and not g(r, 'immediate-gw') and 'via' not in str(g(r, 'gateway-status')):
+                return True
+            if 'recursive' in str(g(r, 'gateway-status')).lower():
+                return True
+        return False
+
     def wan_telemetry(self, stored_sections=None):
         """Cheap poll for the live load-balancing view.
 
@@ -624,8 +636,12 @@ class MikroTikService:
                 return sec['rows']
             return loader()
         interfaces = self.interfaces()
+        routes = self.default_routes()
+        if self._needs_recursion(routes):
+            # Recursive gateways (1.1.1.1, 8.8.8.8…) only resolve through their host routes; read them too.
+            routes = self.routes() or routes
         analysis = self.analyze_load_balancing(
-            routes=self.default_routes(),
+            routes=routes,
             mangle=rows('Firewall mangle', self.mangle),
             bonding=rows('Bonding', self.bonding),
             routing_tables=rows('Routing tables', self.routing_tables),

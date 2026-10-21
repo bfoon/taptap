@@ -141,7 +141,7 @@
             <small><span data-k="pct">0%</span> of traffic${l.expected_share != null ? ` · plan ${l.expected_share}%` : ''}</small>
           </div>
           <svg class="lbx-spark" viewBox="0 0 120 28" preserveAspectRatio="none"><polyline data-k="spark" points=""/></svg>
-          <footer>${esc(l.interface || 'interface ?')}${l.gateway ? ' → ' + esc(l.gateway) : ''} · ${esc(l.source || '')}${l.distance ? ' · distance ' + esc(l.distance) : ''}${l.tables && l.tables.length ? ' · ' + esc(l.tables.join(', ')) : ''}</footer>
+          <footer>${this.footer(l)}</footer>
         </article>`).join('');
 
       lanes.querySelectorAll('[data-rename]').forEach(b => b.addEventListener('click', () => this.openNamer(b.closest('.lbx-lane'))));
@@ -152,6 +152,23 @@
         ['Routing rules', lb.routing_rule_count], ['Bonds', lb.bond_count]
       ].filter(([, v]) => v).map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('') + (lb.warnings || []).map(w => `<p class="lbx-warn"><i class="bi bi-exclamation-triangle"></i> ${esc(w)}</p>`).join('');
       this.paintTraffic();
+    }
+
+    footer(l) {
+      // ether3 → 1.1.1.1 · via 192.168.8.1 · static · distance 1 · main
+      const bits = [];
+      let head = esc(l.interface || 'port not found');
+      if (l.gateways && l.gateways.length) head += ' → ' + l.gateways.map(esc).join(', ');
+      else if (l.gateway) head += ' → ' + esc(l.gateway);
+      bits.push(head);
+      if (l.recursive && l.next_hop) bits.push('via ' + esc(l.next_hop));
+      if (l.state === 'no-route') bits.push('no default route uses this port');
+      else {
+        if (l.source) bits.push(esc(l.source));
+        if (l.distance) bits.push('distance ' + esc(l.distance));
+        if (l.tables && l.tables.length) bits.push(esc(l.tables.join(', ')));
+      }
+      return bits.join(' · ');
     }
 
     // ---------------- provider names (Gamtel, QCell, Starlink…) ----------------
@@ -246,11 +263,18 @@
       const links = this.links(); let total = 0; const per = {};
       const zero = { rx_bps: 0, tx_bps: 0 };
       // A down link carries nothing, whatever stale counters say.
-      links.forEach(l => { const t = l.state === 'down' ? zero : (this.traffic[l.interface] || zero); per[l.id] = t; total += (t.rx_bps || 0) + (t.tx_bps || 0); });
-      let sumDown = 0, sumUp = 0;
+      // Each port counts once: two routes over the same port must not double the Internet total.
+      const counted = new Set();
       links.forEach(l => {
-        const t = per[l.id], card = this.root.querySelector(`.lbx-lane[data-id="${CSS.escape(l.id)}"]`); if (!card) return;
-        const both = (t.rx_bps || 0) + (t.tx_bps || 0); sumDown += t.rx_bps || 0; sumUp += t.tx_bps || 0;
+        const t = l.state === 'down' || !l.interface ? zero : (this.traffic[l.interface] || zero); per[l.id] = t;
+        if (l.interface && !counted.has(l.interface)) { counted.add(l.interface); total += (t.rx_bps || 0) + (t.tx_bps || 0); }
+      });
+      let sumDown = 0, sumUp = 0; const summed = new Set();
+      links.forEach(l => {
+        const t = per[l.id], card = this.root.querySelector(`.lbx-lane[data-id="${CSS.escape(l.id)}"]`);
+        if (l.interface && !summed.has(l.interface)) { summed.add(l.interface); sumDown += t.rx_bps || 0; sumUp += t.tx_bps || 0; }
+        if (!card) return;
+        const both = (t.rx_bps || 0) + (t.tx_bps || 0);
         const pct = total ? Math.round(both * 100 / total) : 0;
         card.querySelector('[data-k=down]').textContent = this.hasData() ? bps(t.rx_bps) : '—';
         card.querySelector('[data-k=up]').textContent = this.hasData() ? bps(t.tx_bps) : '—';
@@ -277,7 +301,12 @@
       const planned = links.filter(l => l.expected_share != null && l.state === 'active');
       if (!this.hasData()) return '—';
       if (planned.length < 2) return this.lb.method === 'Failover' ? 'Primary only' : 'Single path';
-      const sum = planned.reduce((a, l) => a + (this.totals[l.id] || 0), 0); if (!sum) return 'Idle';
+      const sum = planned.reduce((a, l) => a + (this.totals[l.id] || 0), 0);
+      if (!sum) {
+        // Traffic is flowing, but none of it on the links that should share it.
+        const any = links.reduce((a, l) => a + (this.totals[l.id] || 0), 0);
+        return any > 1000 ? 'Off plan' : 'Idle';
+      }
       const dev = Math.max(...planned.map(l => Math.abs((this.totals[l.id] || 0) * 100 / sum - l.expected_share)));
       return dev < 12 ? 'On plan' : dev < 25 ? 'Slightly uneven' : 'Uneven';
     }

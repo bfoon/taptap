@@ -18,7 +18,9 @@ import ipaddress
 import re
 
 IPV4_RE = re.compile(r'^\d{1,3}(?:\.\d{1,3}){3}$')
-STATUS_RE = re.compile(r'(\S+)\s+(reachable|unreachable)(?:\s+via\s+(\S+))?', re.I)
+# v6 gateway-status: "192.168.8.1 reachable via  ether3", "1.1.1.1 recursive via 192.168.8.1 ether3", "1.1.1.1 unreachable"
+STATUS_RE = re.compile(r'(\S+)\s+(reachable|unreachable|recursive)(?:\s+via\s+(\S+)(?:\s+(\S+))?)?', re.I)
+MAX_RECURSION = 4
 PCC_RE = re.compile(r':\s*(\d+)\s*/\s*(\d+)')
 DEFAULT_DST = {'0.0.0.0/0', '::/0'}
 
@@ -105,7 +107,9 @@ def resolve_gateways(route, networks=None, dhcp_gateways=None, interfaces=None):
     for chunk in str(g(route, 'gateway-status')).split(','):
         match = STATUS_RE.search(chunk.strip())
         if match:
-            status_map[match.group(1)] = (match.group(3) or '', match.group(2).lower() == 'reachable')
+            via, last = match.group(3) or '', match.group(4) or ''
+            iface = last or ('' if is_ip(via) else via)      # "recursive via 192.168.8.1 ether3" → ether3
+            status_map[match.group(1)] = (iface, match.group(2).lower() != 'unreachable')
 
     # ``reachable`` means "not known to be dead". An inactive v7 backup route is
     # normal in failover, so only an explicit 'unreachable' or a down interface
@@ -132,6 +136,9 @@ def resolve_gateways(route, networks=None, dhcp_gateways=None, interfaces=None):
             reachable = status_map[iface][1]
         if not iface and len(pieces) == 1 and '*' in immediate_map:
             iface = immediate_map['*']
+        if not iface and len(pieces) == 1 and len(immediate_map) == 1:
+            # v7 recursive route: gateway=1.1.1.1, immediate-gw=192.168.8.1%ether3 — the next hop decides the port
+            iface = next(iter(immediate_map.values()))
         if not iface and ip:
             iface = dhcp_gateways.get(ip, '')
         if not iface and ip:
@@ -184,11 +191,47 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
         if gw and g(row, 'interface'):
             dhcp_gateways[gw] = _strip(g(row, 'interface'))
 
-    defaults = [r for r in routes
-                if str(g(r, 'dst-address')) in DEFAULT_DST
-                and not truthy(g(r, 'disabled', default='no'))
+    def usable(r):
+        return (not truthy(g(r, 'disabled', default='no'))
                 and str(g(r, 'type', default='unicast')).lower() not in {'blackhole', 'unreachable', 'prohibit'}
-                and not truthy(g(r, 'blackhole', default='no'))]
+                and not truthy(g(r, 'blackhole', default='no')))
+
+    defaults = [r for r in routes if str(g(r, 'dst-address')) in DEFAULT_DST and usable(r)]
+    specific = []        # (network, route) for every non-default route: what a recursive gateway resolves through
+    for r in routes:
+        dst = _strip(g(r, 'dst-address'))
+        if dst and dst not in DEFAULT_DST and usable(r):
+            try:
+                specific.append((ipaddress.ip_network(dst, strict=False), r))
+            except ValueError:
+                pass
+
+    def recurse(ip, depth=0, seen=()):
+        """Interface and next hop that a recursive gateway (e.g. 1.1.1.1 in the classic two-ISP setup) really
+        leaves through: longest matching host/network route, active and lowest distance first."""
+        if depth >= MAX_RECURSION or not ip or ip in seen:
+            return '', ''
+        try:
+            addr = ipaddress.ip_address(ip)
+        except ValueError:
+            return '', ''
+        best = None
+        for net, r in specific:
+            if addr.version == net.version and addr in net:
+                rank = (net.prefixlen, truthy(g(r, 'active', default='true')),
+                        -int(re.sub(r'\D', '', str(g(r, 'distance', default='1'))) or 1))
+                if best is None or rank > best[0]:
+                    best = (rank, r)
+        if not best:
+            return '', ''
+        for hop in resolve_gateways(best[1], networks, dhcp_gateways, iface_rows):
+            if hop['interface']:
+                return hop['interface'], hop['gateway']
+            if hop['gateway']:
+                iface, _ = recurse(hop['gateway'], depth + 1, seen + (ip,))
+                if iface:
+                    return iface, hop['gateway']
+        return '', ''
 
     wans = {}
     order = []
@@ -202,7 +245,7 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
                 'distances': [], 'active': False, 'reachable': False, 'check_gateway': '', 'source': 'static',
                 'running': truthy(g(row, 'running', default='yes')) if row else True,
                 'comment': str(g(row, 'comment')), 'ecmp_weight': 0, 'pcc_rules': 0, 'route_count': 0,
-                'declared': False,
+                'declared': False, 'next_hops': [], 'recursive': False,
             }
             order.append(key)
         return wans[key]
@@ -212,7 +255,17 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
         distance = int(re.sub(r'\D', '', str(g(route, 'distance', default='1'))) or 1)
         active = truthy(g(route, 'active', default='true'))
         for hop in resolve_gateways(route, networks, dhcp_gateways, iface_rows):
+            next_hop = ''
+            if hop['gateway'] and (not hop['interface'] or hop['interface'] not in iface_rows and iface_rows):
+                # Recursive route: the gateway (1.1.1.1, 8.8.8.8…) is not on any port; follow its host route.
+                iface, next_hop = recurse(hop['gateway'])
+                if iface:
+                    hop = {**hop, 'interface': iface}
             wan = wan_for(hop['interface'], hop['gateway'])
+            if next_hop:
+                wan['recursive'] = True
+                if next_hop not in wan['next_hops']:
+                    wan['next_hops'].append(next_hop)
             if hop['gateway'] and hop['gateway'] not in wan['gateways']:
                 wan['gateways'].append(hop['gateway'])
             if table not in wan['tables']:
@@ -360,6 +413,8 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
             'distance': str(distance), 'active': state == 'active', 'running': wan['running'], 'state': state,
             'role': role, 'expected_share': share, 'check_gateway': wan['check_gateway'], 'source': wan['source'],
             'pcc_rules': wan['pcc_rules'], 'ecmp_weight': wan['ecmp_weight'],
+            'next_hop': wan['next_hops'][0] if wan['next_hops'] else '', 'recursive': wan['recursive'],
+            'route_count': wan['route_count'],
         })
 
     warnings = []
@@ -371,6 +426,23 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
         warnings.append('Failover routes have no check-gateway, so a dead ISP behind a live modem will not trigger failover.')
     if len(links) > 1 and method == 'Single WAN':
         warnings.append('Multiple WAN interfaces exist but only one carries a default route.')
+    unresolved = [l for l in links if not l['interface'] and l['gateway']]
+    if unresolved:
+        warnings.append('Could not tell which port ' + ', '.join(l['gateway'] for l in unresolved) +
+                        ' leaves through — add a host route for it (e.g. ' + unresolved[0]['gateway'] +
+                        '/32 via the ISP modem) or refresh the configuration.')
+    for wan in wans.values():
+        same = [d for (t, d) in wan['distances'] if t == 'main' and d == min_distance]
+        others = [k for k, w in wans.items() if w is not wan and (w['declared'] or w['route_count'])]
+        if len(same) > 1 and len(set(wan['gateways'])) > 1 and others and wan['ecmp_weight'] and len(ecmp_members) == 1:
+            warnings.append(f"{len(same)} equal-cost default routes (via {', '.join(wan['gateways'])}) all leave through "
+                            f"{wan['interface'] or 'one port'}, so the other line carries no customer traffic. "
+                            f"Check that each check-host route points at a different ISP gateway.")
+    idle = [l for l in links if l['state'] == 'no-route']
+    if idle:
+        warnings.append(', '.join(l['label'] for l in idle) + ' ' + ('is' if len(idle) == 1 else 'are') +
+                        ' marked as WAN but no default route uses ' + ('it' if len(idle) == 1 else 'them') +
+                        ', so customers never go out through ' + ('it.' if len(idle) == 1 else 'them.'))
     down = [l for l in links if l['state'] == 'down']
     if down:
         warnings.append('Down: ' + ', '.join(l['label'] for l in down))
