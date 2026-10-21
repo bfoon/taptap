@@ -68,7 +68,12 @@ def doctor_status(request, pk):
     if err:
         return err
     try:
-        out = {'success': True, 'installed': doc.installed(svc), 'recent': doc.recent_activity(svc), 'status': doc.status_line(svc),
+        upgraded = False
+        try:   # an older Doctor could leave the router without internet when one line stopped
+            upgraded = doc.api_upgrade(svc, _setup(router), router.name)
+        except Exception:
+            pass
+        out = {'success': True, 'installed': doc.installed(svc), 'upgraded': upgraded, 'recent': doc.recent_activity(svc), 'status': doc.status_line(svc),
                'lines': doc.lines_for(svc, _setup(router)), 'escalation': doc.ESCALATION}
     finally:
         svc.close()

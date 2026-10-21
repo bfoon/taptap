@@ -1205,6 +1205,11 @@ def handle_poll(agent, data, ip, url):
         auto_sync(router, first)
     except Exception as exc:
         logger.info('link auto-sync %s: %s', router, exc)
+    try:   # an older Internet Doctor could leave the router without internet when one line stopped
+        from .wan_doctor import link_upgrade
+        link_upgrade(router)
+    except Exception as exc:
+        logger.info('doctor upgrade %s: %s', router, exc)
     rows = parse_sessions(data.get('act', ''))
     try:
         from .linklive import ingest_counters, store_sessions

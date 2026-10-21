@@ -20,6 +20,11 @@ UNDO_SCHEDULER = 'TapTap-WAN-undo'
 CHECK_HOSTS = [('8.8.8.8', 'Google DNS'), ('1.1.1.1', 'Cloudflare'), ('9.9.9.9', 'Quad9'),
                ('208.67.222.222', 'OpenDNS'), ('8.8.4.4', 'Google DNS 2'), ('1.0.0.1', 'Cloudflare 2')]
 PRIVATE_NETS = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10']
+# DNS the router is given with two or more lines. A health-check address is pinned to ONE line by its /32
+# route, so a router asking 8.8.8.8 for names lost every name when that line's ISP failed behind a live
+# modem — customers saw "no internet" although the other line worked. These resolvers are taken in order,
+# skipping any address used as a health check; none is an Internet Doctor probe (wan_doctor.PROBE_POOL).
+DNS_SERVERS = ['1.0.0.1', '8.8.4.4', '9.9.9.9', '208.67.222.222', '1.1.1.1', '8.8.8.8']
 STRATEGIES = {
     'single': 'One line', 'failover': 'Backup line', 'balance': 'Share the load',
     'ecmp': 'Combine lines', 'split': 'Split by network',
@@ -51,6 +56,28 @@ def gw_on_port(l):
     if l.get('type') == 'pppoe':
         return l['gateway']
     return f"{l['gateway']}%{l['interface']}"
+
+
+def split_servers(value):
+    """'8.8.8.8,1.1.1.1' or ['8.8.8.8'] or '8.8.8.8;1.1.1.1' → ['8.8.8.8', '1.1.1.1']."""
+    if isinstance(value, (list, tuple)):
+        items = value
+    else:
+        items = re.split(r'[,;\s]+', _s(value))
+    return [x for x in (_s(i) for i in items) if x]
+
+
+def dns_plan(links, current):
+    """DNS servers for a multi-line setup: two resolvers no line pins, then the owner's own servers that are
+    not pinned either. Returns the new list, or None when the current one is already safe."""
+    pinned = {l['check'] for l in links if l.get('check')}
+    current = [x for x in (current or []) if _is_ip(x)]
+    safe_now = [x for x in current if x not in pinned]
+    if safe_now and len(safe_now) == len(current):
+        return None                                   # nothing in it depends on a single line
+    fresh = [h for h in DNS_SERVERS if h not in pinned][:2]
+    out = list(dict.fromkeys(fresh + safe_now))
+    return out if out != current else None
 
 
 def safe_name(iface):
@@ -121,8 +148,10 @@ def detect(svc):
         if any(_s(h.get('interface')) == lan['interface'] for h in hotspot):
             lan['hotspot'] = True
             lan['label'] = lan['label'] + ' (HotSpot)'
+    dns_rows = svc.safe_get('/ip/dns')
+    dns_servers = split_servers(dns_rows[0].get('servers')) if dns_rows else []
     return {'version': '.'.join(map(str, ver)), 'v7': ver[0] >= 7, 'links': links, 'lans': lans,
-            'hotspot': bool(hotspot), 'analysis': analysis,
+            'hotspot': bool(hotspot), 'analysis': analysis, 'dns_servers': dns_servers,
             'check_hosts': [{'ip': ip, 'label': lab} for ip, lab in CHECK_HOSTS]}
 
 
@@ -356,9 +385,15 @@ def build_plan(cfg, facts, run=None):
                                  'note': 'not selected — stays connected but carries no customer traffic'})
     B['clients'].append({'op': 'disable_static_defaults', 'group': 'clients'})
 
+    if multi and health:
+        servers = dns_plan(links, facts.get('dns_servers'))
+        if servers:
+            B['dns'] = [{'op': 'dns', 'path': '/ip/dns', 'servers': servers, 'group': 'dns',
+                         'note': 'names keep working when any one line fails'}]
+
     ops = [{'op': 'purge', 'phase': 'early', 'run': run, 'group': 'cleanup'}]
-    for k in ('lists', 'tables', 'routes', 'mangle', 'rules', 'nat'):
-        ops += B[k]
+    for k in ('lists', 'tables', 'routes', 'mangle', 'rules', 'nat', 'dns'):
+        ops += B.get(k, [])
     ops.append({'op': 'purge', 'phase': 'late', 'run': run, 'group': 'cleanup'})
     ops += B['clients']
     return {'run': run, 'ops': ops, 'v7': v7}
@@ -396,7 +431,8 @@ def render_script(plan, cfg, facts, business_name=''):
              '', '# 1. Remove any earlier TapTap setup']
     lines += purge_lines(v7)
     group_titles = {'lists': '2. Lists', 'tables': '3. Routing tables', 'routes': '4. Routes', 'mangle': '5. Traffic marking',
-                    'rules': '6. Network rules', 'nat': '7. NAT', 'clients': '8. Hand default routes over to TapTap'}
+                    'rules': '6. Network rules', 'nat': '7. NAT', 'dns': '8. DNS that never depends on one line',
+                    'clients': '9. Hand default routes over to TapTap'}
     last = None
     for op in plan['ops']:
         g = op.get('group')
@@ -417,6 +453,8 @@ def render_script(plan, cfg, facts, business_name=''):
                 extra['script'] = op['script']
             lines.append(f'{p} set [find where interface={q(op["interface"])}] {kv(extra)}' if op['path'] == '/ip/dhcp-client'
                          else f'{p} set [find where name={q(op["interface"])}] {kv(extra)}')
+        elif op['op'] == 'dns':
+            lines.append(f'/ip dns set servers={",".join(op["servers"])}')
         elif op['op'] == 'disable_static_defaults':
             lines.append(f'/ip route disable [find where dst-address=0.0.0.0/0 and static and !(comment~"^{TAG}") and {"routing-table=main" if v7 else "!routing-mark"}]')
     lines += ['', '# Done. Check: /ip route print where dst-address=0.0.0.0/0']
@@ -444,6 +482,8 @@ def render_undo(original, v7, guarded=True):
         cmds.append(f'{path} set [find where {key}={q(cl["interface"])}] ' + ' '.join(f'{k}={q(v) if v != "" else chr(34) * 2}' for k, v in f.items()))
     for rid in (original or {}).get('disabled_routes', []):
         cmds.append(f'/ip route enable [find where .id={rid}]')
+    if (original or {}).get('dns_servers') is not None:
+        cmds.append(f'/ip dns set servers={q(",".join(original["dns_servers"])) or chr(34) * 2}')
     if guarded:
         cmds = [f':do {{ {c} }} on-error={{}}' for c in cmds]
         cmds.append(f'/system scheduler remove [find where name="{UNDO_SCHEDULER}"]')
@@ -480,7 +520,7 @@ def original_from_facts(facts):
             clients.append({'path': '/ip/dhcp-client', 'interface': l['interface'], 'add-default-route': l.get('add_default_route') or 'yes', 'script': l.get('client_script', '')})
         elif l.get('type') == 'pppoe':
             clients.append({'path': '/interface/pppoe-client', 'interface': l['interface'], 'add-default-route': l.get('add_default_route') or 'yes'})
-    return {'clients': clients, 'disabled_routes': []}
+    return {'clients': clients, 'disabled_routes': [], 'dns_servers': list(facts.get('dns_servers') or [])}
 
 
 def capture_original(svc, cfg, facts):
@@ -494,7 +534,9 @@ def capture_original(svc, cfg, facts):
     for r in svc.safe_get('/interface/pppoe-client'):
         if _s(r.get('name')) in names:
             clients.append({'path': '/interface/pppoe-client', 'interface': _s(r.get('name')), 'add-default-route': _s(r.get('add-default-route')) or 'yes'})
-    return {'clients': clients, 'disabled_routes': []}
+    dns_rows = svc.safe_get('/ip/dns')
+    return {'clients': clients, 'disabled_routes': [],
+            'dns_servers': split_servers(dns_rows[0].get('servers')) if dns_rows else list(facts.get('dns_servers') or [])}
 
 
 def apply_plan(svc, plan, facts, original, undo_minutes=5, log=None):
@@ -551,6 +593,9 @@ def apply_plan(svc, plan, facts, original, undo_minutes=5, log=None):
                         prev = '' if TAG in prev else prev
                         f['script'] = op['script'] + ('\n' + prev if prev else '')
                     res.set(id=row['id'], **_api_fields(f))
+            elif kind == 'dns':
+                res = svc.resource('/ip/dns')
+                res.call('set', {'servers': ','.join(op['servers'])})
             elif kind == 'disable_static_defaults':
                 res = svc.resource('/ip/route')
                 for row in res.get():

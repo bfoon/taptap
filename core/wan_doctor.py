@@ -16,7 +16,8 @@ What it does
       • the modem / gateway answers on its own port,
       • 3 independent internet addresses answer through THAT port (its own /32 probe
         routes, with a blackhole guard so a probe can never leak out of another line).
-   A line is healthy only when at least 2 of the 3 answer.
+   A line is healthy when at least 1 of the 3 answers (v1 needed 2, and flagged working lines).
+   It never leaves the router without a line: a held-off line comes back when no other works.
 2. When the modem answers but the internet doesn't, it escalates step by step:
       2 min  clear the router's ARP entry for the modem
       4 min  renew DHCP
@@ -41,15 +42,24 @@ logger = logging.getLogger('taptap.wan_doctor')
 
 TAG = 'TapTap Doctor'
 NAME = 'TapTap-Doctor'                 # script and scheduler name on the router
-VERSION = '1'
+VERSION = '2'
+# v2: never leaves the router without a line (a held-off line comes back when no other line works),
+#     a line counts as healthy when 1 of its 3 test addresses answers, the line's health-check /32 route is
+#     taken out together with it (so DNS to 8.8.8.8 / 1.1.1.1 follows the working line), no blackhole
+#     guard on an address the router uses for DNS, and the owner's "out of use" is a last resort too.
 OFF_MARK = ' ~doctor-off:'             # appended to a route comment while the Doctor holds it disabled
+OWNER_MARK = ' ~owner-off:'            # appended when the owner takes a line out of use (a last resort, see _BODY)
 MAX_LINES = 4
-# Public addresses that answer ping and are NOT used as Internet Lines health checks (wan.CHECK_HOSTS),
-# so a probe route never fights a health-check route. Three per line.
+# Public anycast addresses that answer ping and are NOT used as Internet Lines health checks (wan.CHECK_HOSTS)
+# nor as the DNS servers TapTap gives the router (wan.DNS_SERVERS), so a probe route never fights a
+# health-check route and a probe's blackhole guard never swallows DNS. Three per line, each line a mix of
+# operators. (v1 used ControlD 76.76.x.0 and Verisign 64.6.x.6, which do not reliably answer ping: a working
+# line looked broken and was taken out of use.)
 PROBE_POOL = ['149.112.112.112', '208.67.220.220', '94.140.14.14',
-              '94.140.15.15', '76.76.2.0', '76.76.10.0',
-              '185.228.168.9', '185.228.169.9', '4.2.2.1',
-              '4.2.2.2', '64.6.64.6', '64.6.65.6']
+              '149.112.112.10', '208.67.222.220', '94.140.15.15',
+              '185.228.168.9', '4.2.2.1', '9.9.9.10',
+              '185.228.169.9', '4.2.2.2', '208.67.220.222']
+HEALTHY_PROBES = 1                     # a line works when at least this many of its 3 test addresses answer
 ESCALATION = [(2, 'Clear the router’s memory of the modem (ARP)'), (4, 'Renew DHCP'),
               (6, 'Give the port a new MAC address and renew DHCP'),
               (16, 'Put the original MAC back if the new one did not help')]
@@ -188,20 +198,26 @@ _BODY = r'''
     :set rgw ($gw . "%" . $iface)
   }
   :local tag ("TapTap Doctor probe " . $iface)
+  :local dnsNow ""
+  :do { :set dnsNow ([:tostr [/ip dns get servers]] . "," . [:tostr [/ip dns get dynamic-servers]]) } on-error={}
   :local passed 0
   :foreach p in=[:toarray $probes] do={
     :local dst ($p . "/32")
     :local r [/ip route find where dst-address=$dst and comment=$tag]
     :if ([:len $r] = 0) do={
       /ip route add dst-address=$dst gateway=$rgw comment=$tag
-      :do { /ip route add dst-address=$dst blackhole distance=250 comment=("TapTap Doctor guard " . $iface) } on-error={}
+      # the guard keeps a probe from leaking out of another line - never for an address the router uses for DNS
+      :if ([:typeof [:find $dnsNow $p]] != "num") do={
+        :do { /ip route add dst-address=$dst blackhole distance=250 comment=("TapTap Doctor guard " . $iface) } on-error={}
+      }
       :delay 1s
     } else={
       :if ([:tostr [/ip route get ($r->0) gateway]] != $rgw) do={ /ip route set $r gateway=$rgw }
     }
     :if ([/ping address=$p count=2] > 0) do={ :set passed ($passed + 1) }
   }
-  :if ($passed >= 2) do={ :return ("ok," . $gw) }
+  :global ttdocHealthy
+  :if ($passed >= $ttdocHealthy) do={ :return ("ok," . $gw) }
   :return ("holding," . $gw)
 }
 
@@ -224,6 +240,18 @@ _BODY = r'''
   :local who ($label . " (" . $iface . ")")
 
   :if ($st = "skip") do={ :set ($ttdoc->$kf) 0; :set ($ttdoc->$kg) 0; :return "" }
+
+  # No other line works: this one, whatever its state, is better than none. Put it back now if it was held off
+  # (by the Doctor, or by the owner's "out of use") - before v2 it stayed off and the whole internet stopped.
+  :if (($st != "ok") && ($oth = 0)) do={
+    :foreach r in=[/ip route find where (comment~(" ~doctor-off:" . $iface . "\$") or comment~(" ~owner-off:" . $iface . "\$"))] do={
+      :local c [:tostr [/ip route get $r comment]]
+      :local cut [:find $c " ~doctor-off:"]
+      :if ([:typeof $cut] != "num") do={ :set cut [:find $c " ~owner-off:"] }
+      /ip route set $r disabled=no comment=[:pick $c 0 $cut]
+      :log warning ("TapTap Doctor: no other line works - " . $who . " put back in use as the last resort")
+    }
+  }
 
   :if ($st = "ok") do={
     :if ($fail >= 3) do={ :log warning ("TapTap Doctor: " . $who . " reaches the internet again") }
@@ -292,11 +320,22 @@ _BODY = r'''
   # another line works: stop sending customers into this one
   :if (($fail >= 3) && ($oth > 0)) do={
     :do {
+    :local hostsOff [:toarray ""]
     :foreach r in=[/ip route find where dst-address=0.0.0.0/0 and dynamic=no and disabled=no and comment~"^TapTap" and immediate-gw~("%" . $iface . "\$")] do={
       :local c [:tostr [/ip route get $r comment]]
       :if ([:typeof [:find $c "~doctor-off"]] != "num") do={
+        :set hostsOff ($hostsOff, [:tostr [/ip route get $r gateway]])
         /ip route set $r disabled=yes comment=($c . " ~doctor-off:" . $iface)
         :log warning ("TapTap Doctor: " . $who . " taken out of use - customers move to the other line")
+      }
+    }
+    # Its health-check address (8.8.8.8, 1.1.1.1...) goes too: otherwise DNS and phones using that address
+    # keep being sent into the broken line, and "the whole internet" looks down although a line works.
+    :foreach r in=[/ip route find where dst-address~"/32" and dynamic=no and disabled=no and comment~"^TapTap WAN" and (gateway~("%" . $iface . "\$") or gateway=$iface)] do={
+      :local d [:tostr [/ip route get $r dst-address]]
+      :if ([:typeof [:find $hostsOff [:pick $d 0 [:find $d "/"]]]] = "num") do={
+        :local c [:tostr [/ip route get $r comment]]
+        /ip route set $r disabled=yes comment=($c . " ~doctor-off:" . $iface)
       }
     }
     } on-error={ :log error ("TapTap Doctor: could not take " . $iface . " out of use") }
@@ -335,6 +374,16 @@ _BODY = r'''
     :do { $act iface=$ifc kind=($kinds->$i) label=($labels->$i) st=$st gw=($gwsNow->$ifc) others=$others allowMac=$allowMac } on-error={ :log error ("TapTap Doctor: could not act on " . $ifc) }
     :set summary ($summary . $ifc . "=" . $st . " ")
   }
+  # Safety net: never leave the router without a working default route while a held-off line exists.
+  :if ([:len [/ip route find where dst-address=0.0.0.0/0 and active=yes and disabled=no]] = 0) do={
+    :foreach r in=[/ip route find where (comment~" ~doctor-off:" or comment~" ~owner-off:")] do={
+      :local c [:tostr [/ip route get $r comment]]
+      :local cut [:find $c " ~doctor-off:"]
+      :if ([:typeof $cut] != "num") do={ :set cut [:find $c " ~owner-off:"] }
+      /ip route set $r disabled=no comment=[:pick $c 0 $cut]
+      :log warning "TapTap Doctor: no line was in use - every line put back so customers stay online"
+    }
+  }
   :set ttdocStatus ("run " . $ttdocRun . ": " . $summary)
   :set ttdocBusy
 }
@@ -354,7 +403,8 @@ def render_source(lines, allow_mac=True, router_name=''):
             ':local gws ' + _arr(l.get('gateway', '') for l in lines),
             ':local labels ' + _arr(l['label'] for l in lines),
             ':local probes ' + _arr(','.join(l['probes']) for l in lines),
-            ':local allowMac ' + _ros('yes' if allow_mac else 'no')]
+            ':local allowMac ' + _ros('yes' if allow_mac else 'no'),
+            f':global ttdocHealthy {HEALTHY_PROBES}']
     return '\n'.join(head) + _BODY
 
 
@@ -520,12 +570,12 @@ def check_line(svc, line):
                 try: routes.remove(id=row['id'])
                 except Exception: pass
     n = len(out['reached'])
-    if n >= 2:
+    if n >= HEALTHY_PROBES:
         out['finding'] = f'{line["label"]} is working: the modem answers and {n} of 3 internet addresses answer through {iface}.'
         return out
     out['state'] = 'holding'
     out['fix'] = 'new_mac' if eth else 'refresh'
-    out['finding'] = (f'{line["label"]}: the modem answers but only {n} of 3 internet addresses get through {iface}. '
+    out['finding'] = (f'{line["label"]}: the modem answers but none of 3 internet addresses get through {iface}. '
                       'The modem (often a Starlink router) is holding back this router. '
                       + ('A new MAC address on the port usually fixes it at once.' if eth else 'Renewing the connection usually fixes it.'))
     if out.get('mac_changed'):
@@ -605,6 +655,13 @@ def fix(svc, iface, step):
 
 
 # ═══════════════════════════ line control (on/off, in use) ═══════════════════════════
+def _unmarked(comment):
+    for mark in (OFF_MARK, OWNER_MARK):
+        if mark in comment:
+            comment = comment.split(mark)[0]
+    return comment
+
+
 def _managed(row):
     c = _s(row.get('comment'))
     return c.startswith('TapTap') and not c.startswith(TAG) and not _yes(row.get('dynamic'))
@@ -681,8 +738,7 @@ def set_in_use(svc, iface, on, lines):
         if client is not None and _yes(client.get('disabled')):
             raise DoctorError(f'{label} is switched off. Switch it on and check it first.')
         for r in checks + defaults:
-            c = _s(r.get('comment'))
-            routes.set(id=r['id'], disabled='no', comment=c.split(OFF_MARK)[0] if OFF_MARK in c else c)
+            routes.set(id=r['id'], disabled='no', comment=_unmarked(_s(r.get('comment'))))
         if is_dhcp:
             # TapTap's own routes carry this line now, so drop the DHCP route added during an emergency;
             # a line without TapTap routes gets its plain DHCP route instead.
@@ -694,7 +750,8 @@ def set_in_use(svc, iface, on, lines):
         raise DoctorError(f'{label} is the only line customers use right now. Put another line in use first.')
     for r in defaults:
         if not _yes(r.get('disabled')):
-            routes.set(id=r['id'], disabled='yes')
+            # Marked, so the Internet Doctor puts it back if every other line fails (before, the internet stopped).
+            routes.set(id=r['id'], disabled='yes', comment=_unmarked(_s(r.get('comment'))) + OWNER_MARK + iface)
     if is_dhcp and client is not None:
         res.set(id=client['id'], add_default_route='no')
     return f'{label} is out of use — customers use the other line(s). It stays connected so you can test it.'
@@ -795,11 +852,14 @@ def link_body(p):
     if step == 'use':
         return (f'{hosts}; :local n 0; :foreach r in={mine} do={{ {match}:local c [:tostr [/ip route get $r comment]]; '
                 f':local x [:find $c " ~doctor-off:"]; :if ([:typeof $x] = "num") do={{ :set c [:pick $c 0 $x] }}; '
+                f':set x [:find $c " ~owner-off:"]; :if ([:typeof $x] = "num") do={{ :set c [:pick $c 0 $x] }}; '
                 f'/ip route set $r disabled=no comment=$c; :set n ($n + 1) }} }}; '
                 f':if ($n > 0) do={{ :do {{ /ip dhcp-client set [find where interface={q}] add-default-route=no }} on-error={{}} }} '
                 f'else={{ :do {{ /ip dhcp-client set [find where interface={q}] add-default-route=yes }} on-error={{}} }}')
     # unuse
-    return (f'{hosts}; :foreach r in={mine} do={{ {match}/ip route set $r disabled=yes }} }}; '
+    return (f'{hosts}; :foreach r in={mine} do={{ {match}:local c [:tostr [/ip route get $r comment]]; '
+            f':if ([:typeof [:find $c " ~owner-off:"]] != "num") do={{ :set c ($c . " ~owner-off:" . {q}) }}; '
+            f'/ip route set $r disabled=yes comment=$c }} }}; '
             f':do {{ /ip dhcp-client set [find where interface={q}] add-default-route=no }} on-error={{}}')
 
 
@@ -891,8 +951,52 @@ def link_install(router, lines, allow_mac=True, user=None):
     parts = _chunks(render_source(lines, allow_mac, router.name))
     raw = [{k: l[k] for k in ('interface', 'type', 'gateway', 'label')} for l in lines]
     for k in range(len(parts)):
-        link_send(router, 'install_part', user=user, part=k, parts=len(parts), lines=raw, allow_mac=allow_mac, title=router.name[:40])
+        link_send(router, 'install_part', user=user, part=k, parts=len(parts), lines=raw, allow_mac=allow_mac,
+                  title=router.name[:40], v=VERSION)
     return [l['interface'] for l in lines], len(parts)
+
+
+UPGRADE_EVERY = 3600                   # seconds between upgrade checks per router
+
+
+def link_upgrade(router):
+    """Re-send the Doctor to a Link router still running an older version (v1 could cut the whole internet).
+    Uses the lines and settings of the last completed install; does nothing if the owner removed the Doctor,
+    if Doctor commands are still waiting, or if it is already current. Returns True when an upgrade was queued."""
+    from django.core.cache import cache
+    from .models import AgentCommand
+    if not cache.add(f'tt:docup:{router.pk}', 1, UPGRADE_EVERY):
+        return False
+    last = None
+    for c in AgentCommand.objects.filter(router=router, kind=LINK_KIND).order_by('-created_at')[:60]:
+        p = c.params or {}
+        if p.get('step') == 'remove':
+            return False                              # the owner turned it off: leave it off
+        if p.get('step') == 'install_part' and int(p.get('part', -1)) == int(p.get('parts', 0)) - 1:
+            last = c
+            break
+    if last is None or last.status != 'done' or str((last.params or {}).get('v') or '1') == VERSION:
+        return False
+    if link_pending(router):
+        return False
+    lines = _link_lines((last.params or {}).get('lines'))
+    if not lines:
+        return False
+    link_install(router, lines, allow_mac=bool((last.params or {}).get('allow_mac', True)))
+    logger.warning('Internet Doctor on %s upgraded to v%s through TapTap Link', router, VERSION)
+    return True
+
+
+def api_upgrade(svc, setup=None, router_name=''):
+    """Same for a router TapTap reaches live: reinstall when the installed script is an older version."""
+    rows = _find(svc.resource('/system/script'), name=NAME)
+    if not rows or _s(rows[0].get('comment')).endswith(f'v{VERSION}'):
+        return False
+    src = _s(rows[0].get('source'))
+    allow_mac = ':local allowMac "no"' not in src
+    install_on_router(svc, lines_for(svc, setup), allow_mac=allow_mac, router_name=router_name)
+    logger.warning('Internet Doctor on %s upgraded to v%s', router_name or svc, VERSION)
+    return True
 
 
 def _wrap_command_body(original):

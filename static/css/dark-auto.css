@@ -192,7 +192,7 @@ html[data-theme="dark"] .lbx-node-sub{fill:#1c304a}
 html[data-theme="dark"] .lbx-empty{fill:#2b343c}
 html[data-theme="dark"] .lbx-lane{background:#252525}
 html[data-theme="dark"] .lbx-lane header em{color:#79e1b4}
-html[data-theme="dark"] .lbx-lane.st-standby header em,html[data-theme="dark"] .lbx-lane.st-no-route header em{color:#f3c068}
+html[data-theme="dark"] .lbx-lane.st-standby header em,html[data-theme="dark"] .lbx-lane.st-no-route header em,html[data-theme="dark"] .lbx-lane.st-held header em{color:#f3c068}
 html[data-theme="dark"] .lbx-lane.st-down{border-color:#5b3535;background:#4a1c1c}
 html[data-theme="dark"] .lbx-lane.st-down header em{color:#d18a8a}
 html[data-theme="dark"] .lbx-share-bar{background:#2a333c}

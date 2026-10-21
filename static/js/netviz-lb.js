@@ -20,7 +20,7 @@
     'Single WAN': 'All customers share one Internet link. A second WAN adds backup or more capacity.',
     'No default route': 'Without a 0.0.0.0/0 route customers cannot reach the Internet through this router.'
   };
-  const STATE_TEXT = { active: 'Carrying traffic', standby: 'Standby', down: 'Down', 'no-route': 'No route yet' };
+  const STATE_TEXT = { active: 'Carrying traffic', standby: 'Standby', down: 'Down', 'no-route': 'No route yet', held: 'Out of use' };
 
   function s(tag, attrs) { const e = document.createElementNS(NS, tag); for (const k in attrs || {}) e.setAttribute(k, attrs[k]); return e; }
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c])); }
@@ -163,6 +163,7 @@
       bits.push(head);
       if (l.recursive && l.next_hop) bits.push('via ' + esc(l.next_hop));
       if (l.state === 'no-route') bits.push('no default route uses this port');
+      else if (l.state === 'held') bits.push(l.held_by === 'doctor' ? 'taken out of use by the Internet Doctor' : 'taken out of use');
       else {
         if (l.source) bits.push(esc(l.source));
         if (l.distance) bits.push('distance ' + esc(l.distance));

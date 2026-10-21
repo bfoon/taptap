@@ -23,7 +23,9 @@ STATUS_RE = re.compile(r'(\S+)\s+(reachable|unreachable|recursive)(?:\s+via\s+(\
 MAX_RECURSION = 4
 # Bump whenever the analysis changes: saved analyses made by older code are redone (core/wan_analysis.py).
 # 2 = recursive gateways (1.1.1.1 / 8.8.8.8 check hosts) resolve to the real ISP port.
-ANALYSIS_VERSION = 2
+ANALYSIS_VERSION = 3
+# 3 = lines held out of use (Internet Doctor / owner) are shown as such; DNS that depends on one line is reported.
+HELD_RE = re.compile(r'~(doctor|owner)-off:(\S+)\s*$')
 PCC_RE = re.compile(r':\s*(\d+)\s*/\s*(\d+)')
 DEFAULT_DST = {'0.0.0.0/0', '::/0'}
 
@@ -179,9 +181,15 @@ def _route_source(route, iface, interfaces):
 
 
 def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, routing_rules=None,
-                addresses=None, dhcp_clients=None, interfaces=None, declared_wans=None, hotspot_servers=None):
+                addresses=None, dhcp_clients=None, interfaces=None, declared_wans=None, hotspot_servers=None, dns=None):
     """Full multi-WAN / load-balancing picture. Always returns a complete dict."""
     routes = [dict(r) for r in routes or []]
+    # Lines whose default routes are switched off by the Internet Doctor or by the owner ("out of use").
+    held = {}
+    for r in routes:
+        m = HELD_RE.search(str(g(r, 'comment')))
+        if m and truthy(g(r, 'disabled', default='no')) and str(g(r, 'dst-address')) in DEFAULT_DST:
+            held[m.group(2)] = m.group(1)
     mangle = [dict(r) for r in mangle or [] if not truthy(g(r, 'disabled', default='no'))]
     bonding = [dict(r) for r in bonding or [] if not truthy(g(r, 'disabled', default='no'))]
     routing_tables = [dict(r) for r in routing_tables or []]
@@ -280,8 +288,8 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
             wan['check_gateway'] = wan['check_gateway'] or str(g(route, 'check-gateway'))
             wan['source'] = _route_source(route, hop['interface'], iface_rows)
 
-    # Interfaces the operator dragged into the WAN role but that have no route yet.
-    for iface in declared_wans or []:
+    # Interfaces the operator dragged into the WAN role but that have no route yet, and held-off lines.
+    for iface in list(declared_wans or []) + list(held):
         if iface and iface not in wans:
             wan = wan_for(iface, '')
             wan['declared'] = True
@@ -398,7 +406,9 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
             is_primary = key == primary_key or (primary_key is None and len(order) == 1)
             share = 100 if is_primary else 0
             role = 'primary' if is_primary else 'backup'
-        if wan['declared'] and not wan['route_count']:
+        if wan['interface'] in held and not wan['route_count']:
+            state, role = 'held', 'held'
+        elif wan['declared'] and not wan['route_count']:
             state, role = 'no-route', 'unconfigured'
         elif not wan['running']:
             state = 'down'
@@ -417,6 +427,7 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
             'role': role, 'expected_share': share, 'check_gateway': wan['check_gateway'], 'source': wan['source'],
             'pcc_rules': wan['pcc_rules'], 'ecmp_weight': wan['ecmp_weight'],
             'next_hop': wan['next_hops'][0] if wan['next_hops'] else '', 'recursive': wan['recursive'],
+            'held_by': held.get(wan['interface'], ''),
             'route_count': wan['route_count'],
         })
 
@@ -441,6 +452,43 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
             warnings.append(f"{len(same)} equal-cost default routes (via {', '.join(wan['gateways'])}) all leave through "
                             f"{wan['interface'] or 'one port'}, so the other line carries no customer traffic. "
                             f"Check that each check-host route points at a different ISP gateway.")
+    for l in links:
+        if l['state'] == 'held':
+            others = [x['label'] for x in links if x is not l and x['state'] == 'active']
+            why = ('the Internet Doctor took it out of use because its test addresses did not answer through it'
+                   if l['held_by'] == 'doctor' else 'it was taken out of use on the Internet lines page')
+            warnings.append(f"{l['label']} carries no customers: {why}. "
+                            + (f"Everything depends on {', '.join(others)}" if others else 'No other line is in use')
+                            + ' — press “Put in use” on the Internet lines page if it works.')
+    dns_rows = [dict(r) for r in dns or []]
+    if dns_rows and len([l for l in links if l['state'] in {'active', 'standby', 'held'}]) > 1:
+        dns_servers = []
+        for key in ('servers', 'dynamic-servers'):
+            dns_servers += [x for x in re.split(r'[,;\s]+', str(g(dns_rows[0], key))) if is_ip(x)]
+        on_line = {}
+        for srv in dict.fromkeys(dns_servers):
+            pinned_to = ''
+            for net, r in specific:              # /32 health-check route (8.8.8.8 via Starlink) pins it
+                try:
+                    if net.prefixlen == 32 and ipaddress.ip_address(srv) in net:
+                        hops = resolve_gateways(r, networks, dhcp_gateways, iface_rows)
+                        pinned_to = hops[0]['interface'] if hops else ''
+                except ValueError:
+                    pass
+            if not pinned_to:                    # the modem itself (192.168.1.1 on the Starlink port)
+                try:
+                    addr = ipaddress.ip_address(srv)
+                    pinned_to = next((i for n, i in networks if addr in n and i in wans), '')
+                except ValueError:
+                    pass
+            on_line[srv] = pinned_to
+        lines_used = {i for i in on_line.values() if i}
+        if on_line and all(on_line.values()) and len(lines_used) == 1:
+            port = next(iter(lines_used))
+            label = next((l['label'] for l in links if l['interface'] == port), port)
+            warnings.append(f"The router looks up names only through {', '.join(on_line)}, which goes out through {label}. "
+                            f"If {label} fails, names stop working and customers see no internet even though another "
+                            'line works. Apply the Internet lines setup again (it adds DNS that works on every line).')
     idle = [l for l in links if l['state'] == 'no-route']
     if idle:
         warnings.append(', '.join(l['label'] for l in idle) + ' ' + ('is' if len(idle) == 1 else 'are') +

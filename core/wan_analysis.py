@@ -42,6 +42,7 @@ def analyze_sections(router, sections, interfaces=None):
         interfaces=interfaces,
         hotspot_servers=_rows(sections, 'HotSpot servers'),
         declared_wans=declared_wans(router),
+        dns=_rows(sections, 'DNS'),
     ))
 
 
