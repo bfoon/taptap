@@ -243,7 +243,16 @@
   var timer;
   function banner(status, message, data) {
     clearInterval(timer); var box = $('#banner'); data = data || {};
-    if (status === 'pending' && S.confirmBy) {
+    if (status === 'pending' && (data.via_link || (ST.last_result && ST.last_result.via === 'link' && !data.health))) {
+      // TapTap Link: no live connection. TapTap confirms by itself once the router stays online on the new routes.
+      var steps = { sending: 'Sending the setup to the router…', settling: 'On the router — checking it stays online…', confirming: 'Confirming…', undoing: 'Something failed — putting the earlier setup back…' };
+      var stage = data.stage || (ST.last_result || {}).stage || 'sending';
+      box.innerHTML = '<div class="wan-banner pending"><span class="spinner-border text-primary"></span><div class="flex-grow-1"><h3>' + esc(steps[stage] || 'Working…') + '</h3><p>' +
+        esc(data.message || (ST.last_result || {}).message || '') + '</p><p class="small text-secondary mb-0">Through TapTap Link: the router checks in every few seconds. ' +
+        'A safety timer on the router puts the earlier setup back by itself if it loses the internet — nothing to press.</p></div>' +
+        '<div class="d-flex flex-column gap-2"><button class="btn btn-outline-danger btn-sm" id="undoBtn">Undo now</button></div></div>';
+      timer = setInterval(refreshStatus, 5000);
+    } else if (status === 'pending' && S.confirmBy) {
       box.innerHTML = '<div class="wan-banner pending"><div class="cd-ring" id="cdRing"><b id="cdTxt">5:00</b></div><div class="flex-grow-1"><h3>Applied. Is the internet still working?</h3><p>Open a website on a customer device. If all is well, keep the changes. Otherwise do nothing — the router undoes them by itself when the timer runs out.</p>' + healthHtml(data.health) + '</div>' +
         '<div class="d-flex flex-column gap-2"><button class="btn btn-success" id="keepBtn"><i class="bi bi-check2-circle"></i> Keep changes</button><button class="btn btn-outline-danger btn-sm" id="undoBtn">Undo now</button></div></div>';
       var end = new Date(S.confirmBy).getTime(), total = Math.max(1, end - Date.now());
@@ -257,16 +266,16 @@
         '<div class="d-flex flex-column gap-2"><button class="btn btn-light btn-sm" id="checkBtn"><i class="bi bi-activity"></i> Check lines</button><button class="btn btn-outline-danger btn-sm" id="undoBtn">Undo TapTap setup</button></div></div>';
       $('#checkBtn').onclick = function () { var b = this; b.disabled = true; fetch(U.status).then(function (r) { return r.json(); }).then(function (r) { b.disabled = false; $('#hBox').innerHTML = r.success ? healthHtml(r.health) : '<p class="text-danger small">' + esc(r.message) + '</p>'; if (r.success) drawFlow(r.health); }); };
     } else if (status === 'failed') {
-      box.innerHTML = '<div class="wan-banner failed"><i class="bi bi-x-octagon fs-3 text-danger"></i><div class="flex-grow-1"><h3>That didn’t work</h3><p>' + esc(message || ST.last_result && ST.last_result.error || '') + '</p></div><button class="btn btn-outline-danger btn-sm" id="undoBtn">Clean up</button></div>';
+      box.innerHTML = '<div class="wan-banner failed"><i class="bi bi-x-octagon fs-3 text-danger"></i><div class="flex-grow-1"><h3>That didn’t work</h3><p>' + esc(message || data.message || ST.last_result && (ST.last_result.error || ST.last_result.message) || '') + '</p></div><button class="btn btn-outline-danger btn-sm" id="undoBtn">Clean up</button></div>';
     } else if (status === 'undone') {
-      box.innerHTML = '<div class="wan-banner" style="background:#f1f4f7;border:1px solid #dde4ec"><i class="bi bi-arrow-counterclockwise fs-4"></i><div><h3>The TapTap setup was undone</h3><p>The router is back to its own internet settings. Your design is kept below — apply it again when ready.</p></div></div>';
+      box.innerHTML = '<div class="wan-banner" style="background:#f1f4f7;border:1px solid #dde4ec"><i class="bi bi-arrow-counterclockwise fs-4"></i><div><h3>The TapTap setup was undone</h3><p>' + esc(data.message || 'The router is back to its own internet settings.') + ' Your design is kept below — apply it again when ready.</p></div></div>';
     } else box.innerHTML = '';
     var ub = $('#undoBtn'); if (ub) ub.onclick = function () {
       if (!confirm('Remove everything TapTap added and put the router’s own internet settings back?')) return;
       ub.disabled = true; post(U.undo).then(function (r) { if (r.success) { S.status = 'undone'; banner('undone'); drawFlow(); $('#nowMethod').textContent = 'Right now: the router’s own settings'; } else { ub.disabled = false; alert(r.message); } });
     };
   }
-  function refreshStatus() { fetch(U.status).then(function (r) { return r.json(); }).then(function (r) { if (r.success) { S.status = r.status; S.confirmBy = r.confirm_by; banner(r.status, null, r); } }); }
+  function refreshStatus() { fetch(U.status).then(function (r) { return r.json(); }).then(function (r) { if (r.success) { S.status = r.status; S.confirmBy = r.confirm_by; if (r.via_link && ST.last_result) { ST.last_result.via = 'link'; ST.last_result.stage = r.stage; ST.last_result.message = r.message; } banner(r.status, null, r); } }); }
 
   function renderAll() { renderLines(); renderStrats(); renderOpts(); preview(); drawFlow(); }
   banner(S.status, null, ST.last_result || {});

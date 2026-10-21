@@ -279,3 +279,5 @@ html[data-theme="dark"] .lbx-picks button{background:#1f2933;color:#c8d6e5}
 .nm-cdot{width:7px;height:7px;border-radius:50%;background:#34c38f}.nm-chain-list li.off .nm-cdot{background:#f06548}
 .lbx-namer-q{display:block;font-size:.78rem;color:var(--muted,#6b7c8f);margin-bottom:.35rem}
 .nm-chain-acts{display:flex;gap:.4rem;flex-wrap:wrap}
+
+.lbx-fix{display:inline-flex;gap:.35rem;align-items:center;margin-top:.45rem;font-size:.78rem;font-weight:700;color:#0d6efd;text-decoration:none}.lbx-fix:hover{text-decoration:underline}

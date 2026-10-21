@@ -141,7 +141,7 @@
             <small><span data-k="pct">0%</span> of traffic${l.expected_share != null ? ` · plan ${l.expected_share}%` : ''}</small>
           </div>
           <svg class="lbx-spark" viewBox="0 0 120 28" preserveAspectRatio="none"><polyline data-k="spark" points=""/></svg>
-          <footer>${this.footer(l)}</footer>
+          <footer>${this.footer(l)}</footer>${(l.state === 'no-route' || l.state === 'held') && this.cfg.designer_url ? `<a class="lbx-fix" href="${esc(this.cfg.designer_url)}"><i class="bi bi-tools"></i> ${l.state === 'held' ? 'Put it back in use' : 'Use this line'} — Internet lines</a>` : ''}
         </article>`).join('');
 
       lanes.querySelectorAll('[data-rename]').forEach(b => b.addEventListener('click', () => this.openNamer(b.closest('.lbx-lane'))));

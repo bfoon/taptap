@@ -752,7 +752,8 @@ def _lb_config(router,snapshot=None,request=None):
     can_name=request is not None and 'network.manage' in getattr(request,'tt_perms',())
     return {'router_id':router.id,'router_name':router.name,'router_ip':router.ip_address or ('TapTap Link' if router.connection_mode=='agent' else ''),'status':router.status,
             'dom_id':f'lb-cfg-{router.id}','telemetry_url':reverse('router_telemetry',args=[router.id]),'load_balancing':lb,
-            'name_url':reverse('router_wan_name',args=[router.id]) if can_name else '','isp_suggestions':ISP_SUGGESTIONS,'isp_quick':ISP_QUICK}
+            'name_url':reverse('router_wan_name',args=[router.id]) if can_name else '','isp_suggestions':ISP_SUGGESTIONS,'isp_quick':ISP_QUICK,
+            'designer_url':reverse('wan_designer',args=[router.id])}
 
 
 @login_required

@@ -17,6 +17,7 @@ from .routeros_analysis import parse_version
 
 TAG = 'TapTap WAN'
 UNDO_SCHEDULER = 'TapTap-WAN-undo'
+LINK_OFF = ' ~tt-wan-off'          # marks a hand-made default route a TapTap Link apply switched off
 CHECK_HOSTS = [('8.8.8.8', 'Google DNS'), ('1.1.1.1', 'Cloudflare'), ('9.9.9.9', 'Quad9'),
                ('208.67.222.222', 'OpenDNS'), ('8.8.4.4', 'Google DNS 2'), ('1.0.0.1', 'Cloudflare 2')]
 PRIVATE_NETS = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10']
@@ -420,6 +421,10 @@ def build_plan(cfg, facts, run=None):
             B['clients'].append({'op': 'client', 'path': path, 'interface': other['interface'], 'fields': {'add-default-route': 'no'}, 'group': 'clients',
                                  'note': 'not selected — stays connected but carries no customer traffic'})
     B['clients'].append({'op': 'disable_static_defaults', 'group': 'clients'})
+    if health:
+        # A hand-made 8.8.8.8/32 next to TapTap's would make RouterOS send the health checks out through either
+        # modem, so a dead line could look healthy (and both lines could ride one modem). Switched off, undoable.
+        B['clients'].append({'op': 'disable_conflicting_hosts', 'hosts': [l['check'] for l in links], 'group': 'clients'})
 
     if multi and health:
         servers = dns_plan(links, facts.get('dns_servers'))
@@ -474,27 +479,62 @@ def render_script(plan, cfg, facts, business_name=''):
         g = op.get('group')
         if g != last and g in group_titles:
             lines += ['', f'# {group_titles[g]}']; last = g
-        p = cli_path(op.get('path', ''))
-        if op['op'] == 'add':
-            lines.append(f'{p} add {kv(op["fields"])}')
-        elif op['op'] == 'ensure':
-            key = ' and '.join(f'{k}={q(v)}' for k, v in op['key'].items())
-            lines.append(f':if ([:len [{p} find where {key}]]=0) do={{{p} add {kv(op["fields"])}}}')
-        elif op['op'] == 'ensure_nat':
-            i = q(op['interface'])
-            lines.append(f':if ([:len [{p} find where chain=srcnat and out-interface={i} and action=masquerade and disabled=no]]=0) do={{{p} add {kv(op["fields"])}}}')
-        elif op['op'] == 'client':
-            extra = dict(op['fields'])
-            if op.get('script'):
-                extra['script'] = op['script']
-            lines.append(f'{p} set [find where interface={q(op["interface"])}] {kv(extra)}' if op['path'] == '/ip/dhcp-client'
-                         else f'{p} set [find where name={q(op["interface"])}] {kv(extra)}')
-        elif op['op'] == 'dns':
-            lines.append(f'/ip dns set servers={",".join(op["servers"])}')
-        elif op['op'] == 'disable_static_defaults':
-            lines.append(f'/ip route disable [find where dst-address=0.0.0.0/0 and static and !(comment~"^{TAG}") and {"routing-table=main" if v7 else "!routing-mark"}]')
+        lines += op_lines(op, v7)
     lines += ['', '# Done. Check: /ip route print where dst-address=0.0.0.0/0']
     return '\n'.join(lines) + '\n'
+
+
+def op_lines(op, v7, run=None):
+    """RouterOS CLI lines for one plan operation.
+
+    With ``run`` (TapTap Link apply: the new setup goes in BEFORE the old one is removed, so the router is
+    never without a route between check-ins) two things change: a row that already exists is re-tagged with
+    this run instead of being left alone — otherwise the final clean-up of older runs deleted the WAN interface
+    list, the local-network list and the routing tables — and TapTap's own NAT of an older run does not count
+    as "already masqueraded", or the clean-up removed the only NAT of the line and customers had no internet.
+    """
+    p = cli_path(op.get('path', ''))
+    kind = op['op']
+    if kind == 'add':
+        return [f'{p} add {kv(op["fields"])}']
+    if kind == 'ensure':
+        key = ' and '.join(f'{k}={q(v)}' for k, v in op['key'].items())
+        if run:
+            return [f':do {{ :local x [{p} find where {key}]; :if ([:len $x]=0) do={{{p} add {kv(op["fields"])}}} '
+                    f'else={{{p} set $x comment={q(op["fields"]["comment"])}}} }}']
+        return [f':if ([:len [{p} find where {key}]]=0) do={{{p} add {kv(op["fields"])}}}']
+    if kind == 'ensure_nat':
+        i = q(op['interface'])
+        mine = f' and !(comment~"^{TAG}")' if run else ''
+        return [f':if ([:len [{p} find where chain=srcnat and out-interface={i} and action=masquerade and disabled=no{mine}]]=0) '
+                f'do={{{p} add {kv(op["fields"])}}}']
+    if kind == 'client':
+        extra = dict(op['fields'])
+        if op.get('script'):
+            extra['script'] = op['script']
+        if op['path'] == '/ip/dhcp-client':
+            return [f'{p} set [find where interface={q(op["interface"])}] {kv(extra)}']
+        return [f'{p} set [find where name={q(op["interface"])}] {kv(extra)}']
+    if kind == 'dns':
+        return [f'/ip dns set servers={",".join(op["servers"])}']
+    if kind == 'disable_conflicting_hosts':
+        out = []
+        for h in op['hosts']:
+            where = f'dst-address={h}/32 and static and disabled=no and !(comment~"^TapTap")'
+            if run:
+                out.append(f':foreach r in=[/ip route find where {where}] do={{ /ip route set $r disabled=yes '
+                           f'comment=([:tostr [/ip route get $r comment]] . "{LINK_OFF}") }}')
+            else:
+                out.append(f'/ip route disable [find where {where}]')
+        return out
+    if kind == 'disable_static_defaults':
+        table = 'routing-table=main' if v7 else '!routing-mark'
+        if run:   # marked, so the Link undo can put exactly these back
+            return [f':foreach r in=[/ip route find where dst-address=0.0.0.0/0 and static and disabled=no and '
+                    f'!(comment~"^{TAG}") and {table}] do={{ /ip route set $r disabled=yes '
+                    f'comment=([:tostr [/ip route get $r comment]] . "{LINK_OFF}") }}']
+        return [f'/ip route disable [find where dst-address=0.0.0.0/0 and static and !(comment~"^{TAG}") and {table}]']
+    return []
 
 
 def purge_lines(v7, keep_run=None):
@@ -632,6 +672,19 @@ def apply_plan(svc, plan, facts, original, undo_minutes=5, log=None):
             elif kind == 'dns':
                 res = svc.resource('/ip/dns')
                 res.call('set', {'servers': ','.join(op['servers'])})
+            elif kind == 'disable_conflicting_hosts':
+                res = svc.resource('/ip/route')
+                wanted = {f'{h}/32' for h in op['hosts']}
+                for row in res.get():
+                    if _s(row.get('dst-address')) not in wanted or _s(row.get('comment')).startswith('TapTap'):
+                        continue
+                    if _s(row.get('dynamic')).lower() in {'true', 'yes'} or _s(row.get('disabled')).lower() in {'true', 'yes'}:
+                        continue
+                    res.set(id=row['id'], disabled='yes')
+                    original.setdefault('disabled_routes', []).append(row['id'])
+                if original.get('disabled_routes') and undo_minutes:
+                    for row in _find(sched, name=UNDO_SCHEDULER):
+                        sched.set(id=row['id'], on_event=render_undo(original, v7))
             elif kind == 'disable_static_defaults':
                 res = svc.resource('/ip/route')
                 for row in res.get():

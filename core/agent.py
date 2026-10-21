@@ -1210,6 +1210,11 @@ def handle_poll(agent, data, ip, url):
         link_upgrade(router)
     except Exception as exc:
         logger.info('doctor upgrade %s: %s', router, exc)
+    try:   # an Internet lines change sent through Link: confirm once the router stays online, undo if a part failed
+        from .wan_link import progress as wan_progress
+        wan_progress(router, now)
+    except Exception as exc:
+        logger.info('wan link progress %s: %s', router, exc)
     rows = parse_sessions(data.get('act', ''))
     try:
         from .linklive import ingest_counters, store_sessions

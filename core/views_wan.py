@@ -194,7 +194,7 @@ def wan_apply(request, pk):
         # can confirm through the tunnel afterwards.
         minutes = 5
     if _on_link(router):
-        return JsonResponse({'success': False, 'message': _LINK_ONLY_MSG.format(name=router.name)}, status=409)
+        return _apply_via_link(request, router, setup, data, minutes)
     try:
         svc = MikroTikService(router).connect()
     except Exception as exc:
@@ -241,12 +241,39 @@ def wan_apply(request, pk):
                          'reachable_after': reach, 'health': lines, 'counts': result['counts'], 'notes': result['notes']})
 
 
+def _apply_via_link(request, router, setup, data, minutes):
+    """No live connection: send the setup through TapTap Link with an on-router undo timer (core/wan_link.py)."""
+    from .linkops import SnapshotService
+    from . import wan_link
+    try:
+        facts = wan.detect(SnapshotService(router)); facts.pop('analysis', None)
+    except Exception as exc:
+        return JsonResponse({'success': False, 'message': f'Could not read the synced configuration of {router.name}: {exc}'}, status=502)
+    cfg, errors, warnings = wan.normalize(data.get('config') or setup.config or {}, facts)
+    if errors:
+        return JsonResponse({'success': False, 'message': ' '.join(errors)}, status=400)
+    if data.get('config'):
+        setup.config = data['config']
+    try:
+        out = wan_link.start(router, setup, cfg, facts, user=request.user, minutes=minutes)
+    except (wan_link.LinkApplyError, ValueError) as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=409)
+    _audit(request, router, 'apply', {'strategy': cfg['strategy'], 'lines': [l['interface'] for l in cfg['links']],
+                                      'run': out['run'], 'undo_minutes': out['minutes'], 'via': 'link'})
+    log(router.business, 'Internet Lines Applied', f'{router.name} (TapTap Link): {wan.STRATEGIES[cfg["strategy"]]} on '
+        + ', '.join(l['label'] for l in cfg['links']))
+    return JsonResponse({'success': True, 'status': 'pending', 'via_link': True, 'stage': 'sending',
+                         'confirm_by': setup.confirm_by.isoformat(), 'health': [], 'counts': {}, 'notes': [],
+                         'message': setup.last_result.get('message'), 'warnings': warnings})
+
+
 @login_required
 @require_POST
 def wan_confirm(request, pk):
     router = _router(request, pk); setup = _setup(router)
     if _on_link(router):
-        return JsonResponse({'success': False, 'message': _LINK_ONLY_MSG.format(name=router.name)}, status=409)
+        return JsonResponse({'success': True, 'status': setup.status, 'via_link': True,
+                             'message': 'TapTap confirms by itself as soon as the router has stayed online on the new setup.'})
     try:
         svc = MikroTikService(router).connect()
         try:
@@ -270,7 +297,14 @@ def wan_confirm(request, pk):
 def wan_undo(request, pk):
     router = _router(request, pk); setup = _setup(router)
     if _on_link(router):
-        return JsonResponse({'success': False, 'message': _LINK_ONLY_MSG.format(name=router.name)}, status=409)
+        from . import wan_link
+        try:
+            wan_link.undo(router, setup, user=request.user)
+        except ValueError as exc:
+            return JsonResponse({'success': False, 'message': str(exc)}, status=409)
+        _audit(request, router, 'undo', {'via': 'link'})
+        log(router.business, 'Internet Lines Undone', f'{router.name}: undo sent through TapTap Link')
+        return JsonResponse({'success': True, 'removed': 0, 'via_link': True})
     try:
         svc = MikroTikService(router).connect()
         try:
@@ -292,7 +326,12 @@ def wan_status(request, pk):
     router = _router(request, pk); setup = _setup(router)
     cfg, errors, _ = wan.normalize(setup.config or {}, setup.facts or {})
     if _on_link(router):
-        return JsonResponse({'success': True, 'status': setup.status, 'undo_pending': False, 'health': [], 'via_link': True,
+        from . import wan_link
+        wan_link.progress(router)
+        setup.refresh_from_db()
+        res = setup.last_result or {}
+        return JsonResponse({'success': True, 'status': setup.status, 'undo_pending': setup.status == 'pending', 'health': [],
+                             'via_link': True, 'stage': res.get('stage', ''), 'message': res.get('message', ''),
                              'confirm_by': setup.confirm_by.isoformat() if setup.confirm_by else None})
     try:
         svc = MikroTikService(router).connect()
