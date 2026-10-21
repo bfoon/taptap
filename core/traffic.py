@@ -220,7 +220,8 @@ def _split_addr(value):
 
 def wan_interfaces(router):
     try:
-        lb = router.config_snapshot.load_balancing or {}
+        from .wan_analysis import current_load_balancing
+        lb = current_load_balancing(router.config_snapshot, router) or {}
     except Exception:
         lb = {}
     names = [l.get('interface') for l in lb.get('wan_links', []) if l.get('interface')]

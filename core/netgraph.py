@@ -75,7 +75,8 @@ def build_graph(business, include_clients=True, client_sample=40):
         snap = _snapshot(r)
         identity, model = _identity(r, snap)
         from .wan_names import named
-        lb = named(r, (snap.load_balancing if snap else None) or {})      # provider names: Gamtel, QCell…
+        from .wan_analysis import current_load_balancing
+        lb = named(r, current_load_balancing(snap, r) if snap else {})      # provider names: Gamtel, QCell…
         meta[r.id] = {'snap': snap, 'lb': lb, 'identity': identity}
         for ip in _router_ips(r, snap):
             ip_index[ip] = r

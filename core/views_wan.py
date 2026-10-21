@@ -113,8 +113,9 @@ def _preview_payload(router, setup, data):
 def wan_designer(request, pk):
     router = _router(request, pk); setup = _setup(router)
     snap = RouterConfigSnapshot.objects.filter(router=router).first()
+    from .wan_analysis import current_load_balancing
     return render(request, 'core/wan_designer.html', {
-        'router': router, 'setup': setup, 'current': (snap.load_balancing if snap else {}) or {},
+        'router': router, 'setup': setup, 'current': current_load_balancing(snap, router) if snap else {},
         'strategies': wan.STRATEGIES, 'check_hosts': wan.CHECK_HOSTS,
         'state': {'config': setup.config, 'status': setup.status, 'facts': setup.facts,
                   'confirm_by': setup.confirm_by.isoformat() if setup.confirm_by else None,

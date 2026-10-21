@@ -41,6 +41,9 @@ from .sync import (
 )
 from .utils import log
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 # Keep the same labels used by MikroTikService.CONFIG_CATALOG so existing pages
 # can read RouterConfigSnapshot without caring how the snapshot was collected.
@@ -588,23 +591,14 @@ def _rebuild_topology_and_analysis(router, snap, now, topology=True):
         _persist_topology(router, data, now)
     apply_interface_stats(router, _rows(sections, 'Interface counters'))
 
-    declared = list(router.interface_roles.filter(role='wan').values_list('interface_name', flat=True))
     try:
-        snap.load_balancing = redact(analyze_wan(
-            routes=data['routes'],
-            mangle=data['mangle'],
-            bonding=data['bonding'],
-            routing_tables=data['routing_tables'],
-            routing_rules=data['routing_rules'],
-            addresses=data['addresses'],
-            dhcp_clients=data['dhcp_clients'],
-            interfaces=data['interfaces'],
-            hotspot_servers=data['hotspot_servers'],
-            declared_wans=declared,
-        ))
+        from .wan_analysis import analyze_sections
+        snap.load_balancing = analyze_sections(router, sections, interfaces=data['interfaces'])
         snap.save(update_fields=['load_balancing', 'updated_at'])
+        from django.core.cache import cache
+        cache.delete(f'tt:lb:{router.pk}')        # the live view shows the new analysis at once
     except Exception:
-        pass
+        logger.exception('WAN analysis failed for %s', router)
 
 
 def _merge_summary(base, extra):

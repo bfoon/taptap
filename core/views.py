@@ -746,7 +746,8 @@ def _lb_config(router,snapshot=None,request=None):
     if snapshot is None:
         snapshot=RouterConfigSnapshot.objects.filter(router=router).first()
     from .wan_names import named, ISP_SUGGESTIONS, ISP_QUICK
-    lb=named(router,(snapshot.load_balancing if snapshot else None) or {})
+    from .wan_analysis import current_load_balancing
+    lb=named(router,current_load_balancing(snapshot,router) if snapshot else {})
     from django.urls import reverse
     can_name=request is not None and 'network.manage' in getattr(request,'tt_perms',())
     return {'router_id':router.id,'router_name':router.name,'router_ip':router.ip_address or ('TapTap Link' if router.connection_mode=='agent' else ''),'status':router.status,
@@ -782,7 +783,7 @@ def _named_payload(router,payload):
 
 def _lb_signature(lb):
     # Port, gateway and warnings count too: a newly resolved port or a new warning must reach the saved analysis.
-    return json.dumps([lb.get('method'),lb.get('warnings') or []]+[(l.get('id'),l.get('state'),l.get('expected_share'),l.get('interface'),
+    return json.dumps([lb.get('version'),lb.get('method'),lb.get('warnings') or []]+[(l.get('id'),l.get('state'),l.get('expected_share'),l.get('interface'),
                        l.get('gateway'),l.get('next_hop')) for l in lb.get('wan_links',[])],sort_keys=True)
 
 

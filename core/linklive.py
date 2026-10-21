@@ -124,8 +124,9 @@ def link_state(router):
 def telemetry(router):
     """Same shape as MikroTikService.wan_telemetry(), built from Link data."""
     from .models import RouterConfigSnapshot
+    from .wan_analysis import current_load_balancing
     snap = RouterConfigSnapshot.objects.filter(router=router).first()
-    lb = (snap.load_balancing if snap else None) or {}
+    lb = current_load_balancing(snap, router) if snap else {}
     wan = [l.get('interface') for l in lb.get('wan_links', []) if l.get('interface')]
     for bond in lb.get('bonds', []) or []:
         wan += bond.get('slaves', [])

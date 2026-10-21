@@ -137,3 +137,100 @@ class ProviderNamesInWarnings(SimpleTestCase):
     def test_ether1_does_not_match_inside_ether10(self):
         from core.wan_names import _with_names
         self.assertEqual(_with_names('ether10 down', {'ether1': 'Starlink'}), 'ether10 down')
+
+
+from datetime import timedelta  # noqa: E402
+
+from django.contrib.auth.models import User  # noqa: E402
+from django.test import TestCase  # noqa: E402
+from django.utils import timezone  # noqa: E402
+
+
+def link_rows():
+    """Rows exactly as the Link inventory uploads them (RouterOS 7 `print as-value`, every value a string)."""
+    return {
+        'Routes': {'rows': [
+            {'.id': '*1', 'dst-address': '0.0.0.0/0', 'gateway': '1.1.1.1', 'distance': '1', 'scope': '30',
+             'target-scope': '11', 'check-gateway': 'ping', 'active': 'true', 'disabled': 'false', 'static': 'true'},
+            {'.id': '*2', 'dst-address': '0.0.0.0/0', 'gateway': '8.8.8.8', 'distance': '1', 'scope': '30',
+             'target-scope': '11', 'check-gateway': 'ping', 'active': 'true', 'disabled': 'false', 'static': 'true'},
+            {'.id': '*3', 'dst-address': '1.1.1.1/32', 'gateway': '192.168.8.1', 'distance': '1', 'scope': '10',
+             'active': 'true', 'disabled': 'false'},
+            {'.id': '*4', 'dst-address': '8.8.8.8/32', 'gateway': '192.168.1.1', 'distance': '1', 'scope': '10',
+             'active': 'true', 'disabled': 'false'},
+            {'.id': '*5', 'dst-address': '192.168.8.0/24', 'gateway': 'ether3', 'dynamic': 'true', 'connect': 'true',
+             'active': 'true'},
+        ]},
+        'IP addresses': {'rows': [{'address': '192.168.8.100/24', 'interface': 'ether3', 'actual-interface': 'ether3',
+                                   'disabled': 'false', 'dynamic': 'true'},
+                                  {'address': '192.168.1.50/24', 'interface': 'ether1', 'actual-interface': 'ether1',
+                                   'disabled': 'false', 'dynamic': 'true'}]},
+        'Interfaces': {'rows': [{'name': 'ether1', 'running': 'true'}, {'name': 'ether3', 'running': 'true'}]},
+    }
+
+
+# What the old code saved for this router: two ghost lines and two "No route yet" lines (the screenshot).
+OLD_SAVED = {'method': 'ECMP', 'wan_links': [
+    {'id': 'gw_1_1_1_1', 'interface': '', 'gateway': '1.1.1.1', 'state': 'active'},
+    {'id': 'gw_8_8_8_8', 'interface': '', 'gateway': '8.8.8.8', 'state': 'active'},
+    {'id': 'ether3', 'interface': 'ether3', 'gateway': '', 'state': 'no-route'},
+    {'id': 'ether1', 'interface': 'ether1', 'gateway': '', 'state': 'no-route'}]}
+
+
+class SavedAnalysisFromOlderCode(TestCase):
+    def setUp(self):
+        from core.models import Business, Router, RouterAgent, RouterConfigSnapshot, RouterInterfaceRole
+        u = User.objects.create_user('o', password='x')
+        biz = Business.objects.create(user=u, business_name='B', owner_name='O', phone='1',
+                                      trial_ends_at=timezone.now() + timedelta(days=7))
+        self.router = Router.objects.create(business=biz, name='TapTap K', ip_address='10.0.0.1', username='a',
+                                            password='p', connection_mode='agent')
+        RouterAgent.objects.create(router=self.router, token_hash='h' * 64, last_seen_at=timezone.now(),
+                                   enrolled_at=timezone.now())
+        for iface, isp in (('ether3', 'QCell'), ('ether1', 'Starlink')):
+            RouterInterfaceRole.objects.create(router=self.router, interface_name=iface, role='wan', isp_name=isp)
+        self.snap = RouterConfigSnapshot.objects.create(router=self.router, sections=link_rows(),
+                                                        load_balancing=OLD_SAVED)
+
+    def assert_two_real_lines(self, lb):
+        self.assertEqual(sorted(l['interface'] for l in lb['wan_links']), ['ether1', 'ether3'])
+        self.assertFalse(any(l['state'] == 'no-route' for l in lb['wan_links']))
+        self.assertTrue(all(l['state'] == 'active' for l in lb['wan_links']))
+
+    def test_live_view_of_a_link_router_is_redone_without_waiting_for_a_sync(self):
+        from core.linklive import telemetry
+        self.assert_two_real_lines(telemetry(self.router)['load_balancing'])
+
+    def test_upgrade_is_saved_once(self):
+        from core.models import RouterConfigSnapshot
+        from core.routeros_analysis import ANALYSIS_VERSION
+        from core.wan_analysis import for_router
+        self.assert_two_real_lines(for_router(self.router))
+        saved = RouterConfigSnapshot.objects.get(pk=self.snap.pk).load_balancing
+        self.assertEqual(saved['version'], ANALYSIS_VERSION)
+        with mock_analyze() as again:
+            for_router(self.router)
+        again.assert_not_called()                                  # current analysis is not redone on every read
+
+    def test_names_still_applied(self):
+        from core.linklive import telemetry
+        from core.wan_names import named
+        lb = named(self.router, telemetry(self.router)['load_balancing'])
+        self.assertEqual(sorted(l['label'] for l in lb['wan_links']), ['QCell', 'Starlink'])
+
+    def test_traffic_report_records_the_real_ports(self):
+        from core.traffic import wan_interfaces
+        self.assertEqual(sorted(wan_interfaces(self.router)), ['ether1', 'ether3'])
+
+    def test_router_page_and_telemetry_endpoint(self):
+        from django.test import Client
+        c = Client()
+        c.force_login(self.router.business.user)
+        data = c.get(f'/routers/{self.router.pk}/telemetry/').json()
+        self.assertTrue(data['success'], data)
+        self.assertEqual(sorted(l['label'] for l in data['load_balancing']['wan_links']), ['QCell', 'Starlink'])
+
+
+def mock_analyze():
+    from unittest import mock
+    return mock.patch('core.wan_analysis.analyze_sections')

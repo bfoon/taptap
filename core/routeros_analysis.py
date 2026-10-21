@@ -21,6 +21,9 @@ IPV4_RE = re.compile(r'^\d{1,3}(?:\.\d{1,3}){3}$')
 # v6 gateway-status: "192.168.8.1 reachable via  ether3", "1.1.1.1 recursive via 192.168.8.1 ether3", "1.1.1.1 unreachable"
 STATUS_RE = re.compile(r'(\S+)\s+(reachable|unreachable|recursive)(?:\s+via\s+(\S+)(?:\s+(\S+))?)?', re.I)
 MAX_RECURSION = 4
+# Bump whenever the analysis changes: saved analyses made by older code are redone (core/wan_analysis.py).
+# 2 = recursive gateways (1.1.1.1 / 8.8.8.8 check hosts) resolve to the real ISP port.
+ANALYSIS_VERSION = 2
 PCC_RE = re.compile(r':\s*(\d+)\s*/\s*(\d+)')
 DEFAULT_DST = {'0.0.0.0/0', '::/0'}
 
@@ -448,6 +451,7 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
         warnings.append('Down: ' + ', '.join(l['label'] for l in down))
 
     return {
+        'version': ANALYSIS_VERSION,
         'method': method,
         'description': description,
         'configured': method not in {'Single WAN', 'No default route'},
