@@ -23,7 +23,10 @@ STATUS_RE = re.compile(r'(\S+)\s+(reachable|unreachable|recursive)(?:\s+via\s+(\
 MAX_RECURSION = 4
 # Bump whenever the analysis changes: saved analyses made by older code are redone (core/wan_analysis.py).
 # 2 = recursive gateways (1.1.1.1 / 8.8.8.8 check hosts) resolve to the real ISP port.
-ANALYSIS_VERSION = 3
+ANALYSIS_VERSION = 4
+# 4 = no guessing when two ports share a modem subnet (two modems on 192.168.1.1): TapTap's gw=<port>; marker,
+#     DHCP gateways, ARP and the saved Internet Lines setup decide; an unresolved check host says why.
+MARKER_RE = re.compile(r'\bgw=([^;\s]+);')
 # 3 = lines held out of use (Internet Doctor / owner) are shown as such; DNS that depends on one line is reported.
 HELD_RE = re.compile(r'~(doctor|owner)-off:(\S+)\s*$')
 PCC_RE = re.compile(r':\s*(\d+)\s*/\s*(\d+)')
@@ -92,11 +95,62 @@ def address_networks(addresses):
     return nets
 
 
-def resolve_gateways(route, networks=None, dhcp_gateways=None, interfaces=None):
-    """Return [{'gateway','interface','reachable'}] for one route row."""
+def port_for_ip(ip, networks=None, dhcp_gateways=None, arp=None):
+    """(interface, candidates) for a next-hop IP. Never guesses: when the IP sits in a subnet that two ports
+    share (two modems both on 192.168.1.1), interface is '' and candidates lists the ports."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return '', []
+    dhcp = set(_as_set((dhcp_gateways or {}).get(ip)))
+    if len(dhcp) == 1:
+        return next(iter(dhcp)), []
+    best, cands = -1, set()
+    for net, net_iface in networks or []:
+        if addr.version == net.version and addr in net:
+            if net.prefixlen > best:
+                best, cands = net.prefixlen, {net_iface}
+            elif net.prefixlen == best:
+                cands.add(net_iface)
+    pool = dhcp if len(dhcp) > 1 else cands
+    if len(pool) == 1:
+        return next(iter(pool)), []
+    seen = set(_as_set((arp or {}).get(ip)))
+    if pool:
+        both = pool & seen
+        if len(both) == 1:
+            return next(iter(both)), []
+    elif len(seen) == 1:
+        return next(iter(seen)), []              # gateway outside every subnet (LTE passthrough): ARP knows
+    return '', sorted(pool)
+
+
+def _as_set(v):
+    if not v:
+        return set()
+    return set(v) if isinstance(v, (set, list, tuple)) else {v}
+
+
+def arp_index(rows):
+    """{ip: {interface}} from /ip/arp (complete entries only)."""
+    out = {}
+    for row in rows or []:
+        ip, iface = _strip(g(row, 'address')), _strip(g(row, 'interface'))
+        if not ip or not iface or truthy(g(row, 'invalid', default='no')) or truthy(g(row, 'disabled', default='no')):
+            continue
+        if not g(row, 'mac-address') and not truthy(g(row, 'complete', default='yes')):
+            continue
+        out.setdefault(ip, set()).add(iface)
+    return out
+
+
+def resolve_gateways(route, networks=None, dhcp_gateways=None, interfaces=None, arp=None):
+    """Return [{'gateway','interface','reachable','candidates'}] for one route row."""
     networks = networks or []
     dhcp_gateways = dhcp_gateways or {}
     interfaces = interfaces or {}
+    marker = MARKER_RE.search(str(g(route, 'comment')))
+    marker = marker.group(1) if marker and (not interfaces or marker.group(1) in interfaces) else ''
     gateway_field = str(g(route, 'gateway'))
     immediate_map = {}
     for piece in str(g(route, 'immediate-gw')).split(','):
@@ -144,22 +198,14 @@ def resolve_gateways(route, networks=None, dhcp_gateways=None, interfaces=None):
         if not iface and len(pieces) == 1 and len(immediate_map) == 1:
             # v7 recursive route: gateway=1.1.1.1, immediate-gw=192.168.8.1%ether3 — the next hop decides the port
             iface = next(iter(immediate_map.values()))
+        candidates = []
+        if not iface and ip and marker and len(pieces) == 1:
+            iface = marker                       # TapTap wrote this route for that port ("… gw=ether3;")
         if not iface and ip:
-            iface = dhcp_gateways.get(ip, '')
-        if not iface and ip:
-            try:
-                addr = ipaddress.ip_address(ip)
-                best = None
-                for net, net_iface in networks:
-                    if addr in net and (best is None or net.prefixlen > best[0].prefixlen):
-                        best = (net, net_iface)
-                if best:
-                    iface = best[1]
-            except ValueError:
-                pass
+            iface, candidates = port_for_ip(ip, networks, dhcp_gateways, arp)
         if iface and iface in interfaces and not truthy(g(interfaces[iface], 'running', default='yes')):
             reachable = False
-        results.append({'gateway': ip, 'interface': iface, 'reachable': bool(reachable)})
+        results.append({'gateway': ip, 'interface': iface, 'reachable': bool(reachable), 'candidates': candidates})
     return results
 
 
@@ -181,7 +227,10 @@ def _route_source(route, iface, interfaces):
 
 
 def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, routing_rules=None,
-                addresses=None, dhcp_clients=None, interfaces=None, declared_wans=None, hotspot_servers=None, dns=None):
+                addresses=None, dhcp_clients=None, interfaces=None, declared_wans=None, hotspot_servers=None, dns=None,
+                arp=None, hints=None):
+    """hints: {check host IP: interface} from the owner's saved Internet Lines setup — used only when the
+    router's own data cannot tell which port a check host leaves through."""
     """Full multi-WAN / load-balancing picture. Always returns a complete dict."""
     routes = [dict(r) for r in routes or []]
     # Lines whose default routes are switched off by the Internet Doctor or by the owner ("out of use").
@@ -196,11 +245,14 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
     routing_rules = [dict(r) for r in routing_rules or [] if not truthy(g(r, 'disabled', default='no'))]
     iface_rows = interface_index(interfaces)
     networks = address_networks(addresses)
-    dhcp_gateways = {}
+    dhcp_gateways = {}                   # gateway IP → {interfaces}: two modems may hand out the same gateway
     for row in dhcp_clients or []:
-        gw = _strip(g(row, 'gateway'))
-        if gw and g(row, 'interface'):
-            dhcp_gateways[gw] = _strip(g(row, 'interface'))
+        gw = _strip(g(row, 'gateway')).split('%')[0]
+        if gw and g(row, 'interface') and is_ip(gw):
+            dhcp_gateways.setdefault(gw, set()).add(_strip(g(row, 'interface')))
+    arp_map = arp_index(arp)
+    hints = {str(k): str(v) for k, v in (hints or {}).items() if k and v}
+    notes = {}                           # check host → why its port is unknown / how it was decided
 
     def usable(r):
         return (not truthy(g(r, 'disabled', default='no'))
@@ -218,6 +270,15 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
                 pass
 
     def recurse(ip, depth=0, seen=()):
+        iface, hop = _recurse(ip, depth, seen)
+        if not iface and depth == 0 and hints.get(ip) and (not iface_rows or hints[ip] in iface_rows):
+            cands = notes.get(ip, {}).get('candidates') or []
+            if not cands or hints[ip] in cands:
+                notes.setdefault(ip, {})['hint'] = hints[ip]
+                return hints[ip], hop
+        return iface, hop
+
+    def _recurse(ip, depth=0, seen=()):
         """Interface and next hop that a recursive gateway (e.g. 1.1.1.1 in the classic two-ISP setup) really
         leaves through: longest matching host/network route, active and lowest distance first."""
         if depth >= MAX_RECURSION or not ip or ip in seen:
@@ -234,14 +295,23 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
                 if best is None or rank > best[0]:
                     best = (rank, r)
         if not best:
+            if depth == 0:
+                notes.setdefault(ip, {})['why'] = f'there is no route for {ip} itself (e.g. {ip}/32 via the modem)'
             return '', ''
-        for hop in resolve_gateways(best[1], networks, dhcp_gateways, iface_rows):
+        for hop in resolve_gateways(best[1], networks, dhcp_gateways, iface_rows, arp_map):
             if hop['interface']:
                 return hop['interface'], hop['gateway']
+            if hop.get('candidates'):
+                notes.setdefault(seen[0] if seen else ip, {}).update(
+                    candidates=hop['candidates'], gateway=hop['gateway'],
+                    why=f"its route goes to {hop['gateway']}, which is the modem on {' and on '.join(hop['candidates'])}")
+                return '', hop['gateway']
             if hop['gateway']:
-                iface, _ = recurse(hop['gateway'], depth + 1, seen + (ip,))
+                iface, _ = _recurse(hop['gateway'], depth + 1, seen + (ip,))
                 if iface:
                     return iface, hop['gateway']
+                notes.setdefault(seen[0] if seen else ip, {}).setdefault(
+                    'why', f"its route goes to {hop['gateway']}, which is not on any port of this router")
         return '', ''
 
     wans = {}
@@ -265,7 +335,7 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
         table = _route_table(route)
         distance = int(re.sub(r'\D', '', str(g(route, 'distance', default='1'))) or 1)
         active = truthy(g(route, 'active', default='true'))
-        for hop in resolve_gateways(route, networks, dhcp_gateways, iface_rows):
+        for hop in resolve_gateways(route, networks, dhcp_gateways, iface_rows, arp_map):
             next_hop = ''
             if hop['gateway'] and (not hop['interface'] or hop['interface'] not in iface_rows and iface_rows):
                 # Recursive route: the gateway (1.1.1.1, 8.8.8.8…) is not on any port; follow its host route.
@@ -441,10 +511,29 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
     if len(links) > 1 and method == 'Single WAN':
         warnings.append('Multiple WAN interfaces exist but only one carries a default route.')
     unresolved = [l for l in links if not l['interface'] and l['gateway']]
-    if unresolved:
-        warnings.append('Could not tell which port ' + ', '.join(l['gateway'] for l in unresolved) +
-                        ' leaves through — add a host route for it (e.g. ' + unresolved[0]['gateway'] +
-                        '/32 via the ISP modem) or refresh the configuration.')
+    for l in unresolved:
+        why = (notes.get(l['gateway']) or {}).get('why') or 'the router did not say'
+        warnings.append(f"Could not tell which port {l['gateway']} leaves through: {why}. "
+                        + ('Write its gateway with the port, e.g. ' + (notes[l['gateway']].get('gateway') or '192.168.1.1')
+                           + '%' + notes[l['gateway']]['candidates'][0] + ', or apply the Internet lines setup.'
+                           if (notes.get(l['gateway']) or {}).get('candidates')
+                           else f"Add a host route ({l['gateway']}/32 via the ISP modem) or apply the Internet lines setup."))
+    shared = {}
+    for net, iface in networks:
+        if iface in wans and net.prefixlen < 32:
+            shared.setdefault(str(net), set()).add(iface)
+    for net, ports in sorted(shared.items()):
+        if len(ports) > 1:
+            names = sorted(ports)
+            warnings.append(f"{' and '.join(names)} are both on {net} — two modems with the same address. A route that says "
+                            'only the modem address can go out either port, so both lines may really use one modem: '
+                            'one line idles and losing the other cuts everyone. Give every route its port '
+                            f'(e.g. …%{names[-1]}, the Internet lines page does this) or change one modem to another '
+                            'address range.')
+    for ip, n in sorted(notes.items()):
+        if n.get('hint'):
+            warnings.append(f"{ip} is shown on {n['hint']} because your Internet lines setup says so — the router's own "
+                            f"routes do not make it clear ({n.get('why') or 'no port in the route'}).")
     for wan in wans.values():
         same = [d for (t, d) in wan['distances'] if t == 'main' and d == min_distance]
         others = [k for k, w in wans.items() if w is not wan and (w['declared'] or w['route_count'])]

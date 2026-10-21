@@ -556,7 +556,8 @@ class MikroTikService:
 
     def analyze_load_balancing(self, routes=None, mangle=None, bonding=None, routing_tables=None,
                                routing_rules=None, addresses=None, dhcp_clients=None, interfaces=None,
-                               hotspot_servers=None):
+                               hotspot_servers=None, arp=None):
+        from .wan_analysis import check_host_hints
         declared = list(self.router.interface_roles.filter(role='wan').values_list('interface_name', flat=True)) if getattr(self.router, 'pk', None) else []
         return redact(analyze_wan(
             routes=routes if routes is not None else self.routes(),
@@ -569,6 +570,8 @@ class MikroTikService:
             interfaces=interfaces if interfaces is not None else self.interfaces(),
             hotspot_servers=hotspot_servers if hotspot_servers is not None else self.hotspot_servers(),
             declared_wans=declared,
+            arp=arp if arp is not None else self.safe_get('/ip/arp'),
+            hints=check_host_hints(self.router) if getattr(self.router, 'pk', None) else {},
         ))
 
     # --------------------------- Live traffic ----------------------------
@@ -650,6 +653,7 @@ class MikroTikService:
             dhcp_clients=self.dhcp_clients(),
             interfaces=interfaces,
             hotspot_servers=rows('HotSpot servers', self.hotspot_servers),
+            arp=(stored.get('ARP') or {}).get('rows') or [],     # stored copy: a hotspot ARP table is big to read every poll
         )
         names = [l['interface'] for l in analysis['wan_links'] if l['interface']]
         for bond in analysis.get('bonds', []):

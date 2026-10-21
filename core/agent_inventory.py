@@ -115,6 +115,9 @@ EXTRA_SOURCES = [
     ('remote_caps_legacy', 'Legacy CAPsMAN remote CAPs', '/caps-man/remote-cap'),
     # `/interface print as-value` leaves out the traffic counters; `print stats` has them.
     ('interface_stats', 'Interface counters', '/interface'),
+    # Some RouterOS builds leave the gateway out of `/ip dhcp-client print as-value` although the client is
+    # bound; the Internet lines page then said "no gateway yet". Asked one by one with `get`, it is always there.
+    ('dhcp_gateways', 'DHCP client gateways', '/ip/dhcp-client/gateways'),
 ]
 
 # Tables that only exist with the wifi / wireless / CAPsMAN packages.
@@ -122,6 +125,17 @@ OPTIONAL_KINDS = {'wifi_registrations', 'wireless_registrations', 'remote_caps_w
 
 SOURCES = OrderedDict((key, {'label': label, 'path': path}) for key, label, path in CONFIG_SOURCES + EXTRA_SOURCES)
 SOURCES['interface_stats']['args'] = 'stats'
+SOURCES['dhcp_gateways']['script'] = (
+    ':local out [:toarray ""]; '
+    ':foreach i in=[/ip dhcp-client find] do={ '
+    ':local n ""; :local gw ""; :local sv ""; :local st ""; '
+    ':do { :set n [:tostr [/ip dhcp-client get $i interface]] } on-error={}; '
+    ':do { :set gw [:tostr [/ip dhcp-client get $i gateway]] } on-error={}; '
+    ':do { :set sv [:tostr [/ip dhcp-client get $i dhcp-server]] } on-error={}; '
+    ':do { :set st [:tostr [/ip dhcp-client get $i status]] } on-error={}; '
+    ':set ($out->[:len $out]) {interface=$n; gateway=$gw; server=$sv; status=$st} }; '
+    ':return $out'
+)
 
 # Interface statistics copied onto the interface rows (rx-byte, packets, errors, drops, link drops).
 STAT_KEYS = ('rx-byte', 'tx-byte', 'rx-packet', 'tx-packet', 'rx-drop', 'tx-drop', 'rx-error', 'tx-error', 'tx-queue-drop',
@@ -196,9 +210,10 @@ def inventory_piece_script(cmd, url, check, nonce_value):
     command = f'{menu} print{args} as-value{where}'
     # The command is a quoted RouterOS string: a filter such as list~"^tt-share-" must be escaped, or its
     # quotes end the string early and the syntax error stops every command sent in the same batch.
+    body = src['script'] if src.get('script') else ':return [' + command + ']'
     return (
         f':global ttSend; :local rows [:toarray ""]; '
-        f':do {{ :set rows [[:parse {_rs(":return [" + command + "]")}]] }} '
+        f':do {{ :set rows [[:parse {_rs(body)}]] }} '
         f'on-error={{ :set rows [:toarray ""] }}; '
         f'$ttSend rows=$rows u={_rs(upload)} chk="{check}"'
     )

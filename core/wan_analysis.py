@@ -25,6 +25,35 @@ def declared_wans(router):
     return list(router.interface_roles.filter(role='wan').values_list('interface_name', flat=True))
 
 
+def check_host_hints(router):
+    """{check host: port} from the owner's saved Internet Lines setup (8.8.8.8 → ether1, 1.1.1.1 → ether3)."""
+    try:
+        links = (router.wan_setup.config or {}).get('links') or []
+    except Exception:
+        return {}
+    return {str(l.get('check')): str(l.get('interface')) for l in links
+            if l.get('check') and l.get('interface') and l.get('enabled', True)}
+
+
+def dhcp_rows(sections):
+    """DHCP clients, with the gateway filled in from the explicit reading when `print as-value` left it out."""
+    rows = [dict(r) for r in _rows(sections, 'DHCP clients')]
+    explicit = {str(r.get('interface')): r for r in _rows(sections, 'DHCP client gateways') if r.get('interface')}
+    for r in rows:
+        x = explicit.get(str(r.get('interface')))
+        if x:
+            if not r.get('gateway') and x.get('gateway'):
+                r['gateway'] = x['gateway']
+            if not r.get('dhcp-server') and x.get('server'):
+                r['dhcp-server'] = x['server']
+            if not r.get('status') and x.get('status'):
+                r['status'] = x['status']
+    known = {str(r.get('interface')) for r in rows}
+    rows += [{'interface': i, 'gateway': x.get('gateway', ''), 'dhcp-server': x.get('server', ''), 'status': x.get('status', '')}
+             for i, x in explicit.items() if i not in known]
+    return rows
+
+
 def analyze_sections(router, sections, interfaces=None):
     """Analysis from a stored configuration (the same inputs a Link inventory sync uses)."""
     from .mikrotik import redact
@@ -38,11 +67,13 @@ def analyze_sections(router, sections, interfaces=None):
         routing_tables=_rows(sections, 'Routing tables'),
         routing_rules=_rows(sections, 'Routing rules'),
         addresses=_rows(sections, 'IP addresses'),
-        dhcp_clients=_rows(sections, 'DHCP clients'),
+        dhcp_clients=dhcp_rows(sections),
         interfaces=interfaces,
         hotspot_servers=_rows(sections, 'HotSpot servers'),
         declared_wans=declared_wans(router),
         dns=_rows(sections, 'DNS'),
+        arp=_rows(sections, 'ARP'),
+        hints=check_host_hints(router),
     ))
 
 

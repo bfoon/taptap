@@ -80,6 +80,31 @@ def dns_plan(links, current):
     return out if out != current else None
 
 
+def dhcp_gateway(client, explicit=None, routes=()):
+    """The gateway a bound DHCP client got. Some RouterOS builds leave it out of `print as-value`, so it is
+    looked for, in order: the client row, TapTap Link's explicit reading, the client's own dynamic default
+    route, a TapTap route written for this port (…%ether1 / gw=ether1;), and the DHCP server address."""
+    iface = _s(client.get('interface'))
+    for v in (client.get('gateway'), (explicit or {}).get('gateway')):
+        v = _s(v).split('%')[0]
+        if _is_ip(v):
+            return v
+    for r in routes or ():
+        if _s(r.get('dst-address')) != '0.0.0.0/0':
+            continue
+        gw, on = _s(r.get('gateway')), _s(r.get('vrf-interface') or r.get('immediate-gw')).split('%')[-1]
+        if _s(r.get('dhcp')).lower() in {'true', 'yes'} and on == iface and _is_ip(gw.split('%')[0]):
+            return gw.split('%')[0]
+    for r in routes or ():
+        gw, c = _s(r.get('gateway')), _s(r.get('comment'))
+        if c.startswith(TAG) and (gw.endswith('%' + iface) or f'gw={iface};' in c) and _is_ip(gw.split('%')[0]):
+            return gw.split('%')[0]
+    for v in (client.get('dhcp-server'), (explicit or {}).get('server')):
+        if _is_ip(_s(v)):
+            return _s(v)
+    return ''
+
+
 def safe_name(iface):
     return re.sub(r'[^A-Za-z0-9_-]', '-', _s(iface))[:40] or 'wan'
 
@@ -115,10 +140,13 @@ def detect(svc):
             'client_script': '' if TAG in _s(client.get('script')) else _s(client.get('script')),
         })
 
+    routes = [dict(r) for r in svc.safe_get('/ip/route')]
+    explicit = {_s(r.get('interface')): r for r in svc.safe_get('/ip/dhcp-client/gateways') if r.get('interface')}
     for r in dhcp:
         if _s(r.get('disabled')).lower() in {'true', 'yes'}:
             continue
-        add(_s(r.get('interface')), 'dhcp', _s(r.get('gateway')), _s(r.get('status')), _s(r.get('address')), r)
+        iface = _s(r.get('interface'))
+        add(iface, 'dhcp', dhcp_gateway(r, explicit.get(iface), routes), _s(r.get('status')), _s(r.get('address')), r)
     for r in pppoe:
         if _s(r.get('disabled')).lower() in {'true', 'yes'}:
             continue
@@ -245,6 +273,14 @@ def normalize(cfg, facts):
     health = bool(cfg.get('health', True))
     if not health and strategy != 'single':
         warnings.append('Without health checks a line is only dropped when its modem stops answering — an ISP outage behind a working modem will not be noticed.')
+    gws = {}
+    for l in links:
+        if l['type'] != 'pppoe' and l.get('gateway'):
+            gws.setdefault(l['gateway'], []).append(l['label'])
+    for gw, labels in gws.items():
+        if len(labels) > 1:
+            warnings.append(f"{' and '.join(labels)} both use the modem address {gw}. That works: TapTap ties every route "
+                            f"to its port ({gw}%port), so each line keeps its own modem.")
     if strategy == 'ecmp':
         warnings.append('Combining sends each connection down any line, so a customer can appear from two IP addresses. Banking sites and some logins dislike that — “Share the load” keeps each customer on one line.')
     if strategy in {'balance', 'split', 'ecmp'} and facts.get('hotspot'):
