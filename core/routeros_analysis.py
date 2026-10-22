@@ -23,7 +23,10 @@ STATUS_RE = re.compile(r'(\S+)\s+(reachable|unreachable|recursive)(?:\s+via\s+(\
 MAX_RECURSION = 4
 # Bump whenever the analysis changes: saved analyses made by older code are redone (core/wan_analysis.py).
 # 2 = recursive gateways (1.1.1.1 / 8.8.8.8 check hosts) resolve to the real ISP port.
-ANALYSIS_VERSION = 4
+ANALYSIS_VERSION = 5
+# 5 = a recursive default route whose check host has no route of its own (gateway=8.8.8.8, no 8.8.8.8/32) is no
+#     longer drawn as a line called "8.8.8.8": it belongs to the one WAN port left without a route, shown as
+#     state 'broken' (or, when that cannot be told, as a broken route — never as an extra Internet line).
 # 4 = no guessing when two ports share a modem subnet (two modems on 192.168.1.1): TapTap's gw=<port>; marker,
 #     DHCP gateways, ARP and the saved Internet Lines setup decide; an unresolved check host says why.
 MARKER_RE = re.compile(r'\bgw=([^;\s]+);')
@@ -358,6 +361,29 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
             wan['check_gateway'] = wan['check_gateway'] or str(g(route, 'check-gateway'))
             wan['source'] = _route_source(route, hop['interface'], iface_rows)
 
+    # A recursive default route that could not be followed (gateway=8.8.8.8 but no 8.8.8.8/32) is not an Internet
+    # line of its own. If exactly one WAN port is left without any default route, the route is that port's: its
+    # health-check route is missing or broken, so RouterOS keeps it inactive and the port carries no customers.
+    orphans = [k for k in order if not wans[k]['interface'] and wans[k]['gateways']]
+    if orphans:
+        wan_ports = [i for i in dict.fromkeys(_strip(x) for x in (declared_wans or [])) if i]
+        if not wan_ports:                # nothing dragged into the WAN role yet: ports with a DHCP / PPPoE client
+            wan_ports = [i for gw_ports in dhcp_gateways.values() for i in gw_ports]
+            wan_ports += [n for n, r in iface_rows.items() if 'pppoe-out' in str(g(r, 'type')).lower()]
+            wan_ports = list(dict.fromkeys(wan_ports))
+        free = [i for i in wan_ports if i not in wans and i not in held]
+        if len(orphans) == 1 and len(free) == 1:
+            old_key, port = orphans[0], free[0]
+            orphan = wans.pop(old_key)
+            row = iface_rows.get(port, {})
+            orphan.update(id=re.sub(r'[^A-Za-z0-9_-]', '_', port), interface=port, comment=str(g(row, 'comment')),
+                          running=truthy(g(row, 'running', default='yes')) if row else True, guessed=True)
+            wans[port] = orphan
+            order[order.index(old_key)] = port
+        for k in order:
+            if not wans[k]['interface'] or wans[k].get('guessed'):
+                wans[k]['broken'] = True
+
     # Interfaces the operator dragged into the WAN role but that have no route yet, and held-off lines.
     for iface in list(declared_wans or []) + list(held):
         if iface and iface not in wans:
@@ -476,7 +502,9 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
             is_primary = key == primary_key or (primary_key is None and len(order) == 1)
             share = 100 if is_primary else 0
             role = 'primary' if is_primary else 'backup'
-        if wan['interface'] in held and not wan['route_count']:
+        if wan.get('broken'):
+            state, role, share = 'broken', 'broken', 0
+        elif wan['interface'] in held and not wan['route_count']:
             state, role = 'held', 'held'
         elif wan['declared'] and not wan['route_count']:
             state, role = 'no-route', 'unconfigured'
@@ -490,7 +518,10 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
             state = 'standby'
         distance = min((d for _, d in wan['distances']), default='')
         links.append({
-            'id': wan['id'], 'interface': wan['interface'], 'label': wan['comment'] or wan['interface'] or (wan['gateways'][0] if wan['gateways'] else 'WAN'),
+            'id': wan['id'], 'interface': wan['interface'],
+            'label': wan['comment'] or wan['interface'] or (f"Route via {wan['gateways'][0]}" if wan['gateways'] else 'WAN'),
+            'broken_via': wan['gateways'][0] if wan.get('broken') and wan['gateways'] else '',
+            'guessed_port': bool(wan.get('guessed')),
             'gateways': wan['gateways'], 'gateway': wan['gateways'][0] if wan['gateways'] else '',
             'tables': wan['tables'], 'table': wan['tables'][0] if wan['tables'] else '',
             'distance': str(distance), 'active': state == 'active', 'running': wan['running'], 'state': state,
@@ -519,12 +550,19 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
         warnings.append('HotSpot is running on a router with policy routing. HotSpot login traffic uses the main table; keep a working default route in main.')
     if method == 'Failover' and not any(l['check_gateway'] for l in links):
         warnings.append('Failover routes have no check-gateway, so a dead ISP behind a live modem will not trigger failover.')
-    if len(links) > 1 and method == 'Single WAN':
+    if len(links) > 1 and method == 'Single WAN' and not any(l['state'] == 'broken' for l in links):
         warnings.append('Multiple WAN interfaces exist but only one carries a default route.')
+    for l in links:
+        if l['state'] == 'broken' and l['interface']:
+            h = l['broken_via']
+            warnings.append(f"{l['interface']} has a default route through the check host {h}, but there is no route that "
+                            f"sends {h} out of {l['interface']} (a {h}/32 host route via its modem). RouterOS cannot use "
+                            f"the route, so customers never go out through {l['interface']}. Press “Repair wiring” in "
+                            'Internet Doctor on the Internet lines page, or apply the Internet lines setup.')
     unresolved = [l for l in links if not l['interface'] and l['gateway']]
     for l in unresolved:
         why = (notes.get(l['gateway']) or {}).get('why') or 'the router did not say'
-        warnings.append(f"Could not tell which port {l['gateway']} leaves through: {why}. "
+        warnings.append(f"A default route goes through {l['gateway']}, but it is not tied to any Internet line: {why}. "
                         + ('Write its gateway with the port, e.g. ' + (notes[l['gateway']].get('gateway') or '192.168.1.1')
                            + '%' + notes[l['gateway']]['candidates'][0] + ', or apply the Internet lines setup.'
                            if (notes.get(l['gateway']) or {}).get('candidates')

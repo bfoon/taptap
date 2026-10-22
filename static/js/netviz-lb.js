@@ -20,7 +20,7 @@
     'Single WAN': 'All customers share one Internet link. A second WAN adds backup or more capacity.',
     'No default route': 'Without a 0.0.0.0/0 route customers cannot reach the Internet through this router.'
   };
-  const STATE_TEXT = { active: 'Carrying traffic', standby: 'Standby', down: 'Down', 'no-route': 'No route yet', held: 'Out of use' };
+  const STATE_TEXT = { active: 'Carrying traffic', standby: 'Standby', down: 'Down', 'no-route': 'No route yet', held: 'Out of use', broken: 'Route broken' };
 
   function s(tag, attrs) { const e = document.createElementNS(NS, tag); for (const k in attrs || {}) e.setAttribute(k, attrs[k]); return e; }
   function esc(v) { return String(v == null ? '' : v).replace(/[&<>'"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[c])); }
@@ -141,7 +141,7 @@
             <small><span data-k="pct">0%</span> of traffic${l.expected_share != null ? ` · plan ${l.expected_share}%` : ''}</small>
           </div>
           <svg class="lbx-spark" viewBox="0 0 120 28" preserveAspectRatio="none"><polyline data-k="spark" points=""/></svg>
-          <footer>${this.footer(l)}</footer>${(l.state === 'no-route' || l.state === 'held') && this.cfg.designer_url ? `<a class="lbx-fix" href="${esc(this.cfg.designer_url)}"><i class="bi bi-tools"></i> ${l.state === 'held' ? 'Put it back in use' : 'Use this line'} — Internet lines</a>` : ''}
+          <footer>${this.footer(l)}</footer>${this.fixLink(l)}
         </article>`).join('');
 
       lanes.querySelectorAll('[data-rename]').forEach(b => b.addEventListener('click', () => this.openNamer(b.closest('.lbx-lane'))));
@@ -154,9 +154,24 @@
       this.paintTraffic();
     }
 
+    fixLink(l) {
+      const url = this.cfg.designer_url;
+      if (!url || !['no-route', 'held', 'broken'].includes(l.state)) return '';
+      // a broken route is fixed by the Internet Doctor's “Repair wiring” on the Internet lines page
+      const href = l.state === 'broken' ? url.split('#')[0] + '#doctor' : url;
+      const text = l.state === 'held' ? 'Put it back in use' : l.state === 'broken' ? 'Repair wiring' : 'Use this line';
+      return `<a class="lbx-fix" href="${esc(href)}"><i class="bi bi-tools"></i> ${text} — Internet lines</a>`;
+    }
+
     footer(l) {
       // ether3 → 1.1.1.1 · via 192.168.8.1 · static · distance 1 · main
       const bits = [];
+      if (l.state === 'broken') {
+        // ether3 → 8.8.8.8 · no 8.8.8.8/32 route out of ether3   |   route via 8.8.8.8 · not tied to a line
+        const h = esc(l.broken_via || l.gateway);
+        if (l.interface) return `${esc(l.interface)} → ${h} · no ${h}/32 route out of ${esc(l.interface)} · inactive`;
+        return `route via ${h} · not tied to any Internet line · inactive`;
+      }
       let head = esc(l.interface || 'port not found');
       if (l.gateways && l.gateways.length) head += ' → ' + l.gateways.map(esc).join(', ');
       else if (l.gateway) head += ' → ' + esc(l.gateway);

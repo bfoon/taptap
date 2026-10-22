@@ -76,7 +76,7 @@ class RecursiveEcmp(SimpleTestCase):
                   {'dst-address': '1.1.1.1/32', 'gateway': '2.2.2.2'},
                   {'dst-address': '2.2.2.2/32', 'gateway': '1.1.1.1'}]
         lb = run(routes, declared=())
-        self.assertTrue(any('Could not tell which port' in w for w in lb['warnings']))
+        self.assertTrue(any('not tied to any Internet line' in w for w in lb['warnings']))
 
 
 class WhyALineCarriesNothing(SimpleTestCase):
@@ -93,6 +93,51 @@ class WhyALineCarriesNothing(SimpleTestCase):
         routes = [r for r in recursive_routes() if r['dst-address'] != '1.1.1.1/32']
         lb = run(routes)
         self.assertTrue(any('1.1.1.1' in w and 'host route' in w for w in lb['warnings']))
+
+
+class CheckHostWithoutItsOwnRoute(SimpleTestCase):
+    """hAP on Starlink (ether1) + QCell (ether3), 22 Oct 2026: 0.0.0.0/0 via 8.8.8.8 had no 8.8.8.8/32, so the page drew a
+    third Internet line called “8.8.8.8” (port not found) and QCell as “No route yet”."""
+    ROUTES = [
+        {'dst-address': '1.1.1.1/32', 'gateway': '192.168.1.1%ether1', 'scope': '10', 'active': 'true', 'comment': 'TapTap check Starlink 1'},
+        {'dst-address': '0.0.0.0/0', 'gateway': '1.1.1.1', 'immediate-gw': '192.168.1.1%ether1', 'distance': '1',
+         'check-gateway': 'ping', 'active': 'true', 'comment': 'TapTap Starlink 1 pinned'},
+        {'dst-address': '0.0.0.0/0', 'gateway': '8.8.8.8', 'immediate-gw': '', 'distance': '1', 'check-gateway': 'ping',
+         'active': 'false', 'comment': 'TapTap Starlink 2 pinned'},
+    ]
+
+    def test_no_ghost_line_the_route_belongs_to_the_free_wan_port(self):
+        lb = run(self.ROUTES)
+        by = {l['interface']: l for l in lb['wan_links']}
+        self.assertEqual(sorted(by), ['ether1', 'ether3'])          # two lines, never a third one called 8.8.8.8
+        self.assertEqual(by['ether1']['state'], 'active')
+        self.assertEqual(by['ether3']['state'], 'broken')
+        self.assertEqual(by['ether3']['broken_via'], '8.8.8.8')
+        self.assertTrue(by['ether3']['guessed_port'])
+        text = ' '.join(lb['warnings'])
+        self.assertIn('no route that sends 8.8.8.8 out of ether3', text)
+        self.assertIn('Repair wiring', text)
+        self.assertNotIn('marked as WAN but no default route', text)
+        self.assertNotIn('Multiple WAN interfaces exist', text)
+
+    def test_ports_with_dhcp_clients_count_when_nothing_is_dragged_into_wan(self):
+        lb = run(self.ROUTES, declared=(), dhcp_clients=[{'interface': 'ether1', 'gateway': '192.168.1.1'},
+                                                          {'interface': 'ether3', 'gateway': '192.168.8.1'}])
+        self.assertEqual(sorted(l['interface'] for l in lb['wan_links']), ['ether1', 'ether3'])
+
+    def test_unclear_owner_stays_a_broken_route_not_a_line(self):
+        lb = run(self.ROUTES, declared=('ether1', 'ether3', 'ether5'))     # two free WAN ports: no guessing
+        ghost = next(l for l in lb['wan_links'] if not l['interface'])
+        self.assertEqual(ghost['state'], 'broken')
+        self.assertEqual(ghost['label'], 'Route via 8.8.8.8')
+        self.assertTrue(any('not tied to any Internet line' in w for w in lb['warnings']))
+
+    def test_once_the_host_route_exists_both_lines_work(self):
+        routes = self.ROUTES + [{'dst-address': '8.8.8.8/32', 'gateway': '192.168.8.1%ether3', 'scope': '10', 'active': 'true'}]
+        routes[2] = {**routes[2], 'active': 'true', 'immediate-gw': '192.168.8.1%ether3'}
+        lb = run(routes)
+        self.assertEqual(lb['method'], 'ECMP')
+        self.assertEqual({l['interface']: l['state'] for l in lb['wan_links']}, {'ether1': 'active', 'ether3': 'active'})
 
 
 class NothingElseChanged(SimpleTestCase):

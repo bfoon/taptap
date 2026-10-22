@@ -182,10 +182,10 @@ def build_graph(business, include_clients=True, client_sample=40):
                 'sub': ' · '.join(x for x in ((iface if link.get('isp') else ''), link.get('gateway') or link.get('source', '')) if x),
                 'router_id': r.id, 'iface': iface,
                 'state': link.get('state', ''), 'role': link.get('role', ''), 'share': link.get('expected_share'),
-                'source': link.get('source', ''), 'status': 'offline' if link.get('state') in {'down', 'no-route'} else 'online',
+                'source': link.get('source', ''), 'status': 'offline' if link.get('state') in {'down', 'no-route', 'broken'} else 'online',
                 'tables': link.get('tables', []), 'distance': link.get('distance', ''),
             }
-            online = link.get('state') not in {'down', 'no-route'}
+            online = link.get('state') not in {'down', 'no-route', 'broken'}
             add_edge(wid, rid, 'wan', r.id, iface, iface, online, 'up')
             if iface in isp_by_iface:
                 isp = isp_by_iface[iface]

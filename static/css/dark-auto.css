@@ -523,3 +523,5 @@ html[data-theme="dark"] .vd-reason{background:#2a313c}
 html[data-theme="dark"] .vd-state.frozen{background:#1c324a;color:#7aa8e1}
 html[data-theme="dark"] .vd-state.warned{background:#423415;color:#f3b368}
 html[data-theme="dark"] .vd-share{border:1px solid #665736;background:#4a3b1c}
+
+html[data-theme="dark"] .lbx-lane.st-broken header em{color:#ff9a9e}

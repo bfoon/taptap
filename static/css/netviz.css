@@ -281,3 +281,9 @@ html[data-theme="dark"] .lbx-picks button{background:#1f2933;color:#c8d6e5}
 .nm-chain-acts{display:flex;gap:.4rem;flex-wrap:wrap}
 
 .lbx-fix{display:inline-flex;gap:.35rem;align-items:center;margin-top:.45rem;font-size:.78rem;font-weight:700;color:#0d6efd;text-decoration:none}.lbx-fix:hover{text-decoration:underline}
+
+/* a default route that cannot work (its check host has no route of its own) */
+.lbx-wire.st-broken{stroke:#7a2f35;stroke-dasharray:3 7}
+.lbx-isp.st-broken rect{stroke:#e5484d;stroke-dasharray:4 3}
+.lbx-lane.st-broken .lbx-dot{background:var(--bad,#e5484d)}
+.lbx-lane.st-broken header em{color:#b4232a}
