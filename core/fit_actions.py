@@ -44,6 +44,8 @@ GROUPS = {
                              'you or the member, and may free an idle slot or disconnect extra devices'),
     'router': ('Router control', 'Change things directly on your MikroTik routers: sessions, cookies, IP bindings, walled garden, '
                                  'address lists, queues, DNS, ports, Wi-Fi name, router name; reboot, flush DNS, fix the clock'),
+    'bulk': ('Bulk voucher changes', 'Change many vouchers at once — e.g. disable all frozen vouchers, unfreeze a batch, add time to a '
+                                     'plan, bin unused vouchers. Only the Owner or an Admin can approve these'),
 }
 
 
@@ -698,6 +700,27 @@ def _do_router_task(business, p, user):
         raise FitActionError(str(exc))
 
 
+# ─────────────────────────────── group changes (core/fit_bulk) ───────────────────────────────
+
+def _check_bulk(business, a):
+    from .fit_bulk import check
+    return check(business, a)
+
+
+def _do_bulk(business, p, user):
+    from .fit_bulk import do
+    return do(business, p, user)
+
+
+def _extra_perms_ok(kind, params, perms):
+    """Some group operations also need the permission the matching TapTap page needs (warn, bin)."""
+    if kind != 'bulk_vouchers':
+        return True
+    from .fit_bulk import OPERATIONS
+    need = OPERATIONS.get(str((params or {}).get('operation') or ''), (None, None))[1]
+    return has_perm(perms, need)
+
+
 # ─────────────────────────────── registry ───────────────────────────────
 # kind: (group, permissions (any of), check(business, args) -> (params, title, detail, link), do(business, params, user), danger)
 KINDS = {
@@ -724,6 +747,8 @@ KINDS = {
     'free_idle_slot': ('devices', ('vouchers.support',), _check_free_idle_slot, _do_free_idle_slot, 'warn'),
     'router_change': ('router', ('network.manage',), _check_router_change, _do_router_change, 'warn'),
     'router_task': ('router', ('network.manage',), _check_router_task, _do_router_task, 'warn'),
+    # Owner / Admin only: views_fit grants ADMIN_PERM ('fit.admin') to nobody else
+    'bulk_vouchers': ('bulk', ('fit.admin',), _check_bulk, _do_bulk, 'danger'),
 }
 
 
@@ -753,6 +778,8 @@ def propose(ctx, kind, args):
     group, need, _, _, danger = spec
     if not has_perm(ctx.perms, need):
         raise FitActionError('Your role does not allow this change, so I cannot offer it. Ask the business owner.')
+    if not _extra_perms_ok(kind, args, ctx.perms):
+        raise FitActionError('Your role does not allow that kind of change.')
     params, title, detail, link = _validate(ctx.business, ctx.user, kind, args or {})
     a = FitAction.objects.create(business=ctx.business, conversation=ctx.conversation, proposed_to=ctx.user,
                                  kind=kind, params=params, title=title[:200], detail=(detail or '')[:500])
@@ -764,10 +791,23 @@ def propose(ctx, kind, args):
 def card_json(a, settings, link='', danger=None):
     group, *_rest = KINDS.get(a.kind, ('?', (), None, None, 'ok'))
     expired = a.status == 'proposed' and timezone.now() - a.created_at > ACTION_TTL
-    return {'id': a.pk, 'kind': a.kind, 'title': a.title, 'detail': a.detail, 'status': 'expired' if expired else a.status,
-            'result': a.result, 'group': group, 'group_label': GROUPS.get(group, (group,))[0],
-            'authorized': bool(settings and settings.allows(group)), 'link': link,
-            'danger': danger or (a.params or {}).get('danger') or KINDS.get(a.kind, (None,) * 5)[4] or 'ok'}
+    out = {'id': a.pk, 'kind': a.kind, 'title': a.title, 'detail': a.detail, 'status': 'expired' if expired else a.status,
+           'result': a.result, 'group': group, 'group_label': GROUPS.get(group, (group,))[0],
+           'authorized': bool(settings and settings.allows(group)), 'link': link,
+           'danger': danger or (a.params or {}).get('danger') or KINDS.get(a.kind, (None,) * 5)[4] or 'ok'}
+    extra = (a.params or {}).get('_card') if isinstance(a.params, dict) else None
+    if isinstance(extra, dict):        # context shown before deciding: facts, warnings, sample, typed confirmation
+        out.update({'facts': extra.get('facts') or [], 'warnings': extra.get('warnings') or [], 'sample': extra.get('sample') or [],
+                    'more': extra.get('more') or 0, 'confirm': extra.get('confirm') or ''})
+        if not out['link'] and (a.params or {}).get('_link'):
+            out['link'] = a.params['_link']
+    return out
+
+
+def confirm_needed(action):
+    """The text the person must type before a big group change runs ('' = none)."""
+    extra = (action.params or {}).get('_card') if isinstance(action.params, dict) else None
+    return str((extra or {}).get('confirm') or '')
 
 
 def run(action, user, perms, settings):
@@ -785,8 +825,8 @@ def run(action, user, perms, settings):
     group, need, _, do, _ = KINDS[action.kind]
     if not settings.allows(group):
         return False, f'The business owner has not allowed Fit to make “{GROUPS[group][0]}” changes. They can switch it on in Fit settings.'
-    if not has_perm(perms, need):
-        return False, 'Your role does not allow this change.'
+    if not has_perm(perms, need) or not _extra_perms_ok(action.kind, action.params, perms):
+        return False, 'Your role does not allow this change.' + (' Group changes need the Owner or an Admin.' if action.kind == 'bulk_vouchers' else '')
     try:
         _validate(action.business, user, action.kind, action.params)        # still makes sense right now?
         result = str(do(action.business, action.params, user) or 'Done.')

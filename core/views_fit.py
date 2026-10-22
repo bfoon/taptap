@@ -27,7 +27,12 @@ def _biz(request):
 
 
 def _perms(request):
-    return frozenset(getattr(request, 'tt_perms', None) or ())
+    """The person's own permissions, plus Fit's group-change right for the Owner, an Admin or platform staff."""
+    from .fit_bulk import ADMIN_PERM, is_admin
+    perms = frozenset(getattr(request, 'tt_perms', None) or ())
+    if getattr(request, 'tt_business', None) is not None and is_admin(request):
+        perms |= {ADMIN_PERM}
+    return perms
 
 
 def _settings(b):
@@ -166,6 +171,10 @@ def fit_action(request, pk):
         return JsonResponse({'ok': True, 'card': fit_actions.card_json(a, s)})
     if decision != 'run':
         return JsonResponse({'ok': False, 'message': 'Choose run or dismiss.'}, status=400)
+    need = fit_actions.confirm_needed(a)
+    if need and a.status == 'proposed' and str(_body(request).get('confirm') or '').strip() != need:
+        return JsonResponse({'ok': False, 'message': f'Type {need} in the box to confirm this group change.',
+                             'card': fit_actions.card_json(a, s)}, status=400)
     ok, msg = fit_actions.run(a, request.user, _perms(request), s)
     a.refresh_from_db()
     return JsonResponse({'ok': ok, 'message': msg, 'card': fit_actions.card_json(a, s)}, status=200 if ok else 400)

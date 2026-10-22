@@ -332,6 +332,20 @@ def _tool_calls(raw):
 
 # ─────────────────────────────── prompt ───────────────────────────────
 
+def _bulk_rule(ctx):
+    from .fit_bulk import ADMIN_PERM
+    if ADMIN_PERM in ctx.perms:
+        return ('14. Group changes (this person is Owner/Admin): when they ask to change MANY vouchers at once (“disable all the '
+                'frozen vouchers”, “unfreeze batch B12”, “add 1 hour to everyone on Daily who is online”, “bin the unused vouchers '
+                'of Tower”), first call count_vouchers with the same filters, then offer ONE propose_action kind=bulk_vouchers '
+                '(operation + state / plan / batch / router / agent / codes / dates + a short reason) — never many single cards. '
+                'In your reply say how many will change, a few sample codes, and every warning from the tool result (people cut '
+                'off, members included, saved time dropped, sales removed, routers offline, the type-to-confirm number). If the '
+                'request is vague (“all vouchers”), ask which ones. Prefer reversible operations (freeze/unfreeze) when unsure.')
+    return ('14. Group changes (many vouchers at once) can only be approved by the Owner or an Admin. This person cannot: use '
+            'count_vouchers to show how many match, offer single-voucher actions if only a few, or suggest asking the owner.')
+
+
 def system_prompt(ctx, page=None):
     from .fit_actions import GROUPS, kinds_for
     b = ctx.business
@@ -386,6 +400,7 @@ def system_prompt(ctx, page=None):
         'watching something, build a live dashboard with create_dashboard (4–8 well-chosen widgets, kpis first, live '
         'sources like online_users / router_load / sales_by_hour for a wall screen) and give its link. To add charts to an '
         'existing dashboard, check dashboards first and pass dashboard_id.',
+        _bulk_rule(ctx),
     ]
     if page and page.get('path'):
         lines += ['', f'The person is looking at the TapTap page “{str(page.get("title", ""))[:80]}” ({str(page["path"])[:120]}). '

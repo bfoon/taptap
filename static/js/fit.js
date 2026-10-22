@@ -80,6 +80,7 @@
   }
 
   var ICON = {
+    warn: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4.5M12 17.5v.01"/></svg>',
     x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
     send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>',
     gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>',
@@ -287,6 +288,11 @@
     document.body.appendChild(P);
     var ta = P.querySelector('textarea');
     P.addEventListener('click', onPanelClick);
+    P.addEventListener('input', function (e) {         // group change: Take action unlocks when the number is typed
+      var box = e.target.closest && e.target.closest('[data-confirm]'); if (!box) return;
+      var go = box.closest('.fit-wo').querySelector('[data-run]');
+      if (go) go.disabled = box.value.trim() !== box.dataset.confirm;
+    });
     P.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
     P.querySelector('form').addEventListener('submit', function (e) { e.preventDefault(); send(ta.value); });
     ta.addEventListener('keydown', function (e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(ta.value); } });
@@ -426,14 +432,18 @@
     var st = { proposed: 'Waiting for you', done: 'Done', failed: 'Did not work', dismissed: 'Dismissed', expired: 'Expired — ask again' }[a.status] || a.status;
     var can = S.state && S.state.settings && S.state.settings.can_manage;
     var h = '<div class="fit-wo-top"><span>' + esc(a.group_label) + '</span><span class="fit-wo-st">' + esc(st) + '</span></div>' +
-      '<b>' + esc(a.title) + '</b><p>' + esc(a.detail) + '</p>';
+      '<b>' + esc(a.title) + '</b><p>' + esc(a.detail) + '</p>' + contextHtml(a);
     if (a.status === 'proposed' && !a.authorized) {
       h += '<div class="fit-wo-lock">' + ICON.lock + '<span>' + (can ? 'You have not allowed Fit to make “' + esc(a.group_label) + '” changes yet.'
         : 'The business owner has not allowed Fit to make “' + esc(a.group_label) + '” changes.') + '</span></div>';
     }
     h += '<div class="fit-wo-row">';
     if (a.status === 'proposed') {
-      if (a.authorized) h += '<button class="fit-b go" type="button" data-run="' + a.id + '">Take action</button>';
+      if (a.authorized && a.confirm) {
+        h += '<label class="fit-wo-confirm">Type <b>' + esc(a.confirm) + '</b> to confirm <input type="text" inputmode="numeric" autocomplete="off" ' +
+          'data-confirm="' + esc(a.confirm) + '" aria-label="Type ' + esc(a.confirm) + ' to confirm"></label>';
+        h += '<button class="fit-b go" type="button" data-run="' + a.id + '" disabled>Take action</button>';
+      } else if (a.authorized) h += '<button class="fit-b go" type="button" data-run="' + a.id + '">Take action</button>';
       else if (can) h += '<button class="fit-b go" type="button" data-allow="' + esc(a.group) + '">Allow ' + esc(a.group_label) + '</button>';
       h += '<button class="fit-b" type="button" data-dismiss="' + a.id + '">Dismiss</button>';
     }
@@ -444,6 +454,22 @@
     el.innerHTML = h;
     el._card = a;
     return el;
+  }
+
+  // Group changes: what will be touched and what to watch out for, shown before the person decides.
+  function contextHtml(a) {
+    var h = '';
+    if (a.facts && a.facts.length) {
+      h += '<dl class="fit-wo-facts">' + a.facts.map(function (f) { return '<dt>' + esc(f[0]) + '</dt><dd>' + esc(f[1]) + '</dd>'; }).join('') + '</dl>';
+    }
+    if (a.sample && a.sample.length) {
+      h += '<div class="fit-wo-sample">' + a.sample.map(function (c) { return '<code>' + esc(c) + '</code>'; }).join(' ') +
+        (a.more ? ' <span>and ' + a.more + ' more</span>' : '') + '</div>';
+    }
+    if (a.warnings && a.warnings.length && a.status === 'proposed') {
+      h += '<ul class="fit-wo-warn">' + a.warnings.map(function (w) { return '<li>' + ICON.warn + '<span>' + esc(w) + '</span></li>'; }).join('') + '</ul>';
+    }
+    return h;
   }
 
   function testCard(t) {
@@ -522,6 +548,7 @@
     if (t.dataset.dismiss) return decide(t, 'dismiss');
     if (t.dataset.run) {
       var card = t.closest('.fit-wo');
+      if (card.querySelector('[data-confirm]')) return decide(t, 'run');      // the typed number is the confirmation
       if (card.classList.contains('danger') && !t.classList.contains('confirm')) {
         t.classList.add('confirm'); t.textContent = 'Yes, do it';
         setTimeout(function () { if (t.isConnected) { t.classList.remove('confirm'); t.textContent = 'Take action'; } }, 4000);
@@ -535,7 +562,8 @@
     var card = t.closest('.fit-wo'), id = card.dataset.id;
     card.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
     if (decision === 'run') { t.textContent = 'Working…'; setMood('thinking'); play('is-fix', 2400); }
-    api('/fit/action/' + id + '/', { decision: decision }).then(function (d) {
+    var box = card.querySelector('[data-confirm]');
+    api('/fit/action/' + id + '/', { decision: decision, confirm: box ? box.value.trim() : '' }).then(function (d) {
       setMood('');
       var c = (d && d.card) || Object.assign({}, card._card, { status: 'failed', result: (d && d.message) || 'It did not work.' });
       if (d && !d.card && card._card) c.status = card._card.status;

@@ -590,10 +590,19 @@ def t_help(ctx, query):
 def t_propose(ctx, kind, **args):
     from .fit_actions import propose
     card = propose(ctx, kind, args)
-    return {'proposed': True, 'action_id': card['id'], 'title': card['title'], 'detail': card['detail'],
-            'owner_allows_this_group': card['authorized'],
-            'next': 'A “Take action” card is now shown. Nothing changes until the person presses it.'
-                    + ('' if card['authorized'] else ' The business owner must first allow “' + card['group_label'] + '” in Fit settings.')}
+    out = {'proposed': True, 'action_id': card['id'], 'title': card['title'], 'detail': card['detail'],
+           'owner_allows_this_group': card['authorized'],
+           'next': 'A “Take action” card is now shown. Nothing changes until the person presses it.'
+                   + ('' if card['authorized'] else ' The business owner must first allow “' + card['group_label'] + '” in Fit settings.')}
+    if card.get('facts') or card.get('warnings'):      # group change: tell the person the context in your reply too
+        out.update({'facts': card.get('facts'), 'warnings': card.get('warnings'), 'sample_codes': card.get('sample'),
+                    'type_to_confirm': card.get('confirm') or None})
+    return out
+
+
+def t_count_vouchers(ctx, **filters):
+    from .fit_bulk import t_count_vouchers as count
+    return count(ctx, **filters)
 
 
 # ─────────────────────────────── monitors ───────────────────────────────
@@ -720,6 +729,15 @@ TOOLS = {
                              'days': {'type': 'integer'}, 'hours': {'type': 'integer'}, 'router': S}, 'required': ['source']}},
                                'refresh_seconds': {'type': 'integer'}, 'dashboard_id': {'type': 'integer'}}, ['title', 'widgets'])),
     'dashboards': (None, t_dashboards, 'The saved live dashboards of this business.', _obj({})),
+    'count_vouchers': (VOUCHER_PERMS, t_count_vouchers,
+                       'How many vouchers/members match a filter (state, plan, batch, router, agent, codes, dates): totals by '
+                       'state, online now, members, by router and plan, sample codes, and whether this person may change them '
+                       'in bulk. Use before offering a group change. Read only.',
+                       _obj({'state': {'type': 'string', 'description': 'frozen, warned, paused, disabled, in_use, online, expired, '
+                                                                        'unused, stock, sold_unused or any'},
+                             'plan': S, 'batch': S, 'router': S, 'agent': S, 'codes': S,
+                             'members': {'type': 'string', 'enum': ['include', 'exclude', 'only']},
+                             'created_after': S, 'created_before': S})),
 }
 
 
@@ -779,7 +797,13 @@ def propose_spec(ctx):
         'values': {'type': 'array', 'description': 'router_change add/set: [{"field":"max-limit","value":"5M/5M"}]',
                    'items': {'type': 'object', 'properties': {'field': S, 'value': S}}},
         'task': {'type': 'string', 'enum': list(_router_tasks()), 'description': 'router_task: reboot · flush_dns · sync_clock'},
+        **(_bulk_props() if 'bulk_vouchers' in kinds else {}),
     }, ['kind'])
+
+
+def _bulk_props():
+    from .fit_bulk import SPEC_PROPS
+    return SPEC_PROPS
 
 
 def _router_menus():
@@ -813,7 +837,8 @@ def specs(ctx):
             'description': 'Offer a change for the person to approve (freeze/unfreeze/warn/disable/enable a voucher, add_time, '
                            'reduce_time, reset_devices, block_device, unblock_device, disconnect_session, resolve_report, '
                            'track_voucher, send_chat, free_idle_slot, create_monitor, pause_monitor, resume_monitor, '
-                           'delete_monitor, sync, put_on_router, router_change, router_task). It is NOT carried out: a card with “Take action” appears.',
+                           'delete_monitor, sync, put_on_router, router_change, router_task, and — Owner/Admin only — bulk_vouchers for many '
+                           'vouchers at once). It is NOT carried out: a card with “Take action” appears.',
             'parameters': propose_spec(ctx)}})
     return out
 
