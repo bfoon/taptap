@@ -379,6 +379,11 @@
       } else if (n.type === 'wan') {
         add('Provider', n.isp || 'Not named yet — name it on the Internet paths card below'); add('Interface', n.iface); add('Gateway', n.sub); add('State', n.state); add('Role', n.role);
         if (n.share != null) add('Planned share', n.share + '%'); add('Routing tables', (n.tables || []).join(', ')); add('Distance', n.distance); add('Type', n.source);
+        if (n.modem) {        // the ISP's modem found on this port, folded into the line's box
+          add('Modem', n.modem.label); add('Modem address', n.modem.ip); add('Modem MAC', n.modem.mac);
+          add('Modem model', [n.modem.board, n.modem.version].filter(Boolean).join(' '));
+          if (n.modem.status === 'offline') add('Modem status', 'Not seen in the last discovery');
+        }
         extra += `<div class="nm-live-box" data-live-for="${esc(n.router_id)}:${esc(n.iface)}"></div>`;
       } else if (n.type === 'chainmore') {
         add('Port', n.port); add('Folded routers', n.hidden.length); add('Routers in the row', n.members.length);

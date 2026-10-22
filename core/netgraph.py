@@ -6,6 +6,11 @@ short per-router requests and the browser re-reads this graph.
 
 Node types: internet, isp, wan, router, siterouter (TP-Link & co, core/site_routers.py), switch, wifi, network, clients
 Edge kinds: internet, wan, uplink, peer, lan, wireless, clients
+
+Each Internet line is ONE box (provider, port, gateway) straight under the Internet. The ISP's modem, when the
+router discovers it on that port, is folded into the line's box (``modem`` on the wan node) instead of being drawn
+as an extra box above it: with two lines and one modem known, the modem box sat alone in the row under the
+Internet and the other line's cable ran straight through it, so the map read as if both lines used that modem.
 """
 from collections import defaultdict
 
@@ -84,7 +89,8 @@ def build_graph(business, include_clients=True, client_sample=40):
             mac_index[_mac(mac)] = r
         ident_index[identity.lower()] = r
         wan_ifaces = [l.get('interface') for l in lb.get('wan_links', []) if l.get('interface')]
-        meta[r.id]['wan_ifaces'] = set(wan_ifaces)
+        from .site_routers import wan_ports
+        meta[r.id]['wan_ifaces'] = set(wan_ifaces) | wan_ports(r)     # an Internet port without a working route is still one
         nodes[f'router:{r.id}'] = {
             'id': f'router:{r.id}', 'type': 'router', 'label': identity or r.name, 'sub': r.ip_address or ('via TapTap Link' if r.connection_mode == 'agent' else ''),
             'router_id': r.id, 'status': 'online' if r.status == 'Online' else 'offline', 'model': model,
@@ -155,6 +161,7 @@ def build_graph(business, include_clients=True, client_sample=40):
     for rid_, (kind_, _pk, _port) in manual.items():
         for k in [k for k, e in edges.items() if e['kind'] == 'peer' and e['target'] == f'router:{rid_}']:
             edges.pop(k, None)                                  # automatic upstream links of a router placed by hand
+    folded = {}             # ISP modem node id -> its node, folded into a line's box (see the module docstring)
     for r in routers:
         m = meta[r.id]
         rid = f'router:{r.id}'
@@ -190,10 +197,15 @@ def build_graph(business, include_clients=True, client_sample=40):
             if iface in isp_by_iface:
                 isp = isp_by_iface[iface]
                 edges.pop((isp, rid), None)
-                add_edge(isp, wid, 'wan', r.id, iface, 'modem', online, 'up')
-                add_edge('internet', isp, 'internet', r.id, iface, '', online, 'up')
-            else:
-                add_edge('internet', wid, 'internet', r.id, iface, '', online, 'up')
+                modem = nodes.get(isp) or folded.get(isp) or {}
+                folded[isp] = modem
+                nodes[wid]['modem'] = {k: modem.get(k) for k in ('label', 'ip', 'mac', 'board', 'platform', 'version', 'status', 'discovered_by')
+                                       if modem.get(k)}
+            add_edge('internet', wid, 'internet', r.id, iface, '', online, 'up')
+    # A folded modem keeps its own box only if something else still hangs from it (another router's port).
+    for isp in folded:
+        if not any(isp in (e['source'], e['target']) for e in edges.values()):
+            nodes.pop(isp, None)
 
     # -------- routers TapTap does not manage (TP-Link…), below the MikroTik port they hang from --------
     from .site_routers import collect, on_map, physical_port
@@ -263,6 +275,7 @@ def build_graph(business, include_clients=True, client_sample=40):
     # -------- client clusters --------
     if include_clients:
         neighbor_macs = {n.get('mac', '').upper() for n in nodes.values() if n.get('mac')}
+        neighbor_macs |= {str(n.get('mac') or '').upper() for n in folded.values() if n.get('mac')}
         router_macs = set(mac_index.keys())
         for r in routers:
             rid = f'router:{r.id}'

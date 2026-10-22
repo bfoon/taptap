@@ -121,6 +121,41 @@ def router_networks(router):
     return nets or None
 
 
+def wan_ports(router):
+    """The MikroTik's Internet ports: dragged into the WAN role, used by an Internet line, or holding a DHCP / PPPoE
+    client. What TapTap learns on them is the ISP's equipment (a Starlink router, a QCell modem on 192.168.0.1),
+    never a router of the site."""
+    ports = set()
+    try:
+        ports |= set(router.interface_roles.filter(role='wan').values_list('interface_name', flat=True))
+    except Exception:
+        pass
+    try:
+        snap = router.config_snapshot
+    except Exception:
+        snap = None
+    if snap is not None:
+        ports |= {str(l.get('interface')) for l in ((snap.load_balancing or {}).get('wan_links') or []) if l.get('interface')}
+        from .routeros_analysis import g
+        sec = snap.sections or {}
+        # A DHCP client on a bridge is how an access-point MikroTik gets its address — its customers are on that
+        # bridge too, so a bridge never counts as an Internet port here.
+        bridges = {str(g(r, 'name')) for r in (sec.get('Interfaces') or {}).get('rows', []) or []
+                   if str(g(r, 'type')).lower() == 'bridge'}
+        bridges |= {str(g(r, 'name')) for r in (sec.get('Bridges') or {}).get('rows', []) or []}
+        for label in ('DHCP clients', 'DHCP client gateways'):
+            for row in (sec.get(label) or {}).get('rows', []) or []:
+                iface = str(g(row, 'interface'))
+                if iface and iface not in bridges and not iface.lower().startswith('bridge') \
+                        and str(g(row, 'disabled')).lower() not in ('true', 'yes'):
+                    ports.add(iface)
+        for row in ((snap.sections or {}).get('PPPoE clients') or {}).get('rows', []) or []:
+            if g(row, 'name'):
+                ports.add(str(g(row, 'name')))
+    ports.discard('')
+    return ports
+
+
 def _foreign(ip, nets):
     """A private IPv4 address the MikroTik did not hand out (outside all its networks)."""
     try:
@@ -213,9 +248,13 @@ def collect(business, include_offline=True):
         if mac:
             taken.add(mac)
 
+    wan = {rid: wan_ports(r) for rid, r in routers.items()}
     for mac, dev in devices.items():
         if mac in taken or mac in ignored or mac in managed_macs or mac in neighbour_macs:
             continue
+        rid, port = port_of[mac]
+        if port and port in wan.get(rid, ()):
+            continue                       # the ISP's modem / router on an Internet port, not a site router
         peers = len(on_port.get(port_of[mac], set()) - {mac})
         pts, why, brand, mode = score(dev, peers)
         if pts >= POSSIBLE:
