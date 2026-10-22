@@ -228,7 +228,7 @@ def _route_source(route, iface, interfaces):
 
 def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, routing_rules=None,
                 addresses=None, dhcp_clients=None, interfaces=None, declared_wans=None, hotspot_servers=None, dns=None,
-                arp=None, hints=None):
+                arp=None, hints=None, filter_rules=None):
     """hints: {check host IP: interface} from the owner's saved Internet Lines setup — used only when the
     router's own data cannot tell which port a check host leaves through."""
     """Full multi-WAN / load-balancing picture. Always returns a complete dict."""
@@ -504,6 +504,17 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
     warnings = []
     if unmapped_pcc:
         warnings.append(f'{unmapped_pcc} PCC rule(s) mark traffic into a table that has no default route — that share of traffic may fall back to main.')
+    if method in {'PCC', 'Policy routing'} and filter_rules:
+        active = [r for r in filter_rules if not truthy(g(r, 'disabled', default='no'))]
+        fasttrack = [r for r in active if str(g(r, 'action')) == 'fasttrack-connection']
+        guarded = {str(g(r, 'connection-mark')) for r in active
+                   if str(g(r, 'action')) == 'accept' and str(g(r, 'chain')) == 'forward' and str(g(r, 'connection-mark'))}
+        marks = {str(g(r, 'new-connection-mark')) for r in mangle
+                 if str(g(r, 'per-connection-classifier')).strip() and str(g(r, 'new-connection-mark'))}
+        if fasttrack and marks - guarded:
+            warnings.append('FastTrack is on and the load-balanced connections are not excluded from it. FastTracked packets '
+                            'skip the routing marks and all leave through the main line, so one line carries almost '
+                            'everything. Re-apply “Share the load” in Internet lines to fix it.')
     if method in {'PCC', 'Policy routing'} and hotspot_servers:
         warnings.append('HotSpot is running on a router with policy routing. HotSpot login traffic uses the main table; keep a working default route in main.')
     if method == 'Failover' and not any(l['check_gateway'] for l in links):

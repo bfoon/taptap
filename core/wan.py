@@ -300,7 +300,7 @@ def build_plan(cfg, facts, run=None):
     c = lambda text: f'{TAG} #{run} · {text}'
     links, strategy, health = cfg['links'], cfg['strategy'], cfg['health']
     multi = len(links) > 1 and strategy != 'single'
-    B = {k: [] for k in ('lists', 'tables', 'routes', 'mangle', 'rules', 'nat', 'clients')}
+    B = {k: [] for k in ('lists', 'tables', 'routes', 'mangle', 'filter', 'rules', 'nat', 'clients')}
     table_of = lambda l: f'TT-{l["id"]}'
     use_tables = strategy in {'balance', 'split'}
     gwm = lambda l: l['interface'] if l['type'] == 'dhcp' else None
@@ -392,6 +392,22 @@ def build_plan(cfg, facts, run=None):
             mangle({'chain': 'output', 'connection-mark': f'TT-{l["id"]}', 'action': 'mark-routing',
                     'new-routing-mark': table_of(l), 'passthrough': 'no'}, f'router replies via {l["label"]}')
 
+        # ── keep marked connections out of FastTrack ──
+        # FastTrack skips the whole mangle table for every packet after the first few of a connection. The
+        # connection mark survives, but the ROUTING mark is per packet, so a FastTracked packet loses it and is
+        # routed by the main table — where the first line has distance 1. Result: “Share the load” set to 50/50
+        # still sent almost every byte down the first line while the second sat idle. An accept for this
+        # line's established traffic, placed just above the router's fasttrack rule, keeps it on the slow path
+        # where the routing mark is applied. Only established/related traffic is accepted here, so new
+        # connections still meet every drop rule (e.g. “drop all from WAN not DSTNATed”) as before.
+        if strategy == 'balance':
+            for l in links:
+                B['filter'].append({'op': 'fasttrack_guard', 'path': '/ip/firewall/filter',
+                                    'fields': {'chain': 'forward', 'action': 'accept', 'connection-state': 'established,related',
+                                               'connection-mark': f'TT-{l["id"]}',
+                                               'comment': c(f'no fasttrack: keep {l["label"]} share on its line')},
+                                    'group': 'filter'})
+
     # ── split rules ──
     if strategy == 'split':
         rule_path = '/routing/rule' if v7 else '/ip/route/rule'
@@ -433,7 +449,7 @@ def build_plan(cfg, facts, run=None):
                          'note': 'names keep working when any one line fails'}]
 
     ops = [{'op': 'purge', 'phase': 'early', 'run': run, 'group': 'cleanup'}]
-    for k in ('lists', 'tables', 'routes', 'mangle', 'rules', 'nat', 'dns'):
+    for k in ('lists', 'tables', 'routes', 'mangle', 'filter', 'rules', 'nat', 'dns'):
         ops += B.get(k, [])
     ops.append({'op': 'purge', 'phase': 'late', 'run': run, 'group': 'cleanup'})
     ops += B['clients']
@@ -472,6 +488,7 @@ def render_script(plan, cfg, facts, business_name=''):
              '', '# 1. Remove any earlier TapTap setup']
     lines += purge_lines(v7)
     group_titles = {'lists': '2. Lists', 'tables': '3. Routing tables', 'routes': '4. Routes', 'mangle': '5. Traffic marking',
+                    'filter': '5b. Keep shared traffic out of FastTrack (otherwise one line takes it all)',
                     'rules': '6. Network rules', 'nat': '7. NAT', 'dns': '8. DNS that never depends on one line',
                     'clients': '9. Hand default routes over to TapTap'}
     last = None
@@ -517,6 +534,10 @@ def op_lines(op, v7, run=None):
         return [f'{p} set [find where name={q(op["interface"])}] {kv(extra)}']
     if kind == 'dns':
         return [f'/ip dns set servers={",".join(op["servers"])}']
+    if kind == 'fasttrack_guard':
+        # Only when the router FastTracks at all; placed just above the first active fasttrack rule.
+        return [f':do {{ :local ft [{p} find where action=fasttrack-connection disabled=no]; '
+                f':if ([:len $ft] > 0) do={{ {p} add {kv(op["fields"])} place-before=[:pick $ft 0] }} }} on-error={{}}']
     if kind == 'disable_conflicting_hosts':
         out = []
         for h in op['hosts']:
@@ -539,7 +560,7 @@ def op_lines(op, v7, run=None):
 
 def purge_lines(v7, keep_run=None):
     cond = f'comment~"^{TAG}"' + (f' and !(comment~"#{keep_run} ")' if keep_run else '')
-    paths = ['/ip firewall mangle', '/routing rule' if v7 else '/ip route rule', '/ip route', '/ip firewall nat',
+    paths = ['/ip firewall mangle', '/ip firewall filter', '/routing rule' if v7 else '/ip route rule', '/ip route', '/ip firewall nat',
              '/ip firewall address-list', '/interface list member', '/interface list'] + (['/routing table'] if v7 else [])
     return [f'{p} remove [find where {cond}]' for p in paths]
 
@@ -651,7 +672,7 @@ def apply_plan(svc, plan, facts, original, undo_minutes=5, log=None):
                     res.add(**_api_fields(op['fields']))
             elif kind == 'purge':
                 # early: old routing/marks go first (a second without routes is fine); late: unused lists/tables.
-                paths = (['/ip/firewall/mangle', '/routing/rule' if v7 else '/ip/route/rule', '/ip/route', '/ip/firewall/nat'] if op['phase'] == 'early'
+                paths = (['/ip/firewall/mangle', '/ip/firewall/filter', '/routing/rule' if v7 else '/ip/route/rule', '/ip/route', '/ip/firewall/nat'] if op['phase'] == 'early'
                          else ['/ip/firewall/address-list', '/interface/list/member', '/interface/list'] + (['/routing/table'] if v7 else []))
                 for path in paths:
                     try: res = svc.resource(path); rows = _tagged(res, keep_run=run)
@@ -669,6 +690,12 @@ def apply_plan(svc, plan, facts, original, undo_minutes=5, log=None):
                         prev = '' if TAG in prev else prev
                         f['script'] = op['script'] + ('\n' + prev if prev else '')
                     res.set(id=row['id'], **_api_fields(f))
+            elif kind == 'fasttrack_guard':
+                res = svc.resource(op['path'])
+                ft = next((r for r in res.get() if _s(r.get('action')) == 'fasttrack-connection'
+                           and _s(r.get('disabled')).lower() not in {'true', 'yes'}), None)
+                if ft:     # no FastTrack on this router → nothing can skip the marks, nothing to add
+                    res.add(**_api_fields(op['fields']), place_before=ft['id'])
             elif kind == 'dns':
                 res = svc.resource('/ip/dns')
                 res.call('set', {'servers': ','.join(op['servers'])})
@@ -719,7 +746,7 @@ def undo(svc, original, v7):
     """Remove every TapTap WAN item and restore the original client settings / routes."""
     removed = 0
     confirm(svc)
-    for path in ['/ip/firewall/mangle', '/routing/rule' if v7 else '/ip/route/rule', '/ip/route', '/ip/firewall/nat',
+    for path in ['/ip/firewall/mangle', '/ip/firewall/filter', '/routing/rule' if v7 else '/ip/route/rule', '/ip/route', '/ip/firewall/nat',
                  '/ip/firewall/address-list', '/interface/list/member', '/interface/list'] + (['/routing/table'] if v7 else []):
         try:
             res = svc.resource(path)

@@ -63,6 +63,7 @@ def analyze_sections(router, sections, interfaces=None):
     return redact(analyze_wan(
         routes=_rows(sections, 'Routes'),
         mangle=_rows(sections, 'Firewall mangle'),
+        filter_rules=_rows(sections, 'Firewall filter'),
         bonding=_rows(sections, 'Bonding'),
         routing_tables=_rows(sections, 'Routing tables'),
         routing_rules=_rows(sections, 'Routing rules'),

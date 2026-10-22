@@ -556,7 +556,7 @@ class MikroTikService:
 
     def analyze_load_balancing(self, routes=None, mangle=None, bonding=None, routing_tables=None,
                                routing_rules=None, addresses=None, dhcp_clients=None, interfaces=None,
-                               hotspot_servers=None, arp=None):
+                               hotspot_servers=None, arp=None, filter_rules=None):
         from .wan_analysis import check_host_hints
         declared = list(self.router.interface_roles.filter(role='wan').values_list('interface_name', flat=True)) if getattr(self.router, 'pk', None) else []
         return redact(analyze_wan(
@@ -572,6 +572,7 @@ class MikroTikService:
             declared_wans=declared,
             arp=arp if arp is not None else self.safe_get('/ip/arp'),
             hints=check_host_hints(self.router) if getattr(self.router, 'pk', None) else {},
+            filter_rules=filter_rules,
         ))
 
     # --------------------------- Live traffic ----------------------------
@@ -728,6 +729,7 @@ class MikroTikService:
         lb = self.analyze_load_balancing(
             routes=sections['Routes']['rows'],
             mangle=sections['Firewall mangle']['rows'],
+            filter_rules=sections['Firewall filter']['rows'],
             bonding=sections['Bonding']['rows'],
             routing_tables=sections['Routing tables']['rows'],
             routing_rules=sections['Routing rules']['rows'],
