@@ -1,6 +1,6 @@
 {% extends 'core/base.html' %}{% load static %}
 {% block title %}Internet lines — {{ router.name }}{% endblock %}{% block heading %}Internet lines · {{ router.name }}{% endblock %}
-{% block extra_head %}<link href="{% static 'css/wan.css' %}" rel="stylesheet"><link href="{% static 'css/wan-doctor.css' %}" rel="stylesheet">{% endblock %}
+{% block extra_head %}<link href="{% static 'css/wan.css' %}" rel="stylesheet"><link href="{% static 'css/wan-doctor.css' %}?v=3" rel="stylesheet">{% endblock %}
 {% block content %}
 <div class="wan-now"><span class="pill" id="nowMethod">{{ current.method|default:'Checking…' }}</span><p id="nowDesc">{{ current.description|default:'Reading how this router reaches the internet right now.' }}</p>
   <a class="btn btn-sm btn-light" href="{% url 'router_control' router.id %}"><i class="bi bi-sliders"></i> Router control</a></div>
@@ -63,4 +63,4 @@
 <script id="wanUrls" type="application/json">{"detect":"{% url 'wan_detect' router.id %}","preview":"{% url 'wan_preview' router.id %}","apply":"{% url 'wan_apply' router.id %}","confirm":"{% url 'wan_confirm' router.id %}","undo":"{% url 'wan_undo' router.id %}","status":"{% url 'wan_status' router.id %}","router":"{{ router.name|escapejs }}"}</script>
 <script id="doctorUrls" type="application/json">{"status":"{% url 'wan_doctor_status' router.id %}","check":"{% url 'wan_doctor_check' router.id %}","install":"{% url 'wan_doctor_install' router.id %}","remove":"{% url 'wan_doctor_remove' router.id %}","fix":"{% url 'wan_doctor_fix' router.id %}","router":"{{ router.name|escapejs }}"}</script>
 {% endblock %}
-{% block scripts %}<script src="{% static 'js/wan-designer.js' %}?v=2"></script><script src="{% static 'js/wan-doctor.js' %}"></script>{% endblock %}
+{% block scripts %}<script src="{% static 'js/wan-designer.js' %}?v=2"></script><script src="{% static 'js/wan-doctor.js' %}?v=3"></script>{% endblock %}

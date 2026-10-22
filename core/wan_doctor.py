@@ -583,6 +583,24 @@ def check_line(svc, line):
     return out
 
 
+def _add_wiring(svc, row, line, lines):
+    """Attach the customer wiring of a line (core/wan_wiring.py): its health-check route, NAT and WAN list.
+    The Doctor's own test uses temporary probe routes, so a line can test “working” while customers
+    cannot use it — this is what tells the two apart."""
+    from . import wan_wiring
+    if row.get('state') not in {'ok', 'connected', 'holding'}:
+        return
+    try:
+        w = wan_wiring.line_wiring(svc, line, lines)
+    except Exception as exc:
+        logger.warning('wiring check failed on %s: %s', line.get('interface'), exc)
+        return
+    row['wiring'] = w
+    if w.get('fixable'):
+        row['fix'] = 'rewire'
+        row['finding'] += wan_wiring.summary(w, line['label'])
+
+
 def diagnose(svc, lines):
     rows = []
     for l in _assign_probes([dict(x) for x in lines]):
@@ -595,13 +613,18 @@ def diagnose(svc, lines):
             row['switchable'] = _client(svc, l['interface'])[1] is not None
         except Exception:
             row['use'], row['switchable'] = {'state': 'out', 'has_routes': False, 'routes_off': 0}, False
-        if row['state'] == 'ok' and row['use']['state'] == 'out':
+        _add_wiring(svc, row, l, lines)
+        if row['state'] == 'ok' and row['use']['state'] == 'out' and not row.get('wiring', {}).get('fixable'):
             row['finding'] += ' Customers are not using it yet — press “Put in use”.'
         rows.append(row)
     working = [r for r in rows if r['state'] == 'ok']
-    idle = [r for r in working if r.get('use', {}).get('state') == 'out']
+    idle = [r for r in working if r.get('use', {}).get('state') == 'out' and not r.get('wiring', {}).get('fixable')]
     broken = [r for r in rows if r['state'] in {'down', 'holding'}]
-    if idle:
+    unwired = [r for r in rows if r.get('wiring', {}).get('fixable') and r['state'] in {'ok', 'connected', 'holding'}]
+    if unwired:
+        headline = (', '.join(r['label'] for r in unwired) + ' has internet but is not wired for customers — '
+                    'press “Repair wiring”.')
+    elif idle:
         headline = ', '.join(r['label'] for r in idle) + ' works but customers are not using it — press “Put in use”.'
     elif not broken and working:
         headline = 'Every connected line reaches the internet.'
@@ -763,7 +786,7 @@ def set_in_use(svc, iface, on, lines):
 import re as _re
 
 LINK_KIND = 'wan_doctor'
-LINK_STEPS = {'turn_on', 'turn_off', 'use', 'unuse', 'refresh', 'new_mac', 'reset_mac', 'install_part', 'remove', 'run'}
+LINK_STEPS = {'turn_on', 'turn_off', 'use', 'unuse', 'refresh', 'new_mac', 'reset_mac', 'install_part', 'remove', 'run', 'rewire'}
 _IFACE = _re.compile(r'^[A-Za-z0-9._:-]{1,40}$')
 _MAC = _re.compile(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$')
 CHUNK = 1000                      # raw characters of the Doctor script per Link command (Link batch budget)
@@ -801,6 +824,9 @@ def link_body(p):
         raise ValueError('Unknown Internet Doctor step.')
     if step == 'remove':
         return '; '.join(f':do {{ {c} }} on-error={{}}' for c in removal_commands())
+    if step == 'rewire':
+        from .wan_wiring import link_body as rewire_body
+        return rewire_body(p)
     if step == 'run':
         return f':if ([:len [/system script find where name="{NAME}"]] > 0) do={{ /system script run {NAME} }}'
     if step == 'install_part':
@@ -867,8 +893,8 @@ def link_lines_state(router, setup):
     """Lines and their state from the latest TapTap Link sync (no pings — the router is not reachable live)."""
     from .linkops import SnapshotService
     svc = SnapshotService(router)
-    rows = []
-    for l in lines_for(svc, setup):
+    rows, all_lines = [], lines_for(svc, setup)
+    for l in all_lines:
         iface = l['interface']
         res, client, path = _client(svc, iface)
         row = {'interface': iface, 'label': l['label'], 'type': l['type'], 'gateway': '', 'reached': [], 'missed': [],
@@ -889,6 +915,7 @@ def link_lines_state(router, setup):
             if eth:
                 row['extra_fixes'] = ['new_mac', 'refresh']
         row['use'] = use_state(svc, iface)
+        _add_wiring(svc, row, l, all_lines)
         rows.append(row)
     return rows
 
@@ -1093,7 +1120,8 @@ def t_internet_doctor(ctx, router=''):
     out['router'] = r.name
     out['fix_page'] = page
     out['note'] = ('Every action is a button in Internet lines › Internet Doctor: switch a line on/off, put it in use or take it out, '
-                   'new MAC, renew, original MAC, and turning the Doctor on. state=holding means the modem answers but the internet '
+                   'new MAC, renew, original MAC, “Repair wiring” (fix=rewire: lines[].wiring.problems lists a missing or wrong '
+                   'health-check /32 route, missing NAT, or a missing WAN list entry), and turning the Doctor on. state=holding means the modem answers but the internet '
                    'does not get through — usually fixed by a new MAC. use.state: managed = customers use it, plain = only an emergency '
                    'DHCP route, out = not used.')
     return out

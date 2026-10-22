@@ -12,6 +12,8 @@
 .doc-line .use{font-size:.7rem;font-weight:800;border-radius:99px;padding:.15rem .5rem;margin-left:.3rem;white-space:nowrap}
 .doc-line .use.on{background:#e9f8f0;color:#137a4f}.doc-line .use.plain{background:#fff3d6;color:#8a5a00}.doc-line .use.out{background:#f1f3f6;color:#5b6b7c}
 .doc-line .f{font-size:.84rem;color:#4d6075;margin:.15rem 0 0}
+.doc-wiring{list-style:none;padding:.45rem .6rem;margin:.4rem 0 .2rem;background:#fff8e8;border:1px solid #f3d38f;border-radius:10px;color:#6b4a00}
+.doc-wiring li{padding:.1rem 0}.doc-wiring i{margin-right:.3rem}
 .doc-line .probes{font-size:.75rem;color:var(--muted);margin-top:.25rem;font-variant-numeric:tabular-nums}
 .doc-line .acts{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem}
 .doc-msg{font-size:.84rem;border-radius:12px;padding:.55rem .75rem;margin-top:.6rem}
@@ -23,5 +25,6 @@
   .doc-line.holding{background:#2c2410;border-color:#6b5410}.doc-line.down{background:#2c1516;border-color:#6b2a2c}
   .doc-state .pill.on{background:#123527;color:#7fe0b4}.doc-state .pill.off{background:#253140;color:#b9c6d3}.doc-state .pill.link{background:#33290f;color:#f3cf7a}
   .doc-line .use.on{background:#123527;color:#7fe0b4}.doc-line .use.plain{background:#33290f;color:#f3cf7a}.doc-line .use.out{background:#253140;color:#b9c6d3}
+  .doc-wiring{background:#2c2410;border-color:#6b5410;color:#f3cf7a}
   .doc-msg.good{background:#123527;color:#7fe0b4}.doc-msg.bad{background:#3a1718;color:#ffb3b5}
 }

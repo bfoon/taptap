@@ -9,12 +9,14 @@
   var D = { installed: null, viaLink: false, busy: false, link: null, timers: [] };
 
   var FIX = { refresh: ['bi-arrow-repeat', 'Renew connection'], new_mac: ['bi-shuffle', 'Give the port a new MAC'], reset_mac: ['bi-arrow-counterclockwise', 'Put original MAC back'],
+    rewire: ['bi-tools', 'Repair wiring'],
     turn_on: ['bi-power', 'Switch on'], turn_off: ['bi-power', 'Switch off'], use: ['bi-people', 'Put in use'], unuse: ['bi-sign-stop', 'Take out of use'] };
   var USE = { managed: ['on', 'Customers use it'], plain: ['plain', 'Customers use it (emergency route)'], out: ['out', 'Customers don’t use it'] };
   var LABEL = { ok: 'Working', connected: 'Connected', holding: 'Modem answers, no internet', down: 'Modem not answering', off: 'Switched off', error: 'Could not check' };
-  var WAIT = { turn_on: 12000, turn_off: 3000, use: 4000, unuse: 3000 };
+  var WAIT = { turn_on: 12000, turn_off: 3000, use: 4000, unuse: 3000, rewire: 8000 };
   var ASK = { turn_off: 'Switch off {l}? It stops getting an address from its modem until you switch it on again.',
               unuse: 'Take {l} out of use? Customers move to the other line(s). It stays connected so you can test it.',
+              rewire: 'Repair the wiring of {l}? TapTap fixes only what is listed under the line (its health-check route, NAT and WAN list). The other line is not touched and nobody is disconnected.',
               new_mac: 'Give {l} a new MAC address? The modem will see the router as a new device. Customers on this line pause for about 20 seconds.' };
 
   function csrf() { var m = document.cookie.match(/csrftoken=([^;]+)/); return m ? m[1] : ''; }
@@ -53,7 +55,10 @@
   function actionsFor(l) {
     var acts = [], use = l.use || { state: 'out' }, add = function (a) { if (acts.indexOf(a) < 0) acts.push(a); };
     if (l.state === 'off') { if (l.switchable) add('turn_on'); return acts; }
-    if ((l.state === 'ok' || l.state === 'connected') && use.state !== 'managed') add('use');
+    var w = l.wiring || {};
+    if (w.fixable) add('rewire');
+    // a line with a health-check host comes into use by itself once its wiring is repaired
+    if ((l.state === 'ok' || l.state === 'connected') && use.state !== 'managed' && !(w.fixable && w.host)) add('use');
     if (l.fix) add(l.fix);
     (l.extra_fixes || []).forEach(add);
     if (l.mac_changed) add('reset_mac');
@@ -61,6 +66,12 @@
     if (use.state !== 'out') add('unuse');
     if (l.switchable) add('turn_off');
     return acts;
+  }
+
+  function wiringList(l) {
+    var p = (l.wiring || {}).problems || [];
+    if (!p.length) return '';
+    return '<ul class="doc-wiring small mb-1">' + p.map(function (x) { return '<li><i class="bi bi-exclamation-triangle text-warning"></i> ' + esc(x.text) + '</li>'; }).join('') + '</ul>';
   }
 
   function renderLines(headline, lines) {
@@ -75,7 +86,7 @@
       html += '<div class="doc-line ' + esc(l.state) + '"><span class="dot"></span><div class="body">' +
         '<div class="t">' + esc(l.label) + ' <small>' + esc(l.interface) + ' · ' + esc(LABEL[l.state] || l.state) + '</small>' +
           (l.state !== 'off' ? ' <span class="use ' + USE[use.state][0] + '">' + USE[use.state][1] + '</span>' : '') + '</div>' +
-        '<p class="f">' + esc(l.finding) + '</p>' + (info.length ? '<div class="probes">' + info.join(' · ') + '</div>' : '') +
+        '<p class="f">' + esc(l.finding) + '</p>' + wiringList(l) + (info.length ? '<div class="probes">' + info.join(' · ') + '</div>' : '') +
         (acts.length ? '<div class="acts">' + acts.map(function (a, i) {
           var main = i === 0 && a !== 'unuse' && a !== 'turn_off';
           return '<button class="btn btn-sm ' + (main ? (a === 'use' || a === 'turn_on' ? 'btn-success' : 'btn-warning') : 'btn-light') + '" data-fix="' + a + '" data-if="' + esc(l.interface) +
@@ -95,6 +106,8 @@
   }
 
   function linkHeadline(lines) {
+    var unwired = (lines || []).filter(function (l) { return (l.wiring || {}).fixable; });
+    if (unwired.length) return unwired.map(function (l) { return l.label; }).join(', ') + ' has an address from its modem but is not wired for customers — press “Repair wiring”.';
     var idle = (lines || []).filter(function (l) { return l.state === 'connected' && (l.use || {}).state === 'out'; });
     if (idle.length) return idle.map(function (l) { return l.label; }).join(', ') + ' is connected but customers don’t use it — press “Put in use”.';
     return 'What the router reported at its last check-in.';

@@ -8,6 +8,7 @@ from django.utils.timesince import timesince
 from django.views.decorators.http import require_POST
 
 from . import wan_doctor as doc
+from . import wan_wiring
 from .mikrotik import MikroTikService
 from .utils import log
 from .views_wan import _audit, _on_link, _router, _setup
@@ -169,7 +170,7 @@ def doctor_remove(request, pk):
 
 
 # fixes, plus switching a line on/off and putting it in or out of use
-STEPS = {'refresh', 'new_mac', 'reset_mac', 'turn_on', 'turn_off', 'use', 'unuse'}
+STEPS = {'refresh', 'new_mac', 'reset_mac', 'turn_on', 'turn_off', 'use', 'unuse', 'rewire'}
 
 
 @login_required
@@ -192,9 +193,12 @@ def doctor_fix(request, pk):
             message = doc.turn_line(svc, iface, step == 'turn_on', lines)
         elif step in {'use', 'unuse'}:
             message = doc.set_in_use(svc, iface, step == 'use', lines)
+        elif step == 'rewire':
+            line = next(l for l in lines if l['interface'] == iface)
+            message = wan_wiring.repair(svc, line, lines)
         else:
             message = doc.fix(svc, iface, step)
-    except doc.DoctorError as exc:
+    except (doc.DoctorError, wan_wiring.WiringError) as exc:
         return JsonResponse({'success': False, 'message': str(exc)}, status=400)
     except Exception as exc:
         _audit(request, router, f'doctor_{step}', {'interface': iface}, False, str(exc))
@@ -202,7 +206,7 @@ def doctor_fix(request, pk):
     finally:
         svc.close()
     _audit(request, router, f'doctor_{step}', {'interface': iface})
-    log(router.business, 'Internet Line Change' if step in {'turn_on', 'turn_off', 'use', 'unuse'} else 'Internet Doctor Fix', f'{router.name}: {message}')
+    log(router.business, 'Internet Line Change' if step in {'turn_on', 'turn_off', 'use', 'unuse', 'rewire'} else 'Internet Doctor Fix', f'{router.name}: {message}')
     return JsonResponse({'success': True, 'message': message})
 
 
@@ -240,7 +244,7 @@ def _link_fix(request, router, iface, step):
     if not line:
         return JsonResponse({'success': False, 'message': f'{iface} is not one of this router’s internet lines.'}, status=400)
     stale = doc.link_freshness(router)['stale']
-    if stale and step in {'turn_off', 'unuse', 'use'}:
+    if stale and step in {'turn_off', 'unuse', 'use', 'rewire'}:
         return JsonResponse({'success': False, 'message': 'TapTap’s copy of this router’s ' + ' and '.join(stale) + ' is out of date, so it cannot '
                              'tell safely which line customers use. Press “Refresh from router” and try again when the warning is gone '
                              '— or do it in the router’s terminal.'}, status=409)
@@ -249,6 +253,18 @@ def _link_fix(request, router, iface, step):
         return JsonResponse({'success': False, 'message': f'{line["label"]} is the only line customers use — that would cut the internet '
                                                           'and TapTap Link itself. Put another line in use first.'}, status=400)
     params = {'interface': iface}
+    if step == 'rewire':
+        w = wan_wiring.line_wiring(snap, line, lines)
+        if w['held']:
+            return JsonResponse({'success': False, 'message': f'{line["label"]} was taken out of use on purpose. Press “Put in use” instead.'}, status=400)
+        if not w['fixable']:
+            return JsonResponse({'success': False, 'message': f'At the last sync {line["label"]} was already wired for customers — '
+                                                              'press “Refresh from router” if the page looks wrong.'}, status=400)
+        try:
+            params = wan_wiring.link_params(line, w)
+            wan_wiring.link_body(params)          # validate now, not at delivery
+        except ValueError as exc:
+            return JsonResponse({'success': False, 'message': f'Cannot repair {line["label"]} through TapTap Link: {exc}'}, status=400)
     if step == 'new_mac':
         if not any(r.get('name') == iface for r in snap.safe_get('/interface/ethernet')):
             return JsonResponse({'success': False, 'message': f'{iface} is not an Ethernet port, so its MAC cannot be changed.'}, status=400)
@@ -259,8 +275,10 @@ def _link_fix(request, router, iface, step):
         return JsonResponse({'success': False, 'via_link': True, 'message': str(exc)}, status=409)
     _link_refresh(request, router)
     what = {'turn_on': 'switch on', 'turn_off': 'switch off', 'use': 'put in use', 'unuse': 'take out of use', 'refresh': 'renew',
+            'rewire': 'repair the wiring of',
             'new_mac': f'give a new MAC ({params.get("mac", "")})', 'reset_mac': 'put the original MAC back on'}[step]
     _audit(request, router, f'doctor_{step}', {'interface': iface, 'via': 'link'})
-    log(router.business, 'Internet Line Change' if step in {'turn_on', 'turn_off', 'use', 'unuse'} else 'Internet Doctor Fix',
+    log(router.business, 'Internet Line Change' if step in {'turn_on', 'turn_off', 'use', 'unuse', 'rewire'} else 'Internet Doctor Fix',
         f'{router.name}: {what} {line["label"]} (through TapTap Link)')
-    return JsonResponse({'success': True, 'via_link': True, 'message': f'{line["label"]}: {what} — ' + _LINK_SENT})
+    head = f'Repairing the wiring of {line["label"]}' if step == 'rewire' else f'{line["label"]}: {what}'
+    return JsonResponse({'success': True, 'via_link': True, 'message': f'{head} — ' + _LINK_SENT})
