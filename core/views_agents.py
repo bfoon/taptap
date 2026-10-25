@@ -351,7 +351,7 @@ def single_voucher(request):
         return render(request, 'core/single_voucher.html', ctx, status=400)
     with transaction.atomic():
         from .serials import allocate as _serials
-        v = Voucher.objects.create(business=business, router=router, serial=_serials(business, 1, plan=plan_name)[0], code=code or generate_code(fmt['length'], fmt['charset'], fmt['prefix'], fmt['suffix'], business), plan_name=plan_name, price=price,
+        v = Voucher.objects.create(business=business, router=router, serial=_serials(business, 1, plan=plan_name)[0], code=code or generate_code(fmt['length'], fmt['charset'], fmt['prefix'], fmt['suffix'], business, fmt['case']), plan_name=plan_name, price=price,
                                    duration_minutes=minutes, max_devices=devices, rate_limit=rate, source='taptap', agent=agent,
                                    customer_name=name, customer_phone=phone, note=(f.get('note') or '')[:255])
         if f.get('paid'):
@@ -359,6 +359,11 @@ def single_voucher(request):
             record_sale(business, v, method=method, agent=agent, customer_name=name, customer_phone=phone,
                         reference=(f.get('reference') or '')[:120], user=request.user, notes='Single voucher')
     log(business, 'Voucher Created', f'{v.code} for {name or phone or "a customer"} ({plan_name})')
+    if fmt:
+        from .utils import apply_portal_case
+        case_msg = apply_portal_case(request, business, fmt)
+        if case_msg:
+            (messages.info if f.get('portal_case_sensitive') else messages.warning)(request, case_msg)
     pushed = None
     if router:
         pushed = push_one(v, plan)

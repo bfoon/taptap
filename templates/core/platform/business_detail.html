@@ -4,6 +4,7 @@
 <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
   <a class="btn btn-sm btn-light" href="{% url 'platform_businesses' %}"><i class="bi bi-arrow-left"></i> Businesses</a>
   <span class="st {{ status }}">{{ status|title }}</span>
+  <span class="badge text-bg-light border">{{ country_label }}</span><span class="badge text-bg-light border"><i class="bi bi-box-seam"></i> {% for k,l,d in tiers %}{% if k == tier_key %}{{ l }}{% endif %}{% endfor %}</span>
   <span class="text-secondary small">Joined {{ b.created_at|date:'d M Y' }} · {% if b.is_unlimited %}unlimited access{% else %}access until {{ b.access_expires_at|date:'d M Y H:i' }}{% endif %}</span>
   <span class="flex-grow-1"></span>
   <form method="post" action="{{ act }}" class="d-flex gap-2">{% csrf_token %}<input type="hidden" name="action" value="view_as">
@@ -30,12 +31,29 @@
 
     <div class="panel mb-4"><div class="panel-head"><div><h3>Subscription payments</h3><p>Requests and confirmed payments</p></div></div>
       <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Requested</th><th>Plan</th><th>Amount</th><th>Method / ref</th><th>Status</th><th>Covers</th><th></th></tr></thead><tbody>
-      {% for s in subs %}<tr><td>{{ s.created_at|date:'d M Y' }}</td><td>{{ s.plan }}</td><td>{{ s.amount|money:'D' }}</td><td>{{ s.payment_method }}{% if s.transaction_id %}<small class="d-block text-secondary">{{ s.transaction_id }}</small>{% endif %}</td>
+      {% for s in subs %}<tr><td>{{ s.created_at|date:'d M Y' }}</td><td>{{ s.plan }}</td><td>{{ s.money }}{% if s.country %}<small class="d-block text-secondary">{{ s.country }}</small>{% endif %}</td><td>{{ s.payment_method }}{% if s.transaction_id %}<small class="d-block text-secondary">{{ s.transaction_id }}</small>{% endif %}</td>
         <td><span class="st {{ s.payment_status }}">{{ s.payment_status }}</span></td><td>{% if s.expires_at %}{{ s.starts_at|date:'d M' }} – {{ s.expires_at|date:'d M Y' }}{% endif %}</td>
         <td class="text-end text-nowrap">{% if s.payment_status == 'Pending' %}<form method="post" action="{% url 'platform_sub_action' s.id %}" class="d-inline-flex gap-1">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}">
           <input class="form-control form-control-sm" name="reference" placeholder="Ref" style="width:90px" aria-label="Payment reference">
           <button class="btn btn-sm btn-success" name="action" value="confirm_sub">Confirm</button><button class="btn btn-sm btn-light" name="action" value="reject_sub" onclick="return confirm('Reject this request?')">Reject</button></form>{% endif %}</td></tr>
       {% empty %}<tr><td colspan="7" class="empty-table">No subscription requests yet.</td></tr>{% endfor %}</tbody></table></div></div>
+
+    <div class="panel mb-4" id="features"><div class="panel-head"><div><h3>Features</h3><p>Package plus switches for this business. The owner can hide optional modules on their own Features page.</p></div></div>
+      <form method="post" action="{{ act }}">{% csrf_token %}<input type="hidden" name="action" value="features">
+        <div class="d-flex flex-wrap gap-2 mb-3">{% for k,l,d in tiers %}<input type="radio" class="btn-check" name="tier" id="tier-{{ k }}" value="{{ k }}" {% if k == tier_key %}checked{% endif %}>
+          <label class="btn btn-sm btn-outline-primary" for="tier-{{ k }}" title="{{ d }}">{{ l }}</label>{% endfor %}
+          <span class="small text-secondary align-self-center">Default = what the package gives; On/Off = your switch for this business.</span></div>
+        <div class="table-responsive"><table class="table table-sm align-middle mb-2"><thead><tr><th>Module</th><th>Now</th><th class="text-end">Switch</th></tr></thead><tbody>
+        {% for g in feature_groups %}<tr class="table-light"><td colspan="3" class="small fw-bold text-uppercase text-secondary"><i class="bi {{ g.icon }}"></i> {{ g.label }}</td></tr>
+          {% for i in g.items %}<tr><td><i class="bi {{ i.f.icon }} me-1 text-secondary"></i>{{ i.f.label }}{% if i.depends %}<small class="text-secondary"> · needs {{ i.depends|join:", " }}</small>{% endif %}</td>
+            <td>{% if i.on %}<span class="st paid">On</span>{% elif i.why == 'owner' %}<span class="st suspended" title="The owner hid it">Hidden by owner</span>{% elif i.why == 'platform' %}<span class="st expired">Off (you)</span>{% elif i.why == 'package' %}<span class="st trial">Not in package</span>{% else %}<span class="st suspended">Off</span>{% endif %}</td>
+            <td class="text-end"><div class="btn-group btn-group-sm" role="group" aria-label="{{ i.f.label }}">
+              <input type="radio" class="btn-check" name="f_{{ i.f.key }}" id="f-{{ i.f.key }}-t" value="tier" {% if i.override == None %}checked{% endif %}><label class="btn btn-outline-secondary" for="f-{{ i.f.key }}-t">Default</label>
+              <input type="radio" class="btn-check" name="f_{{ i.f.key }}" id="f-{{ i.f.key }}-on" value="on" {% if i.override == True %}checked{% endif %}><label class="btn btn-outline-success" for="f-{{ i.f.key }}-on">On</label>
+              <input type="radio" class="btn-check" name="f_{{ i.f.key }}" id="f-{{ i.f.key }}-off" value="off" {% if i.override == False %}checked{% endif %}><label class="btn btn-outline-danger" for="f-{{ i.f.key }}-off">Off</label></div></td></tr>{% endfor %}
+        {% endfor %}</tbody></table></div>
+        <div class="d-flex gap-2"><input class="form-control form-control-sm" name="note" placeholder="Reason (saved in the support log)" aria-label="Reason"><button class="btn btn-sm btn-primary text-nowrap">Save features</button></div>
+      </form></div>
 
     <div class="panel mb-4"><div class="panel-head"><div><h3>Team</h3><p>Staff logins under this business</p></div></div>
       <div class="table-responsive"><table class="table table-sm"><tbody><tr><td>{{ b.owner_name }}<small class="d-block text-secondary">{{ b.user.email }}</small></td><td>Owner</td><td>{{ b.user.last_login|date:'d M Y'|default:'Never' }}</td></tr>
@@ -48,13 +66,21 @@
   <div class="col-xl-5">
     <div class="panel mb-4"><h3 class="h6 fw-bold">Record a payment</h3><p class="small text-secondary">Money received outside the app (cash, Wave, bank). Access starts from today or their current expiry, whichever is later.</p>
       <form method="post" action="{{ act }}" class="row g-2">{% csrf_token %}<input type="hidden" name="action" value="record_payment">
-        <div class="col-7"><select class="form-select form-select-sm" name="package" aria-label="Package"><option value="">Custom…</option>{% for code,p in packages.items %}<option value="{{ code }}">{{ p.0 }} — D{{ p.1 }}</option>{% endfor %}</select></div>
+        <div class="col-7"><select class="form-select form-select-sm" name="package" aria-label="Package"><option value="">Custom…</option>{% for p in prices %}{% if p.offered %}<option value="{{ p.code }}">{{ p.name }} — {{ p.symbol }}{{ p.amount|floatformat:"-2" }}</option>{% endif %}{% endfor %}</select></div>
         <div class="col-5"><input class="form-control form-control-sm" name="amount" placeholder="Amount (optional)" aria-label="Amount"></div>
         <div class="col-7"><input class="form-control form-control-sm" name="plan" placeholder="Custom plan name" aria-label="Custom plan name"></div>
         <div class="col-5"><input class="form-control form-control-sm" type="number" min="1" name="days" placeholder="Days (custom)" aria-label="Days"></div>
         <div class="col-6"><select class="form-select form-select-sm" name="method" aria-label="Method"><option>Cash</option><option>Wave</option><option>QMoney</option><option>Afrimoney</option><option>Bank transfer</option><option>Manual</option></select></div>
         <div class="col-6"><input class="form-control form-control-sm" name="reference" placeholder="Reference" aria-label="Reference"></div>
-        <div class="col-12"><button class="btn btn-sm btn-success w-100">Record payment &amp; activate</button></div></form></div>
+        <div class="col-12"><input class="form-control form-control-sm" name="currency" maxlength="3" placeholder="Currency for a custom amount (default: {{ prices.0.currency }})" aria-label="Currency"></div>
+        <div class="col-12"><button class="btn btn-sm btn-success w-100">Record payment &amp; activate</button></div></form>
+      <p class="small text-secondary mt-2 mb-0">Prices shown are for {{ country_label }} — <a href="{% url 'platform_pricing' %}">edit country prices</a>.</p></div>
+
+    <div class="panel mb-4" id="country"><h3 class="h6 fw-bold">Country</h3><p class="small text-secondary">Decides which price list new subscription requests use.</p>
+      <form method="post" action="{{ act }}" class="row g-2">{% csrf_token %}<input type="hidden" name="action" value="set_country">
+        <div class="col-12"><select class="form-select form-select-sm" name="country" aria-label="Country">{% for c in country_options %}<option value="{{ c.code }}" {% if c.code == b.country %}selected{% endif %}>{{ c.flag }} {{ c.name }}</option>{% endfor %}</select></div>
+        <div class="col-12"><div class="form-check small"><input class="form-check-input" type="checkbox" name="currency_too" value="1" id="curToo"><label class="form-check-label" for="curToo">Also switch their voucher currency (now “{{ b.currency }}”) to that country's</label></div></div>
+        <div class="col-12"><button class="btn btn-sm btn-outline-primary w-100">Save country</button></div></form></div>
 
     <div class="panel mb-4"><h3 class="h6 fw-bold">Access</h3>
       <form method="post" action="{{ act }}" class="d-flex gap-2 mb-2">{% csrf_token %}<input class="form-control form-control-sm" type="number" min="1" max="3650" name="days" placeholder="Days" required aria-label="Days">

@@ -80,7 +80,7 @@
     try {
       measureCtx = measureCtx || document.createElement('canvas').getContext('2d');
       measureCtx.font = (e.weight || 800) + ' ' + size + 'pt ' + font;
-      textPt = measureCtx.measureText(e.upper ? txt.toUpperCase() : txt).width * 0.75;   // px → pt
+      textPt = measureCtx.measureText(e.upper && !/[a-z]/.test(txt) ? txt.toUpperCase() : txt).width * 0.75;   // px → pt
     } catch (err) { textPt = n * size * 0.74; }
     var full = (textPt + n * spacing) * PT;          // width in mm at the design size
     if (full <= room) return size;
@@ -100,7 +100,8 @@
       var txt = fill(e.text, d); if (e.type === 'code') txt = groupCode(txt, e.group);
       st += 'display:flex;align-items:center;justify-content:' + ({ left: 'flex-start', center: 'center', right: 'flex-end' }[e.align] || 'flex-start') + ';text-align:' + (e.align || 'left') + ';';
       st += 'font-family:' + font + ';font-size:' + (e.type === 'code' ? fitCodeSize(txt, e, font) : e.size) + 'pt;font-weight:' + e.weight + ';color:' + e.color + ';letter-spacing:' + (e.spacing || 0) + 'pt;line-height:1.15;white-space:' + (e.type === 'code' ? 'nowrap' : 'normal') + ';overflow:hidden;';
-      if (e.upper) st += 'text-transform:uppercase;'; if (e.italic) st += 'font-style:italic;';
+      // A code with small letters is case-sensitive on the router: never print it in CAPITALS.
+      if (e.upper && !(e.type === 'code' && /[a-z]/.test(txt))) st += 'text-transform:uppercase;'; if (e.italic) st += 'font-style:italic;';
       if (e.bg) st += 'background:' + e.bg + ';'; if (e.radius) st += 'border-radius:' + e.radius + 'mm;';
       if (e.type === 'code') st += 'font-variant-numeric:tabular-nums;' + (e.border_width ? 'border:' + e.border_width + 'mm solid ' + e.border + ';' : '');
       el.innerHTML = '<span style="display:block;width:100%">' + esc(txt) + '</span>';

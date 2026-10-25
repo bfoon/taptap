@@ -184,6 +184,12 @@ def businesses(request):
     if q:
         qs = qs.filter(Q(business_name__icontains=q) | Q(owner_name__icontains=q) | Q(user__email__icontains=q)
                        | Q(phone__icontains=q) | Q(email__icontains=q) | Q(team__user__email__icontains=q)).distinct()
+    country = request.GET.get('country', '').strip().upper()[:2]
+    if country:
+        qs = qs.filter(country=country)
+    tier = request.GET.get('tier', '')
+    if tier:
+        qs = qs.filter(feature_tier=tier)
     status = request.GET.get('status', '')
     filters = _status_filters(now)
     if status in filters:
@@ -201,9 +207,9 @@ def businesses(request):
         resp = HttpResponse(content_type='text/csv')
         resp['Content-Disposition'] = 'attachment; filename="taptap-businesses.csv"'
         w = csv.writer(resp)
-        w.writerow(['Business', 'Owner', 'Email', 'Phone', 'Status', 'Access until', 'Joined', 'Last seen', 'Team', 'Paid total'])
+        w.writerow(['Business', 'Owner', 'Email', 'Phone', 'Country', 'Package', 'Status', 'Access until', 'Joined', 'Last seen', 'Team', 'Paid total'])
         for b in qs:
-            w.writerow([b.business_name, b.owner_name, b.user.email, b.phone, _status_of(b, now),
+            w.writerow([b.business_name, b.owner_name, b.user.email, b.phone, b.country, b.feature_tier, _status_of(b, now),
                         'unlimited' if b.is_unlimited else (b.access_expires_at() or ''), b.created_at, b.last_seen or '', b.team_count, b.paid_total or 0])
         return resp
     page = Paginator(qs, 50).get_page(request.GET.get('page'))
@@ -211,7 +217,14 @@ def businesses(request):
         b.status_label = _status_of(b, now)
     params = request.GET.copy()
     params.pop('page', None)
+    from . import countries, features as ft
+    for b in page:
+        b.flag = countries.flag(b.country)
+        b.country_name = countries.name(b.country)
+    used = sorted(set(Business.objects.values_list('country', flat=True)))
     return render(request, 'core/platform/businesses.html', {'page_obj': page, 'q': q, 'status': status, 'sort': sort,
+                                                             'country': country, 'tier': tier, 'tiers': [(k, v[0]) for k, v in ft.TIERS.items()],
+                                                             'countries_used': [(c, countries.label(c)) for c in used],
                                                              'params': params.urlencode(), 'status_options': STATUS_OPTIONS,
                                                              'sort_options': SORT_OPTIONS})
 
@@ -252,13 +265,15 @@ def business_detail(request, pk):
         'views_30': sum(d['views'] for d in days), 'logins_30': usage.aggregate(l=Sum('logins'))['l'] or 0,
         'last_seen': usage.aggregate(m=Max('last_seen_at'))['m'],
     }
-    from .views import SUBSCRIPTION_PACKAGES
+    from . import countries, features as ft, pricing
     return render(request, 'core/platform/business_detail.html', {
+        'prices': pricing.price_list(b), 'country_label': countries.label(b.country), 'country_options': countries.options(),
+        'feature_groups': ft.state_rows(b), 'tiers': [(k, v[0], v[1]) for k, v in ft.TIERS.items()], 'tier_key': ft.tier_of(b),
         'b': b, 'status': _status_of(b, now), 'stats': stats, 'days': days, 'per_user': per_user,
         'features': [(SECTION_LABELS.get(k, k), v) for k, v in sections.most_common(8)],
         'subs': b.subscriptions.order_by('-created_at'), 'team': b.team.select_related('user'),
         'activities': b.activities.order_by('-created_at')[:15], 'audit': b.platform_audit.select_related('actor')[:15],
-        'packages': SUBSCRIPTION_PACKAGES, 'devices': TrustedDevice.objects.filter(user=b.user, revoked_at__isnull=True, expires_at__gt=now).count(),
+        'devices': TrustedDevice.objects.filter(user=b.user, revoked_at__isnull=True, expires_at__gt=now).count(),
     })
 
 
@@ -286,21 +301,61 @@ def business_action(request, pk):
         audit(request, b, 'Extended trial', f'+{days} days → {b.trial_ends_at:%d %b %Y}. {note}')
         messages.success(request, f'Trial extended by {days} days.')
     elif action == 'record_payment':
-        from .views import SUBSCRIPTION_PACKAGES
+        from . import countries, pricing
         code = request.POST.get('package')
-        if code in SUBSCRIPTION_PACKAGES:
-            plan, amount, days = SUBSCRIPTION_PACKAGES[code]
+        price = pricing.price_for(b, code)
+        if price:
+            plan, amount, days, currency = price['name'], price['amount'], price['days'], price['currency']
         else:
             plan, days = request.POST.get('plan', 'Custom').strip() or 'Custom', _int(request.POST.get('days'), 0, 1)
-            amount = _dec(request.POST.get('amount'))
+            amount, currency = _dec(request.POST.get('amount')), countries.currency(b.country)
         if request.POST.get('amount'):
             amount = _dec(request.POST.get('amount'))
+        if (request.POST.get('currency') or '').strip():
+            currency = request.POST['currency'].strip().upper()[:3]
         if not days:
             messages.error(request, 'Choose a package or enter the days for a custom payment.')
             return back
         sub = record_paid_subscription(b, plan, amount, days, method=request.POST.get('method', 'Manual'), reference=request.POST.get('reference', ''))
-        audit(request, b, 'Recorded payment', f'{plan} D{amount} ({days} days) ref {sub.transaction_id}. {note}')
-        messages.success(request, f'Payment recorded: {plan} for D{amount}. Access until {timezone.localtime(sub.expires_at):%d %b %Y}.')
+        sub.currency, sub.country = currency, b.country
+        sub.save(update_fields=['currency', 'country'])
+        audit(request, b, 'Recorded payment', f'{plan} {pricing.money(amount, currency)} ({days} days) ref {sub.transaction_id}. {note}')
+        messages.success(request, f'Payment recorded: {plan} for {pricing.money(amount, currency)}. Access until {timezone.localtime(sub.expires_at):%d %b %Y}.')
+    elif action == 'set_country':
+        from . import countries
+        code = countries.clean(request.POST.get('country'), default='')
+        if not code:
+            messages.error(request, 'Choose a country.')
+            return back
+        old = b.country
+        b.country = code
+        fields = ['country']
+        if request.POST.get('currency_too'):
+            b.currency = countries.symbol(countries.currency(code))[:8]
+            fields.append('currency')
+        b.save(update_fields=fields)
+        audit(request, b, 'Changed country', f'{old} → {code}' + (f', currency {b.currency.strip()}' if 'currency' in fields else '') + f'. {note}')
+        messages.success(request, f'Country set to {countries.label(code)}. New subscription requests use its prices.')
+    elif action == 'features':
+        from . import features as ft
+        tier = request.POST.get('tier') if request.POST.get('tier') in ft.TIERS else ft.tier_of(b)
+        overrides = {}
+        for key in ft.FEATURES:
+            v = request.POST.get(f'f_{key}', 'tier')
+            in_tier = key in ft.TIERS[tier][2]
+            if v == 'on' and not in_tier:
+                overrides[key] = True
+            elif v == 'off' and in_tier:
+                overrides[key] = False
+        before = (ft.tier_of(b), dict(b.feature_overrides or {}))
+        b.feature_tier, b.feature_overrides = tier, overrides
+        b.save(update_fields=['feature_tier', 'feature_overrides'])
+        if before != (tier, overrides):
+            extra = ', '.join(f'{ft.FEATURES[k].label} {"on" if v else "off"}' for k, v in sorted(overrides.items()))
+            audit(request, b, 'Changed features', f'Package {ft.TIERS[tier][0]}' + (f'; {extra}' if extra else '') + f'. {note}')
+            messages.success(request, f'Features saved: {ft.TIERS[tier][0]} package' + (f' with {len(overrides)} change(s).' if overrides else '.'))
+        else:
+            messages.info(request, 'Features unchanged.')
     elif action in ('confirm_sub', 'reject_sub'):
         return sub_action(request, request.POST.get('sub'))
     elif action == 'toggle_unlimited':
@@ -433,6 +488,49 @@ def sub_action(request, pk):
         audit(request, sub.business, 'Rejected payment request', f'{sub.plan} D{sub.amount}')
         messages.success(request, 'Payment request rejected.')
     return back
+
+
+# ─────────────────────────── pricing per country ───────────────────────────
+@superuser_required
+def pricing_page(request):
+    """Subscription prices per country. A country without prices uses the default (Gambia) list;
+    once it has any price of its own, only its own packages are offered there."""
+    from . import countries, pricing
+    if request.method == 'POST':
+        country = countries.clean(request.POST.get('country'), default='')
+        if request.POST.get('action') == 'remove' and country:
+            from .models import CountryPrice
+            n = CountryPrice.objects.filter(country=country).delete()[0]
+            audit(request, None, 'Removed country prices', f'{country}: {n} price(s) — back to the default list')
+            messages.success(request, f'{countries.label(country)} uses the default price list again.')
+            return redirect('platform_pricing')
+        values = {code: request.POST.get(f'p_{code}', '') for code in pricing.PACKAGES}
+        values.update({f'{code}_off': request.POST.get(f'off_{code}') for code in pricing.PACKAGES})
+        try:
+            saved, removed = pricing.save_country(country, values, request.POST.get('currency'), request.user)
+        except ValueError as exc:
+            messages.error(request, str(exc))
+            return redirect(f"{request.path}?edit={country}")
+        audit(request, None, 'Changed country prices', f'{country}: {saved} saved, {removed} removed, currency {request.POST.get("currency", "").upper()}')
+        messages.success(request, f'Prices for {countries.label(country)} saved.')
+        return redirect('platform_pricing')
+    grid = pricing.grid()
+    counts = dict(Business.objects.values_list('country').annotate(n=Count('id')))
+    rows = []
+    for code, prices in grid.items():
+        first = next(iter(prices.values()))
+        rows.append({'code': code, 'label': countries.label(code), 'currency': first.currency, 'businesses': counts.get(code, 0),
+                     'cells': [prices.get(p) for p in pricing.PACKAGES], 'updated': max(p.updated_at for p in prices.values())})
+    edit = countries.clean(request.GET.get('edit'), default='')
+    edit_prices = pricing.country_prices(edit) if edit else {}
+    default_only = sorted(((countries.label(c), n) for c, n in counts.items() if c not in grid), key=lambda x: -x[1])
+    return render(request, 'core/platform/pricing.html', {
+        'rows': rows, 'packages': pricing.PACKAGES, 'default_currency': pricing.DEFAULT_CURRENCY,
+        'country_options': countries.options(), 'edit': edit, 'edit_label': countries.label(edit) if edit else '',
+        'edit_currency': (next(iter(edit_prices.values())).currency if edit_prices else countries.currency(edit)) if edit else '',
+        'edit_cells': [(code, p[0], p[1], edit_prices.get(code)) for code, p in pricing.PACKAGES.items()],
+        'default_only': default_only,
+    })
 
 
 # ─────────────────────────── audit log ───────────────────────────

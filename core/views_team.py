@@ -488,124 +488,23 @@ def business_switch(request, business_id):
 # ─────────────────────────── daily sales ───────────────────────────
 @login_required
 def sales_daily(request):
+    """One day of sales: overview, by plan (with plan detail) or by seller (with agent detail).
+    Logic lives in core/sales_daily.py."""
+    from . import sales_daily as sd
+
     business = _b(request)
-
-    try:
-        day = datetime.strptime(
-            request.GET.get('date', ''),
-            '%Y-%m-%d',
-        ).date()
-    except ValueError:
-        day = timezone.localdate()
-
-    day = min(day, timezone.localdate())
-
-    tz = timezone.get_current_timezone()
-    start = timezone.make_aware(
-        datetime.combine(day, datetime.min.time()),
-        tz,
-    )
-    end = start + timedelta(days=1)
-
-    sales = business.sales.filter(
-        sold_at__gte=start,
-        sold_at__lt=end,
-    )
-
-    total = sales.aggregate(
-        v=Sum('amount'),
-        n=Count('id'),
-        disc=Sum('discount'),
-    )
-
-    prev = business.sales.filter(
-        sold_at__gte=start - timedelta(days=1),
-        sold_at__lt=start,
-    ).aggregate(
-        v=Sum('amount'),
-        n=Count('id'),
-    )
-
-    week = []
-    for i in range(6, -1, -1):
-        period_start = start - timedelta(days=i)
-        agg = business.sales.filter(
-            sold_at__gte=period_start,
-            sold_at__lt=period_start + timedelta(days=1),
-        ).aggregate(
-            v=Sum('amount'),
-            n=Count('id'),
-        )
-        week.append(
-            {
-                'day': period_start.date(),
-                'amount': agg['v'] or 0,
-                'count': agg['n'],
-            }
-        )
-
-    peak = max(
-        (row['amount'] for row in week),
-        default=0,
-    ) or 1
-
-    for row in week:
-        row['pct'] = round(
-            float(row['amount']) / float(peak) * 100
-        )
-
-    change = None
-    if prev['v']:
-        change = round(
-            (
-                float(total['v'] or 0)
-                - float(prev['v'])
-            )
-            / float(prev['v'])
-            * 100,
-            1,
-        )
-
-    return render(
-        request,
-        'core/sales_daily.html',
-        {
-            'day': day,
-            'is_today': day == timezone.localdate(),
-            'prev_day': day - timedelta(days=1),
-            'next_day': (
-                day + timedelta(days=1)
-                if day < timezone.localdate()
-                else None
-            ),
-            'total': total['v'] or 0,
-            'count': total['n'],
-            'discounts': total['disc'] or 0,
-            'change': change,
-            'avg': (
-                (total['v'] or 0) / total['n']
-                if total['n']
-                else 0
-            ),
-            'by_plan': (
-                sales.values('plan_name')
-                .annotate(n=Count('id'), v=Sum('amount'))
-                .order_by('-v')
-            ),
-            'by_method': (
-                sales.values('payment_method')
-                .annotate(n=Count('id'), v=Sum('amount'))
-                .order_by('-v')
-            ),
-            'by_agent': (
-                sales.values('agent__name')
-                .annotate(n=Count('id'), v=Sum('amount'))
-                .order_by('-v')
-            ),
-            'sales': sales.select_related('agent', 'router')[:200],
-            'week': week,
-        },
-    )
+    perms = getattr(request, 'tt_perms', frozenset())
+    if request.GET.get('export') == 'csv':
+        import csv
+        from django.http import HttpResponse
+        day = sd.parse_day(request.GET.get('date'))
+        resp = HttpResponse(content_type='text/csv; charset=utf-8')
+        resp['Content-Disposition'] = f'attachment; filename="taptap-sales-{day:%Y-%m-%d}.csv"'
+        writer = csv.writer(resp)
+        for row in sd.export_rows(business, request.GET):
+            writer.writerow(row)
+        return resp
+    return render(request, 'core/sales_daily.html', sd.build(business, request.GET, perms))
 
 
 # ─────────────────────────── own password ───────────────────────────

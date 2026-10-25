@@ -170,6 +170,7 @@
       '.tp-boxes span{flex:1 1 0;max-width:44px;height:54px;border-radius:' + Math.max(4, r * .4) + 'px;border:1.5px solid ' + t.border + ';background:' + t.input_bg + ';display:grid;place-items:center;font-size:22px;font-weight:800;text-transform:uppercase;transition:border-color .12s,transform .12s}',
       '.tp-boxes span.on{border-color:' + t.accent + ';transform:translateY(-2px)}',
       '.tp-boxes input{position:absolute;inset:0;opacity:0;width:100%;font-size:16px;text-transform:uppercase;caret-color:transparent}',
+      '.tp-cs .tp-input,.tp-cs .tp-boxes span,.tp-cs .tp-boxes input{text-transform:none}',
       '.tp-btn{display:flex;gap:8px;align-items:center;justify-content:center;width:100%;margin-top:12px;border:0;cursor:pointer;font:inherit;font-weight:700;font-size:16px;padding:15px 18px;border-radius:' + Math.max(4, r * .55) + 'px;background:' + t.accent + ';color:' + t.accent_text + ';text-decoration:none;transition:transform .12s,filter .12s}',
       '.tp-btn:hover{filter:brightness(1.06)}.tp-btn:active{transform:scale(.98)}.tp-btn:focus-visible{outline:3px solid ' + hexA(t.accent, .45) + ';outline-offset:2px}',
       '.tp-btn.outline{background:transparent;color:' + t.text + ';border:1.5px solid ' + t.border + '}',
@@ -323,15 +324,16 @@
   };
 
   B.voucher = function (b, ctx) {
-    var id = 'v' + b.id, n = +b.length || 8, field;
+    var id = 'v' + b.id, n = +b.length || 8, field, cs = !!(ctx.settings && ctx.settings.case_sensitive),
+        cap = cs ? 'autocapitalize="none" autocorrect="off"' : 'autocapitalize="characters"';
     if (b.style === 'boxes') {
       var cells = ''; for (var i = 0; i < n; i++) cells += '<span></span>';
-      field = '<div class="tp-boxes" data-n="' + n + '">' + cells + '<input id="' + id + '" name="code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" inputmode="text" maxlength="32" aria-label="' + esc(b.label || 'Voucher code') + '"></div>';
+      field = '<div class="tp-boxes" data-n="' + n + '">' + cells + '<input id="' + id + '" name="code" autocomplete="one-time-code" ' + cap + ' spellcheck="false" inputmode="text" maxlength="32" aria-label="' + esc(b.label || 'Voucher code') + '"></div>';
     } else {
-      field = '<input class="tp-input" id="' + id + '" name="code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="' + esc(b.placeholder || '') + '" maxlength="32">';
+      field = '<input class="tp-input" id="' + id + '" name="code" autocomplete="one-time-code" ' + cap + ' spellcheck="false" placeholder="' + esc(b.placeholder || '') + '" maxlength="32">';
     }
     var err = ctx.mt && ctx.mt.error ? '<div class="tp-msg err" role="alert">' + icon('warn') + '<span>' + esc(ctx.mt.error) + '</span></div>' : '';
-    var hint = b.show_hint ? '<p class="tp-hint">Codes are not case-sensitive — spaces are ignored.</p>' : '';
+    var hint = b.show_hint ? '<p class="tp-hint">' + (cs ? 'Type the code exactly as printed — small and CAPITAL letters matter. Spaces are ignored.' : 'Codes are not case-sensitive — spaces are ignored.') + '</p>' : '';
     var scan = b.scan === false ? '' : '<button type="button" class="tp-scan">' + icon('qr', 20) + '<span>' + esc(b.scan_label || 'Scan the QR on your voucher') + '</span></button>' +
       '<input type="file" accept="image/*" capture="environment" class="tp-scan-in" hidden aria-hidden="true" tabindex="-1">';
     var voucherPane = (b.label ? '<label class="tp-label" for="' + id + '">' + esc(b.label) + '</label>' : '') + field + hint + scan;
@@ -427,7 +429,9 @@
   function tok(s, ctx) { return String(s || '').replace(/\{business\}/g, ctx.business.name || '').replace(/\{ssid\}/g, ctx.business.ssid || 'our Wi-Fi').replace(/\{phone\}/g, ctx.business.phone || '').replace(/\{logout\}/g, (ctx.mt && ctx.mt.linkLogout) || '#'); }
 
   /* ---------- behaviour ---------- */
-  function normalize(v) { return String(v || '').replace(/\s+/g, '').toUpperCase(); }
+  // Case-sensitive portals (small / mixed-case codes) keep what the customer typed.
+  var CASE_SENSITIVE = false;
+  function normalize(v) { v = String(v || '').replace(/\s+/g, ''); return CASE_SENSITIVE ? v : v.toUpperCase(); }
 
   function loadQrLib(ctx, cb) {
     if (window.jsQR || window.BarcodeDetector) return cb();
@@ -770,6 +774,7 @@
   /* ---------- main ---------- */
   function render(root, cfg, ctx) {
     var t = cfg.theme || {}; ctx.theme = t; ctx.settings = cfg.settings || {}; ctx.mt = ctx.mt || {};
+    CASE_SENSITIVE = !!ctx.settings.case_sensitive;
     if (!ctx.dest) ctx.dest = ctx.settings.redirect_url || ctx.mt.linkRedirect || ctx.mt.linkOrig || '';
     var q = [];
     [t.font, t.heading_font].forEach(function (f) { if (FONT_QUERY[f] && q.indexOf(FONT_QUERY[f]) < 0) q.push(FONT_QUERY[f]); });
@@ -788,7 +793,7 @@
     if (layout === 'split') body = '<div class="tp-wrap"><div class="tp-hero">' + hero.map(html).join('') + '</div><div class="tp-side"><div class="tp-card">' + rest.map(html).join('') + '</div></div></div>';
     else if (layout === 'sheet') body = '<div class="tp-hero">' + hero.map(html).join('') + '</div><div class="tp-card">' + rest.map(html).join('') + '</div>';
     else body = (layout === 'bands' ? '<div class="tp-bands"></div>' : '') + '<main class="tp-card">' + rest.map(html).join('') + '</main>';
-    root.className = 'tp l-' + layout + (ctx.mode === 'preview' ? ' tp-pv' : '');
+    root.className = 'tp l-' + layout + (ctx.mode === 'preview' ? ' tp-pv' : '') + (CASE_SENSITIVE ? ' tp-cs' : '');
     root.innerHTML = body;
 
     if (ctx.kind === 'login' && ctx.settings.collect_device !== false && ctx.settings.device_notice !== '' && root.querySelector('.tp-vform')) {
@@ -957,7 +962,7 @@
     r.querySelector('.tp-rp-open').addEventListener('click', function () {
       form.hidden = !form.hidden;
       var c = form.querySelector('[name=rp_code]'), typed = root.querySelector('.tp-vform [name=code]');
-      if (c && !c.value && typed && typed.value) c.value = typed.value.replace(/\s+/g, '').toUpperCase();
+      if (c && !c.value && typed && typed.value) c.value = normalize(typed.value);
     });
     r.querySelector('.tp-rp-send').addEventListener('click', function () {
       var get = function (n) { var e = form.querySelector('[name=' + n + ']'); return e ? String(e.value || '').trim() : ''; };

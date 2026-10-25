@@ -4,9 +4,15 @@ from .models import Router,VoucherPlan
 class RegisterForm(forms.Form):
  business_name=forms.CharField(max_length=180,widget=forms.TextInput(attrs={'class':'form-control','placeholder':'e.g. Kairaba Wi-Fi','autocomplete':'organization'}))
  owner_name=forms.CharField(max_length=180,widget=forms.TextInput(attrs={'class':'form-control','placeholder':'First and last name','autocomplete':'name'}))
- phone=forms.CharField(max_length=60,widget=forms.TextInput(attrs={'class':'form-control','placeholder':'+220 700 0000','autocomplete':'tel','inputmode':'tel'}))
+ country=forms.ChoiceField(initial='GM',error_messages={'required':'Choose the country your Wi-Fi business is in.','invalid_choice':'Choose a country from the list.'},
+                          widget=forms.Select(attrs={'class':'form-select','autocomplete':'country'}))
+ phone=forms.CharField(max_length=60,widget=forms.TextInput(attrs={'class':'form-control','placeholder':'700 0000','autocomplete':'tel','inputmode':'tel'}))
  email=forms.EmailField(widget=forms.EmailInput(attrs={'class':'form-control','placeholder':'you@yourbusiness.com','autocomplete':'email'}))
  password=forms.CharField(min_length=8,widget=forms.PasswordInput(attrs={'class':'form-control','placeholder':'At least 8 characters','autocomplete':'new-password'}))
+ def __init__(self,*args,**kwargs):
+  super().__init__(*args,**kwargs)
+  from .countries import COUNTRIES
+  self.fields['country'].choices=[('','Choose your country…')]+[(c[0],f'{c[2]} {c[1]}'+(f'  (+{c[3]})' if c[3] else '')) for c in COUNTRIES]
  def clean_email(self):
   from django.contrib.auth.models import User as U
   from .auth_security import validate_email_address
@@ -18,6 +24,11 @@ class RegisterForm(forms.Form):
   import re
   v=self.cleaned_data['phone'].strip()
   if len(re.sub(r'\D','',v))<7: raise forms.ValidationError('Enter a phone number customers and our team can reach you on.')
+  # A local number without a country code gets the chosen country's code, e.g. 7000000 → +220 7000000.
+  if not v.startswith('+') and not v.startswith('00'):
+   from .countries import dial
+   code=dial(self.data.get('country'))
+   if code: v=f'{code} {v.lstrip("0")}'   # drop a trunk 0 (080… in Nigeria → +234 80…)
   return v
  def clean(self):
   data=super().clean()

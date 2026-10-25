@@ -28,8 +28,12 @@
           <div class="row g-3">
             <div class="col-md-6"><label for="{{ form.business_name.id_for_label }}">Business name</label>{{ form.business_name }}
               {% for e in form.business_name.errors %}<div class="rg-err">{{ e }}</div>{% endfor %}<small class="rg-help">Shown on your portal and vouchers.</small></div>
-            <div class="col-md-6"><label for="{{ form.phone.id_for_label }}">Business phone</label>{{ form.phone }}
-              {% for e in form.phone.errors %}<div class="rg-err">{{ e }}</div>{% endfor %}<small class="rg-help">Include the country code, e.g. +220.</small></div>
+            <div class="col-md-6"><label for="{{ form.phone.id_for_label }}">Business phone</label>
+              <div class="input-group"><span class="input-group-text rg-dial" id="rgDial">+220</span>{{ form.phone }}</div>
+              {% for e in form.phone.errors %}<div class="rg-err">{{ e }}</div>{% endfor %}<small class="rg-help">Type your number — we add the country code for you.</small></div>
+            <div class="col-12"><label for="{{ form.country.id_for_label }}">Country</label>{{ form.country }}
+              {% for e in form.country.errors %}<div class="rg-err">{{ e }}</div>{% endfor %}
+              <small class="rg-help" id="rgPrice">Where your Wi-Fi business runs. It sets your currency and your TapTap price.</small></div>
           </div>
         </fieldset>
         <fieldset class="rg-sec"><legend><span>2</span> Account owner</legend>
@@ -68,6 +72,8 @@
 .rg-sec legend span{width:22px;height:22px;border-radius:50%;background:#eaf3ff;color:var(--primary);display:grid;place-items:center;font-size:.72rem}
 .rg-card label{font-size:.8rem;font-weight:700;margin-bottom:.3rem;display:block}.rg-card .form-control{border-radius:.7rem;padding:.72rem .85rem;border-color:#d8e1ec}
 .rg-card .form-control:focus{border-color:var(--primary);box-shadow:0 0 0 .2rem #1769e026}
+.rg-dial{border-radius:.7rem 0 0 .7rem;background:#f3f7fb;border-color:#d8e1ec;font-weight:700;color:#51667b}.rg-card .input-group .form-control{border-radius:0 .7rem .7rem 0}
+.rg-card .form-select{border-radius:.7rem;padding:.72rem .85rem;border-color:#d8e1ec}
 .rg-help{display:block;font-size:.74rem;color:#8a9aab;margin-top:.3rem}.rg-err{font-size:.78rem;color:#c02b2b;margin-top:.3rem;font-weight:600}
 .rg-err~.rg-help{display:none}
 .rg-pw{position:relative}.rg-pw .form-control{padding-right:3rem}.rg-eye{position:absolute;right:.4rem;top:50%;transform:translateY(-50%);border:0;background:none;color:#6c7c90;width:36px;height:36px;border-radius:8px}
@@ -75,8 +81,17 @@
 .rg-submit{padding:.8rem;font-weight:700;border-radius:.8rem;margin-top:.3rem}.rg-next{font-size:.8rem;color:#51667b;background:#f3f7fb;border-radius:12px;padding:.6rem .8rem;margin:.9rem 0 0}
 @media(max-width:960px){.rg{grid-template-columns:1fr}.rg-side{display:none}.rg-brand-m{display:flex}.rg-card{padding:1.5rem 1.2rem}}
 </style>
+{{ country_hints|json_script:"rgCountries" }}
 <script>
 (function(){
+  // Country → phone code and the TapTap price after the free trial.
+  var C=JSON.parse(document.getElementById('rgCountries').textContent),sel=document.getElementById('{{ form.country.id_for_label }}'),
+      phone=document.getElementById('{{ form.phone.id_for_label }}'),dialEl=document.getElementById('rgDial'),priceEl=document.getElementById('rgPrice');
+  function country(){var c=C[sel.value];
+    dialEl.textContent=(c&&c.dial)||'+';dialEl.hidden=!(c&&c.dial);
+    if(c){priceEl.innerHTML='After your free trial TapTap costs <b>'+c.price+'</b> a month here — longer plans cost less per month.';}
+    else priceEl.textContent='Where your Wi-Fi business runs. It sets your currency and your TapTap price.';}
+  sel.addEventListener('change',country);country();
   var pw=document.getElementById('{{ form.password.id_for_label }}'),bar=document.getElementById('rgBar'),help=document.getElementById('rgPwHelp');
   document.getElementById('rgEye').onclick=function(){var t=pw.type==='password';pw.type=t?'text':'password';this.innerHTML='<i class="bi bi-eye'+(t?'-slash':'')+'"></i>';this.setAttribute('aria-label',t?'Hide password':'Show password');};
   pw.addEventListener('input',function(){var v=pw.value,s=0;if(v.length>=8)s++;if(v.length>=12)s++;if(/[a-z]/.test(v)&&/[A-Z]/.test(v))s++;if(/\d/.test(v))s++;if(/[^A-Za-z0-9]/.test(v))s++;

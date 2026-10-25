@@ -134,6 +134,7 @@ urlpatterns = [
     path('platform/businesses/<int:pk>/',vp.business_detail,name='platform_business'),
     path('platform/businesses/<int:pk>/action/',vp.business_action,name='platform_business_action'),
     path('platform/subscriptions/',vp.subscriptions,name='platform_subscriptions'),
+    path('platform/pricing/',vp.pricing_page,name='platform_pricing'),
     path('platform/subscriptions/<int:pk>/action/',vp.sub_action,name='platform_sub_action'),
     path('platform/audit/',vp.audit_log,name='platform_audit'), path('platform/traffic/',vp.traffic,name='platform_traffic'), path('platform/view-as/stop/',vp.view_as_stop,name='platform_view_as_stop'),
     # Batch and plan details (summary + scrollable voucher lists)

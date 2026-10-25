@@ -50,6 +50,12 @@ class Business(models.Model):
     shared_warning_mode=models.CharField(max_length=10,default='manual',choices=[('manual','Manual — I decide'),('auto','Automatic — warn at once')],
         help_text='Automatic: as soon as a voucher is seen on more devices than it allows, its internet stops and the customer must accept a warning')
     shared_warning_text=models.TextField(blank=True,help_text='Shown on the warning page. Empty = TapTap default text')
+    # Where the business is (sign-up) — decides its subscription prices and currency. See core/countries.py, core/pricing.py
+    country=models.CharField(max_length=2,default='GM',db_index=True,help_text='ISO country code, e.g. GM')
+    # Feature modules — see core/features.py
+    feature_tier=models.CharField(max_length=20,default='business',help_text='Bundle of features this business gets (core/features.py TIERS)')
+    feature_overrides=models.JSONField(default=dict,blank=True,help_text='Platform switches on top of the tier: {feature key: true/false}')
+    features_off=models.JSONField(default=list,blank=True,help_text='Optional features the owner switched off for their own business')
     def access_expires_at(self): return self.subscription_expires_at if self.subscription_status=='active' else self.trial_ends_at
     @property
     def has_access(self):
@@ -67,6 +73,28 @@ class Subscription(models.Model):
     plan=models.CharField(max_length=60); amount=models.DecimalField(max_digits=10,decimal_places=2)
     payment_method=models.CharField(max_length=60,default='Manual'); payment_status=models.CharField(max_length=30,default='Pending')
     transaction_id=models.CharField(max_length=120,blank=True); starts_at=models.DateTimeField(null=True,blank=True); expires_at=models.DateTimeField(null=True,blank=True); created_at=models.DateTimeField(auto_now_add=True)
+    currency=models.CharField(max_length=3,default='GMD',help_text='ISO currency of the amount')
+    country=models.CharField(max_length=2,blank=True,help_text='Country price list used for this request')
+    @property
+    def money(self):
+        from .countries import symbol
+        return f'{symbol(self.currency)}{self.amount:,.2f}'.replace('.00','')
+
+
+class CountryPrice(models.Model):
+    """Subscription price of one package in one country (core/pricing.py). Countries with no price
+    for a package use the default TapTap price list (Gambia, Dalasi)."""
+    country=models.CharField(max_length=2,db_index=True)
+    package=models.CharField(max_length=10,help_text='Package code, e.g. 1m, 3m, 1y')
+    amount=models.DecimalField(max_digits=12,decimal_places=2)
+    currency=models.CharField(max_length=3)
+    active=models.BooleanField(default=True,help_text='Off = this package is not offered in this country')
+    updated_at=models.DateTimeField(auto_now=True)
+    updated_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
+    class Meta:
+        ordering=['country','package']
+        constraints=[models.UniqueConstraint(fields=['country','package'],name='country_price_unique')]
+    def __str__(self): return f'{self.country} {self.package} {self.currency} {self.amount}'
 
 
 # ─────────────────────────────── Recycle bin ───────────────────────────────

@@ -32,7 +32,7 @@ from .security import audit_business, summarize
 from .mikrotik import MikroTikService, MikroTikError, redact
 from .sync import sync_router, refresh_router_topology, snapshot_from_database
 from .tasks import enqueue_router_sync
-from .utils import (generate_codes, code_format_from_post, code_format_ctx, describe_format, portal_code_length, CodeFormatError,
+from .utils import (generate_codes, code_format_from_post, code_format_ctx, describe_format, portal_code_length, CodeFormatError, apply_portal_case,
                     duration_to_routeros, log, code_search_q)
 from .portal_deploy import default_pages
 from . import serials
@@ -51,11 +51,8 @@ def _on_link(router):
 
 logger=logging.getLogger('taptap')
 
-SUBSCRIPTION_PACKAGES = {
-    '1m': ('1 Month', Decimal('700'), 30), '2m': ('2 Months', Decimal('1350'), 60),
-    '3m': ('3 Months', Decimal('2000'), 90), '6m': ('6 Months', Decimal('4000'), 180),
-    '1y': ('1 Year', Decimal('8000'), 365),
-}
+# Packages and their default (Gambia) prices live in core/pricing.py; each country can have its own.
+from .pricing import PACKAGES as SUBSCRIPTION_PACKAGES   # code → (name, default GMD price, days) — kept for older imports
 DEFAULT_PLANS = [('12 Hours',25,12,1),('24 Hours',40,24,1),('Weekly',150,168,1),('Monthly',500,720,1),('Family Monthly',700,720,5)]
 
 
@@ -102,15 +99,27 @@ def dashboard(request):
 
 
 @login_required
-def subscription(request): return render(request,'core/subscription.html',{'packages':SUBSCRIPTION_PACKAGES})
+def subscription(request):
+    from . import countries, pricing
+    business=b(request)
+    return render(request,'core/subscription.html',{
+        'prices':[p for p in pricing.price_list(business) if p['offered']],
+        'country':business.country,'country_label':countries.label(business.country),
+        'pending':business.subscriptions.filter(payment_status='Pending').order_by('-created_at')[:3]})
 
 
 @login_required
 def subscription_select(request,code):
-    if code not in SUBSCRIPTION_PACKAGES:return redirect('subscription')
-    name,amount,days=SUBSCRIPTION_PACKAGES[code]; business=b(request)
-    Subscription.objects.create(business=business,plan=name,amount=amount,payment_method='Manual',payment_status='Pending')
-    messages.success(request,f'{name} subscription request created for D{amount}. Mark it paid from Django Admin after payment confirmation.')
+    from . import pricing
+    business=b(request); price=pricing.price_for(business,code)
+    if not price or not price['offered']: return redirect('subscription')
+    if request.method!='POST':
+        messages.info(request,'Press "Choose plan" to send the request.')
+        return redirect('subscription')
+    Subscription.objects.create(business=business,plan=price['name'],amount=price['amount'],currency=price['currency'],country=business.country,
+                                payment_method='Manual',payment_status='Pending')
+    messages.success(request,f'{price["name"]} subscription request created for {pricing.money(price["amount"],price["currency"])}. '
+                             'TapTap confirms it as soon as your payment is received.')
     return redirect('subscription')
 
 
@@ -159,7 +168,7 @@ def generate_vouchers(request):
         agent=business.agents.filter(pk=request.POST.get('owner') or 0).first()
         try:
             fmt=code_format_from_post(request.POST,business)
-            codes=generate_codes(qty,fmt['length'],fmt['charset'],fmt['prefix'],fmt['suffix'],business)
+            codes=generate_codes(qty,fmt['length'],fmt['charset'],fmt['prefix'],fmt['suffix'],business,fmt['case'])
             P=request.POST
             sfmt,sdig,sreset=serials.clean(P.get('serial_format',business.serial_format),P.get('serial_digits',business.serial_digits),P.get('serial_reset',business.serial_reset))
             sstart=int(P['serial_start']) if (P.get('serial_start') or '').strip().isdigit() and int(P['serial_start'])>0 else None
@@ -189,6 +198,8 @@ def generate_vouchers(request):
             except Exception as e:
                 messages.warning(request,f'Vouchers were created in TapTap; sending them to {router.name} failed for now ({e}). They go with the next sync.')
         messages.success(request,f'{qty} voucher(s) created successfully.')
+        case_msg=apply_portal_case(request,business,fmt)
+        if case_msg: (messages.info if request.POST.get('portal_case_sensitive') else messages.warning)(request,case_msg)
         try:
             from .tracking import notify as _track
             _track(business,'vouchers_added',f'{qty} new voucher(s) of {plan.name} in batch {batch.name}'+(f' by {request.user.get_full_name() or request.user.username}' if request.user.is_authenticated else ''),

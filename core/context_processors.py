@@ -41,8 +41,12 @@ def business_context(request):
                 }
             )
 
+    from .features import ALL as _ALL_FEATURES, request_features
+    features_on = request_features(request) if authenticated and business is not None else _ALL_FEATURES
+
     return {
         'current_business': business,
+        'tt_features': features_on,
         'tt_perms': getattr(request, 'tt_perms', frozenset()),
         'tt_role': role,
         'tt_role_label': (

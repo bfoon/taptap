@@ -16,7 +16,7 @@ def mark_paid(modeladmin,request,queryset):
 
 @admin.register(Subscription)
 class SubscriptionAdmin(admin.ModelAdmin):
-    list_display=('business','plan','amount','payment_status','created_at','expires_at');list_filter=('payment_status','plan');actions=[mark_paid]
+    list_display=('business','plan','amount','currency','country','payment_status','created_at','expires_at');list_filter=('payment_status','plan','currency');actions=[mark_paid]
 
 @admin.register(RouterDevice)
 class RouterDeviceAdmin(admin.ModelAdmin):
@@ -96,3 +96,15 @@ class TeamMemberAdmin(admin.ModelAdmin):
 @admin.register(PlatformAudit)
 class PlatformAuditAdmin(admin.ModelAdmin):
     list_display=('created_at','actor','business','action','details');list_filter=('action',);readonly_fields=('created_at',)
+
+
+from .models import CountryPrice  # noqa: E402
+
+
+@admin.register(CountryPrice)
+class CountryPriceAdmin(admin.ModelAdmin):
+    """Subscription prices per country (also editable in Platform console → Country pricing)."""
+    list_display = ('country', 'package', 'amount', 'currency', 'active', 'updated_at', 'updated_by')
+    list_filter = ('country', 'package', 'active')
+    search_fields = ('country',)
+    readonly_fields = ('updated_at', 'updated_by')

@@ -3,36 +3,163 @@
 .day-nav{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap}.day-nav input{max-width:170px}
 .week-bars{display:flex;gap:.5rem;align-items:flex-end;height:140px;padding-top:.5rem}.week-bars a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;text-decoration:none;color:#4e6479;font-size:.72rem}
 .week-bars i{display:block;width:100%;max-width:46px;background:#cfe0fb;border-radius:8px 8px 3px 3px;min-height:3px}.week-bars a.on i{background:#1769e0}.week-bars b{font-size:.7rem;color:#102033}
+.sd-tabs{display:flex;gap:.35rem;flex-wrap:wrap;margin:1.1rem 0 1rem}.sd-tabs a{display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:999px;background:#eef2f6;color:#4e6479;text-decoration:none;font-weight:700;font-size:.85rem}
+.sd-tabs a.on{background:#1769e0;color:#fff}.sd-tabs a span{background:#ffffff55;border-radius:999px;padding:0 .45rem;font-size:.72rem}.sd-tabs a:not(.on) span{background:#dfe6ee}
+.hours{display:flex;gap:2px;align-items:flex-end;height:92px}.hours div{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;font-size:.58rem;color:#8a9aab}
+.hours i{display:block;width:100%;background:#d8e6fb;border-radius:3px 3px 1px 1px;min-height:2px}.hours div.pk i{background:#1769e0}.hours div:nth-child(odd) span{visibility:hidden}
+.pick-list{display:flex;flex-direction:column;gap:.45rem;max-height:70vh;overflow:auto;padding-right:.2rem}
+.pick{display:block;text-decoration:none;color:inherit;border:1px solid #e3e9f1;border-radius:14px;padding:.65rem .8rem;background:#fff;transition:border-color .12s,box-shadow .12s}
+.pick:hover{border-color:#9cc0f5}.pick.on{border-color:#1769e0;box-shadow:0 0 0 3px #1769e01f}
+.pick .t{display:flex;justify-content:space-between;gap:.5rem;align-items:baseline}.pick .t b{font-size:.95rem}.pick .t strong{white-space:nowrap}
+.pick .m{display:flex;gap:.7rem;flex-wrap:wrap;font-size:.74rem;color:#6b7c8f;margin-top:.15rem}
+.share{height:5px;border-radius:99px;background:#edf2f7;margin-top:.45rem;overflow:hidden}.share i{display:block;height:100%;background:#1769e0;border-radius:99px}
+.pill-up{color:#138453;font-weight:700}.pill-down{color:#c02b2b;font-weight:700}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:.6rem}.kpi{background:#f7f9fc;border:1px solid #e8edf3;border-radius:12px;padding:.6rem .75rem}
+.kpi small{display:block;font-size:.68rem;font-weight:700;color:#8a9aab;text-transform:uppercase;letter-spacing:.04em}.kpi strong{display:block;font-size:1.15rem;color:#102033}.kpi em{font-style:normal;font-size:.72rem;color:#6b7c8f}
+.kpi.warn{background:#fff7e6;border-color:#f5d48a}.kpi.good{background:#eaf8f1;border-color:#b5e5cc}
+.sd-empty{border:1px dashed #cfd9e4;border-radius:16px;padding:2.2rem 1rem;text-align:center;color:#6b7c8f}
+.sd-empty i{font-size:2rem;display:block;margin-bottom:.4rem;color:#9cb2c9}
+.mini-bar{display:inline-block;height:6px;border-radius:99px;background:#1769e0;vertical-align:middle;margin-right:.35rem}
 </style>{% endblock %}
 {% block content %}{% with c=current_business.currency %}
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <div class="day-nav">
-    <a class="btn btn-sm btn-light" href="?date={{ prev_day|date:'Y-m-d' }}" aria-label="Previous day"><i class="bi bi-chevron-left"></i></a>
-    <form method="get" class="d-flex gap-2"><input class="form-control form-control-sm" type="date" name="date" value="{{ day|date:'Y-m-d' }}" max="{% now 'Y-m-d' %}" aria-label="Day" onchange="this.form.submit()"></form>
-    {% if next_day %}<a class="btn btn-sm btn-light" href="?date={{ next_day|date:'Y-m-d' }}" aria-label="Next day"><i class="bi bi-chevron-right"></i></a>{% endif %}
-    {% if not is_today %}<a class="btn btn-sm btn-outline-primary" href="?">Today</a>{% endif %}
+    <a class="btn btn-sm btn-light" href="{% querystring date=prev_day|date:'Y-m-d' %}" aria-label="Previous day"><i class="bi bi-chevron-left"></i></a>
+    <form method="get" class="d-flex gap-2"><input class="form-control form-control-sm" type="date" name="date" value="{{ day|date:'Y-m-d' }}" max="{% now 'Y-m-d' %}" aria-label="Day" onchange="this.form.submit()">
+      <input type="hidden" name="view" value="{{ view }}">{% if sel_plan %}<input type="hidden" name="plan" value="{{ sel_plan }}">{% endif %}{% if sel_seller %}<input type="hidden" name="seller" value="{{ sel_seller }}">{% endif %}</form>
+    {% if next_day %}<a class="btn btn-sm btn-light" href="{% querystring date=next_day|date:'Y-m-d' %}" aria-label="Next day"><i class="bi bi-chevron-right"></i></a>{% endif %}
+    {% if not is_today %}<a class="btn btn-sm btn-outline-primary" href="{% querystring date=None %}">Today</a>{% endif %}
   </div>
-  <span class="text-secondary small">{{ day|date:'l, d F Y' }}{% if is_today %} · so far today{% endif %}</span>
+  <div class="d-flex align-items-center gap-2"><span class="text-secondary small">{{ day|date:'l, d F Y' }}{% if is_today %} · so far today{% endif %}</span>
+    <a class="btn btn-sm btn-outline-secondary" href="{% querystring export='csv' %}" title="Download {% if sel_plan %}this plan's{% elif sel_seller %}this seller's{% else %}the day's{% endif %} sales"><i class="bi bi-download"></i> CSV</a></div>
 </div>
+
 <div class="metric-grid">
   <div class="metric-card"><span class="metric-icon orange"><i class="bi bi-cash-stack"></i></span><div><small>SALES</small><strong>{{ total|money:c }}</strong><em>{% if change is not None %}{% if change >= 0 %}+{% endif %}{{ change }}% vs day before{% else %}—{% endif %}</em></div></div>
   <div class="metric-card"><span class="metric-icon blue"><i class="bi bi-ticket-perforated"></i></span><div><small>VOUCHERS SOLD</small><strong>{{ count }}</strong><em>transactions</em></div></div>
   <div class="metric-card"><span class="metric-icon green"><i class="bi bi-receipt"></i></span><div><small>AVERAGE SALE</small><strong>{{ avg|money:c }}</strong><em>per voucher</em></div></div>
-  <div class="metric-card"><span class="metric-icon purple"><i class="bi bi-percent"></i></span><div><small>DISCOUNTS</small><strong>{{ discounts|money:c }}</strong><em>given</em></div></div>
+  <div class="metric-card"><span class="metric-icon purple"><i class="bi bi-percent"></i></span><div><small>AGENT COMMISSION</small><strong>{{ commission|money:c }}</strong><em>{{ net|money:c }} kept · {{ discounts|money:c }} discounts</em></div></div>
 </div>
-<div class="row g-4 mt-1">
+
+<nav class="sd-tabs" aria-label="Daily sales views">
+  <a href="{% querystring view='overview' plan=None seller=None %}" class="{% if view == 'overview' %}on{% endif %}"><i class="bi bi-grid-1x2"></i> Overview</a>
+  <a href="{% querystring view='plans' plan=None seller=None %}" class="{% if view == 'plans' %}on{% endif %}"><i class="bi bi-tags"></i> By plan</a>
+  <a href="{% querystring view='sellers' plan=None seller=None %}" class="{% if view == 'sellers' %}on{% endif %}"><i class="bi bi-shop"></i> By seller</a>
+</nav>
+
+{% if view == 'overview' %}
+<div class="row g-4">
   <div class="col-xl-5"><div class="panel h-100"><div class="panel-head"><div><h3>Last 7 days</h3><p>Tap a day to open it</p></div></div>
-    <div class="week-bars">{% for w in week %}<a href="?date={{ w.day|date:'Y-m-d' }}" class="{% if w.day == day %}on{% endif %}" title="{{ w.amount|money:c }} · {{ w.count }} sold"><b>{{ w.amount|money:c }}</b><i style="height:{{ w.pct }}%"></i>{{ w.day|date:'D' }}</a>{% endfor %}</div></div></div>
-  <div class="col-xl-7"><div class="panel h-100"><div class="panel-head"><div><h3>By plan</h3><p>What sold</p></div></div>
-    <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Plan</th><th class="text-end">Sold</th><th class="text-end">Amount</th></tr></thead><tbody>
-    {% for r in by_plan %}<tr><td>{{ r.plan_name }}</td><td class="text-end">{{ r.n }}</td><td class="text-end"><b>{{ r.v|money:c }}</b></td></tr>{% empty %}<tr><td colspan="3" class="empty-table">No sales on this day.</td></tr>{% endfor %}</tbody></table></div></div></div>
-  <div class="col-md-6"><div class="panel"><div class="panel-head"><div><h3>By payment method</h3></div></div>
-    <div class="table-responsive"><table class="table table-sm"><tbody>{% for r in by_method %}<tr><td>{{ r.payment_method|title }}</td><td class="text-end">{{ r.n }}</td><td class="text-end"><b>{{ r.v|money:c }}</b></td></tr>{% empty %}<tr><td class="empty-table">—</td></tr>{% endfor %}</tbody></table></div></div></div>
-  <div class="col-md-6"><div class="panel"><div class="panel-head"><div><h3>By seller</h3></div></div>
-    <div class="table-responsive"><table class="table table-sm"><tbody>{% for r in by_agent %}<tr><td>{{ r.agent__name|default:'Shop' }}</td><td class="text-end">{{ r.n }}</td><td class="text-end"><b>{{ r.v|money:c }}</b></td></tr>{% empty %}<tr><td class="empty-table">—</td></tr>{% endfor %}</tbody></table></div></div></div>
+    <div class="week-bars">{% for w in week %}<a href="{% querystring date=w.day|date:'Y-m-d' %}" class="{% if w.day == day %}on{% endif %}" title="{{ w.amount|money:c }} · {{ w.count }} sold"><b>{{ w.amount|money:c }}</b><i style="height:{{ w.pct }}%"></i>{{ w.day|date:'D' }}</a>{% endfor %}</div></div></div>
+  <div class="col-xl-7"><div class="panel h-100"><div class="panel-head"><div><h3>Hour by hour</h3><p>{% if busiest %}Busiest: <b>{{ busiest.label }}:00</b> — {{ busiest.amount|money:c }} from {{ busiest.count }} sale{{ busiest.count|pluralize }}{% else %}No sales yet{% endif %}</p></div></div>
+    <div class="hours">{% for h in hours %}<div class="{% if busiest and h.hour == busiest.hour %}pk{% endif %}" title="{{ h.label }}:00 · {{ h.amount|money:c }} · {{ h.count }} sold"><i style="height:{{ h.pct }}%"></i><span>{{ h.label }}</span></div>{% endfor %}</div></div></div>
+  <div class="col-lg-6"><div class="panel h-100"><div class="panel-head"><div><h3>Top plans</h3><p>Tap a plan for its detail</p></div><a class="btn btn-sm btn-light" href="{% querystring view='plans' %}">All plans</a></div>
+    <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Plan</th><th class="text-end">Sold</th><th class="text-end">Amount</th><th class="text-end">vs 7-day avg</th></tr></thead><tbody>
+    {% for r in by_plan %}<tr><td><a href="{% querystring view='plans' plan=r.plan_name %}" class="fw-semibold text-decoration-none">{{ r.plan_name }}</a><div class="share"><i style="width:{{ r.share }}%"></i></div></td><td class="text-end">{{ r.n }}</td><td class="text-end"><b>{{ r.v|money:c }}</b></td>
+      <td class="text-end">{% if r.vs_avg is not None %}<span class="{% if r.vs_avg >= 0 %}pill-up{% else %}pill-down{% endif %}">{% if r.vs_avg >= 0 %}+{% endif %}{{ r.vs_avg }}%</span>{% else %}<span class="text-secondary small">new</span>{% endif %}</td></tr>
+    {% empty %}<tr><td colspan="4" class="empty-table">No sales on this day.</td></tr>{% endfor %}</tbody></table></div></div></div>
+  <div class="col-lg-6"><div class="panel h-100"><div class="panel-head"><div><h3>Top sellers</h3><p>Tap a seller for their day</p></div><a class="btn btn-sm btn-light" href="{% querystring view='sellers' %}">All sellers</a></div>
+    <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Seller</th><th class="text-end">Sold</th><th class="text-end">Amount</th><th class="text-end">Commission</th></tr></thead><tbody>
+    {% for r in by_seller %}<tr><td><a href="{% querystring view='sellers' seller=r.key %}" class="fw-semibold text-decoration-none">{% if r.is_shop %}<i class="bi bi-shop me-1"></i>{% endif %}{{ r.name }}</a>{% if r.top_plan %}<div class="small text-secondary">mostly {{ r.top_plan }}</div>{% endif %}</td><td class="text-end">{{ r.n }}</td><td class="text-end"><b>{{ r.v|money:c }}</b></td><td class="text-end">{{ r.comm|money:c }}</td></tr>
+    {% empty %}<tr><td colspan="4" class="empty-table">—</td></tr>{% endfor %}</tbody></table></div></div></div>
+  <div class="col-12"><div class="panel"><div class="panel-head"><div><h3>By payment method</h3></div></div>
+    <div class="d-flex flex-wrap gap-2">{% for r in by_method %}<span class="badge text-bg-light border p-2 fs-6 fw-normal">{{ r.payment_method|title }} · <b>{{ r.v|money:c }}</b> <span class="text-secondary">({{ r.n }})</span></span>{% empty %}<span class="text-secondary">—</span>{% endfor %}</div></div></div>
 </div>
 <div class="panel mt-4"><div class="panel-head"><div><h3>Sales</h3><p>Every sale recorded on this day</p></div></div>
   <div class="table-responsive"><table class="table"><thead><tr><th>Time</th><th>Plan</th><th>Site</th><th>Seller</th><th>Method</th><th class="text-end">Amount</th></tr></thead><tbody>
-  {% for s in sales %}<tr><td>{{ s.sold_at|date:'H:i' }}</td><td>{{ s.plan_name }}</td><td>{{ s.router.name|default:'—' }}</td><td>{{ s.agent.name|default:'Shop' }}</td><td>{{ s.get_payment_method_display }}</td><td class="text-end"><b>{{ s.amount|money:c }}</b></td></tr>
+  {% for s in sales %}<tr><td>{{ s.sold_at|date:'H:i' }}</td><td><a class="text-decoration-none" href="{% querystring view='plans' plan=s.plan_name %}">{{ s.plan_name }}</a></td><td>{{ s.router.name|default:'—' }}</td><td><a class="text-decoration-none" href="{% if s.agent_id %}{% querystring view='sellers' seller=s.agent_id %}{% else %}{% querystring view='sellers' seller='shop' %}{% endif %}">{{ s.agent.name|default:'Shop' }}</a></td><td>{{ s.get_payment_method_display }}</td><td class="text-end"><b>{{ s.amount|money:c }}</b></td></tr>
   {% empty %}<tr><td colspan="6" class="empty-table">No sales recorded on this day.</td></tr>{% endfor %}</tbody></table></div></div>
+
+{% elif view == 'plans' %}
+<div class="row g-4">
+  <div class="col-lg-4"><div class="panel"><div class="panel-head"><div><h3>Plans sold</h3><p>{{ plan_rows|length }} plan{{ plan_rows|length|pluralize }} on this day</p></div></div>
+    <div class="pick-list">{% for r in plan_rows %}
+      <a href="{% querystring plan=r.plan_name %}" class="pick{% if r.plan_name == sel_plan %} on{% endif %}">
+        <div class="t"><b>{{ r.plan_name }}</b><strong>{{ r.v|money:c }}</strong></div>
+        <div class="m"><span><i class="bi bi-ticket-perforated"></i> {{ r.n }} sold</span><span><i class="bi bi-people"></i> {{ r.sellers }} seller{{ r.sellers|pluralize }}</span>
+          {% if r.vs_avg is not None %}<span class="{% if r.vs_avg >= 0 %}pill-up{% else %}pill-down{% endif %}">{% if r.vs_avg >= 0 %}▲ +{% else %}▼ {% endif %}{{ r.vs_avg }}% vs avg</span>{% else %}<span>no sales last week</span>{% endif %}</div>
+        <div class="share"><i style="width:{{ r.share }}%"></i></div>
+      </a>{% empty %}<div class="sd-empty"><i class="bi bi-tags"></i>No plans sold on this day.</div>{% endfor %}</div></div></div>
+  <div class="col-lg-8">
+  {% if plan_detail %}{% with p=plan_detail %}
+    <div class="panel">
+      <div class="panel-head"><div><h3>{{ p.name }}</h3>
+        <p>{% if p.plan %}{{ p.plan.price|money:c }} · {{ p.plan.max_devices }} device{{ p.plan.max_devices|pluralize }}{% if p.plan.speed_limit %} · {{ p.plan.speed_limit }}{% endif %} · {% endif %}{{ p.share }}% of the day's sales{% if p.first %} · first sale {{ p.first|date:'H:i' }}, last {{ p.last|date:'H:i' }}{% endif %}</p></div>
+        <div class="d-flex gap-2">{% if p.plan %}<a class="btn btn-sm btn-light" href="{% url 'plan_detail' p.plan.pk %}"><i class="bi bi-box-arrow-up-right"></i> Plan page</a>{% endif %}<a class="btn btn-sm btn-light" href="{% querystring plan=None %}" aria-label="Close"><i class="bi bi-x-lg"></i></a></div></div>
+      <div class="kpis">
+        <div class="kpi"><small>Sold</small><strong>{{ p.count }}</strong><em>avg {{ p.avg7.count }}/day last week</em></div>
+        <div class="kpi"><small>Revenue</small><strong>{{ p.amount|money:c }}</strong><em>{% if p.vs_avg is not None %}<span class="{% if p.vs_avg >= 0 %}pill-up{% else %}pill-down{% endif %}">{% if p.vs_avg >= 0 %}+{% endif %}{{ p.vs_avg }}%</span> vs 7-day avg{% else %}no sales last week{% endif %}</em></div>
+        <div class="kpi"><small>Average price</small><strong>{{ p.avg_price|money:c }}</strong><em>{% if p.discount %}{{ p.discount|money:c }} discounts{% else %}no discounts{% endif %}</em></div>
+        <div class="kpi"><small>Commission</small><strong>{{ p.commission|money:c }}</strong><em>{{ p.net|money:c }} kept</em></div>
+        <div class="kpi {% if p.stock.total == 0 %}warn{% endif %}"><small>Stock left</small><strong>{{ p.stock.total }}</strong><em>{{ p.stock.shop }} in shop · {{ p.stock.agents }} with agents</em></div>
+      </div>
+      <h6 class="mt-4 mb-2">Hour by hour {% if p.busiest %}<small class="text-secondary fw-normal">— busiest {{ p.busiest.label }}:00 ({{ p.busiest.count }} sold)</small>{% endif %}</h6>
+      <div class="hours">{% for h in p.hours %}<div class="{% if p.busiest and h.hour == p.busiest.hour %}pk{% endif %}" title="{{ h.label }}:00 · {{ h.amount|money:c }} · {{ h.count }} sold"><i style="height:{{ h.pct }}%"></i><span>{{ h.label }}</span></div>{% endfor %}</div>
+      <div class="row g-3 mt-2">
+        <div class="col-md-6"><h6>Who sold it</h6><table class="table table-sm align-middle mb-0"><tbody>{% for s in p.sellers %}<tr><td><a class="text-decoration-none" href="{% querystring view='sellers' plan=None seller=s.key %}">{{ s.name }}</a></td><td style="width:35%"><span class="mini-bar" style="width:{{ s.share }}%"></span></td><td class="text-end">{{ s.n }}</td><td class="text-end"><b>{{ s.v|money:c }}</b></td></tr>{% empty %}<tr><td class="text-secondary">No sales on this day.</td></tr>{% endfor %}</tbody></table></div>
+        <div class="col-md-3"><h6>Where</h6><table class="table table-sm mb-0"><tbody>{% for r in p.sites %}<tr><td>{{ r.router__name|default:'No site' }}</td><td class="text-end">{{ r.n }}</td></tr>{% empty %}<tr><td class="text-secondary">—</td></tr>{% endfor %}</tbody></table></div>
+        <div class="col-md-3"><h6>Paid by</h6><table class="table table-sm mb-0"><tbody>{% for r in p.methods %}<tr><td>{{ r.payment_method|title }}</td><td class="text-end">{{ r.v|money:c }}</td></tr>{% empty %}<tr><td class="text-secondary">—</td></tr>{% endfor %}</tbody></table></div>
+      </div>
+      {% if p.stock.by_agent %}<p class="small text-secondary mt-3 mb-0"><i class="bi bi-box-seam"></i> Agents holding {{ p.name }}: {% for a in p.stock.by_agent %}{{ a.agent__name }} ({{ a.n }}){% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+    </div>
+    <div class="panel mt-4"><div class="panel-head"><div><h3>{{ p.name }} sales</h3><p>{{ p.count }} on this day</p></div></div>
+      <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Time</th><th>Voucher</th><th>Seller</th><th>Site</th><th>Method</th><th class="text-end">Amount</th></tr></thead><tbody>
+      {% for s in p.sales %}<tr><td>{{ s.sold_at|date:'H:i' }}</td><td class="font-monospace">{% if s.voucher_code %}{% voucher_link s.voucher_code %}{% else %}—{% endif %}</td><td>{{ s.agent.name|default:'Shop' }}</td><td>{{ s.router.name|default:'—' }}</td><td>{{ s.get_payment_method_display }}</td><td class="text-end"><b>{{ s.amount|money:c }}</b></td></tr>
+      {% empty %}<tr><td colspan="6" class="empty-table">No {{ p.name }} sales on this day.</td></tr>{% endfor %}</tbody></table></div></div>
+  {% endwith %}{% elif sel_plan %}<div class="sd-empty"><i class="bi bi-question-circle"></i>No plan called “{{ sel_plan }}”.</div>
+  {% else %}<div class="sd-empty"><i class="bi bi-hand-index"></i><b>Pick a plan</b><br>See when it sold, who sold it, how it was paid and how much stock is left.</div>{% endif %}
+  </div>
+</div>
+
+{% else %}
+<div class="row g-4">
+  <div class="col-lg-4"><div class="panel"><div class="panel-head"><div><h3>Sellers</h3><p>Agents and the shop on this day</p></div></div>
+    <div class="pick-list">{% for r in seller_rows %}
+      <a href="{% querystring seller=r.key %}" class="pick{% if r.key == sel_seller %} on{% endif %}">
+        <div class="t"><b>{% if r.is_shop %}<i class="bi bi-shop me-1"></i>{% else %}<i class="bi bi-person-badge me-1"></i>{% endif %}{{ r.name }}</b><strong>{{ r.v|money:c }}</strong></div>
+        <div class="m"><span>{{ r.n }} sold</span>{% if not r.is_shop %}<span>{{ r.comm|money:c }} commission</span>{% endif %}{% if r.top_plan %}<span>mostly {{ r.top_plan }}</span>{% endif %}
+          {% if can_money and r.collected %}<span class="pill-up"><i class="bi bi-cash"></i> {{ r.collected|money:c }} handed in</span>{% endif %}
+          {% if can_money and r.outstanding %}<span class="{% if r.outstanding > 0 %}pill-down{% else %}pill-up{% endif %}">balance {{ r.outstanding|money:c }}</span>{% endif %}</div>
+        <div class="share"><i style="width:{{ r.share }}%"></i></div>
+      </a>{% empty %}<div class="sd-empty"><i class="bi bi-shop"></i>No sales on this day.</div>{% endfor %}</div></div></div>
+  <div class="col-lg-8">
+  {% if seller_detail %}{% with s=seller_detail %}
+    <div class="panel">
+      <div class="panel-head"><div><h3>{% if s.is_shop %}<i class="bi bi-shop me-1"></i>{% endif %}{{ s.name }}</h3>
+        <p>{% if s.agent %}{% if s.agent.location %}{{ s.agent.location }} · {% endif %}{% if s.agent.phone %}{{ s.agent.phone }} · {% endif %}{{ s.agent.commission_percent|floatformat:"-2" }}% commission · {% else %}Sales made directly by the business · {% endif %}{{ s.share }}% of the day{% if s.first %} · {{ s.first|date:'H:i' }}–{{ s.last|date:'H:i' }}{% endif %}</p></div>
+        <div class="d-flex gap-2 flex-wrap">{% if s.agent %}{% if 'agents.view' in tt_perms or 'finance.view' in tt_perms %}<a class="btn btn-sm btn-light" href="{% url 'agent_detail' s.agent.pk %}"><i class="bi bi-person-lines-fill"></i> Agent page</a>{% endif %}{% if can_money %}<a class="btn btn-sm btn-light" href="{% url 'agent_statement' s.agent.pk %}"><i class="bi bi-file-earmark-text"></i> Statement</a>{% endif %}{% endif %}<a class="btn btn-sm btn-light" href="{% querystring seller=None %}" aria-label="Close"><i class="bi bi-x-lg"></i></a></div></div>
+      <div class="kpis">
+        <div class="kpi"><small>Sold</small><strong>{{ s.count }}</strong><em>avg {{ s.avg7.count }}/day last week</em></div>
+        <div class="kpi"><small>Revenue</small><strong>{{ s.amount|money:c }}</strong><em>{% if s.vs_avg is not None %}<span class="{% if s.vs_avg >= 0 %}pill-up{% else %}pill-down{% endif %}">{% if s.vs_avg >= 0 %}+{% endif %}{{ s.vs_avg }}%</span> vs 7-day avg{% else %}no sales last week{% endif %}</em></div>
+        {% if not s.is_shop %}<div class="kpi"><small>Commission earned</small><strong>{{ s.commission|money:c }}</strong><em>owes {{ s.net|money:c }} for today</em></div>{% endif %}
+        {% if can_money and s.agent %}
+        <div class="kpi {% if s.collected >= s.net and s.net > 0 %}good{% endif %}"><small>Handed in today</small><strong>{{ s.collected|money:c }}</strong><em>{% if s.day_gap > 0 %}{{ s.day_gap|money:c }} of today still out{% elif s.net > 0 %}today fully covered{% else %}—{% endif %}</em></div>
+        {% if s.balance %}<div class="kpi {% if s.balance.outstanding > 0 %}warn{% else %}good{% endif %}"><small>Running balance</small><strong>{{ s.balance.outstanding|money:c }}</strong><em>{{ s.balance.collection_rate }}% collected{% if s.balance.last_collection %} · last {{ s.balance.last_collection|date:'d M' }}{% endif %}</em></div>{% endif %}
+        {% endif %}
+        <div class="kpi"><small>{% if s.is_shop %}Shop stock{% else %}Vouchers held{% endif %}</small><strong>{{ s.holding_n }}</strong><em>worth {{ s.holding_v|money:c }}</em></div>
+      </div>
+      <h6 class="mt-4 mb-2">Hour by hour {% if s.busiest %}<small class="text-secondary fw-normal">— busiest {{ s.busiest.label }}:00 ({{ s.busiest.count }} sold)</small>{% endif %}</h6>
+      <div class="hours">{% for h in s.hours %}<div class="{% if s.busiest and h.hour == s.busiest.hour %}pk{% endif %}" title="{{ h.label }}:00 · {{ h.amount|money:c }} · {{ h.count }} sold"><i style="height:{{ h.pct }}%"></i><span>{{ h.label }}</span></div>{% endfor %}</div>
+      <div class="row g-3 mt-2">
+        <div class="col-md-6"><h6>Plan mix</h6><table class="table table-sm align-middle mb-0"><tbody>{% for p in s.plans %}<tr><td><a class="text-decoration-none" href="{% querystring view='plans' seller=None plan=p.name %}">{{ p.name }}</a></td><td style="width:35%"><span class="mini-bar" style="width:{{ p.share }}%"></span></td><td class="text-end">{{ p.n }}</td><td class="text-end"><b>{{ p.v|money:c }}</b></td></tr>{% empty %}<tr><td class="text-secondary">No sales on this day.</td></tr>{% endfor %}</tbody></table></div>
+        <div class="col-md-3"><h6>Where</h6><table class="table table-sm mb-0"><tbody>{% for r in s.sites %}<tr><td>{{ r.router__name|default:'No site' }}</td><td class="text-end">{{ r.n }}</td></tr>{% empty %}<tr><td class="text-secondary">—</td></tr>{% endfor %}</tbody></table></div>
+        <div class="col-md-3"><h6>Paid by</h6><table class="table table-sm mb-0"><tbody>{% for r in s.methods %}<tr><td>{{ r.payment_method|title }}</td><td class="text-end">{{ r.v|money:c }}</td></tr>{% empty %}<tr><td class="text-secondary">—</td></tr>{% endfor %}</tbody></table></div>
+      </div>
+      {% if s.holding %}<p class="small text-secondary mt-3 mb-0"><i class="bi bi-box-seam"></i> {% if s.is_shop %}In the shop{% else %}Still holding{% endif %}: {% for h in s.holding %}{{ h.plan_name }} ({{ h.n }}){% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+      {% if s.collections %}<h6 class="mt-3">Cash handed in today</h6><table class="table table-sm mb-0"><tbody>{% for col in s.collections %}<tr><td>{{ col.collected_at|date:'H:i' }}</td><td>{{ col.get_payment_method_display }}</td><td>{{ col.reference|default:'' }}</td><td class="text-secondary">{% if col.recorded_by %}{% firstof col.recorded_by.get_full_name col.recorded_by.username %}{% endif %}</td><td class="text-end"><b>{{ col.amount|money:c }}</b></td></tr>{% endfor %}</tbody></table>{% endif %}
+    </div>
+    <div class="panel mt-4"><div class="panel-head"><div><h3>{{ s.name }} — sales</h3><p>{{ s.count }} on this day</p></div></div>
+      <div class="table-responsive"><table class="table table-sm"><thead><tr><th>Time</th><th>Plan</th><th>Voucher</th><th>Site</th><th>Method</th><th class="text-end">Amount</th>{% if not s.is_shop %}<th class="text-end">Commission</th>{% endif %}</tr></thead><tbody>
+      {% for x in s.sales %}<tr><td>{{ x.sold_at|date:'H:i' }}</td><td>{{ x.plan_name }}</td><td class="font-monospace">{% if x.voucher_code %}{% voucher_link x.voucher_code %}{% else %}—{% endif %}</td><td>{{ x.router.name|default:'—' }}</td><td>{{ x.get_payment_method_display }}</td><td class="text-end"><b>{{ x.amount|money:c }}</b></td>{% if not s.is_shop %}<td class="text-end">{{ x.commission|money:c }}</td>{% endif %}</tr>
+      {% empty %}<tr><td colspan="7" class="empty-table">No sales by {{ s.name }} on this day.</td></tr>{% endfor %}</tbody></table></div></div>
+  {% endwith %}{% elif sel_seller %}<div class="sd-empty"><i class="bi bi-question-circle"></i>That seller was not found.</div>
+  {% else %}<div class="sd-empty"><i class="bi bi-hand-index"></i><b>Pick a seller</b><br>See what they sold, the commission they earned, the cash they handed in and the vouchers they still hold.</div>{% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if view != 'overview' %}
+<div class="panel mt-4"><div class="panel-head"><div><h3>Last 7 days{% if sel_plan %} — {{ sel_plan }}{% elif seller_detail %} — {{ seller_detail.name }}{% endif %}</h3><p>Tap a day to open it</p></div></div>
+  <div class="week-bars">{% for w in week %}<a href="{% querystring date=w.day|date:'Y-m-d' %}" class="{% if w.day == day %}on{% endif %}" title="{{ w.amount|money:c }} · {{ w.count }} sold"><b>{{ w.amount|money:c }}</b><i style="height:{{ w.pct }}%"></i>{{ w.day|date:'D' }}</a>{% endfor %}</div></div>
+{% endif %}
 {% endwith %}{% endblock %}

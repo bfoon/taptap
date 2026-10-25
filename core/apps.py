@@ -78,3 +78,4 @@ class CoreConfig(AppConfig):
         _install_optional("wan_link")          # Internet lines through TapTap Link, with an on-router undo timer
         _install_optional("voucher_fastlane")   # voucher changes reach the router at once; newest Link command wins; real reset
         _install_optional("fit_monitors")   # last: wraps device_lock.claim() outside every other rule
+        _install_optional("features")       # very last: hides menu links of switched-off modules after every add-on has added its own

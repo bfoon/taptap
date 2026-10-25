@@ -1,0 +1,56 @@
+{% extends 'core/platform/base.html' %}{% load taptap_extras %}{% block title %}Country pricing{% endblock %}{% block heading %}Country pricing{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-xl-7">
+    <div class="panel mb-4"><div class="panel-head"><div><h3>Default price list</h3><p>Used in every country that has no prices of its own ({{ default_currency }}).</p></div></div>
+      <div class="d-flex flex-wrap gap-2">{% for code,p in packages.items %}<span class="badge text-bg-light border p-2 fw-normal fs-6">{{ p.0 }} · <b>D{{ p.1 }}</b></span>{% endfor %}</div>
+      <small class="text-secondary d-block mt-2">Change these in <code>core/pricing.py</code> (PACKAGES).</small></div>
+
+    <div class="panel mb-4"><div class="panel-head"><div><h3>Countries with their own prices</h3><p>Once a country has its own prices, only those packages are offered there — one currency per country.</p></div></div>
+      <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Country</th><th>Currency</th>{% for code,p in packages.items %}<th class="text-end">{{ p.0 }}</th>{% endfor %}<th class="text-end">Businesses</th><th></th></tr></thead><tbody>
+      {% for r in rows %}<tr><td class="fw-semibold">{{ r.label }}</td><td>{{ r.currency }}</td>
+        {% for c in r.cells %}<td class="text-end">{% if c %}{% if not c.active %}<s class="text-secondary" title="Not offered">{% endif %}{{ c.amount|floatformat:"-2" }}{% if not c.active %}</s>{% endif %}{% else %}<span class="text-secondary" title="Not offered">—</span>{% endif %}</td>{% endfor %}
+        <td class="text-end">{{ r.businesses }}</td>
+        <td class="text-end text-nowrap"><a class="btn btn-sm btn-light" href="?edit={{ r.code }}#edit">Edit</a>
+          <form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="action" value="remove"><input type="hidden" name="country" value="{{ r.code }}"><button class="btn btn-sm btn-light text-danger" onclick="return confirm('Remove all prices for {{ r.label|escapejs }}? It goes back to the default list.')" aria-label="Remove"><i class="bi bi-trash3"></i></button></form></td></tr>
+      {% empty %}<tr><td colspan="9" class="empty-table">No country prices yet — every business pays the default list.</td></tr>{% endfor %}</tbody></table></div>
+      {% if default_only %}<p class="small text-secondary mb-0 mt-2"><i class="bi bi-info-circle"></i> On the default list: {% for l,n in default_only %}{{ l }} ({{ n }}){% if not forloop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+    </div>
+  </div>
+
+  <div class="col-xl-5">
+    <div class="panel" id="edit"><h3 class="h6 fw-bold">{% if edit %}Edit {{ edit_label }}{% else %}Set prices for a country{% endif %}</h3>
+      <form method="post" class="row g-2" id="priceForm">{% csrf_token %}
+        <div class="col-8"><label class="small">Country</label><select class="form-select form-select-sm" name="country" id="pfCountry" required>
+          <option value="">Choose…</option>{% for c in country_options %}<option value="{{ c.code }}" data-cur="{{ c.currency }}" {% if c.code == edit %}selected{% endif %}>{{ c.flag }} {{ c.name }}</option>{% endfor %}</select></div>
+        <div class="col-4"><label class="small">Currency</label><input class="form-control form-control-sm text-uppercase" name="currency" id="pfCur" maxlength="3" value="{{ edit_currency }}" placeholder="XOF" required></div>
+        <div class="col-12"><div class="p-2 rounded-3 bg-light small d-flex flex-wrap align-items-center gap-2">
+          <span>Fill from the default list:</span><span>1 D =</span><input class="form-control form-control-sm" style="width:90px" id="pfRate" type="number" step="any" min="0" placeholder="rate"><span id="pfRateCur">…</span>
+          <select class="form-select form-select-sm" style="width:auto" id="pfRound"><option value="1">exact</option><option value="10">round to 10</option><option value="50">round to 50</option><option value="100" selected>round to 100</option><option value="500">round to 500</option></select>
+          <button type="button" class="btn btn-sm btn-outline-primary" id="pfFill">Fill</button></div></div>
+        {% for code,name,default,own in edit_cells %}
+        <div class="col-7"><label class="small" for="p-{{ code }}">{{ name }} <span class="text-secondary">(default D{{ default }})</span></label>
+          <input class="form-control form-control-sm" id="p-{{ code }}" name="p_{{ code }}" data-default="{{ default }}" inputmode="decimal" value="{% if own %}{{ own.amount|floatformat:'-2' }}{% endif %}" placeholder="not offered"></div>
+        <div class="col-5 d-flex align-items-end"><div class="form-check small mb-1"><input class="form-check-input" type="checkbox" name="off_{{ code }}" id="off-{{ code }}" value="1" {% if own and not own.active %}checked{% endif %}><label class="form-check-label" for="off-{{ code }}">Pause</label></div></div>
+        {% endfor %}
+        <div class="col-12"><small class="text-secondary d-block mb-2">Leave a package empty to not offer it in this country. “Pause” keeps the price but hides the package for now.</small>
+          <button class="btn btn-primary btn-sm w-100"><i class="bi bi-check2"></i> Save prices</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script>
+(function(){
+  const sel=document.getElementById('pfCountry'),cur=document.getElementById('pfCur'),rateCur=document.getElementById('pfRateCur');
+  function syncCur(){const o=sel.selectedOptions[0];if(o&&o.dataset.cur&&!cur.dataset.touched)cur.value=o.dataset.cur;rateCur.textContent=cur.value||'…';}
+  cur.addEventListener('input',()=>{cur.dataset.touched=1;rateCur.textContent=cur.value.toUpperCase()||'…';});
+  sel.addEventListener('change',()=>{delete cur.dataset.touched;syncCur();if(sel.value)history.replaceState(null,'','?edit='+sel.value+'#edit');});
+  if(!cur.value)syncCur();else rateCur.textContent=cur.value;
+  document.getElementById('pfFill').onclick=function(){
+    const rate=parseFloat(document.getElementById('pfRate').value),step=+document.getElementById('pfRound').value;
+    if(!(rate>0)){document.getElementById('pfRate').focus();return;}
+    document.querySelectorAll('[data-default]').forEach(i=>{const v=parseFloat(i.dataset.default)*rate;i.value=step>1?Math.max(step,Math.round(v/step)*step):Math.round(v*100)/100;});
+  };
+})();
+</script>{% endblock %}

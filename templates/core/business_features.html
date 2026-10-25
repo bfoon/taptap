@@ -1,0 +1,36 @@
+{% extends 'core/base.html' %}{% block title %}Features — TapTap{% endblock %}{% block heading %}Features{% endblock %}
+{% block extra_head %}<style>
+.ft-head{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}
+.ft-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:.75rem}
+.ft-card{display:flex;gap:.75rem;align-items:flex-start;border:1px solid #e3e9f1;border-radius:16px;padding:.85rem .95rem;background:#fff;transition:border-color .12s,opacity .12s}
+.ft-card.on{border-color:#9cc0f5;box-shadow:0 0 0 3px #1769e014}.ft-card.locked{background:#f7f9fc;opacity:.78}
+.ft-ico{flex:none;width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:#eef2f6;color:#4e6479;font-size:1.15rem}.ft-card.on .ft-ico{background:#eaf3ff;color:#1769e0}
+.ft-card b{display:block;font-size:.95rem}.ft-card small{display:block;color:#6b7c8f;font-size:.78rem;line-height:1.35}
+.ft-card .form-switch{margin-left:auto;padding-top:.15rem}.ft-card .form-check-input{width:2.6em;height:1.4em;cursor:pointer}
+.ft-tag{display:inline-flex;gap:.25rem;align-items:center;font-size:.68rem;font-weight:700;border-radius:999px;padding:.05rem .5rem;margin-top:.35rem;background:#f1f3f6;color:#5b6b7c}
+.ft-tag.lock{background:#fff4dc;color:#9a6200}.ft-tag.dep{background:#eef4ff;color:#1558b8}
+.ft-save{position:sticky;bottom:1rem;z-index:5}
+</style>{% endblock %}
+{% block content %}
+<div class="panel mb-4"><div class="ft-head"><div><span class="eyebrow">YOUR PACKAGE</span><h2 class="h4 fw-bold m-0">{{ tier.0 }}</h2><p class="text-secondary m-0">{{ tier.1 }}</p></div>
+  <div class="text-end"><strong class="fs-3">{{ count_on }}</strong><span class="text-secondary"> / {{ count_all }} modules on</span>
+  <small class="d-block text-secondary">Vouchers, plans, routers, active users and settings are always on.</small></div></div></div>
+<form method="post">{% csrf_token %}
+{% for g in groups %}
+<h3 class="h6 fw-bold text-uppercase text-secondary mt-4 mb-2" style="letter-spacing:.05em"><i class="bi {{ g.icon }} me-1"></i>{{ g.label }}</h3>
+<div class="ft-grid">{% for i in g.items %}
+  <label class="ft-card {% if i.on %}on{% endif %} {% if not i.available %}locked{% endif %}" for="ft-{{ i.f.key }}">
+    <span class="ft-ico"><i class="bi {{ i.f.icon }}"></i></span>
+    <span><b>{{ i.f.label }}</b><small>{{ i.f.description }}</small>
+      {% if not i.available %}<span class="ft-tag lock"><i class="bi bi-lock-fill"></i> {% if i.override == False %}Switched off by TapTap{% else %}Not in your package{% endif %}</span>
+      {% elif i.depends %}<span class="ft-tag dep"><i class="bi bi-link-45deg"></i> needs {{ i.depends|join:", " }}</span>{% endif %}
+      {% if i.override == True and not i.in_tier %}<span class="ft-tag"><i class="bi bi-gift"></i> added by TapTap</span>{% endif %}</span>
+    <span class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" id="ft-{{ i.f.key }}" name="on" value="{{ i.f.key }}"
+      {% if i.available and not i.hidden %}checked{% endif %} {% if not i.available or not i.f.owner_can_hide %}disabled{% endif %} aria-label="{{ i.f.label }}"></span>
+  </label>{% endfor %}</div>
+{% endfor %}
+<div class="ft-save mt-4 d-flex justify-content-end"><button class="btn btn-primary btn-lg shadow"><i class="bi bi-check2-circle"></i> Save features</button></div>
+<p class="small text-secondary mt-2">Switching a module off hides its pages and menu items for everyone in your business. Nothing is deleted, and vouchers, members and routers keep working as before — switch it back on and everything is where you left it.</p>
+</form>
+<script>document.querySelectorAll('.ft-card input').forEach(function(i){i.addEventListener('change',function(){i.closest('.ft-card').classList.toggle('on',i.checked);});});</script>
+{% endblock %}

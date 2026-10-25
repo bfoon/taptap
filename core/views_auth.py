@@ -56,7 +56,7 @@ def register(request):
     if request.method == 'POST' and form.is_valid():
         email = form.cleaned_data['email']   # already validated (format, typos, disposable, domain, not taken)
         if True:
-            data = {k: form.cleaned_data[k] for k in ('business_name', 'owner_name', 'phone')}
+            data = {k: form.cleaned_data[k] for k in ('business_name', 'owner_name', 'phone', 'country')}
             data['password'] = make_password(form.cleaned_data['password'])  # never keep the plain password
             if not _otp_on():
                 return _create_account(request, email, data)
@@ -66,7 +66,17 @@ def register(request):
                 messages.success(request, msg)
                 return redirect('verify_code')
             form.add_error(None, msg)
-    return render(request, 'core/register.html', {'form': form, 'trial_days': settings.TRIAL_DAYS})
+    return render(request, 'core/register.html', {'form': form, 'trial_days': settings.TRIAL_DAYS, 'country_hints': _country_hints()})
+
+
+def _country_hints():
+    """{country: {dial, price}} for the sign-up page: the phone code and the monthly TapTap price
+    after the trial, shown as soon as a country is picked."""
+    from . import countries, pricing
+    from .models import CountryPrice
+    default = pricing.money(pricing.PACKAGES['1m'][1], pricing.DEFAULT_CURRENCY)
+    own = {p.country: pricing.money(p.amount, p.currency) for p in CountryPrice.objects.filter(package='1m', active=True)}
+    return {c[0]: {'dial': f'+{c[3]}' if c[3] else '', 'price': own.get(c[0], default)} for c in countries.COUNTRIES}
 
 
 def _create_account(request, email, data, remember=True):
@@ -76,7 +86,10 @@ def _create_account(request, email, data, remember=True):
         user = User(username=email, email=email, first_name=data['owner_name'])
         user.password = data['password']
         user.save()
+        from . import countries
+        country = countries.clean(data.get('country'))
         business = Business.objects.create(user=user, business_name=data['business_name'], owner_name=data['owner_name'], phone=data['phone'],
+                                           country=country, currency=countries.symbol(countries.currency(country))[:8],
                                            trial_ends_at=timezone.now() + timedelta(days=settings.TRIAL_DAYS),
                                            email_verified_at=timezone.now() if _otp_on() else None)
         for n, p, h, d in DEFAULT_PLANS:
@@ -84,6 +97,8 @@ def _create_account(request, email, data, remember=True):
     login(request, user, backend='django.contrib.auth.backends.ModelBackend')
     request.session.pop(PENDING, None)
     messages.success(request, f'Welcome to TapTap. Your email is verified and your {settings.TRIAL_DAYS}-day trial is active.')
+    if country != countries.DEFAULT_COUNTRY:
+        messages.info(request, f'Your starter plans were created with sample prices — set them in {business.currency.strip()} under Plans before you print vouchers.')
     response = redirect('dashboard')
     if remember and _otp_on():
         trust_device(request, response, user)
