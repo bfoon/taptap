@@ -1,0 +1,8 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ business.business_name }} Wi-Fi</title>
+<style>body{font-family:system-ui,-apple-system,sans-serif;margin:0;min-height:100vh;display:grid;place-items:center;background:#f4f7fb;color:#102033}
+.card{background:#fff;border-radius:20px;padding:28px;max-width:380px;margin:16px;box-shadow:0 12px 40px rgba(16,32,51,.08);text-align:center}
+h1{font-size:20px;margin:0 0 8px}p{color:#4e6479;line-height:1.45;margin:8px 0}a{display:inline-block;margin-top:12px;background:{{ business.brand_color|default:'#1769e0' }};color:#fff;padding:12px 18px;border-radius:12px;text-decoration:none;font-weight:700}</style></head>
+<body><div class="card"><h1>{{ business.business_name }} Wi-Fi</h1>
+<p>You opened <b>{{ addr.name }}</b>. To sign in, connect to our Wi-Fi{% if business.wifi_ssid %} <b>{{ business.wifi_ssid }}</b>{% endif %} and open any website — the login page appears.</p>
+{% if business.hotspot_dns_name %}<a href="http://{{ business.hotspot_dns_name }}/">Open the login page</a>{% endif %}
+</div></body></html>

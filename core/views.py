@@ -1186,7 +1186,9 @@ def settings_view(request):
             resp=start_email_change(request,pending_email,'/settings/')
             if resp: return resp
         return redirect('settings')
-    return render(request,'core/settings.html',{'sn':serials.settings_ctx(business),'keepalive_choices':business._meta.get_field('sticky_keepalive').choices})
+    from .login_addresses import settings_ctx as login_addresses_ctx
+    return render(request,'core/settings.html',{'sn':serials.settings_ctx(business),'keepalive_choices':business._meta.get_field('sticky_keepalive').choices,
+                                                **login_addresses_ctx(business)})
 @login_required
 def support(request):
     from .views_help import support as help_center

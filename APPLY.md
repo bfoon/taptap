@@ -1,19 +1,20 @@
-# TapTap update — letter case, feature modules, country pricing, daily sales drill-down
+# TapTap update 2 — login addresses (+ everything from update 1)
 
-## Install on the server (/opt/taptap)
+This zip is cumulative: letter case, feature modules, country pricing, daily sales drill-down
+AND the new Settings → Login addresses. Deploy it on its own.
+
     cd /opt/taptap
-    git status                      # make sure you have no uncommitted work you'd lose
-    unzip -o ~/taptap-update.zip -d /tmp && cp -r /tmp/taptap/* /opt/taptap/   # or: git apply taptap-features.patch
+    git status                      # make sure nothing uncommitted would be lost
+    unzip -o ~/taptap-update-2.zip -d /tmp && cp -r /tmp/taptap/* /opt/taptap/   # or: git apply taptap-update-2.patch
     docker compose build web worker live
-    docker compose run --rm web python manage.py migrate
+    docker compose run --rm web python manage.py migrate      # 0104 (if not applied yet) + 0105_login_addresses
     docker compose up -d
 
-## What the migration does (core/migrations/0104_country_pricing_features.py)
-- Business: country (existing = GM), feature_tier (existing = business = everything on), feature_overrides, features_off
-- Subscription: currency (existing = GMD), country
-- New table CountryPrice
-Nothing changes for existing businesses until you change their package or switches.
+After deploying:
+1. Settings → Login addresses → add e.g. yourbusiness.wifi (opens the online voucher sign-in).
+2. Portal Studio → put the login page on your routers again (it now contains the forwarding).
+   Saving an address re-sends it automatically for routers that already have the portal.
+3. On a phone joined to the Wi-Fi (not logged in), open http://yourbusiness.wifi/
 
-## Note
-Your repo already had model changes without a migration (memberpaymentintent / memberportalevent).
-After this update `makemigrations` will create those as 0105 — that is unrelated to this update.
+Note: your repo already had model changes without a migration (memberpaymentintent / memberportalevent);
+`makemigrations` will now create those as 0106 — unrelated to this update.

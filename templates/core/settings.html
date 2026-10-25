@@ -50,6 +50,7 @@
     <option value="free-access">Free-access websites</option>
     <option value="vouchers">Voucher behaviour</option>
     <option value="serials">Serial numbers</option>
+    <option value="addresses">Login addresses</option>
     <option value="cleanup">Expired cleanup</option>
     <option value="security">Team & security</option>
   </select>
@@ -64,6 +65,7 @@
     <a href="#free-access"><i class="bi bi-globe2"></i>Free-access websites</a>
     <a href="#vouchers"><i class="bi bi-ticket-perforated"></i>Voucher behaviour</a>
     <a href="#serials"><i class="bi bi-upc-scan"></i>Serial numbers</a>
+    <a href="#addresses"><i class="bi bi-signpost-split"></i>Login addresses</a>
     <a href="#cleanup"><i class="bi bi-archive"></i>Expired cleanup</a>
     <a href="#security"><i class="bi bi-shield-check"></i>Team & security</a>
   </aside>
@@ -117,7 +119,7 @@
           <div class="row g-3">
             <div class="col-md-6"><label for="ssid">Wi-Fi name (SSID)</label><input id="ssid" class="form-control" name="wifi_ssid" value="{{ current_business.wifi_ssid }}" placeholder="e.g. Kairaba-WiFi"><div class="form-text">Used in “Join our Wi-Fi” instructions.</div></div>
             <div class="col-md-6"><label for="hotspotUrl">Hotspot login address</label><input id="hotspotUrl" class="form-control" name="hotspot_url" value="{{ current_business.hotspot_url }}" placeholder="e.g. wifi.local or 10.5.50.1"><div class="form-text">QR codes open <code>http://this-address/login</code> with the code filled in.</div></div>
-            <div class="col-md-6"><label for="dnsName">Friendly login page address</label><input id="dnsName" class="form-control" name="hotspot_dns_name" value="{{ current_business.hotspot_dns_name }}" placeholder="login.wifi"><div class="form-text">Customers can type <b>{{ current_business.hotspot_dns_name|default:"login.wifi" }}</b> instead of the router IP.</div></div>
+            <div class="col-md-6"><label for="dnsName">Friendly login page address</label><input id="dnsName" class="form-control" name="hotspot_dns_name" value="{{ current_business.hotspot_dns_name }}" placeholder="login.wifi"><div class="form-text">Customers can type <b>{{ current_business.hotspot_dns_name|default:"login.wifi" }}</b> instead of the router IP. Want more names, like one for the online sign-in? See <a href="#addresses">Login addresses</a>.</div></div>
             <div class="col-md-6"><div class="subcard"><h4><i class="bi bi-lightbulb"></i> Recommended setup</h4><p>Use one recognisable SSID and one friendly login address across the business, then print the same login address on voucher cards.</p></div></div>
           </div>
           <div class="settings-actions"><span class="hint"><i class="bi bi-router"></i> Saving changes TapTap; router-side actions still use their own apply controls.</span><button class="btn btn-primary"><i class="bi bi-check2"></i> Save hotspot settings</button></div>
@@ -251,6 +253,8 @@
         </div>
       </section>
     </form>
+
+    {% include "core/partials/login_addresses.html" %}
 
     <section class="settings-card" id="cleanup">
       <div class="settings-head"><div class="ico"><i class="bi bi-archive"></i></div><div class="flex-grow-1 d-flex justify-content-between gap-3 align-items-start"><div><h3>Expired voucher cleanup</h3><p>Keep MikroTik clean without deleting historical voucher, usage and sales data from TapTap.</p></div><span class="badge {% if current_business.voucher_archive_policy.enabled %}text-bg-success{% else %}text-bg-secondary{% endif %}">{% if current_business.voucher_archive_policy.enabled %}Active{% else %}Off{% endif %}</span></div></div>

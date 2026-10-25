@@ -813,6 +813,9 @@ def wrap(cmd, url, check):
     elif cmd.kind == 'online_signin':
         from .online_portal import link_body as signin_body
         body = signin_body(cmd, url, check, nonce(cmd))
+    elif cmd.kind == 'login_addresses':
+        from .login_addresses import link_body as addresses_body
+        body = addresses_body(cmd, url, check, nonce(cmd))
     elif cmd.kind == 'clock':
         from .router_clock import link_body as clock_body
         body = clock_body(cmd, url, check, nonce(cmd))

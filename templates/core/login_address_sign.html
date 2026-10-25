@@ -1,0 +1,25 @@
+{% load static %}<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{{ a.name }} — {{ business.business_name }}</title>
+<style>
+@page{size:A5;margin:12mm}body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;margin:0;color:#102033;background:#eef2f6}
+.sheet{background:#fff;max-width:520px;margin:24px auto;border-radius:24px;overflow:hidden;box-shadow:0 18px 50px rgba(16,32,51,.12)}
+.top{background:{{ business.brand_color|default:'#1769e0' }};color:#fff;padding:26px 28px}.top small{opacity:.85;font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:12px}
+.top h1{margin:6px 0 0;font-size:26px}.body{padding:26px 28px;text-align:center}
+.step{display:flex;gap:12px;align-items:flex-start;text-align:left;margin:0 0 14px;font-size:16px}.step b.n{flex:none;width:28px;height:28px;border-radius:50%;background:#eef4ff;color:#1769e0;display:grid;place-items:center}
+.addr{font-family:ui-monospace,Menlo,monospace;font-size:34px;font-weight:800;letter-spacing:.02em;margin:18px 0 6px;word-break:break-all}
+.hint{color:#6b7c8f;font-size:13px}.qr{width:190px;margin:16px auto 6px}.qr svg{width:100%;height:auto}
+.tools{text-align:center;margin:16px}.tools button{font:inherit;padding:10px 18px;border-radius:12px;border:0;background:#102033;color:#fff;cursor:pointer}
+@media print{body{background:#fff}.sheet{box-shadow:none;margin:0;max-width:none}.tools{display:none}}
+</style></head><body>
+<div class="tools"><button onclick="print()">Print this sign</button></div>
+<div class="sheet"><div class="top"><small>Free Wi-Fi login</small><h1>{{ business.business_name }}</h1></div>
+<div class="body">
+  <div class="step"><b class="n">1</b><span>Join the Wi-Fi{% if business.wifi_ssid %} <b>{{ business.wifi_ssid }}</b>{% endif %}</span></div>
+  <div class="step"><b class="n">2</b><span>Open your browser and type</span></div>
+  <div class="addr">{{ a.name }}/</div>
+  <div class="hint">or http://{{ a.name }} — or scan</div>
+  <div class="qr" id="qr"></div>
+  <div class="step" style="margin-top:12px"><b class="n">3</b><span>{% if a.destination == 'store' %}Buy a voucher and you're online{% elif a.destination == 'router' or a.destination == 'online' %}Type your voucher code and you're online{% else %}Follow the page{% endif %}</span></div>
+</div></div>
+<script src="{% static 'vendor/qrcode.js' %}"></script>
+<script>var q=qrcode(0,'M');q.addData('{{ url|escapejs }}');q.make();document.getElementById('qr').innerHTML=q.createSvgTag({cellSize:8,margin:2});</script>
+</body></html>

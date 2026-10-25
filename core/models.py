@@ -1366,3 +1366,31 @@ from .models_router_restore import RouterRestore  # noqa: E402,F401
 from .models_voucher_reports import VoucherReport  # noqa: E402,F401
 from .models_payroll import StaffPay, StaffPayout  # noqa: E402,F401
 from .models_fit import FitSettings, FitConversation, FitMessage, FitAction, FitMonitor, FitMonitorEvent, FitDashboard  # noqa: E402,F401
+
+
+class LoginAddress(models.Model):
+    """An easy address customers type on the Wi-Fi (e.g. taptap.wifi) — see core/login_addresses.py.
+
+    The router answers the name with its hotspot address (static DNS); the TapTap login page then sends the
+    phone where the address points: the online voucher sign-in, the online shop, the router's own login page,
+    or another web page."""
+    DESTINATIONS=[('online','Online voucher sign-in'),('router','Router login page'),('store','Buy vouchers online'),('custom','Another web page')]
+    business=models.ForeignKey(Business,on_delete=models.CASCADE,related_name='login_addresses')
+    name=models.CharField(max_length=60,help_text='What customers type, e.g. taptap.wifi')
+    destination=models.CharField(max_length=10,choices=DESTINATIONS,default='online')
+    custom_url=models.URLField(max_length=300,blank=True,help_text='For "Another web page": an https address')
+    note=models.CharField(max_length=80,blank=True,help_text='Where it is used, e.g. "poster at the door"')
+    active=models.BooleanField(default=True)
+    key=models.CharField(max_length=16,unique=True,editable=False)
+    opens=models.PositiveIntegerField(default=0)
+    last_opened_at=models.DateTimeField(null=True,blank=True)
+    created_at=models.DateTimeField(auto_now_add=True)
+    class Meta:
+        ordering=['name']
+        constraints=[models.UniqueConstraint(fields=['business','name'],name='login_address_unique_name')]
+    def save(self,*args,**kwargs):
+        if not self.key:
+            import secrets
+            self.key=secrets.token_urlsafe(9)[:12]
+        super().save(*args,**kwargs)
+    def __str__(self): return self.name
