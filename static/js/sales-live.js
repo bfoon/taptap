@@ -106,19 +106,68 @@
     toastBox.appendChild(t);
     setTimeout(function () { t.classList.add('out'); setTimeout(function () { t.remove(); }, 400); }, 5000);
   }
+  // ───────── money sound: "ka-ching" + coins (synthesised: no audio file, works offline) ─────────
+  // MONEY-SOUND-START
+  function moneySound(ctx, t0, sales) {
+    var out = ctx.createDynamicsCompressor();                 // keeps several layers from clipping
+    out.threshold.value = -14; out.ratio.value = 4; out.attack.value = 0.003; out.release.value = 0.25;
+    var master = ctx.createGain(); master.gain.value = 0.55;
+    out.connect(master); master.connect(ctx.destination);
+
+    function noise(seconds) {
+      var len = Math.max(1, Math.floor(ctx.sampleRate * seconds)), buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
+      for (var i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      var src = ctx.createBufferSource(); src.buffer = buf; return src;
+    }
+    function env(g, t, peak, attack, decay) {
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(peak, t + attack);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
+    }
+    function tone(freq, t, peak, decay, type) {
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
+      o.connect(g); g.connect(out); env(g, t, peak, 0.002, decay);
+      o.start(t); o.stop(t + decay + 0.05);
+    }
+
+    // 1. "ka" — the register lever / drawer latch: a short, dry, mid-band click
+    var k = noise(0.06), kf = ctx.createBiquadFilter(), kg = ctx.createGain();
+    kf.type = 'bandpass'; kf.frequency.value = 1700; kf.Q.value = 1.2;
+    k.connect(kf); kf.connect(kg); kg.connect(out); env(kg, t0, 1.3, 0.002, 0.05); k.start(t0); k.stop(t0 + 0.07);
+    tone(180, t0, 0.35, 0.06, 'triangle');                   // a little body to the click
+
+    // 2. "ching" — the bell: inharmonic partials with a slight detune shimmer
+    var tb = t0 + 0.07;
+    [[2093, 0.42, 0.8], [2637, 0.22, 0.65], [3520, 0.16, 0.5], [4699, 0.10, 0.4], [6272, 0.06, 0.3]].forEach(function (p) {
+      tone(p[0], tb, p[1], p[2]);
+      tone(p[0] * 1.004, tb, p[1] * 0.5, p[2] * 0.85);       // beating with its twin = metallic shimmer
+    });
+    var sh = noise(0.25), sf = ctx.createBiquadFilter(), sg = ctx.createGain();   // the "sss" of the strike
+    sf.type = 'highpass'; sf.frequency.value = 6000; sh.connect(sf); sf.connect(sg); sg.connect(out);
+    env(sg, tb, 0.12, 0.002, 0.2); sh.start(tb); sh.stop(tb + 0.26);
+
+    // 3. coins dropping into the drawer — more coins when several sales arrive together
+    var coins = Math.min(4 + 2 * Math.max(0, (sales || 1) - 1), 10), tc = t0 + 0.32;
+    for (var c = 0; c < coins; c++) {
+      var t = tc + c * 0.055 + Math.random() * 0.05, base = 3200 + Math.random() * 2600, loud = 0.34 * (1 - c / (coins + 6));
+      tone(base, t, loud, 0.07 + Math.random() * 0.06);
+      tone(base * 1.48, t, loud * 0.6, 0.05 + Math.random() * 0.04);
+      tone(base * 2.31, t, loud * 0.35, 0.04);
+      var ck = noise(0.015), cf = ctx.createBiquadFilter(), cg = ctx.createGain();
+      cf.type = 'highpass'; cf.frequency.value = 5000; ck.connect(cf); cf.connect(cg); cg.connect(out);
+      env(cg, t, loud * 0.8, 0.001, 0.012); ck.start(t); ck.stop(t + 0.02);
+    }
+    return tc + coins * 0.055 + 0.3;                         // when it has finished
+  }
+  // MONEY-SOUND-END
   var audioCtx = null;
-  function ding() {
+  function ding(sales) {
     if (!sound) return;
     try {
       audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-      var now = audioCtx.currentTime;
-      [880, 1320].forEach(function (f, i) {
-        var o = audioCtx.createOscillator(), g = audioCtx.createGain();
-        o.type = 'sine'; o.frequency.value = f; o.connect(g); g.connect(audioCtx.destination);
-        g.gain.setValueAtTime(0.0001, now + i * 0.12); g.gain.exponentialRampToValueAtTime(0.18, now + i * 0.12 + 0.02);
-        g.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.12 + 0.35);
-        o.start(now + i * 0.12); o.stop(now + i * 0.12 + 0.4);
-      });
+      if (audioCtx.state === 'suspended' && audioCtx.resume) audioCtx.resume();
+      moneySound(audioCtx, audioCtx.currentTime + 0.02, sales || 1);
     } catch (e) {}
   }
   function announceNew() {
@@ -127,7 +176,7 @@
     fresh.forEach(function (id) { var tr = root.querySelector('[data-sale="' + id + '"]'); if (tr) tr.classList.add('sd-new'); });
     if (fresh.length) {                       // `seen` was captured at page load, so these really are new
       toast(now[fresh[0]] || 'A voucher was sold', fresh.length - 1);
-      ding();
+      ding(fresh.length);
     }
     seen = now;
   }
