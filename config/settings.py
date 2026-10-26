@@ -107,6 +107,9 @@ CELERY_TASK_TIME_LIMIT = int(os.getenv('CELERY_TASK_TIME_LIMIT', '1800'))
 CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv('CELERY_TASK_SOFT_TIME_LIMIT', '1700'))
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_ACKS_LATE = True
+# No code reads task results (no AsyncResult / .get()): storing one per task (the live loop alone runs every
+# few seconds) only grew Redis and made its background saves slower.
+CELERY_TASK_IGNORE_RESULT = env_bool('CELERY_TASK_IGNORE_RESULT', True)
 CELERY_TASK_REJECT_ON_WORKER_LOST = True
 
 # Shared cache for live telemetry (so every gunicorn worker/thread reuses one router read).
@@ -114,8 +117,12 @@ _cache_url = os.getenv('CACHE_URL', '')
 if not _cache_url and CELERY_BROKER_URL.startswith('redis://') and not CELERY_TASK_ALWAYS_EAGER:
     _cache_url = CELERY_BROKER_URL.rsplit('/', 1)[0] + '/2'
 if _cache_url.startswith(('redis://', 'rediss://')):
-    CACHES = {'default': {'BACKEND': 'django.core.cache.backends.redis.RedisCache', 'LOCATION': _cache_url,
-                          'OPTIONS': {'socket_connect_timeout': 1, 'socket_timeout': 1}}}
+    # ResilientRedisCache: a slow or restarting Redis means "no cache" for a moment, never "Server Error (500)".
+    # health_check_interval pings a pooled connection that sat idle, so a Redis restart does not fail the next request.
+    CACHES = {'default': {'BACKEND': 'core.cache_backend.ResilientRedisCache', 'LOCATION': _cache_url,
+                          'OPTIONS': {'socket_connect_timeout': float(os.getenv('CACHE_CONNECT_TIMEOUT', '1')),
+                                      'socket_timeout': float(os.getenv('CACHE_SOCKET_TIMEOUT', '2')),
+                                      'health_check_interval': 30, 'retry_on_timeout': True}}}
 else:
     CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'taptap'}}
 
