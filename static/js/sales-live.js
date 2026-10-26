@@ -19,8 +19,13 @@
   var TODAY = root.dataset.today === '1';
   var EVERY = TODAY ? 10000 : 60000, FULL_EVERY = 120000, MAX_BACKOFF = 120000;
   var fp = root.dataset.fp || '', timer = null, failures = 0, lastFull = Date.now(), lastOk = Date.now(), busy = false;
-  var paused = false, sound = false;
-  try { paused = localStorage.getItem('tt-sales-live-paused') === '1'; sound = localStorage.getItem('tt-sales-live-sound') === '1'; } catch (e) {}
+  var paused = false, soundStyle = '';      // '' = off, else 'register' | 'coins' | 'bell'
+  try {
+    paused = localStorage.getItem('tt-sales-live-paused') === '1';
+    var sv = localStorage.getItem('tt-sales-live-sound') || '';
+    soundStyle = sv === '1' ? 'register' : (/^(register|coins|bell)$/.test(sv) ? sv : '');
+  } catch (e) {}
+  function styleName(k) { for (var i = 0; i < SOUND_STYLES.length; i++) if (SOUND_STYLES[i][0] === k) return SOUND_STYLES[i][1]; return 'Off'; }
 
   // ───────── seen sales (for highlights / toasts) ─────────
   function saleIds(scope) {
@@ -42,7 +47,11 @@
     else { if (state === 'busy') c.classList.add('is-busy'); label.textContent = 'Live · ' + ago(Date.now() - lastOk); }
     var p = document.getElementById('sdLivePause'), so = document.getElementById('sdLiveSound');
     if (p) { p.innerHTML = paused ? '<i class="bi bi-play-fill"></i>' : '<i class="bi bi-pause-fill"></i>'; p.title = paused ? 'Resume live updates' : 'Pause live updates'; p.setAttribute('aria-label', p.title); }
-    if (so) { so.innerHTML = sound ? '<i class="bi bi-volume-up"></i>' : '<i class="bi bi-volume-mute"></i>'; so.title = sound ? 'Sound on new sales: on' : 'Sound on new sales: off'; so.setAttribute('aria-label', so.title); }
+    if (so) {
+      so.innerHTML = soundStyle ? '<i class="bi bi-volume-up"></i>' : '<i class="bi bi-volume-mute"></i>';
+      so.title = 'Sound on new sales: ' + styleName(soundStyle) + ' — tap to change';
+      so.setAttribute('aria-label', so.title);
+    }
   }
   setInterval(function () { if (!paused && !document.hidden) paint(); }, 5000);
 
@@ -106,12 +115,18 @@
     toastBox.appendChild(t);
     setTimeout(function () { t.classList.add('out'); setTimeout(function () { t.remove(); }, 400); }, 5000);
   }
-  // ───────── money sound: "ka-ching" + coins (synthesised: no audio file, works offline) ─────────
+  // ───────── new-sale sounds (synthesised in the browser: no audio file, works offline) ─────────
   // MONEY-SOUND-START
-  function moneySound(ctx, t0, sales) {
-    var out = ctx.createDynamicsCompressor();                 // keeps several layers from clipping
-    out.threshold.value = -14; out.ratio.value = 4; out.attack.value = 0.003; out.release.value = 0.25;
-    var master = ctx.createGain(); master.gain.value = 0.55;
+  var SOUND_STYLES = [
+    ['register', 'Ka-ching'],   // cash register: lever click, bright bell "CHING" ringing out, a few coins
+    ['coins', 'Coins'],         // a handful of coins poured onto the counter
+    ['bell', 'Counter bell'],   // shop counter bell, "ting-ting"
+  ];
+  function moneySound(ctx, t0, sales, style) {
+    sales = Math.max(1, sales || 1);
+    var out = ctx.createDynamicsCompressor();
+    out.threshold.value = -12; out.ratio.value = 3.5; out.attack.value = 0.002; out.release.value = 0.3;
+    var master = ctx.createGain(); master.gain.value = 0.7;
     out.connect(master); master.connect(ctx.destination);
 
     function noise(seconds) {
@@ -121,53 +136,73 @@
     }
     function env(g, t, peak, attack, decay) {
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(peak, t + attack);
+      g.gain.exponentialRampToValueAtTime(Math.max(peak, 0.0002), t + attack);
       g.gain.exponentialRampToValueAtTime(0.0001, t + attack + decay);
     }
-    function tone(freq, t, peak, decay, type) {
+    function tone(freq, t, peak, decay, type, dest) {
       var o = ctx.createOscillator(), g = ctx.createGain();
       o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
-      o.connect(g); g.connect(out); env(g, t, peak, 0.002, decay);
+      o.connect(g); g.connect(dest || out); env(g, t, peak, 0.0015, decay);
       o.start(t); o.stop(t + decay + 0.05);
     }
-
-    // 1. "ka" — the register lever / drawer latch: a short, dry, mid-band click
-    var k = noise(0.06), kf = ctx.createBiquadFilter(), kg = ctx.createGain();
-    kf.type = 'bandpass'; kf.frequency.value = 1700; kf.Q.value = 1.2;
-    k.connect(kf); kf.connect(kg); kg.connect(out); env(kg, t0, 1.3, 0.002, 0.05); k.start(t0); k.stop(t0 + 0.07);
-    tone(180, t0, 0.35, 0.06, 'triangle');                   // a little body to the click
-
-    // 2. "ching" — the bell: inharmonic partials with a slight detune shimmer
-    var tb = t0 + 0.07;
-    [[2093, 0.42, 0.8], [2637, 0.22, 0.65], [3520, 0.16, 0.5], [4699, 0.10, 0.4], [6272, 0.06, 0.3]].forEach(function (p) {
-      tone(p[0], tb, p[1], p[2]);
-      tone(p[0] * 1.004, tb, p[1] * 0.5, p[2] * 0.85);       // beating with its twin = metallic shimmer
-    });
-    var sh = noise(0.25), sf = ctx.createBiquadFilter(), sg = ctx.createGain();   // the "sss" of the strike
-    sf.type = 'highpass'; sf.frequency.value = 6000; sh.connect(sf); sf.connect(sg); sg.connect(out);
-    env(sg, tb, 0.12, 0.002, 0.2); sh.start(tb); sh.stop(tb + 0.26);
-
-    // 3. coins dropping into the drawer — more coins when several sales arrive together
-    var coins = Math.min(4 + 2 * Math.max(0, (sales || 1) - 1), 10), tc = t0 + 0.32;
-    for (var c = 0; c < coins; c++) {
-      var t = tc + c * 0.055 + Math.random() * 0.05, base = 3200 + Math.random() * 2600, loud = 0.34 * (1 - c / (coins + 6));
-      tone(base, t, loud, 0.07 + Math.random() * 0.06);
-      tone(base * 1.48, t, loud * 0.6, 0.05 + Math.random() * 0.04);
-      tone(base * 2.31, t, loud * 0.35, 0.04);
-      var ck = noise(0.015), cf = ctx.createBiquadFilter(), cg = ctx.createGain();
-      cf.type = 'highpass'; cf.frequency.value = 5000; ck.connect(cf); cf.connect(cg); cg.connect(out);
-      env(cg, t, loud * 0.8, 0.001, 0.012); ck.start(t); ck.stop(t + 0.02);
+    function burst(t, seconds, peak, type, freq, q) {        // filtered noise: clicks, "ch", "sss"
+      var n = noise(seconds + 0.02), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      f.type = type; f.frequency.value = freq; if (q) f.Q.value = q;
+      n.connect(f); f.connect(g); g.connect(out); env(g, t, peak, 0.001, seconds); n.start(t); n.stop(t + seconds + 0.03);
     }
-    return tc + coins * 0.055 + 0.3;                         // when it has finished
+    // A struck metal bell. Its partials are NOT whole multiples of the lowest one (that is what makes it
+    // sound like metal, not a beep), and each partial has a slightly detuned twin so the ring shimmers
+    // ("ing-ing-ing") instead of sounding flat.
+    function bell(t, f0, peak, ring) {
+      burst(t, 0.035, peak * 1.6, 'highpass', 4500);          // the "CH": bright strike noise
+      burst(t, 0.012, peak * 1.2, 'bandpass', 2500, 1.5);      // the hammer touching the bell
+      [[1.00, 1.00, 1.00], [2.76, 0.55, 0.62], [5.40, 0.28, 0.38], [8.93, 0.12, 0.22]].forEach(function (m) {
+        var f = f0 * m[0];
+        if (f > ctx.sampleRate / 2 - 1000) return;
+        tone(f, t, peak * m[1], ring * m[2]);
+        tone(f + 3.5 + m[0], t, peak * m[1] * 0.7, ring * m[2] * 0.9);   // twin → beating shimmer
+      });
+    }
+    function coin(t, loud) {
+      var base = 4200 + Math.random() * 2400;
+      burst(t, 0.006, loud * 1.2, 'highpass', 6000);
+      tone(base, t, loud, 0.06 + Math.random() * 0.05);
+      tone(base * 1.59, t, loud * 0.55, 0.04 + Math.random() * 0.03);
+      tone(base * 2.47, t, loud * 0.3, 0.03);
+    }
+
+    if (style === 'coins') {                                  // coins poured onto the counter, then settling
+      var n = Math.min(7 + 3 * (sales - 1), 16), t = t0;
+      for (var i = 0; i < n; i++) {
+        t += 0.025 + Math.random() * 0.06 * (1 + i / n);
+        coin(t, 0.32 * (1 - i / (n + 5)));
+      }
+      tone(5200, t + 0.06, 0.12, 0.5); tone(5200 * 1.59, t + 0.06, 0.06, 0.35);   // the last coin spinning out
+      return t + 0.6;
+    }
+    if (style === 'bell') {                                   // counter bell: "ting", and "ting" again for more sales
+      var hits = Math.min(sales, 3) + 1;
+      for (var h = 0; h < hits; h++) bell(t0 + h * 0.22, 2550, 0.30 * (h ? 0.85 : 1), 2.6);
+      return t0 + (hits - 1) * 0.22 + 1.9;
+    }
+    // "register": KA (lever, two quick mechanical clicks + a thunk) … CHING (bright bell ringing out) … coins
+    burst(t0, 0.018, 0.9, 'bandpass', 2600, 2);
+    tone(140, t0, 0.45, 0.07, 'triangle');
+    burst(t0 + 0.045, 0.014, 0.7, 'bandpass', 3400, 2);
+    var tb = t0 + 0.10;
+    bell(tb, 2350, 0.34, 3.0);
+    var coins = Math.min(3 + (sales - 1), 6), tc = tb + 0.55;
+    for (var c = 0; c < coins; c++) coin(tc + c * 0.07 + Math.random() * 0.04, 0.16 * (1 - c / (coins + 4)));
+    return tb + 1.9;
   }
   // MONEY-SOUND-END
   var audioCtx = null;
   function ding(sales) {
-    if (!sound) return;
+    if (!soundStyle) return;
     try {
       audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
       if (audioCtx.state === 'suspended' && audioCtx.resume) audioCtx.resume();
-      moneySound(audioCtx, audioCtx.currentTime + 0.02, sales || 1);
+      moneySound(audioCtx, audioCtx.currentTime + 0.02, sales || 1, soundStyle);
     } catch (e) {}
   }
   function announceNew() {
@@ -179,6 +214,15 @@
       ding(fresh.length);
     }
     seen = now;
+  }
+
+  var hintTimer = null;
+  function soundHint(text) {
+    var c = chip(); if (!c) return;
+    var h = document.getElementById('sdSoundHint');
+    if (!h) { h = document.createElement('span'); h.id = 'sdSoundHint'; h.className = 'sd-sound-hint'; c.appendChild(h); }
+    h.textContent = text; h.classList.add('on');
+    clearTimeout(hintTimer); hintTimer = setTimeout(function () { h.classList.remove('on'); }, 1800);
   }
 
   // ───────── polling ─────────
@@ -220,9 +264,12 @@
       try { localStorage.setItem('tt-sales-live-paused', paused ? '1' : '0'); } catch (x) {}
       if (paused) clearTimeout(timer); else tick(true);
     } else {
-      sound = !sound;
-      try { localStorage.setItem('tt-sales-live-sound', sound ? '1' : '0'); } catch (x) {}
-      if (sound) ding();                      // also unlocks audio on browsers that need a tap first
+      // off → Ka-ching → Coins → Counter bell → off; each choice plays once so you can pick by ear
+      var order = [''].concat(SOUND_STYLES.map(function (x) { return x[0]; }));
+      soundStyle = order[(order.indexOf(soundStyle) + 1) % order.length];
+      try { localStorage.setItem('tt-sales-live-sound', soundStyle || '0'); } catch (x) {}
+      soundHint(soundStyle ? 'Sound: ' + styleName(soundStyle) : 'Sound off');
+      if (soundStyle) ding();                 // preview — also unlocks audio on browsers that need a tap first
     }
     paint();
   });
