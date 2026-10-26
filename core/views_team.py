@@ -504,6 +504,17 @@ def sales_daily(request):
         for row in sd.export_rows(business, request.GET):
             writer.writerow(row)
         return resp
+    if request.headers.get('X-TT-Live') == '1':
+        # Live refresh: cheap fingerprint first; the figures are re-rendered only when something changed.
+        # JSON (not text/html) so usage tracking and the HTML menu filters leave these calls alone.
+        from django.http import JsonResponse
+        from django.template.loader import render_to_string
+        fp = sd.fingerprint(business, request.GET)
+        if fp == request.headers.get('X-TT-FP') and request.headers.get('X-TT-Force') != '1':
+            return JsonResponse({'changed': False, 'fp': fp})
+        ctx = sd.build(business, request.GET, perms)
+        html = render_to_string('core/partials/sales_daily_body.html', ctx, request=request)
+        return JsonResponse({'changed': True, 'fp': ctx['live_fp'], 'html': html})
     return render(request, 'core/sales_daily.html', sd.build(business, request.GET, perms))
 
 

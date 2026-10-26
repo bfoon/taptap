@@ -220,6 +220,20 @@ def seller_detail(business, sales, start, end, seller, day_total, can_money):
     return out
 
 
+def fingerprint(business, params):
+    """A short hash that changes whenever the day's figures change: a sale recorded, edited or deleted,
+    or cash handed in. The page asks for it every few seconds and only reloads figures when it moved."""
+    import hashlib
+    from django.db.models import Max
+    day = parse_day(params.get('date'))
+    start, end = day_bounds(day)
+    s = business.sales.filter(sold_at__gte=start, sold_at__lt=end).aggregate(
+        n=Count('id'), m=Max('id'), v=Sum('amount'), c=Sum('commission'), d=Sum('discount'))
+    k = business.collections.filter(collected_at__gte=start, collected_at__lt=end).aggregate(n=Count('id'), m=Max('id'), v=Sum('amount'))
+    raw = f'{day}|{s["n"]}|{s["m"]}|{s["v"]}|{s["c"]}|{s["d"]}|{k["n"]}|{k["m"]}|{k["v"]}'
+    return hashlib.sha1(raw.encode()).hexdigest()[:16]
+
+
 def build(business, params, perms):
     """Everything templates/core/sales_daily.html needs."""
     day = parse_day(params.get('date'))
@@ -247,6 +261,7 @@ def build(business, params, perms):
         'total': day_total, 'count': total['n'], 'discounts': d(total['disc']), 'commission': d(total['comm']),
         'net': day_total - d(total['comm']), 'change': change(day_total, prev['v']),
         'avg': (day_total / total['n']) if total['n'] else 0,
+        'live_fp': fingerprint(business, params),
     }
     week_filter = Q()
     if plan:
