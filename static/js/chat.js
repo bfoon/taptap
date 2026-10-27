@@ -1,7 +1,10 @@
 /* TapTap live chat — floating chat on every page.
    Team room · direct messages · TapTap support. Polls /chat/state/ (fast while open, slower
    in the background), shows on-screen toasts with a chime, desktop alerts when the tab is
-   hidden, a counter in the tab title, and "share this page" links. */
+   hidden, a counter in the tab title, and "share this page" links.
+   Also: photos (deleted for good after 7 days, optional view-once), and voice/video calls with secure
+   screen sharing — the call runs in its own window (static/js/chat-call.js) so you can keep using TapTap;
+   this file rings, shows the call pill, and applies the privacy shield / pointer on the shared tab. */
 (function () {
   'use strict';
   var root = document.getElementById('ttChat'); if (!root) return;
@@ -22,6 +25,9 @@
     bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg>',
     bellx: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.7 21a2 2 0 0 1-3.4 0M18.6 13A17 17 0 0 1 18 8M6.3 6.3A6 6 0 0 0 6 8c0 7-3 9-3 9h14M18 8a6 6 0 0 0-9.3-5M1 1l22 22"/></svg>',
     expand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>',
+    phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>',
+    video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="M16 10l6-3v10l-6-3z"/></svg>',
+    image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>',
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
   };
 
@@ -154,7 +160,8 @@
   function renderThread() {
     var t = S.thread; if (!t) { S.view = 'list'; return render(); }
     var info = S.threads.filter(function (x) { return x.id === t.id; })[0] || {};
-    var right = '<button class="ttc-ib" data-a="mute" title="' + (info.muted ? 'Unmute' : 'Mute') + ' this chat">' + (info.muted ? ICON.bellx : ICON.bell) + '</button>';
+    var right = (t.can_call ? '<button class="ttc-ib" data-a="call" title="Voice call">' + ICON.phone + '</button><button class="ttc-ib" data-a="vcall" title="Video call">' + ICON.video + '</button>' : '') +
+      '<button class="ttc-ib" data-a="mute" title="' + (info.muted ? 'Unmute' : 'Mute') + ' this chat">' + (info.muted ? ICON.bellx : ICON.bell) + '</button>';
     if (t.agent_view) right = '<button class="ttc-ib" data-a="' + (t.status === 'solved' ? 'reopen' : 'solve') + '" title="' + (t.status === 'solved' ? 'Reopen' : 'Mark solved') + '">' + ICON.check + '</button>' + right;
     if (!FULL) right += '<button class="ttc-ib" data-a="close" title="Close">' + ICON.x + '</button>';
     head.innerHTML = headHTML(t.title, (info.sub || t.sub || ''), '<button class="ttc-ib" data-a="back" title="Back">' + ICON.back + '</button>', right);
@@ -171,7 +178,7 @@
       var cont = prev && prev.sender === m.sender && prev.mine === m.mine && (new Date(m.at) - new Date(prev.at)) < 5 * 60000;
       if (!m.mine && !cont && t.kind !== 'direct') h += '<div class="ttc-who">' + esc(m.sender) + '</div>';
       h += '<div class="ttc-m' + (m.mine ? ' me' : '') + (m.agent ? ' agent' : '') + (m.mention_me ? ' hot' : '') + (cont ? ' cont' : '') + '" data-id="' + m.id + '">' +
-        (m.mine ? '' : av(m.initials, m.sender)) + '<div class="ttc-b">' + linkify(m.body) +
+        (m.mine ? '' : av(m.initials, m.sender)) + '<div class="ttc-b' + (m.image ? ' has-img' : '') + '">' + imgHTML(m) + (m.body ? '<span class="ttc-txt">' + linkify(m.body) + '</span>' : '') +
         (m.page_url ? '<a class="ttc-page" href="' + esc(m.page_url) + '">🔗 <span><b>' + esc(m.page_title || 'Shared page') + '</b><br><small>' + esc(m.page_url) + '</small></span></a>' : '') +
         '</div></div>';
       var next = S.msgs[S.msgs.indexOf(m) + 1];
@@ -185,6 +192,8 @@
       foot.innerHTML = '<div class="ttc-attach ttc-hidden"></div><div class="ttc-comp">' +
         '<button class="ttc-tb" data-a="emoji" title="Emoji">' + ICON.smile + '</button>' +
         '<button class="ttc-tb" data-a="share" title="Share the page you are on">' + ICON.link + '</button>' +
+        '<button class="ttc-tb" data-a="photo" title="Send a photo (deleted after ' + (t.photo_days || 7) + ' days)">' + ICON.image + '</button>' +
+        '<input type="file" accept="image/*" class="ttc-file" hidden>' +
         '<textarea rows="1" placeholder="' + (t.kind === 'team' ? 'Message the team (@name)' : 'Write a message') + '" aria-label="Message"></textarea>' +
         '<button class="ttc-tb ttc-send" data-a="send" title="Send (Enter)">' + ICON.send + '</button></div>';
       wireComposer();
@@ -202,7 +211,7 @@
       '<label><span>Email me unread messages<small>If I haven\'t read them after <input type="number" min="2" max="240" data-p="email_after" value="' + (p.email_after || 10) + '" style="width:56px"> minutes</small></span><input type="checkbox" data-p="email_missed"' + (p.email_missed ? ' checked' : '') + '></label>' +
       '<label><span>Desktop alerts<small>' + (perm === 'granted' ? 'On — you get alerts even when this tab is in the background' : perm === 'denied' ? 'Blocked in your browser settings' : perm === 'unsupported' ? 'Not supported by this browser' : 'Get alerts when this tab is in the background') + '</small></span>' +
       (perm === 'default' ? '<button class="btn btn-sm btn-primary" data-a="notif">Turn on</button>' : '') + '</label>' +
-      '<p class="mt-3 mb-0" style="font-size:12px;color:var(--c-mut)">Tip: <b>Enter</b> sends, <b>Shift+Enter</b> adds a line. Type <b>@name</b> in the team room to alert someone even if they muted it.</p>' +
+      '<p class="mt-3 mb-0" style="font-size:12px;color:var(--c-mut)">Tip: <b>Enter</b> sends, <b>Shift+Enter</b> adds a line. Type <b>@name</b> in the team room to alert someone even if they muted it. Paste or drop a photo to send it — photos are deleted for everyone after a week. Use 📞 in a direct or support chat to call; calls ring even when sounds are off.</p>' +
       '<button class="btn btn-sm btn-outline-secondary mt-3" data-a="test">Play test sound</button></div>';
     body.querySelectorAll('[data-p]').forEach(function (i) {
       i.addEventListener('change', function () { var d = {}; d[i.dataset.p] = i.type === 'checkbox' ? i.checked : +i.value; S.prefs[i.dataset.p] = d[i.dataset.p]; api('/chat/settings/', d); });
@@ -211,7 +220,9 @@
 
   // ───────── actions ─────────
   panel.addEventListener('click', function (e) {
-    var b = e.target.closest('[data-a],[data-t],[data-u]'); if (!b) return;
+    var b = e.target.closest('[data-a],[data-t],[data-u],[data-img],[data-once]'); if (!b) return;
+    if (b.dataset.img) return lightbox(+b.dataset.img, false);
+    if (b.dataset.once) return lightbox(+b.dataset.once, true);
     if (b.dataset.t) return openThread(+b.dataset.t);
     if (b.dataset.u) return api('/chat/direct/', { user: +b.dataset.u }).then(function (d) { if (d.ok) openThread(d.thread); else toast({ sender: 'Chat', body: d.message }); });
     var a = b.dataset.a;
@@ -227,13 +238,25 @@
     else if (a === 'emoji') togglePop('emoji');
     else if (a === 'share') { S.attach = { url: location.pathname + location.search, title: document.title.replace(/^\(\d+\)\s*/, '').replace(/\s*—\s*TapTap$/, '') }; showAttach(); }
     else if (a === 'unattach') { S.attach = null; showAttach(); }
+    else if (a === 'photo') { var fi = $('.ttc-file', foot); fi && fi.click(); }
+    else if (a === 'unphoto') { clearPhoto(); }
+    else if (a === 'once') { if (S.photo) { S.photo.once = !S.photo.once; showAttach(); } }
+    else if (a === 'call' || a === 'vcall') startCall(a === 'vcall');
     else if (a === 'send') send();
   });
 
   function showAttach() {
     var el = $('.ttc-attach', foot); if (!el) return;
-    el.classList.toggle('ttc-hidden', !S.attach);
-    el.innerHTML = S.attach ? '<span>🔗 Sharing: <b>' + esc(S.attach.title) + '</b></span><button class="btn btn-sm btn-link p-0" data-a="unattach">Remove</button>' : '';
+    el.classList.toggle('ttc-hidden', !S.attach && !S.photo);
+    var h = S.attach ? '<div class="ttc-att-row"><span>🔗 Sharing: <b>' + esc(S.attach.title) + '</b></span><button class="btn btn-sm btn-link p-0" data-a="unattach">Remove</button></div>' : '';
+    if (S.photo) {
+      var days = (S.thread && S.thread.photo_days) || 7, direct = S.thread && S.thread.kind === 'direct';
+      h += '<div class="ttc-att-photo"><img src="' + S.photo.url + '" alt=""><div><b>Photo · ' + Math.max(1, Math.round(S.photo.blob.size / 1024)) + ' KB</b>' +
+        '<small>' + (S.photo.once ? '👁 Deleted as soon as it is opened' : '⏳ Deleted for everyone after ' + days + ' days') + ' · location data removed</small>' +
+        (direct ? '<label class="ttc-once"><input type="checkbox" data-a="once"' + (S.photo.once ? ' checked' : '') + '> View once</label>' : '') +
+        '</div><button class="btn btn-sm btn-link p-0" data-a="unphoto">Remove</button></div>';
+    }
+    el.innerHTML = h;
   }
 
   function togglePop(kind, items) {
@@ -253,7 +276,12 @@
   function insert(txt) { var ta = $('textarea', foot), s = ta.selectionStart || ta.value.length; ta.value = ta.value.slice(0, s) + txt + ta.value.slice(ta.selectionEnd || s); ta.focus(); ta.selectionStart = ta.selectionEnd = s + txt.length; }
 
   function wireComposer() {
-    var ta = $('textarea', foot);
+    var ta = $('textarea', foot), fi = $('.ttc-file', foot);
+    fi.addEventListener('change', function () { if (fi.files[0]) pickPhoto(fi.files[0]); fi.value = ''; });
+    ta.addEventListener('paste', function (e) {
+      var f = [].slice.call((e.clipboardData && e.clipboardData.files) || []).filter(function (x) { return /^image\//.test(x.type); })[0];
+      if (f) { e.preventDefault(); pickPhoto(f); }
+    });
     ta.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); var pop = $('.ttc-pop.ment button', foot); if (pop) { pop.click(); return; } send(); }
     });
@@ -269,7 +297,9 @@
   }
 
   function send() {
-    var ta = $('textarea', foot), txt = ta.value.trim(); if (!txt && !S.attach) return;
+    var ta = $('textarea', foot), txt = ta.value.trim();
+    if (S.photo) return sendPhoto(ta, txt);
+    if (!txt && !S.attach) return;
     var payload = { thread: S.thread.id, body: txt, page_url: S.attach ? S.attach.url : '', page_title: S.attach ? S.attach.title : '' };
     ta.value = ''; ta.style.height = 'auto'; S.attach = null; showAttach();
     var tmp = { id: 1e15, body: txt, mine: true, sender: S.me.name, at: new Date().toISOString(), page_url: payload.page_url, page_title: payload.page_title };
@@ -361,14 +391,246 @@
   }
   document.addEventListener('visibilitychange', function () { if (!document.hidden) { updateBadge(); schedule(100); } });
 
+
+  // ───────── photos: shrunk and cleaned in the browser, deleted for good after a week ─────────
+  function timeLeft(iso) {
+    var ms = new Date(iso) - new Date(); if (ms <= 0) return 'now';
+    var d = Math.floor(ms / 864e5), h = Math.floor(ms / 36e5);
+    return d >= 1 ? d + 'd' : h >= 1 ? h + 'h' : '<1h';
+  }
+  function imgHTML(m) {
+    var im = m.image; if (!im) return '';
+    var days = (S.thread && S.thread.photo_days) || 7;
+    if (im.local) return '<span class="ttc-img sending" style="aspect-ratio:' + im.w + '/' + im.h + '"><img src="' + im.local + '" alt=""><i class="ttc-spin"></i></span>';
+    if (im.gone) return '<span class="ttc-img-gone">' + (im.opened ? '👁 Opened' : '🖼 Photo expired') + '<small>' + (im.opened ? 'View-once photo' : 'Photos are deleted after ' + days + ' days') + '</small></span>';
+    if (im.once) return m.mine ? '<span class="ttc-img-gone">👁 View-once photo<small>Not opened yet</small></span>'
+      : '<button class="ttc-img-once" data-once="' + m.id + '">👁 Tap to view once<small>It is deleted as soon as you close it</small></button>';
+    return '<button class="ttc-img" data-img="' + m.id + '" style="aspect-ratio:' + im.w + '/' + im.h + '" title="Open photo"><img src="/chat/img/' + m.id + '/" loading="lazy" alt="Photo">' +
+      '<span class="ttc-exp" title="Deleted for everyone on ' + esc(new Date(im.expires).toLocaleString()) + '">⏳ ' + timeLeft(im.expires) + '</span></button>';
+  }
+  function decode(file) {
+    if (window.createImageBitmap) return createImageBitmap(file, { imageOrientation: 'from-image' }).catch(function () { return createImageBitmap(file); }).catch(function () { return viaImg(file); });
+    return viaImg(file);
+  }
+  function viaImg(file) {
+    return new Promise(function (res, rej) { var u = URL.createObjectURL(file), i = new Image(); i.onload = function () { res(i); }; i.onerror = function () { rej(new Error('bad')); }; i.src = u; });
+  }
+  function encode(c, q) {
+    return new Promise(function (res) {
+      c.toBlob(function (b) { if (b && b.type === 'image/webp') res(b); else c.toBlob(res, 'image/jpeg', q); }, 'image/webp', q);
+    });
+  }
+  // Re-drawing on a canvas drops EXIF (GPS location, phone model) and shrinks big phone photos.
+  function compress(file) {
+    if (file.type === 'image/gif' && file.size < 3e6) return viaImg(file).then(function (i) { return { blob: file, w: i.naturalWidth, h: i.naturalHeight }; });
+    return decode(file).then(function (bmp) {
+      var bw = bmp.width || bmp.naturalWidth, bh = bmp.height || bmp.naturalHeight, sc = Math.min(1, 1920 / Math.max(bw, bh));
+      var w = Math.max(1, Math.round(bw * sc)), h = Math.max(1, Math.round(bh * sc)), c = document.createElement('canvas');
+      c.width = w; c.height = h; c.getContext('2d').drawImage(bmp, 0, 0, w, h);
+      return encode(c, 0.82).then(function (b) { return b && b.size > 900 * 1024 ? encode(c, 0.62) : b; }).then(function (b) { return { blob: b, w: w, h: h }; });
+    });
+  }
+  function pickPhoto(file) {
+    if (!S.thread) return;
+    if (!/^image\//.test(file.type)) return toast({ sender: 'Photo', body: 'Pick a photo (JPEG, PNG, WebP or GIF).' });
+    compress(file).then(function (r) {
+      if (!r.blob) throw new Error('x');
+      clearPhoto(); S.photo = { blob: r.blob, w: r.w, h: r.h, url: URL.createObjectURL(r.blob), once: false }; showAttach();
+      var ta = $('textarea', foot); ta && ta.focus();
+    }).catch(function () { toast({ sender: 'Photo', body: 'This photo format cannot be opened here. Try a JPEG or PNG.' }); });
+  }
+  function clearPhoto() { if (S.photo) { try { URL.revokeObjectURL(S.photo.url); } catch (e) {} } S.photo = null; showAttach(); }
+  function sendPhoto(ta, txt) {
+    var p = S.photo; S.photo = null; showAttach(); ta.value = ''; ta.style.height = 'auto';
+    var tmp = { id: 1e15, body: txt, mine: true, sender: S.me.name, at: new Date().toISOString(), image: { local: p.url, w: p.w, h: p.h } };
+    S.msgs.push(tmp); renderThread();
+    var f = new FormData(); f.append('thread', S.thread.id); f.append('body', txt); f.append('once', p.once ? '1' : '0');
+    f.append('file', p.blob, 'photo.' + ((p.blob.type.split('/')[1]) || 'jpg'));
+    fetch('/chat/upload/', { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, body: f })
+      .then(function (r) { return r.json(); }).catch(function () { return { ok: false, message: 'Could not send the photo.' }; })
+      .then(function (d) {
+        S.msgs = S.msgs.filter(function (m) { return m !== tmp; });
+        if (d.ok) { if (!S.msgs.some(function (m) { return m.id === d.message.id; })) S.msgs.push(d.message); S.top = Math.max(S.top, d.message.id); }
+        else { toast({ sender: 'Photo not sent', body: d.message || 'Try again.' }); ta.value = txt; }
+        setTimeout(function () { try { URL.revokeObjectURL(p.url); } catch (e) {} }, 5000);
+        renderThread(); poll();
+      });
+  }
+  panel.addEventListener('dragover', function (e) { if (S.view === 'thread' && e.dataTransfer && [].indexOf.call(e.dataTransfer.types || [], 'Files') >= 0) { e.preventDefault(); panel.classList.add('ttc-drop'); } });
+  panel.addEventListener('dragleave', function (e) { if (!panel.contains(e.relatedTarget)) panel.classList.remove('ttc-drop'); });
+  panel.addEventListener('drop', function (e) {
+    panel.classList.remove('ttc-drop'); if (S.view !== 'thread') return; e.preventDefault();
+    var f = [].slice.call(e.dataTransfer.files || []).filter(function (x) { return /^image\//.test(x.type); })[0]; if (f) pickPhoto(f);
+  });
+  function lightbox(id, once) {
+    var m = S.msgs.filter(function (x) { return x.id === id; })[0] || {}, im = m.image || {};
+    var lb = document.createElement('div'); lb.className = 'ttc-lb' + (once ? ' once' : '');
+    lb.innerHTML = '<div class="ttc-lb-top"><span>' + (once ? '👁 View once — this photo is deleted when you close it' : '⏳ Deleted for everyone ' + esc(new Date(im.expires).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))) + '</span>' +
+      (once ? '' : '<a class="ttc-ib" href="/chat/img/' + id + '/" download title="Download">⬇</a>') + '<button class="ttc-ib" data-lb="x" title="Close (Esc)">' + ICON.x + '</button></div>' +
+      '<img src="/chat/img/' + id + '/" alt="Photo">';
+    var img = lb.querySelector('img');
+    img.onerror = function () { img.replaceWith(Object.assign(document.createElement('p'), { className: 'ttc-lb-gone', textContent: once ? 'This view-once photo was already opened.' : 'This photo has expired.' })); };
+    if (once) { lb.addEventListener('contextmenu', function (e) { e.preventDefault(); }); img.draggable = false; }
+    function close() {
+      lb.remove(); document.removeEventListener('keydown', key);
+      if (once && m.image) { m.image = { gone: true, opened: true }; renderThread(); }
+    }
+    function key(e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } }
+    lb.addEventListener('click', function (e) { if (e.target === lb || e.target.closest('[data-lb]')) close(); });
+    document.addEventListener('keydown', key, true);
+    root.appendChild(lb);
+  }
+
+  // ───────── calls: ring, open the call window, call pill, privacy shield, pointer ─────────
+  var bc = window.BroadcastChannel ? new BroadcastChannel('tt-call') : null;
+  var TAB = Math.random().toString(36).slice(2, 12);
+  var CALL = { live: null, seen: 0, ring: null, dismissed: {}, ringT: null, toneT: null };
+  // Capture Handle: lets the call window know exactly which TapTap tab is being shared (Chrome/Edge).
+  try { if (navigator.mediaDevices && navigator.mediaDevices.setCaptureHandleConfig && window.top === window) navigator.mediaDevices.setCaptureHandleConfig({ handle: TAB, exposeOrigin: true, permittedOrigins: [location.origin] }); } catch (e) {}
+
+  function callLive() { return CALL.live && Date.now() - CALL.seen < 3500; }
+  function openCall(url) {
+    if (callLive()) { focusCall(); return toast({ sender: 'Call', body: 'You are already in a call.' }); }
+    var w = null;
+    try { w = window.open(url, 'ttcall', 'popup=yes,width=480,height=760,left=' + Math.max(0, (screen.availWidth || 1200) - 520) + ',top=40'); } catch (e) {}
+    if (w) { try { w.focus(); } catch (e) {} return; }
+    embedCall(url);                       // pop-ups blocked: run the call over this page instead
+  }
+  function embedCall(url) {
+    var old = document.querySelector('.ttc-callframe'); if (old) old.remove();
+    var f = document.createElement('div'); f.className = 'ttc-callframe';
+    f.innerHTML = '<iframe allow="camera; microphone; display-capture; autoplay; fullscreen" src="' + esc(url) + '&embed=1" title="Call"></iframe>' +
+      '<p>Stay on this page during the call. <b>Tip:</b> allow pop-ups for TapTap to keep browsing while you talk.</p>';
+    document.body.appendChild(f);
+  }
+  window.addEventListener('message', function (e) {
+    if (e.origin !== location.origin || !e.data || e.data.ttcall !== 'close') return;
+    var f = document.querySelector('.ttc-callframe'); if (f) f.remove();
+  });
+  function focusCall() {
+    var f = document.querySelector('.ttc-callframe'); if (f) { f.scrollIntoView(); return; }
+    try { var w = window.open('', 'ttcall'); if (w) w.focus(); } catch (e) {}
+    if (bc) bc.postMessage({ t: 'focus-call' });
+  }
+  function startCall(video) { if (S.thread) openCall('/chat/call/?thread=' + S.thread.id + '&video=' + (video ? 1 : 0)); }
+
+  // The call pill: a small "on a call" reminder on every TapTap tab while the call window is open.
+  var pill = document.createElement('button'); pill.type = 'button'; pill.className = 'ttc-callpill ttc-hidden'; document.body.appendChild(pill);
+  pill.addEventListener('click', focusCall);
+  setInterval(function () {
+    if (!callLive()) { pill.classList.add('ttc-hidden'); return; }
+    var c = CALL.live, s = Math.floor((Date.now() - c.since) / 1000);
+    pill.innerHTML = '<i></i>' + esc(String(c.peer || 'Call').split(' ')[0]) + ' · ' + Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2) + (c.sharing ? ' · 🖥 Sharing' : c.viewing ? ' · 👀 Viewing' : '');
+    pill.classList.remove('ttc-hidden');
+  }, 1000);
+
+  function shield(on, mine) {
+    var h = document.documentElement; h.classList.toggle('tt-shield', !!on); h.classList.toggle('tt-shared', !!(on && mine));
+  }
+  function pointAt(m) {
+    if (m.surface !== 'browser') return;
+    if (m.handle ? m.handle !== TAB : document.hidden) return;   // only the tab that is actually being shared
+    var d = document.createElement('div'); d.className = 'tt-ptr'; d.style.left = (m.x * innerWidth) + 'px'; d.style.top = (m.y * innerHeight) + 'px';
+    d.innerHTML = '<span>' + esc(m.who || '') + '</span>'; document.body.appendChild(d); setTimeout(function () { d.remove(); }, 1700);
+  }
+  if (bc) {
+    bc.onmessage = function (e) {
+      var m = e.data || {};
+      if (m.t === 'call') { if (m.state === 'live') { CALL.live = m; CALL.seen = Date.now(); } else { CALL.live = null; pill.classList.add('ttc-hidden'); } }
+      else if (m.t === 'shield') shield(m.on, m.handle && m.handle === TAB);
+      else if (m.t === 'ptr') pointAt(m);
+      else if (m.t === 'ring-done') { CALL.dismissed[m.id] = 1; hideRing(); }
+    };
+    bc.postMessage({ t: 'hello?', tab: TAB });              // a call window already sharing will re-send its shield state
+  }
+
+  // Incoming calls: a cheap poll (cache only) every few seconds.
+  function ringPoll() {
+    clearTimeout(CALL.ringT);
+    fetch('/chat/call/poll/', { credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json(); }).then(function (d) { if (d && d.ok) handleRings(d.rings || []); })
+      .catch(function () {}).then(function () { CALL.ringT = setTimeout(ringPoll, document.hidden ? 8000 : 3000); });
+  }
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { clearTimeout(CALL.ringT); CALL.ringT = setTimeout(ringPoll, 150); } });
+  function handleRings(list) {
+    var r = list.filter(function (x) { return !CALL.dismissed[x.id]; })[0];
+    if (!r) return hideRing();
+    if (callLive()) return;                 // already talking: the caller gets "busy" next time
+    if (CALL.ring && CALL.ring.id === r.id) return;
+    showRing(r);
+  }
+  var QUICK = ['Can’t talk right now — I’ll call you back.', 'In a meeting. Can you text me?', 'Calling you back in 5 minutes.'];
+  function showRing(r) {
+    hideRing(); CALL.ring = r;
+    var card = document.createElement('div'); card.className = 'ttc-ring' + (r.kind === 'support' ? ' support' : ''); card.setAttribute('role', 'alertdialog');
+    card.innerHTML = '<div class="ttc-ring-av">' + esc(r.initials) + '</div><div class="ttc-ring-mid"><b>' + esc(r.from) + '</b><small>' + (r.video ? 'Incoming video call' : 'Incoming voice call') + ' · 🔒 encrypted</small></div>' +
+      '<div class="ttc-ring-btns"><button class="ttc-rb no" data-r="decline" title="Decline">' + ICON.phone + '</button>' +
+      '<button class="ttc-rb msg" data-r="msg" title="Decline with a message">' + ICON.chat + '</button>' +
+      (r.video ? '<button class="ttc-rb yes" data-r="video" title="Answer with video">' + ICON.video + '</button>' : '') +
+      '<button class="ttc-rb yes" data-r="voice" title="Answer">' + ICON.phone + '</button></div>' +
+      '<div class="ttc-ring-quick ttc-hidden">' + QUICK.map(function (q, i) { return '<button data-q="' + i + '">' + esc(q) + '</button>'; }).join('') + '</div>' +
+      '<span class="ttc-ring-time" style="animation-duration:' + (r.left || 40) + 's"></span>';
+    card.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-r],[data-q]'); if (!b) return;
+      var id = r.id;
+      if (b.dataset.q) { callAct('reply', id, { text: QUICK[+b.dataset.q] }); done(); return; }
+      var a = b.dataset.r;
+      if (a === 'msg') { card.querySelector('.ttc-ring-quick').classList.toggle('ttc-hidden'); return; }
+      if (a === 'decline') callAct('decline', id);
+      else openCall('/chat/call/?join=' + encodeURIComponent(id) + (a === 'video' ? '&video=1' : ''));
+      done();
+      function done() { CALL.dismissed[id] = 1; if (bc) bc.postMessage({ t: 'ring-done', id: id }); hideRing(); }
+    });
+    document.body.appendChild(card);
+    ringTone();
+    if (document.hidden && window.Notification && Notification.permission === 'granted') {
+      try { var n = new Notification((r.video ? 'Video call' : 'Call') + ' from ' + r.from, { body: 'Tap to answer on TapTap', tag: 'ttcall-' + r.id, requireInteraction: true });
+        n.onclick = function () { window.focus(); n.close(); }; CALL.note = n; } catch (e) {}
+    }
+  }
+  function hideRing() {
+    clearTimeout(CALL.toneT); CALL.ring = null;
+    var c = document.querySelector('.ttc-ring'); if (c) c.remove();
+    if (CALL.note) { try { CALL.note.close(); } catch (e) {} CALL.note = null; }
+  }
+  function callAct(action, id, extra) {
+    var b = extra || {}; b.action = action; b.id = id;
+    return api('/chat/call/act/', b);
+  }
+  // One tab rings (the one you are looking at, or one background tab) — not every open TapTap tab at once.
+  function ringer() {
+    if (!document.hidden) return true;
+    var l = store('ringer'); if (!l || l.until < Date.now() || l.tab === TAB) { store('ringer', { tab: TAB, until: Date.now() + 5000 }); return true; }
+    return false;
+  }
+  function ringTone() {
+    clearTimeout(CALL.toneT); if (!CALL.ring) return;
+    if (ringer()) {
+      try {
+        AC = AC || new (window.AudioContext || window.webkitAudioContext)(); AC.resume && AC.resume();
+        [0, 0.45].forEach(function (off) {
+          [523, 659].forEach(function (f) {
+            var o = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime + off;
+            o.frequency.value = f; o.connect(g); g.connect(AC.destination);
+            g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.09, t + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.38);
+            o.start(t); o.stop(t + 0.42);
+          });
+        });
+      } catch (e) {}
+    }
+    CALL.toneT = setTimeout(ringTone, 2600);
+  }
+
   // restore
   var wasOpen = store('open'), th = store('thread');
   if (th) { S.view = 'thread'; S.thread = { id: th }; }
   poll();
+  setTimeout(ringPoll, 1200);
   setTimeout(function () { if (wasOpen || FULL) setOpen(true); }, 400);
   function supportId() { var t = S.threads.filter(function (x) { return x.kind === 'support' && !x.inbox; })[0]; return t && t.id; }
   window.TapChat = {
     open: function (id) { setOpen(true); if (id) openThread(id); },
+    call: function (threadId, video) { openCall('/chat/call/?thread=' + threadId + '&video=' + (video ? 1 : 0)); },
     // "Chat with TapTap support" buttons in the help center
     openSupport: function () {
       var id = supportId(); if (id) { setOpen(true); openThread(id); return; }

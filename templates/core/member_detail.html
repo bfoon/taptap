@@ -81,7 +81,7 @@ html[data-theme="dark"] .md-paused{background:#13233a;border-color:#244a7a}html[
 
 {% if shown_password %}
 <div class="md-pw" id="pwShown" role="status">
-  <div><div class="small fw-bold mb-1"><i class="bi bi-key"></i> New password for {{ v.code }} — shown once</div><code id="pwText">{{ shown_password }}</code>
+  <div><div class="small fw-bold mb-1"><i class="bi bi-key"></i> New password for {{ v.code }} — shown once</div><code id="pwText" data-tt-secret>{{ shown_password }}</code>
     <div class="small text-secondary mt-1">{% if shown_emailed %}Also emailed to {{ shown_emailed }}.{% else %}Give it to the member now; TapTap will not show it again.{% endif %}</div></div>
   <div class="d-flex flex-wrap gap-2">
     <button class="btn btn-sm btn-dark" type="button" data-copy="Username: {{ v.code }}&#10;Password: {{ shown_password }}"><i class="bi bi-clipboard"></i> Copy login</button>

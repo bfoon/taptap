@@ -44,10 +44,27 @@ class ChatMessage(models.Model):
     page_title = models.CharField(max_length=120, blank=True)
     mentions = models.JSONField(default=list, blank=True)
     system = models.BooleanField(default=False)
+    attachment = models.CharField(max_length=10, blank=True, default='', help_text='"image" when a photo was sent (it may have expired)')
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
         ordering = ['id']
+
+
+class ChatImage(models.Model):
+    """A photo sent in chat. The bytes live in the database (so every container sees them) and the row is
+    deleted for good when it expires (7 days by default, core/chat_media.py) — the message stays as
+    "Photo expired". View-once photos are deleted the moment the other person opens them."""
+    message = models.OneToOneField(ChatMessage, on_delete=models.CASCADE, related_name='image')
+    business = models.ForeignKey('core.Business', on_delete=models.CASCADE, null=True, blank=True, related_name='+')
+    data = models.BinaryField()
+    mime = models.CharField(max_length=20)
+    width = models.PositiveIntegerField(default=0)
+    height = models.PositiveIntegerField(default=0)
+    size = models.PositiveIntegerField(default=0)
+    view_once = models.BooleanField(default=False)
+    expires_at = models.DateTimeField(db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class ChatRead(models.Model):

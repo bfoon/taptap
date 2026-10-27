@@ -328,7 +328,7 @@ document.querySelectorAll('[data-copy]').forEach(function (b) {
       <div class="hd"><h3><i class="bi bi-ticket-perforated"></i> Plan &amp; limits</h3></div>
       <dl class="vd-dl">
         {% if v.is_member %}<div><dt>Login</dt><dd><span class="font-monospace">{{ v.code }}</span></dd></div>
-        <div><dt>Password</dt><dd><span class="font-monospace" id="mPwVal" hidden>{{ v.login_password }}</span><span id="mPwMask">••••••••</span>
+        <div><dt>Password</dt><dd><span class="font-monospace" id="mPwVal" data-tt-secret hidden>{{ v.login_password }}</span><span id="mPwMask">••••••••</span>
           <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline" onclick="var h=document.getElementById('mPwVal').hidden;document.getElementById('mPwVal').hidden=!h;document.getElementById('mPwMask').hidden=h;this.textContent=h?'Hide':'Show'">Show</button>
           {% if not v.password %}<small class="text-secondary">same as username</small>{% endif %}</dd></div>{% endif %}
         <div><dt>Plan</dt><dd>{{ v.plan_name }}</dd></div>

@@ -263,3 +263,36 @@ safely even when the filter list is empty.
 * If no router at all has a fresh handshake, repairs pause and the tunnel container logs
   a server-side warning (UDP blocked, wrong endpoint, interface down).
 * The manager picks the same iptables backend (nft/legacy) as the host's Docker.
+
+## Chat: calls, secure screen sharing and photos
+
+**Calls** — 📞 voice and 🎥 video in direct messages and TapTap Support (support calls ring every active agent; the first to answer takes it). The call runs in its own small window, so you can keep using TapTap while you talk; a green pill on every TapTap tab shows the call and brings the window back. If pop-ups are blocked, the call opens over the page instead.
+
+Media goes browser-to-browser with WebRTC and is always encrypted (DTLS-SRTP). The server only passes one offer and one answer through Redis — no WebSocket server and no new tables (`core/chat_call.py`). Busy, declined, missed and finished calls are noted in the conversation.
+
+**Safety emoji** — both people see 4 emoji made from both browsers' encryption fingerprints. If they match, nobody is in the middle of the call — not even the TapTap server.
+
+**Secure screen sharing**
+- *A TapTap tab* is the safest choice: the picker cannot offer the whole screen, and every TapTap tab blurs passwords, keys and tokens (and hides chat pop-ups) while you share. The shared tab gets a red frame. Mark anything else secret with `data-tt-secret`.
+- Each share is graded (tab 🟢 / window 🟡 / whole screen 🟠, which warns that notifications will show).
+- Sharing stops by itself after 15 minutes unless you keep it going; you can pause it any time.
+- The other person can only *ask* to see your screen; you choose what to share.
+- The viewer can click to point (a ripple shows on your screen), and their view carries a "Viewed by <name> · time" watermark.
+- Snapshots go into the chat as photos and the sharer is told.
+- On a weak network the camera is lowered automatically so the voice stays clear.
+
+**Photos** — paste, drop or pick a photo. It is shrunk in the browser, location/EXIF data is removed (and removed again on the server), and it is **deleted for good after 7 days** by an hourly Celery beat task. In direct chats a photo can be *view once*: deleted as soon as the other person opens it. Photos are stored in Postgres so every container sees them; only JPEG, PNG, WebP and GIF are accepted.
+
+| Setting | Default | |
+|---|---|---|
+| `CHAT_IMAGE_DAYS` | `7` | days before a photo is deleted |
+| `CHAT_IMAGE_MAX_MB` | `5` | largest photo accepted |
+| `CHAT_IMAGE_QUOTA_MB` | `300` | live photo storage per business |
+| `CHAT_IMAGE_PER_HOUR` | `60` | photos per person per hour |
+| `CHAT_STUN_URLS` | Google + Cloudflare STUN | comma-separated |
+| `CHAT_TURN_URLS` | — | e.g. `turn:turn.example.com:3478,turns:turn.example.com:5349` |
+| `CHAT_TURN_SECRET` | — | coturn `static-auth-secret` (short-lived credentials) |
+| `CHAT_TURN_USERNAME` / `CHAT_TURN_PASSWORD` | — | fixed TURN login instead of a secret |
+| `CHAT_TURN_ONLY` | `0` | `1` = every call goes through TURN, so neither side learns the other's IP address |
+
+Requirements: TapTap must be served over **https** (browsers only allow microphone, camera and screen capture on secure pages). Redis must be the cache (the default in docker-compose) so every gunicorn worker sees the same call. Without a TURN server, calls between some mobile networks or strict office firewalls may not connect — a small [coturn](https://github.com/coturn/coturn) server fixes that. Behind nginx, allow photo uploads with `client_max_body_size 6m;`.

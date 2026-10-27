@@ -189,6 +189,13 @@ def chat_email_missed():
     return email_missed()
 
 
+@shared_task(ignore_result=True)
+def chat_purge_images():
+    """Delete chat photos older than CHAT_IMAGE_DAYS (7) for good — hourly."""
+    from .chat_media import purge_expired
+    return purge_expired()
+
+
 # Vouchers first: their own queue and worker ("vouchers" in docker-compose.yml), so a voucher change never
 # waits behind a full sync (default worker) or the all-router live loop ("live" worker). The live worker also
 # listens to "vouchers", so nothing is stranded where the dedicated worker is not deployed yet.

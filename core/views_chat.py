@@ -8,9 +8,10 @@ from django.db.models import Max
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 from django.views.decorators.http import require_POST
 
-from . import chat
+from . import chat, chat_media
 from .models_chat import ChatMessage, ChatRead, ChatThread, SupportAgent
 
 
@@ -54,7 +55,7 @@ def _threads_json(request, threads):
                     'initials': chat.initials(other) if other else ('TT' if own_support else ''.join(w[0] for w in title.split()[:2]).upper()),
                     'online': chat.online(other.pk) if other else (chat.support_online() if own_support else False),
                     'inbox': t.kind == 'support' and not own_support, 'status': t.support_status,
-                    'last': (('You: ' if m.sender_id == user.pk else '') + (m.body or m.page_title or 'Shared a page'))[:80] if m else '',
+                    'last': (('You: ' if m.sender_id == user.pk else '') + chat.preview_text(m))[:80] if m else '',
                     'last_at': timezone.localtime(m.created_at).isoformat() if m else '', 'last_id': m.pk if m else 0})
     order = {'team': 0, 'support': 1, 'direct': 2}
     out.sort(key=lambda x: (x['inbox'], -(x['last_id'] if x['inbox'] or x['kind'] == 'direct' else 10 ** 12), order.get(x['kind'], 3)))
@@ -73,7 +74,9 @@ def chat_state(request):
     agent_set = chat.agent_ids()
     new = []
     if since >= 0:
-        for m in ChatMessage.objects.filter(thread_id__in=ids, id__gt=since).select_related('sender', 'thread', 'thread__business').order_by('id')[:60]:
+        rows = chat_media.prime(list(ChatMessage.objects.filter(thread_id__in=ids, id__gt=since)
+                                     .select_related('sender', 'thread', 'thread__business').order_by('id')[:60]))
+        for m in rows:
             d = chat.message_json(m, user.pk, agent_set)
             d['notify'] = not d['mine']
             new.append(d)
@@ -109,13 +112,15 @@ def chat_history(request, pk):
     qs = t.messages.select_related('sender', 'thread', 'thread__business')
     if before:
         qs = qs.filter(id__lt=before)
-    rows = list(qs.order_by('-id')[:40])[::-1]
+    rows = chat_media.prime(list(qs.order_by('-id')[:40])[::-1])
     agent_set = chat.agent_ids()
     if rows and not before:
         chat.mark_read(t, request.user, rows[-1].pk)
     title, sub = chat.title_for(t, request.user, _biz(request))
     return JsonResponse({'ok': True, 'thread': {'id': t.pk, 'kind': t.kind, 'title': title, 'sub': sub, 'status': t.support_status,
-                                                'agent_view': t.kind == 'support' and chat.is_agent(request.user) and not (_biz(request) and _biz(request).pk == t.business_id)},
+                                                'agent_view': t.kind == 'support' and chat.is_agent(request.user) and not (_biz(request) and _biz(request).pk == t.business_id),
+                                                'can_call': t.kind in ('direct', 'support'), 'can_photo': True,
+                                                'photo_days': chat_media.DAYS},
                          'messages': [chat.message_json(m, request.user.pk, agent_set) for m in rows], 'more': len(rows) == 40})
 
 
@@ -237,3 +242,112 @@ def platform_support_team(request):
     open_threads = ChatThread.objects.filter(kind='support', support_status='open').count()
     return render(request, 'core/platform/support_team.html', {'agents': rows, 'supers': supers, 'open_threads': open_threads,
                                                               'online': {u.pk: chat.online(u.pk) for u in list(supers) + [a.user for a in rows]}})
+
+
+# ─────────────────────────────── photos ───────────────────────────────
+
+@login_required
+@require_POST
+def chat_upload(request):
+    """Send a photo (multipart: thread, file, body, once). Kept CHAT_IMAGE_DAYS (7) days, then deleted for good."""
+    try:
+        t = _thread(request, int(request.POST.get('thread') or 0))
+        m = chat_media.save_image(t, request.user, request.FILES.get('file'), request.POST.get('body', ''),
+                                  request.POST.get('once') == '1')
+    except (chat.ChatError, ValueError) as e:
+        return _err(e)
+    chat_media.prime([m])
+    return JsonResponse({'ok': True, 'message': chat.message_json(m, request.user.pk)})
+
+
+@login_required
+def chat_image(request, pk):
+    from django.http import HttpResponse, HttpResponseNotFound
+    m = get_object_or_404(ChatMessage.objects.select_related('thread', 'thread__business'), pk=pk)
+    if not chat.can_access(request.user, m.thread, _biz(request)):
+        return HttpResponseNotFound()
+    got = chat_media.open_image(m, request.user)
+    if got is None:
+        return HttpResponse('This photo has expired.', status=410, content_type='text/plain')
+    if got == 'sender':
+        return HttpResponse('View-once photos cannot be reopened.', status=403, content_type='text/plain')
+    data, mime, once = got
+    r = HttpResponse(data, content_type=mime)
+    r['X-Content-Type-Options'] = 'nosniff'
+    r['Content-Security-Policy'] = "default-src 'none'; sandbox"
+    r['Content-Disposition'] = f'inline; filename="taptap-photo-{pk}.{mime.split("/")[1]}"'
+    r['Cache-Control'] = 'no-store' if once else 'private, max-age=86400'
+    r['Referrer-Policy'] = 'no-referrer'
+    return r
+
+
+# ─────────────────────────────── calls & screen sharing ───────────────────────────────
+
+@login_required
+@xframe_options_sameorigin                     # the pop-up-blocked overlay frames this page
+def chat_call_page(request):
+    """The call window (a pop-out, or an overlay when pop-ups are blocked). Start: ?thread=&video=  Join: ?join="""
+    r = render(request, 'core/chat_call.html', {
+        'thread': int(request.GET.get('thread') or 0), 'video': request.GET.get('video') == '1',
+        'join': (request.GET.get('join') or '')[:40], 'embedded': request.GET.get('embed') == '1',
+        'me': chat.display_name(request.user), 'me_initials': chat.initials(request.user),
+        'image_days': chat_media.DAYS})
+    r['Permissions-Policy'] = 'camera=(self), microphone=(self), display-capture=(self), autoplay=(self)'
+    r['Cache-Control'] = 'no-store'
+    r['Referrer-Policy'] = 'no-referrer'
+    return r
+
+
+
+
+@login_required
+def chat_call_poll(request):
+    """Cheap poll (cache only). No ?id: calls ringing for me. With ?id: that call's state (members only)."""
+    from . import chat_call
+    cid = request.GET.get('id', '')
+    if not cid:
+        return JsonResponse({'ok': True, 'rings': chat_call.rings_for(request.user)})
+    call = chat_call.get(cid)
+    if not call or not chat_call.is_member(call, request.user.pk):
+        return JsonResponse({'ok': True, 'call': {'id': cid, 'state': 'ended', 'reason': 'gone'}})
+    return JsonResponse({'ok': True, 'call': chat_call.public_state(call, request.user.pk)})
+
+
+@login_required
+@require_POST
+def chat_call_act(request):
+    """start · offer · accept · answer · decline · end · reply (decline with a quick message)."""
+    from . import chat_call
+    d = _body(request) if request.content_type == 'application/json' else request.POST.dict()
+    act, user = d.get('action'), request.user
+    try:
+        if act == 'start':
+            t = _thread(request, int(d.get('thread') or 0))
+            call = chat_call.start(t, user, video=bool(d.get('video')))
+            title, _ = chat.title_for(t, user, _biz(request))
+            return JsonResponse({'ok': True, 'call': chat_call.public_state(call, user.pk), 'title': title,
+                                 'ice': chat_call.ice_config(user)})
+        call = chat_call.get(d.get('id', ''))
+        if not call or not (chat_call.is_member(call, user.pk) or user.pk in call['targets']):
+            raise chat.ChatError('This call has ended.')
+        if act == 'offer':
+            chat_call.post_offer(call, user, d.get('desc'))
+        elif act == 'accept':
+            offer = chat_call.accept(call, user)
+            return JsonResponse({'ok': True, 'offer': offer, 'ice': chat_call.ice_config(user),
+                                 'call': chat_call.public_state(call, user.pk), 'from': call['label']})
+        elif act == 'answer':
+            chat_call.post_answer(call, user, d.get('desc'))
+        elif act in ('decline', 'reply'):
+            chat_call.decline(call, user)
+            text = (d.get('text') or '').strip()[:300]
+            if act == 'reply' and text:
+                from .models_chat import ChatThread
+                chat.post(ChatThread.objects.select_related('business').get(pk=call['thread']), user, text)
+        elif act == 'end':
+            chat_call.finish(call, 'cancelled' if user.pk == call['caller'] and chat_call.state(call)[0] == 'ringing' else d.get('reason') or 'ended')
+        else:
+            raise chat.ChatError('Unknown call action.')
+    except (chat.ChatError, ValueError) as e:
+        return _err(e)
+    return JsonResponse({'ok': True})

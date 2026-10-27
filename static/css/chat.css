@@ -77,3 +77,78 @@ html[data-theme="dark"] .ttc{--c-bg:#1f242b;--c-ink:#e3e9f0;--c-mut:#94a3b4;--c-
 @keyframes ttcbounce{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-5px);opacity:1}}
 @keyframes ttcpop{from{transform:scale(.85);opacity:0}}
 @media(prefers-reduced-motion:reduce){.ttc-dots i,.ttc-mini-dots i,.ttc-typing-b{animation:none}}
+
+/* ───────── photos ───────── */
+.ttc-b.has-img{padding:4px;background:transparent!important;box-shadow:none}
+.ttc-b.has-img .ttc-txt{display:block;padding:5px 8px 3px;border-radius:12px;margin-top:3px;background:var(--c-them)}
+.ttc-m.me .ttc-b.has-img .ttc-txt{background:var(--c-me);color:var(--c-me-ink)}
+.ttc-img{position:relative;display:block;width:240px;max-width:100%;max-height:320px;padding:0;border:0;border-radius:14px;overflow:hidden;background:var(--c-soft);cursor:zoom-in}
+.ttc-img img{width:100%;height:100%;object-fit:cover;display:block}
+.ttc-img.sending img{opacity:.55;filter:blur(1px)}
+.ttc-spin{position:absolute;left:50%;top:50%;width:28px;height:28px;margin:-14px;border:3px solid rgba(255,255,255,.6);border-top-color:#fff;border-radius:50%;animation:ttcspin .8s linear infinite}
+@keyframes ttcspin{to{transform:rotate(360deg)}}
+.ttc-exp{position:absolute;right:6px;bottom:6px;font-size:10.5px;font-weight:700;color:#fff;background:rgba(0,0,0,.55);border-radius:8px;padding:1px 6px;backdrop-filter:blur(4px)}
+.ttc-img-gone,.ttc-img-once{display:flex;flex-direction:column;gap:2px;min-width:190px;padding:12px 14px;border-radius:14px;border:1px dashed var(--c-line);background:var(--c-soft);color:var(--c-ink);font-size:13.5px;font-weight:700;text-align:left}
+.ttc-img-gone small,.ttc-img-once small{font-weight:500;color:var(--c-mut);font-size:11.5px}
+.ttc-img-once{cursor:pointer;border:0;background:linear-gradient(135deg,#7c3aed,#1769e0);color:#fff}.ttc-img-once small{color:rgba(255,255,255,.85)}
+.ttc-attach{flex-direction:column}
+.ttc-att-row{display:flex;justify-content:space-between;gap:6px}
+.ttc-att-photo{display:flex;gap:10px;align-items:center}.ttc-att-photo img{width:52px;height:52px;object-fit:cover;border-radius:10px;flex:none}
+.ttc-att-photo div{flex:1;min-width:0}.ttc-att-photo small{display:block;color:var(--c-mut)}
+.ttc-once{display:inline-flex;align-items:center;gap:5px;margin-top:3px;font-weight:600;cursor:pointer}
+.ttc-panel.ttc-drop{outline:3px dashed var(--c-acc);outline-offset:-8px}
+.ttc-lb{position:fixed;inset:0;z-index:1200;background:rgba(5,10,20,.92);display:flex;flex-direction:column;align-items:center;justify-content:center;animation:ttcpop .15s ease-out}
+.ttc-lb img{max-width:94vw;max-height:84vh;border-radius:8px;box-shadow:0 20px 60px rgba(0,0,0,.5);user-select:none}
+.ttc-lb.once img{-webkit-user-drag:none;pointer-events:none}
+.ttc-lb-top{position:absolute;top:0;left:0;right:0;display:flex;gap:8px;align-items:center;padding:12px 16px;color:#e2e8f0;font-size:13px}
+.ttc-lb-top span{flex:1}.ttc-lb-top .ttc-ib{text-decoration:none;font-size:16px}
+.ttc-lb-gone{color:#cbd5e1;font-size:15px}
+
+/* ───────── incoming call card ───────── */
+.ttc-ring{position:fixed;top:18px;right:18px;z-index:1250;width:min(380px,calc(100vw - 24px));background:#0f1b30;color:#e8eef7;border-radius:20px;padding:14px;
+  box-shadow:0 24px 60px rgba(5,10,25,.5);display:grid;grid-template-columns:auto 1fr;gap:10px 12px;align-items:center;overflow:hidden;animation:ttcslide .25s ease-out}
+.ttc-ring.support{background:linear-gradient(135deg,#1e1145,#0f1b30)}
+.ttc-ring-av{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:18px;background:linear-gradient(135deg,#1d4ed8,#7c3aed);animation:ttcring 1.6s ease-out infinite}
+@keyframes ttcring{0%{box-shadow:0 0 0 0 rgba(96,165,250,.7)}100%{box-shadow:0 0 0 18px rgba(96,165,250,0)}}
+.ttc-ring-mid b{display:block;font-size:15px}.ttc-ring-mid small{color:#94a3b8}
+.ttc-ring-btns{grid-column:1/-1;display:flex;gap:10px;justify-content:flex-end}
+.ttc-rb{width:46px;height:46px;border-radius:50%;border:0;display:grid;place-items:center;cursor:pointer;color:#fff;background:#1e2a42}
+.ttc-rb svg{width:20px;height:20px}.ttc-rb.yes{background:#16a34a}.ttc-rb.yes:hover{background:#15803d}
+.ttc-rb.no{background:#dc2626}.ttc-rb.no svg{transform:rotate(135deg)}.ttc-rb:hover{filter:brightness(1.15)}
+.ttc-ring-quick{grid-column:1/-1;display:flex;flex-direction:column;gap:4px}
+.ttc-ring-quick button{border:0;background:#1e2a42;color:#e8eef7;border-radius:10px;padding:7px 10px;text-align:left;cursor:pointer;font-size:13px}.ttc-ring-quick button:hover{background:#2a3a5a}
+.ttc-ring-time{position:absolute;left:0;bottom:0;height:3px;width:100%;background:#60a5fa;transform-origin:left;animation:ttcdrain linear forwards}
+@keyframes ttcdrain{to{transform:scaleX(0)}}
+
+/* ───────── call pill & embedded call ───────── */
+.ttc-callpill{position:fixed;left:18px;bottom:18px;z-index:1085;display:flex;align-items:center;gap:8px;border:0;border-radius:24px;padding:9px 16px;
+  background:#16a34a;color:#fff;font-weight:700;font-size:13.5px;box-shadow:0 10px 28px rgba(22,163,74,.45);cursor:pointer;font-variant-numeric:tabular-nums}
+.ttc-callpill i{width:9px;height:9px;border-radius:50%;background:#fff;animation:ttcblink 1.2s ease-in-out infinite}
+@keyframes ttcblink{50%{opacity:.3}}
+.ttc-callframe{position:fixed;right:18px;top:18px;z-index:1240;width:min(440px,calc(100vw - 24px));height:min(720px,calc(100vh - 36px));border-radius:20px;overflow:hidden;
+  box-shadow:0 24px 70px rgba(5,10,25,.55);background:#0b1220;display:flex;flex-direction:column}
+.ttc-callframe iframe{flex:1;border:0;width:100%}.ttc-callframe p{margin:0;padding:7px 12px;font-size:11.5px;color:#94a3b8;background:#0b1220}
+
+/* ───────── privacy shield while sharing a screen ───────── */
+html.tt-shield input[type=password],html.tt-shield [data-tt-secret],html.tt-shield .tt-secret,
+html.tt-shield input[name*=pass i],html.tt-shield input[name*=secret i],html.tt-shield input[name*=token i],html.tt-shield input[name*=apikey i],html.tt-shield input[name*=api_key i],
+html.tt-shield input[autocomplete=one-time-code],html.tt-shield input[autocomplete=current-password],html.tt-shield input[autocomplete=new-password]{
+  filter:blur(7px)!important;transition:filter .2s}
+html.tt-shield .ttc-toasts{display:none!important}
+html.tt-shield .ttc-body{filter:blur(9px);transition:filter .2s}
+html.tt-shield .ttc-panel:hover .ttc-body{filter:none}
+html.tt-shield .ttc-panel::before{content:"🛡️ Chat hidden while you share — hover to show";position:absolute;top:64px;left:50%;transform:translateX(-50%);z-index:2;
+  background:#0f1b30;color:#fff;font-size:12px;padding:4px 10px;border-radius:10px;pointer-events:none;white-space:nowrap}
+html.tt-shield .ttc-panel:hover::before{display:none}
+html.tt-shared body::after{content:"";position:fixed;inset:0;z-index:2147483646;pointer-events:none;border:3px solid #ef4444;box-shadow:inset 0 0 0 1px rgba(255,255,255,.4)}
+html.tt-shared body::before{content:"● You are sharing this tab · passwords and keys are blurred";position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:2147483647;
+  background:#ef4444;color:#fff;font:700 12px/1 system-ui,sans-serif;padding:6px 12px;border-radius:0 0 10px 10px;pointer-events:none}
+.tt-ptr{position:fixed;z-index:2147483647;width:0;height:0;pointer-events:none}
+.tt-ptr::before,.tt-ptr::after{content:"";position:absolute;left:-18px;top:-18px;width:36px;height:36px;border-radius:50%;border:3px solid #facc15;box-shadow:0 0 12px rgba(250,204,21,.6);animation:ttptr 1.5s ease-out forwards}
+.tt-ptr::after{animation-delay:.25s}
+.tt-ptr span{position:absolute;left:16px;top:14px;background:#facc15;color:#1c1917;font:700 11px/1 system-ui,sans-serif;padding:3px 7px;border-radius:8px;white-space:nowrap}
+.tt-ptr span:empty{display:none}
+@keyframes ttptr{from{transform:scale(.3);opacity:1}to{transform:scale(2.2);opacity:0}}
+@media(max-width:576px){.ttc-ring{top:auto;bottom:12px;right:12px}.ttc-callpill{left:12px;bottom:12px}.ttc-callframe{inset:0;width:auto;height:auto;border-radius:0}}
+@media(prefers-reduced-motion:reduce){.ttc-ring,.ttc-ring-av,.ttc-callpill i,.tt-ptr::before,.tt-ptr::after,.ttc-spin{animation:none}}
+@media print{.ttc-ring,.ttc-callpill,.ttc-callframe{display:none}}

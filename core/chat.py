@@ -211,9 +211,9 @@ def mentioned(thread, body):
     return out
 
 
-def post(thread, user, body, page_url='', page_title='', system=False):
+def post(thread, user, body, page_url='', page_title='', system=False, attachment=''):
     body = (body or '').strip()
-    if not body and not page_url:
+    if not body and not page_url and not attachment:
         raise ChatError('Type a message first.')
     if len(body) > 4000:
         raise ChatError('Messages can be up to 4000 characters.')
@@ -223,7 +223,8 @@ def post(thread, user, body, page_url='', page_title='', system=False):
         raise ChatError('You are sending messages very fast. Wait a moment.')
     cache.set(key, n + 1, 60)
     m = ChatMessage.objects.create(thread=thread, sender=user, body=body, page_url=(page_url or '')[:300],
-                                   page_title=(page_title or '')[:120], mentions=mentioned(thread, body), system=system)
+                                   page_title=(page_title or '')[:120], mentions=mentioned(thread, body), system=system,
+                                   attachment=attachment)
     thread.last_at = m.created_at
     fields = ['last_at']
     if thread.kind == 'support':
@@ -258,7 +259,19 @@ def message_json(m, me_id, agent_set=None):
             'sender': ('TapTap · ' + display_name(s)) if is_ag else (display_name(s) if s else 'TapTap'),
             'initials': initials(s) if s else 'TT', 'agent': is_ag,
             'at': timezone.localtime(m.created_at).isoformat(), 'page_url': m.page_url, 'page_title': m.page_title,
-            'mention_me': me_id in (m.mentions or []), 'system': m.system}
+            'mention_me': me_id in (m.mentions or []), 'system': m.system, 'image': _image_json(m)}
+
+
+def _image_json(m):
+    from .chat_media import image_json
+    return image_json(m)
+
+
+def preview_text(m):
+    """One-line summary of a message for the conversation list and emails."""
+    if m.attachment in ('image', 'opened'):
+        return '📷 Photo' + (' · ' + m.body if m.body else '')
+    return m.body or m.page_title or 'Shared a page'
 
 
 def unread_map(user, threads):
@@ -326,7 +339,7 @@ def email_missed(now=None):
             own = m.thread.business if m.thread.business.user_id == u.pk or _member_business_id(u) == m.thread.business_id else None
             title = title_for(m.thread, u, own)[0]
             groups.setdefault(m.thread_id, {'title': title, 'items': []})['items'].append(
-                {'who': display_name(m.sender), 'body': (m.body or m.page_title)[:500], 'when': timezone.localtime(m.created_at)})
+                {'who': display_name(m.sender), 'body': preview_text(m)[:500], 'when': timezone.localtime(m.created_at)})
         ctx = {'name': display_name(u).split(' ')[0], 'groups': list(groups.values()), 'count': len(todo), 'site': site}
         try:
             html = render_to_string('core/email/chat_missed.html', ctx)

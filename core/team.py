@@ -37,6 +37,7 @@ PLATFORM_OPEN = {
     'account_password', 'trusted_devices', 'trusted_device_remove',
     'trusted_devices_remove_all', 'chat_page', 'chat_state', 'chat_history',
     'chat_send', 'chat_read', 'chat_direct', 'chat_settings', 'chat_support_action',
+    'chat_upload', 'chat_image', 'chat_call_page', 'chat_call_poll', 'chat_call_act',
 }
 _BUSINESS_REL = User._meta.get_field('business')
 _actor = ContextVar('tt_actor', default='')
