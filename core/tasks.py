@@ -213,6 +213,13 @@ def push_vouchers_task(router_id, voucher_ids):
 
 
 @shared_task(ignore_result=True, queue=VOUCHER_QUEUE)
+def push_members_task(voucher_ids):
+    """Send these members to their routers with the member-exact sender (write, read back, retry)."""
+    from .member_sync import push_members
+    return push_members(voucher_ids)
+
+
+@shared_task(ignore_result=True, queue=VOUCHER_QUEUE)
 def forget_mac_task(voucher_id, mac):
     """Remove a locked phone's old MAC (session + cookie) from the router after it changed MAC."""
     from .device_lock import forget_mac_now

@@ -296,3 +296,35 @@ Media goes browser-to-browser with WebRTC and is always encrypted (DTLS-SRTP). T
 | `CHAT_TURN_ONLY` | `0` | `1` = every call goes through TURN, so neither side learns the other's IP address |
 
 Requirements: TapTap must be served over **https** (browsers only allow microphone, camera and screen capture on secure pages). Redis must be the cache (the default in docker-compose) so every gunicorn worker sees the same call. Without a TURN server, calls between some mobile networks or strict office firewalls may not connect — a small [coturn](https://github.com/coturn/coturn) server fixes that. Behind nginx, allow photo uploads with `client_max_body_size 6m;`.
+
+## Members reach the router immediately
+
+A member is sent to its router the moment it is created or changed — new member, plan change, plan edit
+(every member on the plan), renewal, password, pause/unpause, block/unblock, router assigned — without waiting
+for the next sync or pressing "Fix on router" (`core/member_sync.py`).
+
+The voucher fast lane already sent anything *saved*; most member code writes with `QuerySet.update()`, which
+skipped it. Those writes are now watched too: when a member's router-relevant values really change, it is queued
+and sent once the transaction commits (one send per router per commit). Writes that leave values unchanged send
+nothing, so the live loop and imports never flood routers; plain vouchers behave exactly as before. Direct API /
+Tunnel members use the member-exact sender (write, read back, retry) on the voucher worker, and the same member
+state is never sent twice within 15 seconds (failures are always retried).
+
+Note on time limits: a member's RouterOS `limit-uptime` is *time left × device slots* (a 30-day plan with 2
+devices shows `60d`) because MikroTik counts every concurrent session. TapTap's expiry still ends the member at
+the real date — see `core/router_time.py`.
+
+## Fit looks after members
+
+Fit can look up members (`find_member`, `members_overview`, `member_plans`) and offer every member change as a
+**Take action** card: create a member, update details & reminders, change plan, renew with payment (booked in
+Finance with a receipt), reset the password, pause now / on a date / when N days are left (with an optional
+unpause date), unpause or cancel a planned pause, block, unblock, sign out of the Wi-Fi and/or member portal,
+email the portal link, add a support note, bin an unused member — plus create/edit a Member Plan and switch one
+on or off (`core/fit_members.py`).
+
+The usual two locks apply: the owner switches on **Members** and **Member Plans** in Fit settings (off by
+default), and the person needs the same role permission as on the Members page (create & renew:
+`vouchers.create`; support work: `vouchers.support`; plan assignment: `vouchers.create` or `plans.manage`; plans:
+`plans.manage`; bin: `vouchers.manage`). Everything is re-checked when Take action is pressed, done by the same
+services as the Members pages, and recorded in the member's history with "(approved in Fit)".
