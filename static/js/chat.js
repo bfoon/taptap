@@ -2,9 +2,10 @@
    Team room · direct messages · TapTap support. Polls /chat/state/ (fast while open, slower
    in the background), shows on-screen toasts with a chime, desktop alerts when the tab is
    hidden, a counter in the tab title, and "share this page" links.
-   Also: photos (deleted for good after 7 days, optional view-once), and voice/video calls with secure
-   screen sharing — the call runs in its own window (static/js/chat-call.js) so you can keep using TapTap;
-   this file rings, shows the call pill, and applies the privacy shield / pointer on the shared tab. */
+   Also: photos and short video clips (deleted for good after 7 days, photos optionally view-once), and voice/video
+   calls with secure screen sharing — the call runs in its own window (static/js/chat-call.js) so you can keep
+   using TapTap; this file rings, shows the call pill, and on the shared tab applies the privacy shield, the
+   pointer ripples, the outline of captured areas, and — only after the owner allows it — remote control. */
 (function () {
   'use strict';
   var root = document.getElementById('ttChat'); if (!root) return;
@@ -192,8 +193,8 @@
       foot.innerHTML = '<div class="ttc-attach ttc-hidden"></div><div class="ttc-comp">' +
         '<button class="ttc-tb" data-a="emoji" title="Emoji">' + ICON.smile + '</button>' +
         '<button class="ttc-tb" data-a="share" title="Share the page you are on">' + ICON.link + '</button>' +
-        '<button class="ttc-tb" data-a="photo" title="Send a photo (deleted after ' + (t.photo_days || 7) + ' days)">' + ICON.image + '</button>' +
-        '<input type="file" accept="image/*" class="ttc-file" hidden>' +
+        '<button class="ttc-tb" data-a="photo" title="Send a photo or a short video (deleted after ' + (t.photo_days || 7) + ' days)">' + ICON.image + '</button>' +
+        '<input type="file" accept="image/*,video/mp4,video/webm,video/quicktime" class="ttc-file" hidden>' +
         '<textarea rows="1" placeholder="' + (t.kind === 'team' ? 'Message the team (@name)' : 'Write a message') + '" aria-label="Message"></textarea>' +
         '<button class="ttc-tb ttc-send" data-a="send" title="Send (Enter)">' + ICON.send + '</button></div>';
       wireComposer();
@@ -249,7 +250,10 @@
     var el = $('.ttc-attach', foot); if (!el) return;
     el.classList.toggle('ttc-hidden', !S.attach && !S.photo);
     var h = S.attach ? '<div class="ttc-att-row"><span>🔗 Sharing: <b>' + esc(S.attach.title) + '</b></span><button class="btn btn-sm btn-link p-0" data-a="unattach">Remove</button></div>' : '';
-    if (S.photo) {
+    if (S.photo && S.photo.video) {
+      h += '<div class="ttc-att-photo"><video src="' + S.photo.url + '" muted playsinline preload="metadata"></video><div><b>Video · ' + (S.photo.blob.size / 1048576).toFixed(1) + ' MB</b>' +
+        '<small>⏳ Deleted for everyone after ' + ((S.thread && S.thread.photo_days) || 7) + ' days</small></div><button class="btn btn-sm btn-link p-0" data-a="unphoto">Remove</button></div>';
+    } else if (S.photo) {
       var days = (S.thread && S.thread.photo_days) || 7, direct = S.thread && S.thread.kind === 'direct';
       h += '<div class="ttc-att-photo"><img src="' + S.photo.url + '" alt=""><div><b>Photo · ' + Math.max(1, Math.round(S.photo.blob.size / 1024)) + ' KB</b>' +
         '<small>' + (S.photo.once ? '👁 Deleted as soon as it is opened' : '⏳ Deleted for everyone after ' + days + ' days') + ' · location data removed</small>' +
@@ -401,8 +405,12 @@
   function imgHTML(m) {
     var im = m.image; if (!im) return '';
     var days = (S.thread && S.thread.photo_days) || 7;
+    if (im.local && im.video) return '<span class="ttc-img ttc-vid sending" style="aspect-ratio:16/9"><video src="' + im.local + '" muted playsinline preload="metadata"></video><i class="ttc-spin"></i></span>';
     if (im.local) return '<span class="ttc-img sending" style="aspect-ratio:' + im.w + '/' + im.h + '"><img src="' + im.local + '" alt=""><i class="ttc-spin"></i></span>';
+    if (im.gone && im.kind === 'video') return '<span class="ttc-img-gone">🎬 Video expired<small>Chat files are deleted after ' + days + ' days</small></span>';
     if (im.gone) return '<span class="ttc-img-gone">' + (im.opened ? '👁 Opened' : '🖼 Photo expired') + '<small>' + (im.opened ? 'View-once photo' : 'Photos are deleted after ' + days + ' days') + '</small></span>';
+    if (im.kind === 'video') return '<span class="ttc-img ttc-vid" style="aspect-ratio:' + (im.w || 16) + '/' + (im.h || 9) + '"><video src="/chat/img/' + m.id + '/" controls playsinline preload="metadata"></video>' +
+      '<span class="ttc-exp" title="Deleted for everyone on ' + esc(new Date(im.expires).toLocaleString()) + '">⏳ ' + timeLeft(im.expires) + '</span></span>';
     if (im.once) return m.mine ? '<span class="ttc-img-gone">👁 View-once photo<small>Not opened yet</small></span>'
       : '<button class="ttc-img-once" data-once="' + m.id + '">👁 Tap to view once<small>It is deleted as soon as you close it</small></button>';
     return '<button class="ttc-img" data-img="' + m.id + '" style="aspect-ratio:' + im.w + '/' + im.h + '" title="Open photo"><img src="/chat/img/' + m.id + '/" loading="lazy" alt="Photo">' +
@@ -430,8 +438,17 @@
       return encode(c, 0.82).then(function (b) { return b && b.size > 900 * 1024 ? encode(c, 0.62) : b; }).then(function (b) { return { blob: b, w: w, h: h }; });
     });
   }
+  function pickVideo(file) {
+    var mb = (S.thread && S.thread.video_mb) || 16;
+    if (file.size > mb * 1048576) return toast({ sender: 'Video', body: 'That video is too big (max ' + mb + ' MB). Send a shorter clip.' });
+    var url = URL.createObjectURL(file), v = document.createElement('video'); v.preload = 'metadata'; v.muted = true;
+    v.onloadedmetadata = function () { clearPhoto(); S.photo = { blob: file, w: v.videoWidth || 1280, h: v.videoHeight || 720, url: url, video: true, once: false }; showAttach(); };
+    v.onerror = function () { URL.revokeObjectURL(url); toast({ sender: 'Video', body: 'This video cannot be played here. Send an MP4 or WebM clip.' }); };
+    v.src = url;
+  }
   function pickPhoto(file) {
     if (!S.thread) return;
+    if (/^video\//.test(file.type)) return pickVideo(file);
     if (!/^image\//.test(file.type)) return toast({ sender: 'Photo', body: 'Pick a photo (JPEG, PNG, WebP or GIF).' });
     compress(file).then(function (r) {
       if (!r.blob) throw new Error('x');
@@ -442,16 +459,17 @@
   function clearPhoto() { if (S.photo) { try { URL.revokeObjectURL(S.photo.url); } catch (e) {} } S.photo = null; showAttach(); }
   function sendPhoto(ta, txt) {
     var p = S.photo; S.photo = null; showAttach(); ta.value = ''; ta.style.height = 'auto';
-    var tmp = { id: 1e15, body: txt, mine: true, sender: S.me.name, at: new Date().toISOString(), image: { local: p.url, w: p.w, h: p.h } };
+    var tmp = { id: 1e15, body: txt, mine: true, sender: S.me.name, at: new Date().toISOString(), image: { local: p.url, w: p.w, h: p.h, video: !!p.video } };
     S.msgs.push(tmp); renderThread();
     var f = new FormData(); f.append('thread', S.thread.id); f.append('body', txt); f.append('once', p.once ? '1' : '0');
-    f.append('file', p.blob, 'photo.' + ((p.blob.type.split('/')[1]) || 'jpg'));
+    if (p.video) { f.append('kind', 'video'); f.append('w', p.w); f.append('h', p.h); f.append('file', p.blob, 'clip.' + ((p.blob.type.split('/')[1]) || 'mp4')); }
+    else f.append('file', p.blob, 'photo.' + ((p.blob.type.split('/')[1]) || 'jpg'));
     fetch('/chat/upload/', { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, body: f })
       .then(function (r) { return r.json(); }).catch(function () { return { ok: false, message: 'Could not send the photo.' }; })
       .then(function (d) {
         S.msgs = S.msgs.filter(function (m) { return m !== tmp; });
         if (d.ok) { if (!S.msgs.some(function (m) { return m.id === d.message.id; })) S.msgs.push(d.message); S.top = Math.max(S.top, d.message.id); }
-        else { toast({ sender: 'Photo not sent', body: d.message || 'Try again.' }); ta.value = txt; }
+        else { toast({ sender: (p.video ? 'Video' : 'Photo') + ' not sent', body: d.message || 'Try again.' }); ta.value = txt; }
         setTimeout(function () { try { URL.revokeObjectURL(p.url); } catch (e) {} }, 5000);
         renderThread(); poll();
       });
@@ -460,7 +478,7 @@
   panel.addEventListener('dragleave', function (e) { if (!panel.contains(e.relatedTarget)) panel.classList.remove('ttc-drop'); });
   panel.addEventListener('drop', function (e) {
     panel.classList.remove('ttc-drop'); if (S.view !== 'thread') return; e.preventDefault();
-    var f = [].slice.call(e.dataTransfer.files || []).filter(function (x) { return /^image\//.test(x.type); })[0]; if (f) pickPhoto(f);
+    var f = [].slice.call(e.dataTransfer.files || []).filter(function (x) { return /^(image|video)\//.test(x.type); })[0]; if (f) pickPhoto(f);
   });
   function lightbox(id, once) {
     var m = S.msgs.filter(function (x) { return x.id === id; })[0] || {}, im = m.image || {};
@@ -483,10 +501,20 @@
 
   // ───────── calls: ring, open the call window, call pill, privacy shield, pointer ─────────
   var bc = window.BroadcastChannel ? new BroadcastChannel('tt-call') : null;
-  var TAB = Math.random().toString(36).slice(2, 12);
+  // One id per browser tab, kept in sessionStorage so it survives page changes in that tab: a shared tab keeps
+  // its pointer, shield and remote control when someone clicks a link. A duplicated tab copies sessionStorage,
+  // so a newcomer asks first and takes a fresh id if another open tab already uses it.
+  function newTab() { return Math.random().toString(36).slice(2, 12); }
+  var TAB = ''; try { TAB = sessionStorage.getItem('tt-tab') || ''; } catch (e) {}
+  if (!/^[a-z0-9]{6,16}$/.test(TAB)) TAB = newTab();
+  var TAB_NONCE = newTab();
+  function captureHandle() {
+    try { sessionStorage.setItem('tt-tab', TAB); } catch (e) {}
+    // Capture Handle: lets the call window know exactly which TapTap tab is being shared (Chrome/Edge).
+    try { if (navigator.mediaDevices && navigator.mediaDevices.setCaptureHandleConfig && window.top === window) navigator.mediaDevices.setCaptureHandleConfig({ handle: TAB, exposeOrigin: true, permittedOrigins: [location.origin] }); } catch (e) {}
+  }
+  captureHandle();
   var CALL = { live: null, seen: 0, ring: null, dismissed: {}, ringT: null, toneT: null };
-  // Capture Handle: lets the call window know exactly which TapTap tab is being shared (Chrome/Edge).
-  try { if (navigator.mediaDevices && navigator.mediaDevices.setCaptureHandleConfig && window.top === window) navigator.mediaDevices.setCaptureHandleConfig({ handle: TAB, exposeOrigin: true, permittedOrigins: [location.origin] }); } catch (e) {}
 
   function callLive() { return CALL.live && Date.now() - CALL.seen < 3500; }
   function openCall(url) {
@@ -527,21 +555,187 @@
   function shield(on, mine) {
     var h = document.documentElement; h.classList.toggle('tt-shield', !!on); h.classList.toggle('tt-shared', !!(on && mine));
   }
-  function pointAt(m) {
-    if (m.surface !== 'browser') return;
+  function pointAt(m, cls) {
+    if (m.surface !== 'browser' && !cls) return;
     if (m.handle ? m.handle !== TAB : document.hidden) return;   // only the tab that is actually being shared
-    var d = document.createElement('div'); d.className = 'tt-ptr'; d.style.left = (m.x * innerWidth) + 'px'; d.style.top = (m.y * innerHeight) + 'px';
+    var d = document.createElement('div'); d.className = 'tt-ptr' + (cls ? ' ' + cls : ''); d.style.left = (m.x * innerWidth) + 'px'; d.style.top = (m.y * innerHeight) + 'px';
     d.innerHTML = '<span>' + esc(m.who || '') + '</span>'; document.body.appendChild(d); setTimeout(function () { d.remove(); }, 1700);
+  }
+  // Outline of an area the other person captured from this tab.
+  function highlight(m) {
+    if (!m.handle || m.handle !== TAB || !m.box) return;
+    var b = m.box, d = document.createElement('div'); d.className = 'tt-hl';
+    d.style.left = (b.x * innerWidth) + 'px'; d.style.top = (b.y * innerHeight) + 'px'; d.style.width = (b.w * innerWidth) + 'px'; d.style.height = (b.h * innerHeight) + 'px';
+    d.innerHTML = '<span>✂️ ' + esc(m.who || '') + ' captured this</span>'; document.body.appendChild(d); setTimeout(function () { d.remove(); }, 2800);
+  }
+
+  // ───────── remote control (only after the owner allows it in the call window) ─────────
+  // The call window passes the other person's clicks, scrolls and keys here, matched by this tab's capture
+  // handle. They run as ordinary page events, with hard limits: never into passwords/secret fields or file
+  // pickers, never the chat or call controls, never other websites, new tabs or sign-out. Esc — a real key
+  // press by the owner — or the bar's button ends control at once.
+  var RC = { on: false, who: '', bar: null, dirty: null, n: 0, sec: 0 };
+  var SECRET = 'input[type=password],input[type=file],input[name*=pass i],input[name*=secret i],input[name*=token i],input[name*=apikey i],input[name*=api_key i],' +
+    'input[autocomplete=one-time-code],input[autocomplete=current-password],input[autocomplete=new-password],[data-tt-secret],.tt-secret';
+  var PRIVATE = '#ttChat,.ttc-ring,.ttc-callpill,.ttc-callframe,.tt-rcbar,[data-no-remote]';
+  function rcSay(ok, why) { if (bc) bc.postMessage({ t: 'rc-res', handle: TAB, ok: ok, why: why || '' }); }
+  function rcModeSet(on, who) {
+    RC.on = !!on; RC.who = who || RC.who; document.documentElement.classList.toggle('tt-controlled', RC.on);
+    if (RC.on && !RC.bar) {
+      RC.bar = document.createElement('div'); RC.bar.className = 'tt-rcbar'; RC.bar.setAttribute('role', 'status');
+      RC.bar.addEventListener('click', function (e) { if (e.isTrusted && e.target.closest('button')) rcRevoke(); });
+      document.body.appendChild(RC.bar);
+    }
+    if (RC.bar) {
+      if (RC.on) RC.bar.innerHTML = '<span>🖱 <b>' + esc(RC.who || 'Support') + '</b> is controlling this tab</span><button type="button">Take back control <kbd>Esc</kbd></button>';
+      else { RC.bar.remove(); RC.bar = null; }
+    }
+    if (!RC.on) RC.dirty = null;
+  }
+  function rcRevoke() { if (!RC.on) return; rcModeSet(false); if (bc) bc.postMessage({ t: 'rc-stop', handle: TAB }); }
+  document.addEventListener('keydown', function (e) { if (RC.on && e.isTrusted && e.key === 'Escape') rcRevoke(); }, true);
+  function rcWhyNot(el) {
+    if (!el) return 'Nothing to click there.';
+    if (el.closest(PRIVATE)) return 'That part of the screen stays private.';
+    if (el.closest(SECRET)) return 'Passwords and secret fields stay with the owner.';
+    var a = el.closest('a[href]');
+    if (a) {
+      var u; try { u = new URL(a.getAttribute('href'), location.href); } catch (e) { return 'That link cannot be opened.'; }
+      if (!/^https?:$/.test(u.protocol) || u.origin !== location.origin) return 'Links to other websites are blocked during control.';
+      if (/log-?out|sign-?out/i.test(u.pathname)) return 'Signing out is blocked during control.';
+      if (a.target && a.target !== '_self' && a.target !== '_top') return 'Links that open a new tab are blocked during control.';
+      if (a.hasAttribute('download')) return 'Downloads are blocked during control.';
+    }
+    var f = el.closest('form'); if (f && /log-?out|sign-?out/i.test(f.getAttribute('action') || '')) return 'Signing out is blocked during control.';
+    return '';
+  }
+  function isText(el) {
+    if (!el) return false;
+    if (el.isContentEditable) return true;
+    if (el.tagName === 'TEXTAREA') return !el.readOnly && !el.disabled;
+    return el.tagName === 'INPUT' && !el.readOnly && !el.disabled &&
+      /^(text|search|email|url|tel|number|date|time|datetime-local|month|week)$/i.test(el.type || 'text');
+  }
+  function setVal(el, v) {
+    var proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    var d = Object.getOwnPropertyDescriptor(proto, 'value'); if (d && d.set) d.set.call(el, v); else el.value = v;
+  }
+  function fireInput(el, type, data) {
+    var ev; try { ev = new InputEvent('input', { bubbles: true, data: data || null, inputType: type }); } catch (e) { ev = new Event('input', { bubbles: true }); }
+    el.dispatchEvent(ev); RC.dirty = el;
+  }
+  function caret(el) { try { var a = el.selectionStart, b = el.selectionEnd; if (typeof a === 'number') return [a, b]; } catch (e) {} return null; }
+  function typeText(el, text) {
+    if (el.isContentEditable) { document.execCommand('insertText', false, text); RC.dirty = el; return; }
+    var c = caret(el), v = el.value || '';
+    if (el.maxLength > 0 && v.length - (c ? c[1] - c[0] : 0) + text.length > el.maxLength) return;
+    if (c) { setVal(el, v.slice(0, c[0]) + text + v.slice(c[1])); try { el.setSelectionRange(c[0] + text.length, c[0] + text.length); } catch (e) {} }
+    else setVal(el, v + text);
+    fireInput(el, 'insertText', text);
+  }
+  function deleteText(el, forward) {
+    if (el.isContentEditable) { document.execCommand(forward ? 'forwardDelete' : 'delete'); RC.dirty = el; return; }
+    var c = caret(el), v = el.value || '';
+    if (!c) { setVal(el, v.slice(0, -1)); return fireInput(el, 'deleteContentBackward'); }
+    var a = c[0], b = c[1]; if (a === b) { if (forward) b = Math.min(v.length, b + 1); else a = Math.max(0, a - 1); }
+    setVal(el, v.slice(0, a) + v.slice(b)); try { el.setSelectionRange(a, a); } catch (e) {}
+    fireInput(el, forward ? 'deleteContentForward' : 'deleteContentBackward');
+  }
+  function flushChange(next) { if (RC.dirty && RC.dirty !== next) { try { RC.dirty.dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {} RC.dirty = null; } }
+  function focusables() {
+    return [].filter.call(document.querySelectorAll('a[href],button,input,select,textarea,[tabindex],[contenteditable=true]'), function (n) {
+      return !n.disabled && n.tabIndex >= 0 && n.offsetParent !== null && !n.closest(PRIVATE) && !n.closest(SECRET);
+    });
+  }
+  function scrollerAt(el, dy, dx) {
+    for (var n = el; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+      var cs = getComputedStyle(n);
+      if (dy && /(auto|scroll|overlay)/.test(cs.overflowY) && n.scrollHeight > n.clientHeight + 1) return n;
+      if (dx && /(auto|scroll|overlay)/.test(cs.overflowX) && n.scrollWidth > n.clientWidth + 1) return n;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+  function mouse(el, type, px, py, extra) {
+    var o = { bubbles: true, cancelable: true, composed: true, view: window, clientX: px, clientY: py, screenX: px, screenY: py, button: 0, buttons: /down/.test(type) ? 1 : 0, detail: 1 };
+    for (var k in extra || {}) o[k] = extra[k];
+    var ev; if (/^pointer/.test(type) && window.PointerEvent) { o.pointerId = 1; o.pointerType = 'mouse'; o.isPrimary = true; ev = new PointerEvent(type, o); } else ev = new MouseEvent(type, o);
+    return el.dispatchEvent(ev);
+  }
+  function remoteDo(m) {
+    if (!RC.on || m.handle !== TAB) return;
+    var sec = Math.floor(Date.now() / 1000); if (RC.sec !== sec) { RC.sec = sec; RC.n = 0; } if (++RC.n > 30) return;
+    var px = (m.x || 0) * innerWidth, py = (m.y || 0) * innerHeight;
+    if (m.op === 'click' || m.op === 'dbl') {
+      var el = document.elementFromPoint(px, py), why = rcWhyNot(el);
+      pointAt({ x: m.x, y: m.y, who: m.who, handle: TAB }, 'ctl');
+      if (why) return rcSay(false, why);
+      flushChange(el);
+      mouse(el, 'pointerdown', px, py); mouse(el, 'mousedown', px, py);
+      var focusTarget = el.closest('input,textarea,select,button,a[href],[tabindex],[contenteditable=true]');
+      if (focusTarget) { try { focusTarget.focus({ preventScroll: true }); } catch (e) {} }
+      else if (document.activeElement && document.activeElement !== document.body) { try { document.activeElement.blur(); } catch (e) {} }
+      mouse(el, 'pointerup', px, py); mouse(el, 'mouseup', px, py); mouse(el, 'click', px, py);
+      if (m.op === 'dbl') mouse(el, 'dblclick', px, py, { detail: 2 });
+      if (focusTarget && focusTarget.tagName === 'SELECT') rcSay(true, 'A list is selected — use ↑ ↓ on your keyboard to choose.');
+      return;
+    }
+    if (m.op === 'scroll') {
+      var at = document.elementFromPoint(px, py) || document.body;
+      if (at.closest(PRIVATE)) return;
+      scrollerAt(at, m.dy, m.dx).scrollBy({ left: m.dx || 0, top: m.dy || 0, behavior: 'auto' });
+      return;
+    }
+    var t = document.activeElement;
+    if (t && t !== document.body && (t.closest(SECRET) || t.closest(PRIVATE))) return rcSay(false, 'Passwords and secret fields stay with the owner.');
+    if (m.op === 'text') { if (isText(t)) typeText(t, String(m.text || '')); else rcSay(false, 'Click a text box first.'); return; }
+    if (m.op !== 'key') return;
+    var key = String(m.key || ''), target = t || document.body;
+    var kd = new KeyboardEvent('keydown', { key: key, bubbles: true, cancelable: true, composed: true, shiftKey: !!m.shift });
+    var go = target.dispatchEvent(kd);
+    if (go) {
+      if (key.length === 1) { if (isText(t)) typeText(t, key); }
+      else if (key === 'Backspace' || key === 'Delete') { if (isText(t)) deleteText(t, key === 'Delete'); }
+      else if (key === 'Enter') {
+        if (t && (t.tagName === 'TEXTAREA' || t.isContentEditable)) typeText(t, '\n');
+        else if (t && t.tagName === 'INPUT' && t.form) {
+          var whyF = rcWhyNot(t.form); if (whyF) rcSay(false, whyF);
+          else { flushChange(null); if (t.form.requestSubmit) t.form.requestSubmit(); else t.form.submit(); }
+        }
+        else if (t && t.matches && t.matches('button,a[href],[role=button],summary')) { var w = rcWhyNot(t); if (w) rcSay(false, w); else t.click(); }
+      }
+      else if (key === 'Tab') {
+        var list = focusables(), i = list.indexOf(t), nx = list[(i + (m.shift ? -1 : 1) + list.length) % list.length];
+        flushChange(nx); if (nx) { try { nx.focus(); } catch (e) {} }
+      }
+      else if (t && t.tagName === 'SELECT' && /^Arrow(Up|Down)$/.test(key)) {
+        var ni = Math.max(0, Math.min(t.options.length - 1, t.selectedIndex + (key === 'ArrowDown' ? 1 : -1)));
+        if (ni !== t.selectedIndex) { t.selectedIndex = ni; t.dispatchEvent(new Event('input', { bubbles: true })); t.dispatchEvent(new Event('change', { bubbles: true })); }
+      }
+      else if (isText(t) && !t.isContentEditable && /^(ArrowLeft|ArrowRight|Home|End)$/.test(key)) {
+        var c = caret(t); if (c) { var p = key === 'Home' ? 0 : key === 'End' ? t.value.length : Math.max(0, Math.min(t.value.length, (key === 'ArrowLeft' ? c[0] - 1 : c[1] + 1))); try { t.setSelectionRange(p, p); } catch (e) {} }
+      }
+      else if (!isText(t) && /^(ArrowUp|ArrowDown|PageUp|PageDown|Home|End)$/.test(key)) {
+        var dy = { ArrowUp: -60, ArrowDown: 60, PageUp: -innerHeight * 0.85, PageDown: innerHeight * 0.85, Home: -1e6, End: 1e6 }[key];
+        scrollerAt(t && t !== document.body ? t : document.body, dy, 0).scrollBy({ top: dy, behavior: 'auto' });
+      }
+    }
+    target.dispatchEvent(new KeyboardEvent('keyup', { key: key, bubbles: true, cancelable: true, composed: true, shiftKey: !!m.shift }));
   }
   if (bc) {
     bc.onmessage = function (e) {
       var m = e.data || {};
       if (m.t === 'call') { if (m.state === 'live') { CALL.live = m; CALL.seen = Date.now(); } else { CALL.live = null; pill.classList.add('ttc-hidden'); } }
-      else if (m.t === 'shield') shield(m.on, m.handle && m.handle === TAB);
+      else if (m.t === 'shield') { shield(m.on, m.handle && m.handle === TAB); if (!m.on && RC.on) rcModeSet(false); }
       else if (m.t === 'ptr') pointAt(m);
+      else if (m.t === 'hl') highlight(m);
+      else if (m.t === 'rc-mode') { if (m.handle && m.handle === TAB) rcModeSet(m.on, m.who); else if (RC.on && m.handle !== TAB) rcModeSet(false); }
+      else if (m.t === 'rc') remoteDo(m);
+      else if (m.t === 'tab-claim' && m.tab === TAB && m.nonce !== TAB_NONCE) bc.postMessage({ t: 'tab-taken', tab: TAB, nonce: m.nonce });
+      else if (m.t === 'tab-taken' && m.nonce === TAB_NONCE && m.tab === TAB) { TAB = newTab(); captureHandle(); }
       else if (m.t === 'ring-done') { CALL.dismissed[m.id] = 1; hideRing(); }
     };
-    bc.postMessage({ t: 'hello?', tab: TAB });              // a call window already sharing will re-send its shield state
+    bc.postMessage({ t: 'tab-claim', tab: TAB, nonce: TAB_NONCE });   // a duplicated tab gets its own id
+    setTimeout(function () { bc.postMessage({ t: 'hello?', tab: TAB }); }, 150);   // a call window already sharing re-sends shield / control state
   }
 
   // Incoming calls: a cheap poll (cache only) every few seconds.

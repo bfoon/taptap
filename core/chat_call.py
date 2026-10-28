@@ -23,6 +23,11 @@ Who can be called
              agent → everyone in that business (first to answer).
     team     not called directly — tap a person to start a direct call.
 
+In-call tools (all peer-to-peer over the call's encrypted data channel, see static/js/chat-call.js):
+camera flip / back camera, drag-to-capture an area into the chat, short screen recordings (stored as chat
+video clips, deleted with every chat file after a week) and remote control of a shared TapTap tab — which
+the sharer must allow, can take back at any moment (Esc), and which leaves a note in the conversation.
+
 Privacy: CHAT_TURN_ONLY=1 sends every call through your TURN relay, so neither side ever learns the
 other's IP address (useful when TapTap Support calls customers). The browser verifies the other side
 with "safety emoji" derived from both DTLS fingerprints — see static/js/chat-call.js.
@@ -277,6 +282,27 @@ def finish(call, reason='ended'):
         thread = ChatThread.objects.select_related('business').get(pk=call['thread'])
         caller = User.objects.get(pk=call['caller'])
         chat.post(thread, caller, text, system=True)
+    except Exception:
+        pass
+
+
+def log_control(call, user, secs):
+    """The sharer's call window reports that a remote-control session ended: leave an audit note in the chat."""
+    other = other_uid(call, user.pk)
+    if not other:
+        return
+    key = _k(call['id'], f'ctl:{int(time.time()) // 5}')
+    if not cache.add(key, 1, 30):                # one note per session even if the beacon fires twice
+        return
+    secs = max(0, min(int(secs or 0), CALL_TTL))
+    try:
+        from django.contrib.auth.models import User
+        from .models_chat import ChatThread
+        u = User.objects.filter(pk=other).first()
+        thread = ChatThread.objects.select_related('business').get(pk=call['thread'])
+        who = chat.display_name(u).split(' ')[0] if u else 'Someone'
+        me = chat.display_name(user).split(' ')[0]
+        chat.post(thread, user, f'🖱 {who} had remote control of {me}’s TapTap tab · {secs // 60}:{secs % 60:02d}', system=True)
     except Exception:
         pass
 

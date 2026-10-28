@@ -4,5 +4,5 @@
 <style>body{background:#f4f7fb}.sa-top{display:flex;justify-content:space-between;align-items:center;padding:14px 22px;background:#0b1f36;color:#fff}.sa-top a{color:#cfe0f5}</style></head>
 <body><div class="sa-top"><b>TapTap · {% block heading %}Support inbox{% endblock %}</b><span class="small">{{ user.get_full_name|default:user.email }} · <a href="{% url 'account_password' %}">Password</a> · <a href="{% url 'logout' %}">Sign out</a></span></div>
 <main class="container-fluid py-3" style="max-width:1100px">{% block content %}{% endblock %}</main>
-{% if user.is_authenticated %}<link href="{% static 'css/chat.css' %}" rel="stylesheet"><div id="ttChat" data-csrf="{{ csrf_token }}" data-full="{% block chat_full %}0{% endblock %}"></div><script src="{% static 'js/chat.js' %}" defer></script>{% endif %}
+{% if user.is_authenticated %}<link href="{% static 'css/chat.css' %}?v=call2" rel="stylesheet"><div id="ttChat" data-csrf="{{ csrf_token }}" data-full="{% block chat_full %}0{% endblock %}"></div><script src="{% static 'js/chat.js' %}?v=call2" defer></script>{% endif %}
 </body></html>

@@ -115,3 +115,32 @@ svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-l
 
 @media(max-width:420px){.cw-btn{min-width:46px}.cw-btn svg{padding:10px}.cw-self,.cw.viewing .cw-peer{width:84px}}
 @media(prefers-reduced-motion:reduce){.cw-aura,.cw-bigav.pulse,.cw-myshare,.cw-react span,.cw-ping::before,.cw-ping::after{animation:none;transition:none}}
+
+/* ───────── in-call tools: flip, capture an area, short recording, remote control ───────── */
+.cw-self.back video,.cw-myshare video{transform:none}.cw-myshare.mirror video{transform:scaleX(-1)}
+.cw-screen video,.cw-peer video{touch-action:none;user-select:none;-webkit-user-select:none}
+.cw-peer video{cursor:crosshair}
+.cw-snipbox{position:absolute;z-index:4;pointer-events:none;border:2px dashed #facc15;background:rgba(250,204,21,.12);box-shadow:0 0 0 9999px rgba(0,0,0,.35);border-radius:4px}
+.cw.snipping .cw-screen video,.cw.snipping .cw-peer video{cursor:cell}
+.cw.snipping [data-a=snip]{background:#facc15;color:#1c1917}
+.cw-hl{position:absolute;z-index:3;pointer-events:none;border:2px solid #facc15;border-radius:4px;box-shadow:0 0 0 2px rgba(0,0,0,.35),0 0 18px rgba(250,204,21,.55);animation:cwhl 2.6s ease-out forwards}
+.cw-hl[data-label]::after{content:attr(data-label);position:absolute;left:-2px;top:-22px;background:#facc15;color:#1c1917;font:700 11px/1 system-ui,sans-serif;padding:4px 7px;border-radius:6px 6px 6px 0;white-space:nowrap}
+@keyframes cwhl{0%{opacity:0;transform:scale(1.04)}10%{opacity:1;transform:none}80%{opacity:1}100%{opacity:0}}
+.cw-screen-tools .cw-ib,.cw-peer-tools .cw-ib{width:auto;min-width:36px;padding:0 9px;gap:5px;display:inline-flex;align-items:center;justify-content:center}
+.cw-ib em{font-style:normal;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}.cw-ib em:empty{display:none}
+.cw-recbtn svg{color:#f87171}.cw-recbtn.live{background:#dc2626}.cw-recbtn.live svg{color:#fff;animation:ttrec 1s ease-in-out infinite}
+@keyframes ttrec{50%{opacity:.35}}
+.cw-ctlbtn{background:rgba(124,58,237,.75)}.cw-ctlbtn:hover{background:rgba(124,58,237,.95)}
+.cw-ctlbtn.wait{background:rgba(124,58,237,.45)}.cw-ctlbtn.on{background:#16a34a}
+.cw.controlling .cw-screen{box-shadow:inset 0 0 0 3px #22c55e}
+.cw.controlling .cw-screen video{cursor:default}
+.cw.controlling .cw-hint{display:none}
+.cw-ping.ctl::before,.cw-ping.ctl::after{border-color:#22c55e;box-shadow:0 0 12px rgba(34,197,94,.6)}
+.cw-ping[data-label].ctl::before{border-width:4px}
+.cw-peer-tools{position:absolute;right:10px;bottom:10px;z-index:3;display:flex;gap:6px;align-items:center}
+.cw-pfacing{font-weight:500;color:#cbd5e1}
+.cw-myshare.recorded,.cw-self.recorded{border-color:#dc2626;box-shadow:0 0 0 4px rgba(220,38,38,.45)}
+.cw-myshare.recorded::after,.cw-self.recorded::after{content:"● REC";position:absolute;right:6px;top:6px;z-index:3;font:800 10px/1 system-ui,sans-serif;color:#fff;background:#dc2626;padding:3px 6px;border-radius:6px;animation:ttrec 1s ease-in-out infinite}
+.cw-btn:disabled{opacity:.5;cursor:wait}
+@media(max-width:420px){.cw-hint,.cw-hint2{display:none}.cw-screen-tools .cw-ib em{display:none}}
+@media(prefers-reduced-motion:reduce){.cw-hl,.cw-recbtn.live svg,.cw-myshare.recorded::after,.cw-self.recorded::after{animation:none}}

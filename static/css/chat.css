@@ -152,3 +152,26 @@ html.tt-shared body::before{content:"● You are sharing this tab · passwords a
 @media(max-width:576px){.ttc-ring{top:auto;bottom:12px;right:12px}.ttc-callpill{left:12px;bottom:12px}.ttc-callframe{inset:0;width:auto;height:auto;border-radius:0}}
 @media(prefers-reduced-motion:reduce){.ttc-ring,.ttc-ring-av,.ttc-callpill i,.tt-ptr::before,.tt-ptr::after,.ttc-spin{animation:none}}
 @media print{.ttc-ring,.ttc-callpill,.ttc-callframe{display:none}}
+
+/* ───────── chat video clips ───────── */
+.ttc-vid{cursor:default;background:#000}
+.ttc-vid video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+.ttc-vid.sending video{opacity:.55}
+.ttc-vid .ttc-exp{bottom:auto;top:6px}
+.ttc-att-photo video{width:56px;height:56px;object-fit:cover;border-radius:10px;background:#000}
+
+/* ───────── call extras on the shared tab: captured-area outline, remote control ───────── */
+.tt-hl{position:fixed;z-index:2147483646;pointer-events:none;border:3px solid #facc15;border-radius:6px;box-shadow:0 0 0 9999px rgba(0,0,0,.18),0 0 20px rgba(250,204,21,.6);animation:tthl 2.8s ease-out forwards}
+.tt-hl span{position:absolute;left:-3px;top:-24px;background:#facc15;color:#1c1917;font:700 11px/1 system-ui,sans-serif;padding:5px 8px;border-radius:6px 6px 6px 0;white-space:nowrap}
+@keyframes tthl{0%{opacity:0}8%{opacity:1}80%{opacity:1}100%{opacity:0}}
+.tt-ptr.ctl::before,.tt-ptr.ctl::after{border-color:#22c55e;box-shadow:0 0 12px rgba(34,197,94,.65)}
+.tt-ptr.ctl span{background:#22c55e;color:#fff}
+html.tt-controlled body::after{border-color:#22c55e!important}
+html.tt-controlled.tt-shared body::before{content:"● Sharing this tab · remote control is on"!important;background:#16a34a!important}
+.tt-rcbar{position:fixed;left:50%;top:30px;transform:translateX(-50%);z-index:2147483647;display:flex;align-items:center;gap:10px;padding:7px 8px 7px 14px;border-radius:14px;
+  background:#0f1b30;color:#fff;font:600 13px/1.2 system-ui,sans-serif;box-shadow:0 12px 32px rgba(5,10,25,.45);border:2px solid #22c55e;max-width:calc(100vw - 24px)}
+.tt-rcbar button{border:0;border-radius:10px;padding:7px 12px;background:#22c55e;color:#052e1a;font:800 12.5px/1 system-ui,sans-serif;cursor:pointer;white-space:nowrap}
+.tt-rcbar button:hover{background:#4ade80}
+.tt-rcbar kbd{font:700 10.5px/1 system-ui,sans-serif;background:rgba(5,46,26,.18);border-radius:4px;padding:2px 5px;margin-left:4px}
+@media print{.tt-rcbar,.tt-hl{display:none}}
+@media(prefers-reduced-motion:reduce){.tt-hl{animation:none}}

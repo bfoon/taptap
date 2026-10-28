@@ -1,4 +1,4 @@
-"""Chat photos — upload, sanitise, serve, and delete for good after a week.
+"""Chat photos and short video clips — upload, sanitise, serve, and delete for good after a week.
 
 Why photos are kept in the database and not on disk: web, worker and live containers all see the same
 Postgres, so the hourly purge (run by Celery beat in the "live" container) can delete them without a shared
@@ -12,8 +12,16 @@ Privacy and safety
   * A photo is served only to people who can open its conversation, with nosniff and a sandbox CSP.
   * View-once photos are deleted the moment someone other than the sender opens them.
 
+Video clips (short screen recordings from a call, or a small clip sent in chat)
+  * Stored in the same table as photos (mime video/webm or video/mp4), so the same hourly purge deletes them
+    after CHAT_IMAGE_DAYS — every chat media file disappears after a week, no exceptions.
+  * The type is decided from the first bytes (WebM/Matroska EBML header or an MP4 "ftyp" box), never from
+    the file name or what the browser claims. Served with HTTP Range support so phones can seek and play.
+  * CHAT_VIDEO_MAX_MB (default 16) per clip, CHAT_VIDEO_SECONDS (default 30) for call recordings,
+    CHAT_VIDEO_PER_HOUR (default 20) clips per person. Clips count towards the business quota.
+
 Space
-  * CHAT_IMAGE_DAYS (default 7) — then the photo is deleted for good; the message says "Photo expired".
+  * CHAT_IMAGE_DAYS (default 7) — then the file is deleted for good; the message says "Photo expired".
   * CHAT_IMAGE_MAX_MB (default 5) per photo, CHAT_IMAGE_QUOTA_MB (default 300) of live photos per business,
     CHAT_IMAGE_PER_HOUR (default 60) uploads per person.
 """
@@ -36,6 +44,10 @@ MAX_BYTES = int(float(os.getenv('CHAT_IMAGE_MAX_MB', '5')) * 1024 * 1024)
 QUOTA_BYTES = int(float(os.getenv('CHAT_IMAGE_QUOTA_MB', '300')) * 1024 * 1024)
 PER_HOUR = int(os.getenv('CHAT_IMAGE_PER_HOUR', '60'))
 MAX_SIDE = 8000
+VIDEO_MAX_BYTES = int(float(os.getenv('CHAT_VIDEO_MAX_MB', '16')) * 1024 * 1024)
+VIDEO_SECONDS = int(os.getenv('CHAT_VIDEO_SECONDS', '30'))
+VIDEO_PER_HOUR = int(os.getenv('CHAT_VIDEO_PER_HOUR', '20'))
+MEDIA = ('image', 'video')                      # ChatMessage.attachment values that have a ChatImage row
 
 
 # ─────────────────────────────── file type ───────────────────────────────
@@ -49,6 +61,14 @@ def sniff(data: bytes) -> str:
         return 'image/webp'
     if data[:6] in (b'GIF87a', b'GIF89a'):
         return 'image/gif'
+    return ''
+
+
+def sniff_video(data: bytes) -> str:
+    if data[:4] == b'\x1a\x45\xdf\xa3':          # EBML: WebM / Matroska (what Chrome, Edge and Firefox record)
+        return 'video/webm'
+    if data[4:8] == b'ftyp':                     # ISO base media: MP4 (what Safari records)
+        return 'video/mp4'
     return ''
 
 
@@ -218,17 +238,57 @@ def save_image(thread, user, upload, caption='', view_once=False):
     return m
 
 
+def _side(v, default):
+    try:
+        v = int(float(v))
+    except (TypeError, ValueError):
+        return default
+    return v if 16 <= v <= 4096 else default
+
+
+def save_video(thread, user, upload, caption='', width=0, height=0):
+    """Store a short video clip (a call screen recording or a small clip) as a new chat message."""
+    if upload is None:
+        raise chat.ChatError('Choose a video first.')
+    mb = VIDEO_MAX_BYTES // (1024 * 1024)
+    if upload.size > VIDEO_MAX_BYTES:
+        raise chat.ChatError(f'That video is too big (max {mb} MB). Keep clips short.')
+    key = f'chat:vidrate:{user.pk}'
+    n = cache.get(key, 0)
+    if n >= VIDEO_PER_HOUR:
+        raise chat.ChatError('You have sent a lot of videos this hour. Try again a little later.')
+    data = upload.read(VIDEO_MAX_BYTES + 1)
+    if len(data) > VIDEO_MAX_BYTES:
+        raise chat.ChatError(f'That video is too big (max {mb} MB).')
+    if len(data) < 64:
+        raise chat.ChatError('That video is empty.')
+    mime = sniff_video(data)
+    if not mime:
+        raise chat.ChatError('Only WebM or MP4 videos can be sent.')
+    if QUOTA_BYTES and business_usage(thread.business_id) + len(data) > QUOTA_BYTES:
+        raise chat.ChatError('Chat media storage for this business is full. Older files are deleted after '
+                             f'{DAYS} days — try again soon.')
+    w, h = _side(width, 1280), _side(height, 720)
+    with transaction.atomic():
+        m = chat.post(thread, user, caption, attachment='video')
+        ChatImage.objects.create(message=m, business_id=thread.business_id, data=data, mime=mime, width=w, height=h,
+                                 size=len(data), view_once=False,
+                                 expires_at=timezone.now() + timedelta(days=DAYS))
+    cache.set(key, n + 1, 3600)
+    return m
+
+
 # ─────────────────────────────── message JSON helpers ───────────────────────────────
 
 def prime(messages):
     """Load photo details (never the bytes) for a list of messages in one query; message_json reads m._img."""
-    ids = [m.pk for m in messages if m.attachment == 'image']
+    ids = [m.pk for m in messages if m.attachment in MEDIA]
     found = {}
     if ids:
         for im in ChatImage.objects.filter(message_id__in=ids).defer('data'):
             found[im.message_id] = im
     for m in messages:
-        if m.attachment == 'image':
+        if m.attachment in MEDIA:
             m._img = found.get(m.pk)
     return messages
 
@@ -236,14 +296,15 @@ def prime(messages):
 def image_json(m):
     if m.attachment == 'opened':
         return {'gone': True, 'opened': True}
-    if m.attachment != 'image':
+    if m.attachment not in MEDIA:
         return None
+    kind = m.attachment
     im = getattr(m, '_img', 'unset')
     if im == 'unset':
         im = ChatImage.objects.filter(message_id=m.pk).defer('data').first()
     if im is None or im.expires_at <= timezone.now():
-        return {'gone': True, 'opened': False}
-    return {'gone': False, 'id': m.pk, 'w': im.width, 'h': im.height, 'once': im.view_once,
+        return {'gone': True, 'opened': False, 'kind': kind}
+    return {'gone': False, 'id': m.pk, 'kind': kind, 'w': im.width, 'h': im.height, 'once': im.view_once,
             'expires': timezone.localtime(im.expires_at).isoformat(), 'size': im.size}
 
 
@@ -270,7 +331,7 @@ def open_image(message, user):
 # ─────────────────────────────── purge ───────────────────────────────
 
 def purge_expired(now=None):
-    """Delete every chat photo past its expiry, for good. Run hourly by Celery beat."""
+    """Delete every chat photo and video clip past its expiry, for good. Run hourly by Celery beat."""
     now = now or timezone.now()
     total = 0
     while True:                                 # in batches so a big backlog never locks the table for long

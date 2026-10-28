@@ -271,6 +271,8 @@ def preview_text(m):
     """One-line summary of a message for the conversation list and emails."""
     if m.attachment in ('image', 'opened'):
         return '📷 Photo' + (' · ' + m.body if m.body else '')
+    if m.attachment == 'video':
+        return m.body or '🎬 Video clip'
     return m.body or m.page_title or 'Shared a page'
 
 

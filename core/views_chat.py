@@ -120,7 +120,8 @@ def chat_history(request, pk):
     return JsonResponse({'ok': True, 'thread': {'id': t.pk, 'kind': t.kind, 'title': title, 'sub': sub, 'status': t.support_status,
                                                 'agent_view': t.kind == 'support' and chat.is_agent(request.user) and not (_biz(request) and _biz(request).pk == t.business_id),
                                                 'can_call': t.kind in ('direct', 'support'), 'can_photo': True,
-                                                'photo_days': chat_media.DAYS},
+                                                'photo_days': chat_media.DAYS,
+                                                'video_mb': chat_media.VIDEO_MAX_BYTES // (1024 * 1024)},
                          'messages': [chat.message_json(m, request.user.pk, agent_set) for m in rows], 'more': len(rows) == 40})
 
 
@@ -249,11 +250,17 @@ def platform_support_team(request):
 @login_required
 @require_POST
 def chat_upload(request):
-    """Send a photo (multipart: thread, file, body, once). Kept CHAT_IMAGE_DAYS (7) days, then deleted for good."""
+    """Send a photo or a short video clip (multipart: thread, file, body, once | kind=video, w, h).
+    Every chat file is kept CHAT_IMAGE_DAYS (7) days, then deleted for good."""
     try:
         t = _thread(request, int(request.POST.get('thread') or 0))
-        m = chat_media.save_image(t, request.user, request.FILES.get('file'), request.POST.get('body', ''),
-                                  request.POST.get('once') == '1')
+        f = request.FILES.get('file')
+        if request.POST.get('kind') == 'video' or (f is not None and (f.content_type or '').startswith('video/')):
+            m = chat_media.save_video(t, request.user, f, request.POST.get('body', ''),
+                                      request.POST.get('w'), request.POST.get('h'))
+        else:
+            m = chat_media.save_image(t, request.user, f, request.POST.get('body', ''),
+                                      request.POST.get('once') == '1')
     except (chat.ChatError, ValueError) as e:
         return _err(e)
     chat_media.prime([m])
@@ -268,14 +275,36 @@ def chat_image(request, pk):
         return HttpResponseNotFound()
     got = chat_media.open_image(m, request.user)
     if got is None:
-        return HttpResponse('This photo has expired.', status=410, content_type='text/plain')
+        return HttpResponse('This file has expired.', status=410, content_type='text/plain')
     if got == 'sender':
         return HttpResponse('View-once photos cannot be reopened.', status=403, content_type='text/plain')
     data, mime, once = got
-    r = HttpResponse(data, content_type=mime)
+    status, total, extra = 200, len(data), {}
+    rng = request.META.get('HTTP_RANGE', '') if mime.startswith('video/') else ''
+    if rng.startswith('bytes=') and ',' not in rng:          # video players (Safari above all) seek with Range
+        a, _, b = rng[6:].strip().partition('-')
+        try:
+            if a == '':
+                start, end = max(0, total - int(b)), total - 1
+            else:
+                start, end = int(a), min(int(b) if b else total - 1, total - 1)
+        except ValueError:
+            start, end = 0, total - 1
+        if start >= total or start > end:
+            r = HttpResponse(status=416)
+            r['Content-Range'] = f'bytes */{total}'
+            return r
+        data, status = data[start:end + 1], 206
+        extra['Content-Range'] = f'bytes {start}-{end}/{total}'
+    r = HttpResponse(data, content_type=mime, status=status)
+    for k, v in extra.items():
+        r[k] = v
+    if mime.startswith('video/'):
+        r['Accept-Ranges'] = 'bytes'
+    what = 'video' if mime.startswith('video/') else 'photo'
     r['X-Content-Type-Options'] = 'nosniff'
     r['Content-Security-Policy'] = "default-src 'none'; sandbox"
-    r['Content-Disposition'] = f'inline; filename="taptap-photo-{pk}.{mime.split("/")[1]}"'
+    r['Content-Disposition'] = f'inline; filename="taptap-{what}-{pk}.{mime.split("/")[1]}"'
     r['Cache-Control'] = 'no-store' if once else 'private, max-age=86400'
     r['Referrer-Policy'] = 'no-referrer'
     return r
@@ -291,7 +320,8 @@ def chat_call_page(request):
         'thread': int(request.GET.get('thread') or 0), 'video': request.GET.get('video') == '1',
         'join': (request.GET.get('join') or '')[:40], 'embedded': request.GET.get('embed') == '1',
         'me': chat.display_name(request.user), 'me_initials': chat.initials(request.user),
-        'image_days': chat_media.DAYS})
+        'image_days': chat_media.DAYS, 'video_secs': chat_media.VIDEO_SECONDS,
+        'video_mb': chat_media.VIDEO_MAX_BYTES // (1024 * 1024)})
     r['Permissions-Policy'] = 'camera=(self), microphone=(self), display-capture=(self), autoplay=(self)'
     r['Cache-Control'] = 'no-store'
     r['Referrer-Policy'] = 'no-referrer'
@@ -316,7 +346,7 @@ def chat_call_poll(request):
 @login_required
 @require_POST
 def chat_call_act(request):
-    """start · offer · accept · answer · decline · end · reply (decline with a quick message)."""
+    """start · offer · accept · answer · decline · end · reply (decline with a quick message) · log (remote-control note)."""
     from . import chat_call
     d = _body(request) if request.content_type == 'application/json' else request.POST.dict()
     act, user = d.get('action'), request.user
@@ -344,6 +374,9 @@ def chat_call_act(request):
             if act == 'reply' and text:
                 from .models_chat import ChatThread
                 chat.post(ChatThread.objects.select_related('business').get(pk=call['thread']), user, text)
+        elif act == 'log':
+            if d.get('event') == 'control':
+                chat_call.log_control(call, user, d.get('secs'))
         elif act == 'end':
             chat_call.finish(call, 'cancelled' if user.pk == call['caller'] and chat_call.state(call)[0] == 'ringing' else d.get('reason') or 'ended')
         else:
