@@ -129,20 +129,32 @@ html[data-theme="dark"] .ttc{--c-bg:#1f242b;--c-ink:#e3e9f0;--c-mut:#94a3b4;--c-
   box-shadow:0 24px 70px rgba(5,10,25,.55);background:#0b1220;display:flex;flex-direction:column}
 .ttc-callframe iframe{flex:1;border:0;width:100%}.ttc-callframe p{margin:0;padding:7px 12px;font-size:11.5px;color:#94a3b8;background:#0b1220}
 
-/* ───────── privacy shield while sharing a screen ───────── */
-html.tt-shield input[type=password],html.tt-shield [data-tt-secret],html.tt-shield .tt-secret,
-html.tt-shield input[name*=pass i],html.tt-shield input[name*=secret i],html.tt-shield input[name*=token i],html.tt-shield input[name*=apikey i],html.tt-shield input[name*=api_key i],
-html.tt-shield input[autocomplete=one-time-code],html.tt-shield input[autocomplete=current-password],html.tt-shield input[autocomplete=new-password]{
+/* ───────── privacy while sharing a screen ─────────
+   Sharing a TapTap tab (Chrome/Edge): the OWNER's screen stays sharp — the call window hides these spots in the
+   video the viewer receives. The owner only sees a gentle dashed outline: "the viewer can't see this".
+   tt-shield-css is the fallback (whole-screen/window shares, other browsers): blur on the owner's screen. */
+html.tt-shield-css input[type=password],html.tt-shield-css [data-tt-secret],html.tt-shield-css .tt-secret,
+html.tt-shield-css input[name*=pass i],html.tt-shield-css input[name*=secret i],html.tt-shield-css input[name*=token i],html.tt-shield-css input[name*=apikey i],html.tt-shield-css input[name*=api_key i],
+html.tt-shield-css input[autocomplete=one-time-code],html.tt-shield-css input[autocomplete=current-password],html.tt-shield-css input[autocomplete=new-password]{
   filter:blur(7px)!important;transition:filter .2s}
-html.tt-shield .ttc-toasts{display:none!important}
-html.tt-shield .ttc-body{filter:blur(9px);transition:filter .2s}
-html.tt-shield .ttc-panel:hover .ttc-body{filter:none}
-html.tt-shield .ttc-panel::before{content:"🛡️ Chat hidden while you share — hover to show";position:absolute;top:64px;left:50%;transform:translateX(-50%);z-index:2;
+html.tt-shield-css .ttc-toasts{display:none!important}
+html.tt-shield-css .ttc-body{filter:blur(9px);transition:filter .2s}
+html.tt-shield-css .ttc-panel:hover .ttc-body{filter:none}
+html.tt-shield-css .ttc-panel::before{content:"🛡️ Chat hidden while you share — hover to show";position:absolute;top:64px;left:50%;transform:translateX(-50%);z-index:2;
   background:#0f1b30;color:#fff;font-size:12px;padding:4px 10px;border-radius:10px;pointer-events:none;white-space:nowrap}
-html.tt-shield .ttc-panel:hover::before{display:none}
+html.tt-shield-css .ttc-panel:hover::before{display:none}
+/* masked share: the owner sees a hint of what is hidden from the viewer (the hint itself sits under the mask) */
+html.tt-masked input[type=password],html.tt-masked [data-tt-secret],html.tt-masked .tt-secret,html.tt-masked [data-tt-private],
+html.tt-masked input[name*=pass i],html.tt-masked input[name*=secret i],html.tt-masked input[name*=token i],html.tt-masked input[name*=apikey i],html.tt-masked input[name*=api_key i],
+html.tt-masked input[autocomplete=one-time-code],html.tt-masked input[autocomplete=current-password],html.tt-masked input[autocomplete=new-password]{
+  outline:2px dashed rgba(139,92,246,.75)!important;outline-offset:1px}
+html.tt-masked .ttc-panel{box-shadow:0 0 0 2px rgba(139,92,246,.8),0 18px 50px rgba(5,10,25,.35)}
+html.tt-masked .ttc-panel::after{content:"🔒 Hidden from the person viewing your screen";position:absolute;left:50%;bottom:6px;transform:translateX(-50%);z-index:3;
+  background:#5b21b6;color:#fff;font:600 11px/1 system-ui,sans-serif;padding:4px 9px;border-radius:9px;pointer-events:none;white-space:nowrap}
 html.tt-shared body::after{content:"";position:fixed;inset:0;z-index:2147483646;pointer-events:none;border:3px solid #ef4444;box-shadow:inset 0 0 0 1px rgba(255,255,255,.4)}
 html.tt-shared body::before{content:"● You are sharing this tab · passwords and keys are blurred";position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:2147483647;
   background:#ef4444;color:#fff;font:700 12px/1 system-ui,sans-serif;padding:6px 12px;border-radius:0 0 10px 10px;pointer-events:none}
+html.tt-shared.tt-masked body::before{content:"● You are sharing this tab · 🔒 passwords and chats are hidden from the viewer"}
 .tt-ptr{position:fixed;z-index:2147483647;width:0;height:0;pointer-events:none}
 .tt-ptr::before,.tt-ptr::after{content:"";position:absolute;left:-18px;top:-18px;width:36px;height:36px;border-radius:50%;border:3px solid #facc15;box-shadow:0 0 12px rgba(250,204,21,.6);animation:ttptr 1.5s ease-out forwards}
 .tt-ptr::after{animation-delay:.25s}

@@ -339,7 +339,8 @@
     var el = document.createElement('div');
     el.className = 'ttc-toast ' + (kind || '');
     el.innerHTML = av(m.initials || '💬', m.sender || 'Chat') + '<div><b>' + esc(m.sender) + (m.threadTitle ? ' · ' + esc(m.threadTitle) : '') + '</b><p>' + esc(m.body || m.page_title || '') + '</p></div>';
-    el.addEventListener('click', function () { el.remove(); if (m.thread) { if (!S.open) setOpen(true); openThread(m.thread); } });
+    el.addEventListener('click', function () { el.remove(); if (m.onclick) return m.onclick(); if (m.thread) { if (!S.open) setOpen(true); openThread(m.thread); } });
+    if (m.key) { var old = toasts.querySelector('[data-key="' + m.key + '"]'); if (old) old.remove(); el.dataset.key = m.key; }
     toasts.appendChild(el); while (toasts.children.length > 3) toasts.firstChild.remove();
     setTimeout(function () { el.style.transition = 'opacity .4s'; el.style.opacity = '0'; setTimeout(function () { el.remove(); }, 450); }, 7000);
   }
@@ -552,22 +553,86 @@
     pill.classList.remove('ttc-hidden');
   }, 1000);
 
-  function shield(on, mine) {
-    var h = document.documentElement; h.classList.toggle('tt-shield', !!on); h.classList.toggle('tt-shared', !!(on && mine));
+  // The shield. The owner of the shared tab keeps a sharp screen: private spots are hidden in the outgoing video by
+  // the call window (see MASK below). Only when the video cannot be masked (whole-screen / window shares, or
+  // browsers without frame processing) do the TapTap tabs blur on the owner's own screen ("css").
+  function shield(on, mine, css) {
+    var h = document.documentElement;
+    h.classList.toggle('tt-shield', !!on); h.classList.toggle('tt-shared', !!(on && mine)); h.classList.toggle('tt-shield-css', !!(on && css));
+    h.classList.toggle('tt-masked', !!(on && mine && !css));
+    if (on && mine && !css) maskStart(); else maskStop();
+  }
+  // Viewer coordinates are fractions of the VIDEO FRAME. Chrome fits the tab into the frame (sometimes with black
+  // bars), so map frame → this tab's viewport using the frame size the call window sends along.
+  function toPage(x, y, fw, fh) {
+    var vw = innerWidth, vh = innerHeight;
+    if (!fw || !fh) return [x * vw, y * vh];
+    var sc = Math.min(fw / vw, fh / vh), ox = (fw - vw * sc) / 2, oy = (fh - vh * sc) / 2;
+    return [(x * fw - ox) / sc, (y * fh - oy) / sc];
   }
   function pointAt(m, cls) {
     if (m.surface !== 'browser' && !cls) return;
     if (m.handle ? m.handle !== TAB : document.hidden) return;   // only the tab that is actually being shared
-    var d = document.createElement('div'); d.className = 'tt-ptr' + (cls ? ' ' + cls : ''); d.style.left = (m.x * innerWidth) + 'px'; d.style.top = (m.y * innerHeight) + 'px';
+    var p = toPage(m.x, m.y, m.fw, m.fh);
+    var d = document.createElement('div'); d.className = 'tt-ptr' + (cls ? ' ' + cls : ''); d.style.left = p[0] + 'px'; d.style.top = p[1] + 'px';
     d.innerHTML = '<span>' + esc(m.who || '') + '</span>'; document.body.appendChild(d); setTimeout(function () { d.remove(); }, 1700);
   }
   // Outline of an area the other person captured from this tab.
   function highlight(m) {
     if (!m.handle || m.handle !== TAB || !m.box) return;
-    var b = m.box, d = document.createElement('div'); d.className = 'tt-hl';
-    d.style.left = (b.x * innerWidth) + 'px'; d.style.top = (b.y * innerHeight) + 'px'; d.style.width = (b.w * innerWidth) + 'px'; d.style.height = (b.h * innerHeight) + 'px';
+    var b = m.box, a = toPage(b.x, b.y, m.fw, m.fh), z = toPage(b.x + b.w, b.y + b.h, m.fw, m.fh), d = document.createElement('div'); d.className = 'tt-hl';
+    d.style.left = a[0] + 'px'; d.style.top = a[1] + 'px'; d.style.width = (z[0] - a[0]) + 'px'; d.style.height = (z[1] - a[1]) + 'px';
     d.innerHTML = '<span>✂️ ' + esc(m.who || '') + ' captured this</span>'; document.body.appendChild(d); setTimeout(function () { d.remove(); }, 2800);
   }
+
+  // ───────── private mask reporter (runs only in the tab being shared) ─────────
+  // Tells the call window where the private spots are, in viewport pixels: secret fields, the chat panel, chat
+  // pop-ups, incoming-call cards, photo viewer, and anything marked data-tt-private. It reports on every DOM
+  // change and scroll — before the browser paints — plus a heartbeat, and says "gone" when the page unloads so
+  // the viewer sees a curtain, not the next page, until that page reports in.
+  var PRIVATE_SPOTS = '.ttc-panel:not(.ttc-hidden),.ttc-toasts > *,.ttc-ring,.ttc-lb,.ttc-callframe,[data-tt-private]';
+  var MASK = { on: false, timer: null, mo: null, last: '', lastAt: 0, sentAt: 0, pend: null };
+  function maskRects() {
+    var out = [], W = innerWidth, H = innerHeight;
+    function add(el, kind) {
+      if (!el.getClientRects().length) return;
+      var r = el.getBoundingClientRect(); if (r.width < 2 || r.height < 2) return;
+      var cs = getComputedStyle(el); if (cs.visibility === 'hidden' || cs.display === 'none') return;
+      var pad = kind === 'secret' ? 6 : 4, x1 = Math.max(0, r.left - pad), y1 = Math.max(0, r.top - pad), x2 = Math.min(W, r.right + pad), y2 = Math.min(H, r.bottom + pad);
+      if (x2 - x1 < 2 || y2 - y1 < 2) return;
+      out.push([Math.round(x1), Math.round(y1), Math.round(x2 - x1), Math.round(y2 - y1), kind]);
+    }
+    document.querySelectorAll(SECRET).forEach(function (e) { add(e, 'secret'); });
+    document.querySelectorAll(PRIVATE_SPOTS).forEach(function (e) { add(e, 'chat'); });
+    return out.slice(0, 80);
+  }
+  function maskSend(force) {
+    if (!MASK.on || !bc) return;
+    var now = Date.now();
+    if (!force && now - MASK.lastAt < 16) {                       // at most ~60 reports a second
+      if (!MASK.pend) MASK.pend = setTimeout(function () { MASK.pend = null; maskSend(false); }, 20);
+      return;
+    }
+    MASK.lastAt = now;
+    var rects = maskRects(), sig = innerWidth + 'x' + innerHeight + JSON.stringify(rects);
+    if (!force && sig === MASK.last && now - MASK.sentAt < 1000) return;
+    MASK.last = sig; MASK.sentAt = now;
+    bc.postMessage({ t: 'mask', handle: TAB, vw: innerWidth, vh: innerHeight, rects: rects });
+  }
+  function maskNow() { maskSend(false); }
+  function maskStart() {
+    if (MASK.on) return maskSend(true);
+    MASK.on = true; MASK.last = ''; maskSend(true);
+    MASK.timer = setInterval(maskNow, 300);
+    try { MASK.mo = new MutationObserver(maskNow); MASK.mo.observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'type', 'open'] }); } catch (e) {}
+    addEventListener('scroll', maskNow, true); addEventListener('resize', maskNow); document.addEventListener('visibilitychange', maskNow);
+  }
+  function maskStop() {
+    if (!MASK.on) return; MASK.on = false;
+    clearInterval(MASK.timer); clearTimeout(MASK.pend); MASK.pend = null; if (MASK.mo) MASK.mo.disconnect(); MASK.mo = null;
+    removeEventListener('scroll', maskNow, true); removeEventListener('resize', maskNow); document.removeEventListener('visibilitychange', maskNow);
+  }
+  addEventListener('pagehide', function () { if (MASK.on && bc) bc.postMessage({ t: 'mask', handle: TAB, gone: true }); });
 
   // ───────── remote control (only after the owner allows it in the call window) ─────────
   // The call window passes the other person's clicks, scrolls and keys here, matched by this tab's capture
@@ -664,7 +729,7 @@
   function remoteDo(m) {
     if (!RC.on || m.handle !== TAB) return;
     var sec = Math.floor(Date.now() / 1000); if (RC.sec !== sec) { RC.sec = sec; RC.n = 0; } if (++RC.n > 30) return;
-    var px = (m.x || 0) * innerWidth, py = (m.y || 0) * innerHeight;
+    var pp = toPage(m.x || 0, m.y || 0, m.fw, m.fh), px = pp[0], py = pp[1];
     if (m.op === 'click' || m.op === 'dbl') {
       var el = document.elementFromPoint(px, py), why = rcWhyNot(el);
       pointAt({ x: m.x, y: m.y, who: m.who, handle: TAB }, 'ctl');
@@ -725,11 +790,15 @@
     bc.onmessage = function (e) {
       var m = e.data || {};
       if (m.t === 'call') { if (m.state === 'live') { CALL.live = m; CALL.seen = Date.now(); } else { CALL.live = null; pill.classList.add('ttc-hidden'); } }
-      else if (m.t === 'shield') { shield(m.on, m.handle && m.handle === TAB); if (!m.on && RC.on) rcModeSet(false); }
+      else if (m.t === 'shield') { shield(m.on, m.handle && m.handle === TAB, m.css); if (!m.on && RC.on) rcModeSet(false); }
       else if (m.t === 'ptr') pointAt(m);
       else if (m.t === 'hl') highlight(m);
       else if (m.t === 'rc-mode') { if (m.handle && m.handle === TAB) rcModeSet(m.on, m.who); else if (RC.on && m.handle !== TAB) rcModeSet(false); }
       else if (m.t === 'rc') remoteDo(m);
+      else if (m.t === 'rc-asking') {       // the other person wants to take over: point them to the call window
+        var old = toasts.querySelector('[data-key="rc-asking"]'); if (old) old.remove();
+        if (!m.done && !document.hidden) toast({ key: 'rc-asking', sender: (m.who || 'Support') + ' · call', initials: '🖱', body: 'Wants to take over your screen to help you. Tap here, then Allow in the call window.', onclick: focusCall }, 'support');
+      }
       else if (m.t === 'tab-claim' && m.tab === TAB && m.nonce !== TAB_NONCE) bc.postMessage({ t: 'tab-taken', tab: TAB, nonce: m.nonce });
       else if (m.t === 'tab-taken' && m.nonce === TAB_NONCE && m.tab === TAB) { TAB = newTab(); captureHandle(); }
       else if (m.t === 'ring-done') { CALL.dismissed[m.id] = 1; hideRing(); }

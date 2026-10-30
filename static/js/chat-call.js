@@ -12,7 +12,12 @@
        screens, nobody (not even the TapTap server) sits in the middle of the call.
      • Screen share grade — a TapTap tab is safest (the picker cannot offer the whole screen); a window is OK;
        the whole screen warns that notifications from other apps will show.
-     • Privacy shield — while you share, every TapTap tab blurs passwords, keys and tokens, and hides chat pop-ups.
+     • Privacy mask — when you share a TapTap tab, YOUR screen stays sharp. The shared tab reports where its
+       passwords, keys, tokens, chat panel, pop-ups and photos are; this window paints a mosaic over exactly those
+       spots in every video frame before it leaves your computer, so only the viewer sees them hidden. Your
+       preview shows exactly what they see. While the tab changes page, the viewer sees a short "page changing"
+       curtain until the new page has reported its private spots. (Whole-screen or window shares cannot be
+       masked this way, so for those the TapTap tabs blur on your own screen, as before.)
      • Share lease — sharing stops by itself after 15 minutes unless you keep it going.
      • Consent — the other person can only ask to see your screen; you choose what to share.
      • Watermark — the viewer's screen shows their own name and the time over your shared screen.
@@ -26,7 +31,9 @@
      • Short recording — up to CHAT_VIDEO_SECONDS (30 s) of their screen or camera, video only (no audio),
        saved to the chat as a clip. The other side sees a red "recording" notice the whole time and can ask
        to stop it. Like every chat file it is deleted for good after a week.
-     • Remote control — on a shared TapTap tab the viewer can ask for control. Once the sharer allows it,
+     • Remote control — at any moment in a live call, either person can ask to take over the other's TapTap
+       screen ("Control" in the bar), even before anything is shared. One tap on Allow opens the tab picker
+       and hands over control as soon as their TapTap tab is shared. Once the sharer allows it,
        the viewer's clicks (shown as ripples), scrolling and typing happen in that tab. Never in passwords,
        secrets, the chat, other websites or sign-out. The sharer takes it back with Esc or one tap, and it
        ends by itself when sharing stops, pauses, or after 15 minutes. A note is left in the chat.
@@ -45,7 +52,8 @@
             facing: 'user', camDevice: '', camIds: [],      // camera flip
             rc: 'none', rcAt: 0,                          // as the viewer: none | asked | on
             ctl: { on: false, since: 0, until: 0, n: 0, sec: 0 },   // as the sharer: is the other person controlling my tab?
-            rec: null, snip: false };
+            rec: null, snip: false,
+            mask: { rects: [], prev: [], prevUntil: 0, vw: 0, vh: 0, waiting: true, waitSince: 0 } };
 
   // ───────── helpers ─────────
   function $(s, el) { return (el || document).querySelector(s); }
@@ -111,6 +119,7 @@
       '<button class="cw-btn cw-h" data-a="pause" title="Pause sharing">' + ICON.pause + '<small>Pause</small></button>' +
       '<button class="cw-btn cw-h live" data-a="ctlstop" title="Take back control (Esc in the shared tab)">' + ICON.mouse + '<small>Take back</small></button>' +
       '<button class="cw-btn" data-a="ask" title="Ask to see their screen">' + ICON.eye + '<small>Ask</small></button>' +
+      '<button class="cw-btn cw-h cw-rcbar" data-a="rc" title="Ask to take over their screen to support them">' + ICON.mouse + '<small>Control</small></button>' +
       '<button class="cw-btn" data-a="react" title="React">' + ICON.smile + '<small>React</small></button>' +
       '<button class="cw-btn cw-end" data-a="hangup" title="Hang up">' + ICON.end + '<small>End</small></button>' +
     '</footer>' +
@@ -448,6 +457,12 @@
     el.ctlbtn.classList.toggle('on', S.rc === 'on'); el.ctlbtn.classList.toggle('wait', S.rc === 'asked');
     el.ctlbtn.querySelector('em').textContent = S.rc === 'on' ? 'Release' : S.rc === 'asked' ? 'Waiting…' : 'Control';
     el.ctlbtn.title = S.rc === 'on' ? 'Give control back' : 'Ask for control of their TapTap tab';
+    // the bar's Control button: ask to take over their screen at any time during the call
+    b = $('.cw-rcbar', el.bar);
+    b.classList.toggle('cw-h', !S.liveAt || !!S.share);
+    b.classList.toggle('on', S.rc === 'on'); b.classList.toggle('wait', S.rc === 'asked');
+    b.querySelector('small').textContent = S.rc === 'on' ? 'Release' : S.rc === 'asked' ? 'Waiting…' : 'Control';
+    b.title = S.rc === 'on' ? 'Give control back' : 'Ask to take over their screen to support them';
     R.classList.toggle('controlling', S.rc === 'on');
     R.classList.toggle('snipping', S.snip);
     el.ptools.classList.toggle('cw-h', !(S.remote.cam && !rs));
@@ -482,36 +497,140 @@
       (canCamShare() ? '<button data-a="share-cam"><b>📷 Show with camera</b><small>Point your ' + (MOBILE ? 'back ' : '') + 'camera at something — a router, cables, lights. They see it big and can capture it.</small></button>' : '');
     wrap.appendChild(m);
   }
+  // ───────── privacy mask: hide private spots in the outgoing video only ─────────
+  function maskReset() { var M = S.mask; M.rects = []; M.prev = []; M.prevUntil = 0; M.waiting = true; M.waitSince = Date.now(); }
+  function frameSize() {
+    var sh = S.share || {}, st = sh.track && sh.track.getSettings ? sh.track.getSettings() : {};
+    return [sh.fw || st.width || el.lscreen.videoWidth || 0, sh.fh || st.height || el.lscreen.videoHeight || 0];
+  }
+  function shieldMsg() {
+    var sh = S.share; if (!sh) return { t: 'shield', on: false };
+    // css: the TapTap tabs blur on the owner's own screen — only when the video itself cannot be masked
+    return { t: 'shield', on: true, handle: sh.handle, surface: sh.surface, css: !(sh.out && sh.handle) };
+  }
+  var tmpCv = null;
+  function tmpCanvas(w, h) {
+    if (!tmpCv) tmpCv = window.OffscreenCanvas ? new OffscreenCanvas(1, 1) : document.createElement('canvas');
+    if (tmpCv.width !== w) tmpCv.width = w; if (tmpCv.height !== h) tmpCv.height = h; return tmpCv;
+  }
+  // Mosaic + tint + a small lock label: obviously hidden, impossible to read.
+  function mosaic(g, x, y, w, h, kind) {
+    var W = g.canvas.width, H = g.canvas.height;
+    x = Math.max(0, Math.floor(x)); y = Math.max(0, Math.floor(y)); w = Math.min(W - x, Math.ceil(w)); h = Math.min(H - y, Math.ceil(h));
+    if (w < 2 || h < 2) return;
+    var bs = Math.max(10, Math.round(Math.min(w, h) / (kind === 'secret' ? 2 : 5))), tw = Math.max(1, Math.ceil(w / bs)), th = Math.max(1, Math.ceil(h / bs));
+    var t = tmpCanvas(tw, th), tg = t.getContext('2d');
+    tg.imageSmoothingEnabled = true; tg.drawImage(g.canvas, x, y, w, h, 0, 0, tw, th);
+    g.save(); g.imageSmoothingEnabled = false; g.drawImage(t, 0, 0, tw, th, x, y, w, h);
+    g.fillStyle = kind === 'secret' ? 'rgba(76,29,149,.62)' : kind === 'curtain' ? 'rgba(11,18,32,.72)' : 'rgba(15,23,42,.58)';
+    g.fillRect(x, y, w, h);
+    var label = kind === 'secret' ? '🔒 Hidden' : kind === 'curtain' ? '⏳ Page changing…' : '🔒 Private';
+    var fs = Math.min(kind === 'curtain' ? 28 : 15, Math.floor(h * 0.5));
+    if (fs >= 9 && w > fs * 4) {
+      g.font = '700 ' + fs + 'px system-ui,-apple-system,"Segoe UI",sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = 'rgba(255,255,255,.92)'; g.fillText(label, x + w / 2, y + h / 2, w - 8);
+    }
+    g.restore();
+  }
+  function maskList() {
+    var M = S.mask, now = Date.now();
+    if (M.waiting) return now - M.waitSince < 4000 ? 'curtain' : null;   // after 4 s (not a TapTap page) give up the curtain
+    var list = M.rects; if (now < M.prevUntil) list = list.concat(M.prev);  // the old spots linger briefly while things move
+    return list.length ? list : null;
+  }
+  function paintMasks(g, W, H, list) {
+    if (list === 'curtain') return mosaic(g, 0, 0, W, H, 'curtain');
+    var M = S.mask; if (!M.vw || !M.vh) return;
+    // the tab's viewport sits inside the frame, scaled and centred (Chrome may add black bars)
+    var sc = Math.min(W / M.vw, H / M.vh), ox = (W - M.vw * sc) / 2, oy = (H - M.vh * sc) / 2;
+    list.forEach(function (r) { mosaic(g, ox + r[0] * sc, oy + r[1] * sc, r[2] * sc, r[3] * sc, r[4]); });
+  }
+  // Returns { track, stop } with the masked video, or null when this browser cannot process video frames.
+  function maskedTrack(src) {
+    if (window.MediaStreamTrackProcessor && window.MediaStreamTrackGenerator && window.VideoFrame && window.OffscreenCanvas) {
+      try {
+        var proc = new MediaStreamTrackProcessor({ track: src }), gen = new MediaStreamTrackGenerator({ kind: 'video' });
+        var cv = new OffscreenCanvas(2, 2), g = cv.getContext('2d');
+        proc.readable.pipeThrough(new TransformStream({
+          transform: function (frame, ctl) {
+            var w = frame.displayWidth, h = frame.displayHeight;
+            if (S.share) { S.share.fw = w; S.share.fh = h; }
+            var list = maskList();
+            if (!list) return ctl.enqueue(frame);                     // nothing private on screen: frame passes untouched
+            if (cv.width !== w) cv.width = w; if (cv.height !== h) cv.height = h;
+            g.drawImage(frame, 0, 0, w, h); var ts = frame.timestamp; frame.close();
+            paintMasks(g, w, h, list);
+            ctl.enqueue(new VideoFrame(cv, { timestamp: ts }));
+          }
+        })).pipeTo(gen.writable).catch(function () {});
+        try { gen.contentHint = 'detail'; } catch (e) {}
+        return { track: gen, stop: function () { try { gen.stop(); } catch (e) {} } };
+      } catch (e) {}
+    }
+    var c = document.createElement('canvas');
+    if (!c.captureStream) return null;
+    var v = document.createElement('video'); v.muted = true; v.playsInline = true; v.srcObject = new MediaStream([src]);
+    var p = v.play(); if (p && p.catch) p.catch(function () {});
+    var g2 = c.getContext('2d'), out = c.captureStream(15).getVideoTracks()[0], alive = true;
+    try { out.contentHint = 'detail'; } catch (e) {}
+    (function loop() {
+      if (!alive) return;
+      var w = v.videoWidth, h = v.videoHeight;
+      if (w && h) {
+        if (c.width !== w) c.width = w; if (c.height !== h) c.height = h;
+        if (S.share) { S.share.fw = w; S.share.fh = h; }
+        g2.drawImage(v, 0, 0, w, h); var list = maskList(); if (list) paintMasks(g2, w, h, list);
+      }
+      setTimeout(loop, 66);
+    })();
+    return { track: out, stop: function () { alive = false; try { out.stop(); } catch (e) {} v.srcObject = null; } };
+  }
+
   function startShare(kind) {
     var m = $('.cw-menu', el.bar); if (m) m.remove();
     var opts = { video: { frameRate: { ideal: 15, max: 30 }, width: { max: 1920 }, height: { max: 1080 }, displaySurface: kind === 'tab' ? 'browser' : 'window' },
                  audio: false, selfBrowserSurface: 'exclude', surfaceSwitching: 'include', systemAudio: 'exclude', monitorTypeSurfaces: kind === 'tab' ? 'exclude' : 'include' };
-    if (kind === 'tab') bcast({ t: 'shield', on: true, pending: true });   // shield first, so nothing leaks in the first frame
+    // Chrome/Edge: the masked video starts behind a curtain until the tab reports its private spots, so the owner's
+    // screen never needs blurring. Other browsers cannot mask the video: blur on the owner's tabs first, as before.
+    if (kind === 'tab') bcast({ t: 'shield', on: true, pending: true, css: !(navigator.mediaDevices && navigator.mediaDevices.setCaptureHandleConfig) });
     navigator.mediaDevices.getDisplayMedia(opts).then(function (stream) {
       var track = stream.getVideoTracks()[0]; track.contentHint = 'detail';
       var st = track.getSettings ? track.getSettings() : {}, surface = st.displaySurface || (kind === 'tab' ? 'browser' : 'window');
       var handle = ''; try { var h = track.getCaptureHandle && track.getCaptureHandle(); handle = (h && h.handle) || ''; } catch (e) {}
-      S.share = { track: track, surface: surface, handle: handle, paused: false, until: Date.now() + LEASE_MS };
+      S.share = { track: track, surface: surface, handle: handle, paused: false, until: Date.now() + LEASE_MS, out: null };
       track.onended = function () { stopShare(); };
+      // a TapTap tab: send a masked copy (private spots hidden for the viewer only, the owner's screen stays sharp)
+      maskReset();
+      if (surface === 'browser' && handle) S.share.out = maskedTrack(track);
+      var sendTrack = S.share.out ? S.share.out.track : track;
       // the shared tab moved to another page: follow it (its handle normally stays the same — see chat.js)
       try { track.addEventListener('capturehandlechange', function () {
         if (!S.share || S.share.track !== track) return;
-        var h2 = track.getCaptureHandle && track.getCaptureHandle(); S.share.handle = (h2 && h2.handle) || '';
-        bcast({ t: 'shield', on: true, handle: S.share.handle, surface: S.share.surface });
+        var h2 = track.getCaptureHandle && track.getCaptureHandle(), nh = (h2 && h2.handle) || '';
+        if (nh !== S.share.handle) maskReset();             // another tab now: wait for its private spots
+        S.share.handle = nh;
+        if (!S.share.out && nh) { S.share.out = maskedTrack(track); if (S.share.out) { S.T.screen.sender.replaceTrack(S.share.out.track); el.lscreen.srcObject = new MediaStream([S.share.out.track]); } }
+        bcast(shieldMsg());
         if (S.ctl.on) { if (S.share.handle) rcMode(true); else ctlStop('left'); }
         sendState();
       }); } catch (e) {}
-      return S.T.screen.sender.replaceTrack(track).then(function () {
+      return S.T.screen.sender.replaceTrack(sendTrack).then(function () {
         tuneSenders();
-        el.lscreen.srcObject = new MediaStream([track]); el.myshare.classList.remove('cw-h');
+        el.lscreen.srcObject = new MediaStream([sendTrack]); el.myshare.classList.remove('cw-h');   // preview = exactly what they see
         var g = GRADE[surface] || GRADE.window; el.grade.className = 'cw-grade ' + g[0]; el.grade.textContent = g[1]; el.grade.title = g[2];
-        banner('grade', '<b>' + g[1] + '</b> · ' + g[2] + (surface === 'browser' ? ' Secrets on TapTap pages are blurred while you share.' +
-          (handle ? '' : ' (Remote control needs Chrome or Edge on your side.)') : ''), g[0] === 'risky' ? 'warn' : 'info', 7000);
-        bcast({ t: 'shield', on: true, handle: handle, surface: surface });
+        banner('grade', '<b>' + g[1] + '</b> · ' + g[2] + (surface === 'browser' ? (S.share.out
+          ? ' Your screen stays sharp — passwords, keys and your chats are hidden <b>only in what ' + esc(first(S.peer.name) || 'they') + ' sees</b>. Your preview shows their view.'
+          : ' Secrets on TapTap pages are blurred while you share.') + (handle ? '' : ' (Remote control and the private mask need Chrome or Edge on your side.)')
+          : ' TapTap tabs blur passwords on your own screen too — share a TapTap tab to keep your screen sharp.'), g[0] === 'risky' ? 'warn' : 'info', 8000);
+        el.myshare.classList.toggle('masked', !!S.share.out);
+        bcast(shieldMsg());
         sendState(); syncButtons(); tone([523, 784], 0.15, 0.1, 0.04);
+        if (S.pendingCtl) pendingCtlDone(true, surface !== 'browser' ? 'They shared a window instead of their TapTap tab.'
+          : !handle ? 'They shared a tab that is not TapTap, or their browser cannot be controlled (Chrome or Edge needed).' : '');
       });
     }).catch(function (e) {
       bcast({ t: 'shield', on: false });
+      if (S.pendingCtl) pendingCtlDone(false, 'They cancelled the screen picker.');
       if (e && e.name !== 'NotAllowedError' && e.name !== 'AbortError') banner('share', 'Could not share your screen (' + esc(e.name || e) + ').', 'warn', 5000);
     });
   }
@@ -553,12 +672,14 @@
     if (!S.share) return;
     ctlStop('share');
     try { S.share.track.onended = null; S.share.track.stop(); } catch (e) {}
+    if (S.share.out) S.share.out.stop();
     S.share = null; S.T.screen && S.T.screen.sender.replaceTrack(null);
     el.myshare.classList.add('cw-h'); el.myshare.classList.remove('mirror', 'recorded'); el.lscreen.srcObject = null; banner('lease', ''); banner('grade', ''); banner('recd', '');
     bcast({ t: 'shield', on: false }); sendState(); syncButtons();
   }
   function togglePause() {
     if (!S.share) return; S.share.paused = !S.share.paused; S.share.track.enabled = !S.share.paused;
+    if (S.share.out) S.share.out.track.enabled = !S.share.paused;
     if (S.share.paused) ctlStop('pause');
     el.myshare.classList.toggle('paused', S.share.paused); sendState(); syncButtons();
   }
@@ -739,8 +860,26 @@
   // ───────── remote control of a shared TapTap tab ─────────
   // As the sharer: the other person's clicks/keys arrive here and go to the shared tab (chat.js), matched by its capture handle.
   function rcMode(on) { if (S.share) bcast({ t: 'rc-mode', on: !!on, handle: S.share.handle, who: first(S.peer.name) }); }
-  function ctlAllow() {
+  // "Allow" when nothing (or not a TapTap tab) is shared yet: open the tab picker; control starts once it is shared.
+  function ctlShareAndAllow() {
     banner('rcask', '');
+    if (!CAN_DISPLAY) { send({ t: 'rc-no', why: noShareWhy() }); return; }
+    S.pendingCtl = true; send({ t: 'rc-wait' });
+    if (S.share) stopShare();
+    startShare('tab');
+    banner('rcpick', '🖱 Choose your <b>TapTap tab</b> in the browser window, then press <b>Share</b>.', 'info', 8000);
+  }
+  function pendingCtlDone(ok, why) {
+    if (!S.pendingCtl) return; S.pendingCtl = false; banner('rcpick', '');
+    if (ok && canControl()) return ctlAllow();
+    send({ t: 'rc-no', why: why });
+    banner('rcpick', '🖱 ' + esc(why.replace(/^They /, 'You ')) + (ok ? ' Share a TapTap tab to let ' + esc(first(S.peer.name)) + ' help you.' : ''), 'warn', 6000);
+  }
+  function noShareWhy() {
+    return first(D.me) + ' is on a phone or a browser that cannot share a tab. Remote control needs TapTap open in Chrome or Edge on a computer — ask them to use “Show with camera” instead.';
+  }
+  function ctlAllow() {
+    banner('rcask', ''); bcast({ t: 'rc-asking', done: true });
     if (!canControl()) { send({ t: 'rc-no', why: 'Control works only while a TapTap tab is shared from Chrome or Edge.' }); return; }
     S.ctl = { on: true, since: Date.now(), until: Date.now() + CTL_MS, n: 0, sec: 0 };
     rcMode(true); send({ t: 'rc-ok', mins: Math.round(CTL_MS / 60000) }); sendState(); syncButtons();
@@ -760,7 +899,7 @@
     var sec = Math.floor(Date.now() / 1000); if (S.ctl.sec !== sec) { S.ctl.sec = sec; S.ctl.n = 0; }
     if (++S.ctl.n > 30) return;                                       // a flood of events is dropped, not queued
     var op = String(m.op || ''); if (['click', 'dbl', 'scroll', 'key', 'text'].indexOf(op) < 0) return;
-    var out = { t: 'rc', handle: S.share.handle, op: op, who: first(S.peer.name) };
+    var fs = frameSize(), out = { t: 'rc', handle: S.share.handle, op: op, who: first(S.peer.name), fw: fs[0], fh: fs[1] };
     if (typeof m.x === 'number' && typeof m.y === 'number') { out.x = Math.max(0, Math.min(1, m.x)); out.y = Math.max(0, Math.min(1, m.y)); }
     if (op === 'scroll') { out.dx = Math.max(-2000, Math.min(2000, +m.dx || 0)); out.dy = Math.max(-2000, Math.min(2000, +m.dy || 0)); }
     if (op === 'key') { out.key = String(m.key || '').slice(0, 12); out.shift = !!m.shift; }
@@ -772,9 +911,14 @@
   function rcAsk() {
     if (S.rc === 'on') { send({ t: 'rc-release' }); S.rc = 'none'; banner('rc', ''); syncButtons(); return; }
     if (S.rc === 'asked' && Date.now() - S.rcAt < 30000) return banner('rc2', 'You already asked — give them a moment.', 'info', 3000);
+    var rs = S.remote.screen, ready = !!(rs && rs.rc && !rs.paused);
     S.rc = 'asked'; S.rcAt = Date.now(); send({ t: 'rc-ask' }); syncButtons();
-    banner('rc2', '🖱 Asked ' + esc(first(S.peer.name)) + ' for control of their TapTap tab.', 'info', 3500);
-    clearTimeout(S.timers.rcask); S.timers.rcask = setTimeout(function () { if (S.rc === 'asked') { S.rc = 'none'; syncButtons(); } }, 30000);
+    banner('rc2', '🖱 Asked ' + esc(first(S.peer.name)) + (ready ? ' for control of their TapTap tab.' : ' to let you take over their screen. They pick their TapTap tab, then you are in control.'), 'info', 5000);
+    rcWaitFor(ready ? 30000 : 60000);
+  }
+  function rcWaitFor(ms) {
+    clearTimeout(S.timers.rcask);
+    S.timers.rcask = setTimeout(function () { if (S.rc === 'asked') { S.rc = 'none'; syncButtons(); banner('rc2', '🖱 No answer from ' + esc(first(S.peer.name)) + ' — ask again any time.', 'info', 4000); } }, ms);
   }
   function rcOff(text) { if (S.rc === 'none') return; S.rc = 'none'; banner('rc', ''); if (text) banner('rc2', '🖱 ' + esc(text), 'info', 4000); syncButtons(); }
   var wheel = { dx: 0, dy: 0, t: null, x: 0.5, y: 0.5 };
@@ -819,12 +963,25 @@
     }
     else if (m.t === 'rc' && S.share) ctlRun(m);
     else if (m.t === 'rc-ask') {
-      if (!canControl()) { send({ t: 'rc-no', why: S.share ? 'Control works only on a shared TapTap tab (Chrome or Edge).' : 'They need to share a TapTap tab first.' }); return; }
-      if (S.ctl.on) return;
+      if (S.ctl.on || S.pendingCtl) return;
+      var who = esc(first(S.peer.name)), mins = Math.round(CTL_MS / 60000);
+      var limits = ' They can click, scroll and type there — never in passwords, the chat, or other websites. You take back control any time with <b>Esc</b>.';
+      if (canControl()) {
+        banner('rcask', '🖱 <b>' + who + ' asks to control your TapTap tab</b> to help you.' + limits + ' ' +
+          '<button class="cw-link" data-a="ctlallow">Allow for ' + mins + ' min</button> · <button class="cw-link" data-a="ctlno">No</button>', 'ask');
+      } else if (!CAN_DISPLAY) {
+        send({ t: 'rc-no', why: noShareWhy() });
+        banner('rcask', '🖱 ' + who + ' wanted to take over your screen, but this device cannot share a TapTap tab. Use <b>Share → Show with camera</b> so they can see it.', 'info', 8000);
+        return;
+      } else {
+        banner('rcask', '🖱 <b>' + who + ' wants to take over your screen to help you.</b> Pick your <b>TapTap tab</b> in the next window.' + limits + ' ' +
+          '<button class="cw-link" data-a="ctlshare">' + (S.share ? 'Switch to my TapTap tab and allow' : 'Allow — choose my TapTap tab') + '</button> · <button class="cw-link" data-a="ctlno">No</button>', 'ask');
+      }
       tone([880, 988], 0.15, 0.12, 0.05);
-      banner('rcask', '🖱 <b>' + esc(first(S.peer.name)) + ' asks to control your TapTap tab</b> to help you. They can click, scroll and type there — never in passwords, the chat, or other websites. ' +
-        '<button class="cw-link" data-a="ctlallow">Allow for ' + Math.round(CTL_MS / 60000) + ' min</button> · <button class="cw-link" data-a="ctlno">No</button>', 'ask');
+      try { window.focus(); } catch (e) {}
+      bcast({ t: 'rc-asking', who: first(S.peer.name) });     // TapTap tabs nudge them to the call window
     }
+    else if (m.t === 'rc-wait') { if (S.rc === 'asked') { rcWaitFor(90000); banner('rc2', '🖱 ' + esc(first(S.peer.name)) + ' is choosing their TapTap tab…', 'info', 6000); } }
     else if (m.t === 'rc-release') ctlStop('released');
     else if (m.t === 'rc-ok') {
       if (S.rc !== 'asked') return;                 // only an answer to a request we actually made
@@ -836,7 +993,7 @@
     else if (m.t === 'rc-res') { if (m.why) banner('rcres', (m.ok ? 'ℹ️ ' : '🚫 ') + esc(m.why), m.ok ? 'info' : 'warn', 3000); }
     else if (m.t === 'hl' && m.box) {
       var hb = { x: +m.box.x || 0, y: +m.box.y || 0, w: +m.box.w || 0, h: +m.box.h || 0 }, lbl = '✂️ ' + first(S.peer.name);
-      if (m.src === 'screen' && S.share) { outline(el.lptrs, el.lscreen, hb, lbl); if (S.share.surface === 'browser') bcast({ t: 'hl', handle: S.share.handle, box: hb, who: first(S.peer.name) }); }
+      if (m.src === 'screen' && S.share) { outline(el.lptrs, el.lscreen, hb, lbl); if (S.share.surface === 'browser') { var fz = frameSize(); bcast({ t: 'hl', handle: S.share.handle, box: hb, who: first(S.peer.name), fw: fz[0], fh: fz[1] }); } }
       else if (m.src === 'cam' && S.cam) outline(el.self, el.lcam, hb, lbl);
       banner('snapped', '✂️ ' + esc(first(S.peer.name)) + ' captured an area of your ' + (m.src === 'cam' ? 'camera' : 'screen') + ' to the chat.', 'warn', 5000);
     }
@@ -848,7 +1005,8 @@
     else if (m.t === 'recstop') { if (S.rec) { recStop(); banner('rec2', esc(first(S.peer.name)) + ' asked you to stop recording — the clip so far is saved.', 'info', 4500); } }
     else if (m.t === 'ptr' && S.share) {
       ripple(el.lptrs, el.lscreen, m.x, m.y, first(S.peer.name));
-      bcast({ t: 'ptr', x: m.x, y: m.y, handle: S.share.handle, surface: S.share.surface, who: first(S.peer.name) });
+      var fp = frameSize();
+      bcast({ t: 'ptr', x: m.x, y: m.y, handle: S.share.handle, surface: S.share.surface, who: first(S.peer.name), fw: fp[0], fh: fp[1] });
     }
     else if (m.t === 'ask') {
       if (S.share) return;
@@ -885,7 +1043,8 @@
     else if (a === 'recno') { send({ t: 'recstop' }); banner('recd', '🔴 Asked ' + esc(first(S.peer.name)) + ' to stop recording.', 'danger', 3000); }
     else if (a === 'rc') rcAsk();
     else if (a === 'ctlallow') ctlAllow();
-    else if (a === 'ctlno') { banner('rcask', ''); send({ t: 'rc-no' }); }
+    else if (a === 'ctlshare') ctlShareAndAllow();
+    else if (a === 'ctlno') { banner('rcask', ''); send({ t: 'rc-no' }); bcast({ t: 'rc-asking', done: true }); }
     else if (a === 'ctlstop') ctlStop('you');
     else if (a === 'askno') { banner('ask', ''); send({ t: 'askno' }); }
     else if (a === 'pause') togglePause();
@@ -968,7 +1127,18 @@
     var m = e.data || {};
     if (m.t === 'focus-call' && !EMBED) window.focus();
     // a TapTap tab opened mid-call: give it the shield (and the call pill) straight away
-    if (m.t === 'hello?' && S.share) { bcast({ t: 'shield', on: true, handle: S.share.handle, surface: S.share.surface }); if (S.ctl.on) rcMode(true); }
+    if (m.t === 'hello?' && S.share) { bcast(shieldMsg()); if (S.ctl.on) rcMode(true); }
+    // the shared tab reports where its private spots are (viewport pixels) — or that it is leaving the page
+    if (m.t === 'mask' && S.share && S.share.handle && m.handle === S.share.handle) {
+      var M = S.mask;
+      if (m.gone) { M.waiting = true; M.waitSince = Date.now(); }
+      else if (Array.isArray(m.rects)) {
+        M.prev = M.rects; M.prevUntil = Date.now() + 350; M.waiting = false;
+        M.vw = +m.vw || 0; M.vh = +m.vh || 0;
+        M.rects = m.rects.filter(function (r) { return Array.isArray(r) && r.length >= 4; }).slice(0, 80)
+          .map(function (r) { return [+r[0] || 0, +r[1] || 0, +r[2] || 0, +r[3] || 0, r[4] === 'secret' ? 'secret' : 'chat']; });
+      }
+    }
     // from the shared tab: its owner pressed Esc / "Take back control", or a command result to pass on
     if (m.t === 'rc-stop' && S.share && m.handle === S.share.handle) ctlStop('you');
     if (m.t === 'rc-res' && S.share && m.handle === S.share.handle && S.ctl.on) send({ t: 'rc-res', ok: !!m.ok, why: String(m.why || '').slice(0, 120) });

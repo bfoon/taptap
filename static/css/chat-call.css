@@ -144,3 +144,7 @@ svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-l
 .cw-btn:disabled{opacity:.5;cursor:wait}
 @media(max-width:420px){.cw-hint,.cw-hint2{display:none}.cw-screen-tools .cw-ib em{display:none}}
 @media(prefers-reduced-motion:reduce){.cw-hl,.cw-recbtn.live svg,.cw-myshare.recorded::after,.cw-self.recorded::after{animation:none}}
+.cw-rcbar svg{background:#5b21b6}.cw-rcbar:hover svg{background:#6d28d9}
+.cw-rcbar.wait svg{background:#4c1d95;animation:ttrec 1.2s ease-in-out infinite}.cw-rcbar.on svg{background:#16a34a}
+/* masked TapTap-tab share: the preview shows exactly what the viewer receives */
+.cw-myshare.masked::before{content:"👁 Their view";position:absolute;right:6px;bottom:6px;z-index:3;font:700 10.5px/1 system-ui,sans-serif;color:#ede9fe;background:rgba(91,33,182,.85);padding:3px 7px;border-radius:7px;pointer-events:none}
