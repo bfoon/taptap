@@ -3,7 +3,8 @@
 Preserves the installed base.html unchanged, including global owner approval,
 chat, live-sync, and mobile navigation. Renders a single Account Management
 entry instead of standalone Members/Plans entries; adds return-to-management
-link on the original Members and Plans screens.
+link on the original Members and Plans screens. A link marked ``tt-keep`` (Members, shown as a sub-item
+right under Vouchers) is left in place.
 
 Integrated with the existing TeamAccessMiddleware and its support access guard.
 No migrations, JavaScript polling, external dependencies or monkey patches to
@@ -30,7 +31,7 @@ def _insert_navigation(body, can_manage):
     desktop = re.search(r'<aside\b[^>]*class="[^"]*sidebar[^"]*"[^>]*>.*?</aside>', body, re.I | re.S)
     if desktop:
         region = desktop.group(0)
-        region = re.sub(r'<a\b(?=[^>]*\bhref=["\']/(?:members|plans)/["\'])[^>]*>.*?</a>', '', region, flags=re.I | re.S)
+        region = re.sub(r'<a\b(?![^>]*\btt-keep\b)(?=[^>]*\bhref=["\']/(?:members|plans)/["\'])[^>]*>.*?</a>', '', region, flags=re.I | re.S)
         region = re.sub(r'<a\b(?=[^>]*\bhref=["\']/manage/["\'])[^>]*>.*?</a>', '', region, flags=re.I | re.S)
         if can_manage:
             tag = re.search(r'<div\b[^>]*class=["\'][^"\']*nav-label[^"\']*["\'][^>]*>\s*Business\s*</div>', region, re.I)
@@ -45,7 +46,7 @@ def _insert_navigation(body, can_manage):
     mobile = re.search(r'<div\b[^>]*class="[^"]*mobile-nav[^"]*"[^>]*>.*?</div>', body, re.I | re.S)
     if mobile:
         region = mobile.group(0)
-        region = re.sub(r'<a\b(?=[^>]*\bhref=["\']/(?:members|plans)/["\'])[^>]*>.*?</a>', '', region, flags=re.I | re.S)
+        region = re.sub(r'<a\b(?![^>]*\btt-keep\b)(?=[^>]*\bhref=["\']/(?:members|plans)/["\'])[^>]*>.*?</a>', '', region, flags=re.I | re.S)
         region = re.sub(r'<a\b(?=[^>]*\bhref=["\']/manage/["\'])[^>]*>.*?</a>', '', region, flags=re.I | re.S)
         if can_manage:
             # Place the link just before Support, keeping the rest of the menu.

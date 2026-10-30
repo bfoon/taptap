@@ -1,0 +1,18 @@
+{% if show %}<nav class="tt-vm-switch" aria-label="Vouchers or members">
+  <a href="{% url 'vouchers' %}" class="{% if active == 'vouchers' %}on{% endif %}"{% if active == 'vouchers' %} aria-current="page"{% endif %}>
+    <i class="bi bi-ticket-perforated"></i><span>Vouchers</span><b>{{ n_vouchers }}</b></a>
+  <a href="{% url 'members' %}" class="{% if active == 'members' %}on{% endif %}"{% if active == 'members' %} aria-current="page"{% endif %}>
+    <i class="bi bi-person-badge"></i><span>Members</span><b>{{ n_members }}</b></a>
+</nav>
+<style>
+.tt-vm-switch{display:inline-flex;gap:.25rem;padding:.25rem;margin:0 0 1rem;border-radius:14px;background:#e9eff7;border:1px solid var(--border)}
+.tt-vm-switch a{display:inline-flex;align-items:center;gap:.45rem;padding:.5rem .95rem;border-radius:11px;color:#4d6178;font-weight:700;font-size:.9rem;transition:background .15s,color .15s}
+.tt-vm-switch a:hover{color:var(--ink);background:#ffffff90}
+.tt-vm-switch a.on{background:#fff;color:var(--primary);box-shadow:0 2px 8px #1d3b5a1a}
+.tt-vm-switch b{font-size:.72rem;font-weight:800;padding:.1rem .45rem;border-radius:999px;background:#dbe5f1;color:#4d6178}
+.tt-vm-switch a.on b{background:#e3eeff;color:var(--primary)}
+html[data-theme=dark] .tt-vm-switch,[data-bs-theme=dark] .tt-vm-switch{background:#122236;border-color:#1f3550}
+html[data-theme=dark] .tt-vm-switch a,[data-bs-theme=dark] .tt-vm-switch a{color:#9db2c8}
+html[data-theme=dark] .tt-vm-switch a.on,[data-bs-theme=dark] .tt-vm-switch a.on{background:#0b1a2b;color:#7db4ff}
+html[data-theme=dark] .tt-vm-switch b,[data-bs-theme=dark] .tt-vm-switch b{background:#1f3550;color:#9db2c8}
+</style>{% endif %}

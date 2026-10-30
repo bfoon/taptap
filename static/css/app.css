@@ -50,3 +50,6 @@
 /* clickable voucher codes and device MACs (go to their page) */
 .tt-vlink,.tt-dlink{color:inherit;text-decoration:underline dotted rgba(23,105,224,.55);text-underline-offset:3px}
 .tt-vlink:hover,.tt-dlink:hover{color:#1769e0;text-decoration-style:solid}
+
+.sidebar nav>a.nav-sub{padding:.5rem .8rem .5rem 2.15rem;font-size:.86rem;position:relative}.sidebar nav>a.nav-sub::before{content:"";position:absolute;left:1.25rem;top:0;bottom:50%;width:.55rem;border-left:1px solid #2b4560;border-bottom:1px solid #2b4560;border-bottom-left-radius:6px}.sidebar nav>a.nav-sub i{font-size:.95rem}
+.mobile-nav a.nav-sub{padding-left:1.8rem;font-size:.92rem}

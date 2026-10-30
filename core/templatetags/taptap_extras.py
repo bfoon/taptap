@@ -280,3 +280,20 @@ def map_tiles():
             'fallbackUrl': settings.MAP_TILE_FALLBACK_URL, 'fallbackAttribution': settings.MAP_TILE_FALLBACK_ATTRIBUTION}
     payload = json.dumps(data).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
     return format_html('<script id="ttMapTiles" type="application/json">{}</script><script src="{}"></script>', mark_safe(payload), static('js/tt-tiles.js'))
+
+
+@register.inclusion_tag('core/partials/vouchers_members_switch.html', takes_context=True)
+def vouchers_members_switch(context, active):
+    """Vouchers ⇄ Members switch at the top of both pages: {% vouchers_members_switch 'vouchers' %}.
+    Shown only when the business has Members switched on and the person may see both pages."""
+    request = context.get('request')
+    business = getattr(request, 'tt_business', None) if request else None
+    perms = context.get('tt_perms') or getattr(request, 'tt_perms', frozenset())
+    feats = context.get('tt_features')
+    show = bool(business) and (feats is None or 'members' in feats) and 'vouchers.view' in perms
+    out = {'show': show, 'active': active}
+    if show:
+        qs = business.vouchers.exclude(status='archived')
+        out['n_vouchers'] = qs.exclude(login_type='member').count()
+        out['n_members'] = qs.filter(login_type='member').count()
+    return out

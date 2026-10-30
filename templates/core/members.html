@@ -30,7 +30,7 @@
 @media(max-width:760px){.member-plan-grid{grid-template-columns:1fr}.kpi-row.member-kpis{grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 </style>{% endblock %}
 
-{% block content %}{% with c=current_business.currency %}
+{% block content %}{% vouchers_members_switch 'members' %}{% with c=current_business.currency %}
 <div class="kpi-row member-kpis mb-3" style="grid-template-columns:repeat(4,minmax(0,1fr))">
   <div class="kpi hero"><small>Members</small><strong>{{ stats.total }}</strong><em>username + password accounts</em></div>
   <div class="kpi"><small>Paying</small><strong>{{ stats.paid }}</strong><em>price comes from Member Plan</em></div>
