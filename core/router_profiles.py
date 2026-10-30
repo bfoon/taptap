@@ -92,7 +92,15 @@ def gather(business, router=None, q=''):
             profiles = [p for p in profiles if q in p['name'].lower() or q in (p['comment'] or '').lower() or
                         (p['plan'] and q in p['plan'].name.lower()) or (p['member_plan'] and q in p['member_plan'].name.lower()) or
                         q in (p['rate'] or '').lower()]
-        profiles.sort(key=lambda p: (p['default'], p['member_profile'], not p['plan'], p['name'].lower()))
+        # groups under bold headers: voucher plans · member plans · other profiles · plan deleted (left on the router)
+        from .profile_groups import classify
+        kinds = classify(business, [p['name'] for p in profiles])
+        for p in profiles:
+            k = kinds[p['name']][0]
+            p['group'] = 'member' if k in ('member', 'member_off') else 'deleted' if k == 'deleted' else ('voucher' if p['plan'] else 'other')
+            p['member_off'] = k == 'member_off'
+        order = {'voucher': 0, 'member': 1, 'other': 2, 'deleted': 3}
+        profiles.sort(key=lambda p: (order[p['group']], p['default'], p['name'].lower()))
         out.append({'router': r, 'captured_at': captured, 'source': source, 'profiles': profiles,
                     'linked': sum(1 for p in profiles if p['plan']),
                     'unlinked': sum(1 for p in profiles if not p['plan'] and not p['default'] and not p['member_profile'])})

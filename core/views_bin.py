@@ -159,6 +159,9 @@ def voucher_set_profile(request, pk):
         from .member_plan_prices import is_member_profile, MEMBERS_ONLY
         if is_member_profile(name) and v.login_type != 'member':
             messages.error(request, MEMBERS_ONLY); return redirect('voucher_detail', pk=pk)
+        from .profile_groups import classify
+        if name != v.router_profile and classify(business, [name])[name][0] == 'deleted':
+            messages.error(request, f'{name} belongs to a deleted plan. Choose another profile.'); return redirect('voucher_detail', pk=pk)
         v.router_profile = name
         after = name
     else:

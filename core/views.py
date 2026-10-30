@@ -147,7 +147,9 @@ def vouchers(request):
     params=request.GET.copy();params.pop('page',None)
     state_tabs=[('','All',counts['all']),('unsold','In stock',counts['unsold']),('sold','Sold, not used',counts['sold']),('used','Used',counts['used']),('frozen','Frozen / warned',counts['frozen']),('disabled','Disabled / expired',counts['disabled']),('archived','Archived',counts['archived'])]
     return render(request,'core/vouchers.html',{'page_obj':Paginator(qs,100).get_page(request.GET.get('page')),'counts':counts,'state_tabs':state_tabs,'state':state,'plan':plan,'q':q,
-        'plans':business.vouchers.exclude(plan_name__startswith='*').exclude(plan_name='').values_list('plan_name',flat=True).distinct().order_by('plan_name'),
+        # plan filter: voucher plans and member plans under their own headers
+        'plans':business.vouchers.exclude(login_type='member').exclude(plan_name__startswith='*').exclude(plan_name='').values_list('plan_name',flat=True).distinct().order_by('plan_name'),
+        'member_plan_names':business.vouchers.filter(login_type='member').exclude(plan_name='').values_list('plan_name',flat=True).distinct().order_by('plan_name'),
         'agents':business.agents.filter(active=True),'all_agents':business.agents.all(),'holder':holder,
         'designs':business.voucher_designs.all(),'params':params.urlencode()})
 
@@ -320,15 +322,17 @@ def voucher_detail(request,pk):
     now=timezone.now();end=vh.ends_at(v);state_key,state_label=vh.display_state(v,now)
     left=(end-now) if end and end>now else None
     mirror=RouterHotspotUser.objects.filter(router=v.router,username=v.code).first() if v.router_id else None
+    # router-profile picker: voucher plans / member plans / other profiles; deleted plans' profiles left out
+    from .profile_groups import voucher_picker
+    _profile_now=_vprofile(v,business.plans.filter(name=v.plan_name).first())[0]
+    _picker=voucher_picker(business,v,_profile_now)
     return render(request,'core/voucher_detail.html',{
         'v':v,'state_key':state_key,'state_label':state_label,'ends_at':end,'time_left':left,'time_is_up':vh.time_is_up(v,now),
         'time_pct':_time_pct(v,end,now),
         'timeline':vh.timeline(v,now),'bindings':v.device_bindings.order_by('slot_no'),
-        'profile_now':_vprofile(v,business.plans.filter(name=v.plan_name).first())[0],
+        'profile_now':_profile_now,'picker':_picker,
         'profile_router':_profile_state(v),
-        'router_profiles':[p for p in (v.router.hotspot_profiles.filter(is_present=True).order_by('name').values('name','shared_users','rate_limit') if v.router_id else [])
-                           if v.login_type=='member' or not _is_member_profile(p['name'])],   # member plans: members only
-        'profile_plans':business.plans.filter(active=True).order_by('name'),
+        'router_profiles':_picker['others'] or _picker['member_plans'],   # "read yet?" check in the template
         'free_slots':max(0,max(1,v.max_devices or 1)-v.device_bindings.count()),
         'empty_slots':[i for i in range(1,max(1,v.max_devices or 1)+1) if i not in set(v.device_bindings.values_list('slot_no',flat=True))][:10],
         'sale':VoucherSale.objects.filter(voucher=v).select_related('agent','recorded_by').first(),

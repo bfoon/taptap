@@ -5,6 +5,9 @@
 .pf-tag{font-size:.66rem;font-weight:800;border-radius:999px;padding:.12rem .5rem;margin-left:.3rem}
 .pf-tt{background:#e8f0ff;color:#1554b8}.pf-def{background:#eef1f5;color:#56687a}.pf-mk{background:#fff4dc;color:#8a5a00}
 .pf-yes{color:#138453;font-weight:700}.pf-no{color:#8a9aab}.pf-sub{display:block;font-size:.72rem;color:var(--muted,#6c7c90);white-space:normal;max-width:260px}
+.pf-group th{background:var(--bs-tertiary-bg,#f4f7fb)!important;font-size:.78rem!important;font-weight:800!important;text-transform:uppercase;letter-spacing:.06em;color:var(--ink,#102033)!important;padding:.55rem .6rem!important;border-top:2px solid var(--border,#e5ebf3)}
+.pf-group th span{font-weight:500;text-transform:none;letter-spacing:0;color:var(--muted,#6c7c90);margin-left:.4rem}.pf-group-member th{color:#0b6e8a!important}.pf-group-deleted th{color:#8a5a00!important}
+.pf-deleted td{opacity:.6}
 </style>{% endblock %}
 {% block content %}{% with c=current_business.currency %}
 <div class="page-actions">
@@ -61,10 +64,12 @@
   <div class="table-responsive"><table class="table table-sm pf-table">
     <thead><tr><th>Profile</th><th>TapTap plan</th><th>Devices</th><th>Speed (up/down)</th><th>Session</th><th>Idle · keep-alive</th><th>MAC cookie</th><th>Price (router)</th><th>Users</th></tr></thead>
     <tbody>{% for p in g.profiles %}
-      <tr><td><span class="pf-name">{{ p.name }}</span>{% if p.taptap %}<span class="pf-tag pf-tt" title="Made by TapTap">TapTap</span>{% elif p.default %}<span class="pf-tag pf-def">router default</span>{% else %}<span class="pf-tag pf-mk" title="Made on the router (WinBox, Mikhmon…)">router</span>{% endif %}
+      {% ifchanged p.group %}<tr class="pf-group pf-group-{{ p.group }}"><th colspan="9">{% if p.group == 'voucher' %}<i class="bi bi-ticket-perforated"></i> Voucher plans{% elif p.group == 'member' %}<i class="bi bi-person-badge"></i> Member plans <span>members only — never used for vouchers</span>{% elif p.group == 'deleted' %}<i class="bi bi-trash3"></i> Plan deleted <span>still on the router; hidden from every choice list</span>{% else %}<i class="bi bi-router"></i> Other profiles{% endif %}</th></tr>{% endifchanged %}
+      <tr class="{% if p.group == 'deleted' %}pf-deleted{% endif %}"><td><span class="pf-name">{{ p.name }}</span>{% if p.taptap %}<span class="pf-tag pf-tt" title="Made by TapTap">TapTap</span>{% elif p.default %}<span class="pf-tag pf-def">router default</span>{% else %}<span class="pf-tag pf-mk" title="Made on the router (WinBox, Mikhmon…)">router</span>{% endif %}
           {% if p.comment %}<span class="pf-sub">{{ p.comment|truncatechars:70 }}</span>{% endif %}{% if p.pool %}<span class="pf-sub">Pool: {{ p.pool }}</span>{% endif %}</td>
         <td>{% if p.plan %}<a href="{% url 'plan_detail' p.plan.id %}">{{ p.plan.name }}</a><span class="pf-sub">{{ p.plan.price|money:c }} · {{ p.plan.duration_text }}</span>
-          {% elif p.member_profile %}<span class="badge text-bg-info">Members only</span>{% if p.member_plan %} <a href="{% url 'members' %}" class="text-decoration-none">{{ p.member_plan.name }}</a>{% endif %}<span class="pf-sub">Member plan — not used for vouchers</span>
+          {% elif p.group == 'deleted' %}<span class="pf-no">Plan deleted</span>{% if p.users %}<span class="pf-sub">{{ p.users }} user{{ p.users|pluralize }} still on it</span>{% endif %}
+          {% elif p.member_profile %}<span class="badge text-bg-info">Members only</span>{% if p.member_plan %} <a href="{% url 'members' %}" class="text-decoration-none">{{ p.member_plan.name }}</a>{% endif %}{% if p.member_off %} <span class="badge text-bg-secondary">switched off</span>{% endif %}<span class="pf-sub">Member plan — not used for vouchers</span>
           {% elif p.default %}<span class="pf-no">—</span>
           {% elif can_manage %}<form method="post" action="{% url 'router_profile_import' g.router.id %}">{% csrf_token %}<input type="hidden" name="name" value="{{ p.name }}"><input type="hidden" name="next" value="{{ request.get_full_path }}">
             <button class="btn btn-sm btn-outline-success" title="Create a TapTap plan from this profile"><i class="bi bi-plus-lg"></i> Make a plan</button></form>

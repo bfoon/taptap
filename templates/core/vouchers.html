@@ -81,6 +81,7 @@
     >
       <option value="">All plans</option>
 
+      {% if plans %}<optgroup label="VOUCHER PLANS">
       {% for p in plans %}
         <option
           value="{{ p }}"
@@ -89,7 +90,14 @@
           {{ p }}
         </option>
       {% endfor %}
+      </optgroup>{% endif %}
+      {% if member_plan_names %}<optgroup label="MEMBER PLANS">
+      {% for p in member_plan_names %}
+        <option value="{{ p }}" {% if plan == p %}selected{% endif %}>{{ p }}</option>
+      {% endfor %}
+      </optgroup>{% endif %}
     </select>
+    <style>select[name=plan] optgroup{font-weight:800;font-style:normal}select[name=plan] option{font-weight:400}</style>
 
 
     <select
