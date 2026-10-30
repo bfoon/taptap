@@ -50,7 +50,7 @@
     <div class="amount-row">
       <div class="tw"><table>
         <tr><td>Face value</td><td style="color:var(--st-muted)">{{ rc.count }} voucher{{ rc.count|pluralize }}{% if rc.unit is not None %} × {{ rc.unit|money2:c }}{% endif %}</td><td class="n"><b>{{ rc.value|money2:c }}</b></td></tr>
-        {% if rc.agent %}<tr><td>Agent commission</td><td style="color:var(--st-muted)">{{ rc.pct|pct }}%</td><td class="n"><b>−{{ rc.commission|money2:c }}</b></td></tr>
+        {% if rc.agent %}<tr><td>Agent commission</td><td style="color:var(--st-muted)">{{ rc.agent.commission_label }}</td><td class="n"><b>−{{ rc.commission|money2:c }}</b></td></tr>
         {% if rc.prepaid %}<tr><td>Paid upfront</td><td style="color:var(--st-muted)">recorded at issue</td><td class="n pos"><b>−{{ rc.paid|money2:c }}</b></td></tr>{% endif %}{% endif %}
         <tr class="total"><td colspan="2">{% if rc.prepaid %}Balance{% elif rc.agent %}Expected amount{% else %}Total value{% endif %}</td><td class="n">{% if rc.prepaid %}{{ rc.balance|money2:c }}{% elif rc.agent %}{{ rc.expected|money2:c }}{% else %}{{ rc.value|money2:c }}{% endif %}</td></tr>
       </table>
@@ -104,7 +104,7 @@
   {% if rc.agent %}<div class="r"><span>Terms</span><span>{% if rc.prepaid %}Paid upfront{% else %}On credit{% endif %}</span></div>{% endif %}
   <hr>
   <div class="r"><span>Face value</span><span>{{ rc.value|money2:c }}</span></div>
-  {% if rc.agent %}<div class="r"><span>Commission {{ rc.pct|pct }}%</span><span>−{{ rc.commission|money2:c }}</span></div>
+  {% if rc.agent %}<div class="r"><span>Commission · {{ rc.agent.commission_label }}</span><span>−{{ rc.commission|money2:c }}</span></div>
   {% if rc.prepaid %}<div class="r"><span>Paid</span><span>−{{ rc.paid|money2:c }}</span></div>{% endif %}{% endif %}
   <div class="r tot"><span>{% if rc.prepaid %}BALANCE{% elif rc.agent %}PAYABLE{% else %}VALUE{% endif %}</span><span>{% if rc.prepaid %}{{ rc.balance|money2:c }}{% elif rc.agent %}{{ rc.expected|money2:c }}{% else %}{{ rc.value|money2:c }}{% endif %}</span></div>
   <hr>

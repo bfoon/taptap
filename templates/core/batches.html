@@ -159,7 +159,7 @@
         <select class="form-select" name="agent">
           <option value="">The shop (take back unsold vouchers)</option>
           {% for a in agents %}
-            <option value="{{ a.id }}" data-comm="{{ a.commission_percent }}">{{ a.name }} ({{ a.commission_percent|pct }}%)</option>
+            <option value="{{ a.id }}" data-comm="{{ a.commission_js.pct }}" data-comm-fixed="{{ a.commission_js.fixed }}">{{ a.name }} ({{ a.commission_label }})</option>
           {% endfor %}
         </select>
 
@@ -303,7 +303,7 @@
     const pre=f.querySelector('input[name=settlement]:checked').value==='prepaid'&&a.value;
     m.querySelector('[data-prepaid]').hidden=!pre;
     if(pre){
-      const g=left*price,c=g*(+opt.dataset.comm||0)/100;
+      const g=left*price,fx=+opt.dataset.commFixed||0,c=fx?left*Math.min(fx,price):g*(+opt.dataset.comm||0)/100;
       m.querySelector('[data-sum]').innerHTML=`${left} vouchers · ${cur}${g.toLocaleString()} sales · agent pays <b>${cur}${(g-c).toLocaleString(undefined,{maximumFractionDigits:2})}</b>`;
     }
   }

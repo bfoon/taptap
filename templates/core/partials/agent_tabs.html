@@ -1,0 +1,11 @@
+<nav class="ag-tabs" aria-label="Agent pages">
+  <a href="{% url 'agent_detail' agent.id %}" class="{% if tab != 'benefits' %}on{% endif %}"{% if tab != 'benefits' %} aria-current="page"{% endif %}><i class="bi bi-speedometer2"></i> Overview</a>
+  <a href="{% url 'agent_benefits' agent.id %}" class="{% if tab == 'benefits' %}on{% endif %}"{% if tab == 'benefits' %} aria-current="page"{% endif %}><i class="bi bi-gift"></i> Benefits
+    {% with b=agent.benefit %}<span class="ag-dots" title="Commission · Refunds · Free internet"><i class="{% if agent.commission_enabled %}y{% endif %}"></i><i class="{% if b.refund_enabled %}y{% endif %}"></i><i class="{% if b.free_internet %}y{% endif %}"></i></span>{% endwith %}</a>
+</nav>
+<style>
+.ag-tabs{display:flex;gap:.3rem;border-bottom:2px solid var(--border,#e5ebf3);margin:0 0 1rem}
+.ag-tabs a{display:inline-flex;align-items:center;gap:.45rem;padding:.6rem 1rem;margin-bottom:-2px;border-bottom:2px solid transparent;color:#5b6f84;font-weight:700}
+.ag-tabs a:hover{color:var(--ink,#102033)}.ag-tabs a.on{color:var(--primary,#1769e0);border-bottom-color:var(--primary,#1769e0)}
+.ag-dots{display:inline-flex;gap:3px}.ag-dots i{width:7px;height:7px;border-radius:50%;background:#cfd8e3}.ag-dots i.y{background:#18a66a}
+</style>

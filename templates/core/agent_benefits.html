@@ -1,0 +1,256 @@
+{% extends 'core/base.html' %}{% load taptap_extras %}
+{% block title %}{{ agent.name }} — Benefits{% endblock %}
+{% block heading %}{{ agent.name }}{% endblock %}
+{% block extra_head %}<style>
+.bn-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.9rem;margin-bottom:1.2rem}
+.bn-card{display:flex;gap:.8rem;align-items:center;background:#fff;border:1px solid var(--border);border-radius:16px;padding:1rem;color:var(--ink);position:relative;overflow:hidden}
+.bn-card:hover{border-color:#bcd2ee}.bn-card .ic{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;font-size:1.3rem;flex:none}
+.bn-card b{display:block;font-size:.95rem}.bn-card small{color:var(--muted);font-size:.78rem}
+.bn-card .st{position:absolute;right:.8rem;top:.7rem;font-size:.66rem;font-weight:800;letter-spacing:.06em;border-radius:999px;padding:.15rem .5rem}
+.st.on{background:#e6f7ef;color:#127a4d}.st.off{background:#eef2f6;color:#6b7c8f}
+.ic.c{background:#e9f2ff;color:#1769e0}.ic.r{background:#fff4df;color:#b26a00}.ic.w{background:#e9f8f4;color:#0b7a5c}
+.bn-sec{background:#fff;border:1px solid var(--border);border-radius:18px;padding:1.25rem;margin-bottom:1.1rem;scroll-margin-top:80px}
+.bn-sec>h3{font-size:1.08rem;font-weight:800;margin:0 0 .2rem;display:flex;align-items:center;gap:.5rem}.bn-sec>p.lead{color:var(--muted);font-size:.86rem;margin:0 0 1rem}
+.bn-opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:.6rem}
+.bn-opt{position:relative;border:1.5px solid var(--border);border-radius:14px;padding:.75rem .85rem;cursor:pointer;margin:0;display:block;background:#fff}
+.bn-opt:has(input:checked){border-color:var(--primary);background:#f3f8ff;box-shadow:0 0 0 3px #1769e01a}
+.bn-opt input[type=radio]{position:absolute;opacity:0}.bn-opt b{display:block;font-size:.9rem}.bn-opt small{color:var(--muted);font-size:.76rem;line-height:1.35;display:block}
+.bn-opt .rec{font-size:.62rem;font-weight:800;background:#e6f7ef;color:#127a4d;border-radius:999px;padding:.05rem .4rem;margin-left:.3rem;vertical-align:1px}
+.bn-row{display:flex;flex-wrap:wrap;gap:.8rem;align-items:flex-end;margin-top:.9rem}
+.bn-row label{font-size:.75rem;font-weight:750;color:#4e6479;display:block;margin-bottom:.25rem}
+.bn-switch{display:flex;align-items:center;gap:.6rem;font-weight:700;margin-bottom:.8rem}
+.bn-switch .form-check-input{width:2.6em;height:1.4em;margin:0;cursor:pointer}
+.bn-prev{margin-top:1rem;border:1px dashed #cfdbe9;border-radius:14px;padding:.6rem .8rem;background:#fafcff}
+.bn-prev table{margin:0}.bn-prev td,.bn-prev th{padding:.35rem .4rem!important}.bn-prev .earn{color:#127a4d;font-weight:800}
+.bn-chips{display:flex;flex-wrap:wrap;gap:.3rem}.bn-chips a,.bn-chips button{border:1px solid var(--border);background:#fff;border-radius:999px;padding:.25rem .7rem;font-size:.8rem;font-weight:700;color:#4e6479}
+.bn-chips .on{background:#0b2440;color:#fff;border-color:#0b2440}
+.rf-group{border:1px solid var(--border);border-radius:14px;margin-top:.6rem;overflow:hidden}
+.rf-group summary{display:flex;gap:.8rem;align-items:center;padding:.7rem .9rem;cursor:pointer;list-style:none;background:#f8fafc}
+.rf-group summary::-webkit-details-marker{display:none}.rf-group summary .grow{flex:1;min-width:0}
+.rf-group summary small{color:var(--muted)}.rf-age{font-size:.7rem;font-weight:800;border-radius:999px;padding:.12rem .5rem;background:#fff1e0;color:#a35b00}
+.rf-age.old{background:#fdeaea;color:#a12b2b}
+.rf-items{max-height:280px;overflow:auto}.rf-items label{display:grid;grid-template-columns:auto 1fr auto auto;gap:.7rem;align-items:center;padding:.4rem .9rem;border-top:1px solid #eef2f6;margin:0;font-size:.85rem;cursor:pointer}
+.rf-items code{font-weight:800;color:#165abb;background:#eef5ff;border-radius:6px;padding:.05rem .4rem}
+.rf-tag{font-size:.66rem;font-weight:800;border-radius:999px;padding:.08rem .45rem}.rf-tag.p{background:#e9f2ff;color:#1558b8}.rf-tag.c{background:#eef2f6;color:#5b6f84}
+.rf-bar{position:sticky;bottom:.6rem;z-index:5;margin-top:1rem;display:flex;flex-wrap:wrap;gap:.8rem;align-items:center;justify-content:space-between;background:#0b2440;color:#fff;border-radius:16px;padding:.7rem .9rem;box-shadow:0 14px 30px #0b244040}
+.rf-bar b{font-size:1.05rem}.rf-bar small{color:#a9c1db}.rf-bar .btn{font-weight:800}
+.rf-empty{text-align:center;padding:1.6rem;color:var(--muted)}.rf-empty i{font-size:1.8rem;color:#18a66a;display:block;margin-bottom:.3rem}
+.slip{border:2px dashed #b8c7d9;border-radius:16px;padding:1rem 1.1rem;background:#fffdf7;margin-bottom:1rem}
+.slip h4{font-size:1rem;font-weight:800;margin:0}.slip .codes{font-family:ui-monospace,monospace;font-size:.78rem;color:#4e6479;word-break:break-all}
+.wifi-card{position:relative;max-width:420px;border-radius:20px;padding:1.2rem 1.3rem;color:#fff;overflow:hidden;
+  background:radial-gradient(circle at 90% 0,#2fd3a5 0,#0b7a5c 40%,#073b33 100%);box-shadow:0 18px 40px #073b3340}
+.wifi-card:after{content:"";position:absolute;right:-30px;bottom:-30px;width:150px;height:150px;border-radius:50%;border:22px solid #ffffff14}
+.wifi-card .brandline{font-size:.7rem;letter-spacing:.14em;font-weight:800;color:#bdf3e0;text-transform:uppercase}
+.wifi-card h4{font-size:1.2rem;font-weight:850;margin:.15rem 0 .8rem}
+.wifi-card .cred{display:grid;grid-template-columns:auto 1fr auto;gap:.3rem .8rem;align-items:center;background:#ffffff14;border-radius:12px;padding:.6rem .8rem;position:relative;z-index:1}
+.wifi-card .cred span{font-size:.7rem;color:#bdf3e0;text-transform:uppercase;letter-spacing:.06em}.wifi-card .cred b{font-family:ui-monospace,monospace;font-size:1.1rem;letter-spacing:.04em}
+.wifi-card .cred button{border:0;background:#ffffff22;color:#fff;border-radius:8px;padding:.15rem .5rem;font-size:.75rem}
+.wifi-card .meta{font-size:.78rem;color:#d4f6ea;margin-top:.7rem;position:relative;z-index:1}
+.wifi-card.off{filter:grayscale(1);opacity:.75}
+.tl{list-style:none;padding:0;margin:0}.tl li{display:grid;grid-template-columns:auto 1fr;gap:.7rem;padding:.45rem 0;border-bottom:1px dashed #e3e9f1;font-size:.84rem}
+.tl li:last-child{border:0}.tl time{color:var(--muted);font-size:.74rem;white-space:nowrap}
+html[data-theme=dark] .bn-card,html[data-theme=dark] .bn-sec,html[data-theme=dark] .bn-opt{background:#0f1f33;border-color:#1f3550}
+html[data-theme=dark] .bn-opt:has(input:checked){background:#11284a}html[data-theme=dark] .rf-group summary,html[data-theme=dark] .bn-prev{background:#0c1a2b}
+html[data-theme=dark] .slip{background:#141f2c}
+@media(max-width:860px){.bn-cards{grid-template-columns:1fr}}
+@media print{body *{visibility:hidden}.print-me,.print-me *{visibility:visible}.print-me{position:absolute;left:0;top:0;width:100%}.no-print{display:none!important}}
+</style>{% endblock %}
+
+{% block content %}{% with c=current_business.currency %}
+{% include 'core/partials/agent_tabs.html' %}
+
+{% if not can_manage %}<div class="alert alert-light border small"><i class="bi bi-lock"></i> You can see {{ agent.name }}'s benefits. Only agent or finance managers can change them.</div>{% endif %}
+
+<div class="bn-cards">
+  <a class="bn-card" href="#commission"><span class="ic c"><i class="bi bi-percent"></i></span><div><b>Commission</b><small>{{ agent.commission_label }}</small></div><span class="st {% if agent.commission_enabled %}on{% else %}off{% endif %}">{% if agent.commission_enabled %}ON{% else %}OFF{% endif %}</span></a>
+  <a class="bn-card" href="#refunds"><span class="ic r"><i class="bi bi-arrow-counterclockwise"></i></span><div><b>Refunds</b><small>{% if b.refund_enabled %}Unsold {{ b.refund_after_days }}+ days{% if refund.n %} · <b class="d-inline">{{ refund.n }}</b> waiting{% endif %}{% else %}Take back vouchers that do not sell{% endif %}</small></div><span class="st {% if b.refund_enabled %}on{% else %}off{% endif %}">{% if b.refund_enabled %}ON{% else %}OFF{% endif %}</span></a>
+  <a class="bn-card" href="#internet"><span class="ic w"><i class="bi bi-wifi"></i></span><div><b>Free internet</b><small>{% if b.free_internet and member %}Logs in as <b class="d-inline">{{ member.code }}</b>{% else %}A member account for the agent{% endif %}</small></div><span class="st {% if b.free_internet %}on{% else %}off{% endif %}">{% if b.free_internet %}ON{% else %}OFF{% endif %}</span></a>
+</div>
+
+{# ───────────── commission ───────────── #}
+<section class="bn-sec" id="commission">
+  <h3><i class="bi bi-percent text-primary"></i> Commission</h3>
+  <p class="lead">What {{ agent.name }} keeps from every voucher they sell. A change applies to <b>new sales</b> — sales already booked keep their commission.{% if bal %} All time: <b>{{ bal.commission|money:c }}</b> earned on {{ bal.sold }} sale{{ bal.sold|pluralize }}.{% endif %}</p>
+  <form method="post" id="commForm">{% csrf_token %}<input type="hidden" name="action" value="commission">
+    <fieldset {% if not can_manage %}disabled{% endif %}>
+    <div class="bn-opts">
+      <label class="bn-opt"><input type="radio" name="cm" value="off" {% if not agent.commission_enabled %}checked{% endif %}><b>🚫 No commission</b><small>The agent hands in the full price of every voucher.</small></label>
+      <label class="bn-opt"><input type="radio" name="cm" value="percent" {% if agent.commission_enabled and agent.commission_mode == 'percent' %}checked{% endif %}><b>％ Share of each sale</b><small>A percentage of the price — grows with dearer plans.</small></label>
+      <label class="bn-opt"><input type="radio" name="cm" value="fixed" {% if agent.commission_enabled and agent.commission_mode == 'fixed' %}checked{% endif %}><b>{{ c }} Fixed per voucher</b><small>The same amount on every voucher, whatever the plan (never more than its price).</small></label>
+    </div>
+    <input type="hidden" name="commission_enabled" value="{% if agent.commission_enabled %}1{% endif %}"><input type="hidden" name="commission_mode" value="{{ agent.commission_mode }}">
+    <div class="bn-row">
+      <div data-show="percent"><label for="cmPct">Commission %</label><div class="input-group" style="width:150px"><input class="form-control" id="cmPct" type="number" step="any" min="0" max="100" name="commission_percent" value="{{ agent.commission_percent|pct }}"><span class="input-group-text">%</span></div></div>
+      <div data-show="fixed"><label for="cmAmt">Amount per voucher</label><div class="input-group" style="width:170px"><span class="input-group-text">{{ c }}</span><input class="form-control" id="cmAmt" type="number" step="0.01" min="0" name="commission_amount" value="{{ agent.commission_amount|floatformat:'-2' }}"></div></div>
+      {% if can_manage %}<button class="btn btn-primary"><i class="bi bi-check2"></i> Save commission</button>{% endif %}
+    </div>
+    </fieldset>
+  </form>
+  {% if preview %}<div class="bn-prev"><small class="text-secondary fw-bold">Live preview — what {{ agent.name }} earns</small>
+    <table class="table table-sm align-middle"><thead><tr><th>Plan</th><th class="text-end">Price</th><th class="text-end">Agent keeps</th><th class="text-end">Hands in</th></tr></thead><tbody>
+    {% for r in preview %}<tr data-price="{{ r.price }}"><td>{{ r.plan.name }}</td><td class="text-end">{{ r.price|money:c }}</td><td class="text-end earn" data-earn>{{ r.earn|money:c }}</td><td class="text-end" data-pays>{{ r.pays|money:c }}</td></tr>{% endfor %}
+    </tbody></table></div>{% endif %}
+</section>
+
+{# ───────────── refunds ───────────── #}
+<section class="bn-sec" id="refunds">
+  <h3><i class="bi bi-arrow-counterclockwise" style="color:#b26a00"></i> Refund unsold vouchers</h3>
+  <p class="lead">When vouchers sit with {{ agent.name }} for a long time without selling, take them back. Vouchers they <b>paid for upfront</b> are refunded at what they paid (price minus commission); vouchers <b>on credit</b> cost them nothing, so they are simply taken back.</p>
+  <form method="post">{% csrf_token %}<input type="hidden" name="action" value="refund_settings">
+    <fieldset {% if not can_manage %}disabled{% endif %}>
+    <label class="bn-switch"><input class="form-check-input" type="checkbox" role="switch" name="refund_enabled" value="1" {% if b.refund_enabled %}checked{% endif %} onchange="this.form.requestSubmit()"> Refunds are {% if b.refund_enabled %}on{% else %}off{% endif %} for {{ agent.name }}</label>
+    {% if b.refund_enabled %}
+    <div class="bn-row" style="margin-top:0"><div><label>A voucher qualifies after it has been unsold for</label>
+      <div class="d-flex gap-2 align-items-center"><input class="form-control" type="number" min="0" max="3650" name="refund_after_days" value="{{ b.refund_after_days }}" style="width:95px"><span class="small text-secondary">days</span></div></div></div>
+    <div class="bn-row"><div class="w-100"><label>What happens to the vouchers</label><div class="bn-opts">
+      <label class="bn-opt"><input type="radio" name="refund_action" value="disable" {% if b.refund_action == 'disable' %}checked{% endif %}><b>🔒 Switch them off<span class="rec">SAFEST</span></b><small>They stop working on the router at once — the agent may still hold the printed cards.</small></label>
+      <label class="bn-opt"><input type="radio" name="refund_action" value="return" {% if b.refund_action == 'return' %}checked{% endif %}><b>📦 Back to the shop’s stock</b><small>They keep working and the shop can sell them. Collect the printed cards first.</small></label>
+    </div></div></div>
+    <div class="bn-row"><div class="w-100"><label>How the agent gets the money back</label><div class="bn-opts">
+      <label class="bn-opt"><input type="radio" name="refund_payout" value="cash" {% if b.refund_payout == 'cash' %}checked{% endif %}><b>💵 Pay them back</b><small>Recorded as a refund to the agent, so their balance and statement stay right.</small></label>
+      <label class="bn-opt"><input type="radio" name="refund_payout" value="credit" {% if b.refund_payout == 'credit' %}checked{% endif %}><b>🎟 Credit toward new vouchers</b><small>No cash moves: it is kept as money they have paid ahead.</small></label>
+    </div></div></div>
+    {% if can_manage %}<div class="bn-row"><button class="btn btn-outline-primary"><i class="bi bi-check2"></i> Save refund settings</button></div>{% endif %}
+    {% endif %}
+    </fieldset>
+  </form>
+
+  {% if shown_refund %}<div class="slip print-me mt-3" id="slip">
+    <div class="d-flex justify-content-between align-items-start gap-2"><div><h4>Refund slip {{ shown_refund.number }}</h4><small class="text-secondary">{{ current_business.business_name }} → {{ agent.name }} · {{ shown_refund.created_at|date:"j M Y, H:i" }}</small></div>
+      <button type="button" class="btn btn-sm btn-outline-secondary no-print" onclick="window.print()"><i class="bi bi-printer"></i> Print</button></div>
+    <div class="row g-2 mt-1 small"><div class="col-6 col-md-3"><span class="text-secondary d-block">Vouchers</span><b>{{ shown_refund.count }}</b></div>
+      <div class="col-6 col-md-3"><span class="text-secondary d-block">Refund</span><b>{{ shown_refund.amount|money:c }}</b></div>
+      <div class="col-6 col-md-3"><span class="text-secondary d-block">Paid as</span><b>{{ shown_refund.get_payout_display }}</b></div>
+      <div class="col-6 col-md-3"><span class="text-secondary d-block">Vouchers now</span><b>{% if shown_refund.action == 'disable' %}Switched off{% else %}Back in shop stock{% endif %}</b></div></div>
+    <div class="codes mt-2">{{ shown_refund.codes|join:" · " }}</div>
+    <div class="d-flex justify-content-between mt-3 small text-secondary"><span>Given by: ____________________</span><span>Received by {{ agent.name }}: ____________________</span></div>
+  </div>{% endif %}
+
+  {% if b.refund_enabled %}
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
+    <div class="bn-chips"><span class="small text-secondary fw-bold me-1 align-self-center">Unsold for</span>{% for d in day_chips %}<a href="?days={{ d }}#refunds" class="{% if d == min_days %}on{% endif %}">{{ d }}+ days</a>{% endfor %}{% if min_days not in day_chips %}<a class="on" href="?days={{ min_days }}#refunds">{{ min_days }}+ days</a>{% endif %}</div>
+    {% if refund.n %}<span class="small text-secondary"><b>{{ refund.n }}</b> voucher{{ refund.n|pluralize }} qualify · <b>{{ refund.value|money:c }}</b> refundable{% if refund.prepaid %} · {{ refund.prepaid }} paid upfront{% endif %}</span>{% endif %}
+  </div>
+  {% if refund.n %}
+  <form method="post" id="rfForm" onsubmit="return confirm('Refund the ticked vouchers to {{ agent.name|escapejs }}? This cannot be undone.')">{% csrf_token %}
+    <input type="hidden" name="action" value="refund"><input type="hidden" name="min_days" value="{{ min_days }}">
+    <input type="hidden" name="refund_action" value="{{ b.refund_action }}"><input type="hidden" name="refund_payout" value="{{ b.refund_payout }}">
+    {% for g in refund.groups %}<details class="rf-group" {% if forloop.first %}open{% endif %}>
+      <summary><input class="form-check-input rf-all" type="checkbox" checked aria-label="All in {{ g.batch }}" onclick="event.stopPropagation()">
+        <div class="grow"><b>{{ g.plan }}</b> <small>· {{ g.batch }}</small><br><small>{{ g.n }} voucher{{ g.n|pluralize }} · {{ g.value|money:c }} refundable</small></div>
+        <span class="rf-age {% if g.oldest >= 60 %}old{% endif %}">oldest {{ g.oldest }} days</span><i class="bi bi-chevron-down text-secondary"></i></summary>
+      <div class="rf-items">{% for it in g.items %}<label><input class="form-check-input rf-one" type="checkbox" name="voucher" value="{{ it.voucher.id }}" data-value="{{ it.value }}" checked>
+        <span><code>{{ it.voucher.code }}</code> <small class="text-secondary">given {{ it.since|date:"j M" }} · {{ it.days }} days ago</small></span>
+        <span class="rf-tag {% if it.prepaid %}p{% else %}c{% endif %}">{% if it.prepaid %}paid upfront{% else %}on credit{% endif %}</span><b>{{ it.value|money:c }}</b></label>{% endfor %}</div>
+    </details>{% endfor %}
+    <div class="rf-bar"><div><b><span id="rfN">{{ refund.n }}</span> voucher<span id="rfS">{{ refund.n|pluralize }}</span> · {{ c }}<span id="rfV">{{ refund.value|floatformat:2 }}</span></b><br>
+      <small>{% if b.refund_payout == 'cash' %}Paid back to {{ agent.name }}{% else %}Kept as credit for {{ agent.name }}{% endif %} · vouchers {% if b.refund_action == 'disable' %}switched off{% else %}back in shop stock{% endif %}</small></div>
+      {% if can_manage %}<div class="d-flex flex-wrap gap-2 align-items-center">{% if b.refund_payout == 'cash' %}<select class="form-select form-select-sm" name="method" style="width:auto">{% for k, l in methods %}<option value="{{ k }}">{{ l }}</option>{% endfor %}</select>
+        <input class="form-control form-control-sm" name="reference" placeholder="Reference (optional)" style="width:170px">{% endif %}
+        <button class="btn btn-warning"><i class="bi bi-arrow-counterclockwise"></i> Refund</button></div>{% endif %}
+    </div>
+  </form>
+  {% else %}<div class="rf-empty"><i class="bi bi-emoji-smile"></i>Nothing to refund — {{ agent.name }} has no voucher unsold for {{ min_days }}+ days.</div>{% endif %}
+  {% endif %}
+
+  {% if refunds %}<h6 class="fw-bold mt-4 mb-2">Refunds made</h6><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Slip</th><th>When</th><th class="text-end">Vouchers</th><th class="text-end">Amount</th><th>Paid as</th><th>Vouchers now</th><th>By</th></tr></thead><tbody>
+    {% for r in refunds %}<tr><td><a href="?refund={{ r.id }}#slip">{{ r.number }}</a></td><td>{{ r.created_at|date:"j M Y H:i" }}</td><td class="text-end">{{ r.count }}</td><td class="text-end">{{ r.amount|money:c }}</td><td>{{ r.get_payout_display }}</td><td>{% if r.action == 'disable' %}Switched off{% else %}Shop stock{% endif %}</td><td>{{ r.created_by.get_full_name|default:r.created_by.username|default:"—" }}</td></tr>{% endfor %}
+  </tbody></table></div>{% endif %}
+</section>
+
+{# ───────────── free internet ───────────── #}
+<section class="bn-sec" id="internet">
+  <h3><i class="bi bi-wifi" style="color:#0b7a5c"></i> Free internet</h3>
+  <p class="lead">Give {{ agent.name }} their own Wi-Fi login: a member account named after them with a random 5-character password, on a member plan.</p>
+  {% if not members_on %}<div class="alert alert-light border small mb-0"><i class="bi bi-info-circle"></i> The Members module is switched off for this business, so agents cannot get free internet.</div>
+  {% else %}
+  <div class="row g-4 align-items-start">
+    <div class="col-lg-6">
+      {% if member %}
+      <div class="wifi-card print-me {% if not b.free_internet %}off{% endif %}">
+        <div class="brandline">{{ current_business.business_name }} · Wi-Fi</div>
+        <h4>{{ agent.name }}</h4>
+        <div class="cred"><span>Username</span><b id="wfU">{{ member.code }}</b><button type="button" class="no-print" data-copy="wfU">Copy</button>
+          <span>Password</span>{% if password %}<b id="wfP">{{ password }}</b><button type="button" class="no-print" data-copy="wfP">Copy</button>{% else %}<b style="font-size:.85rem;font-family:inherit">•••••</b><span class="no-print" style="text-transform:none">shown once</span>{% endif %}</div>
+        <div class="meta">{% if member_plan_now %}{{ member_plan_now.name }} · {{ member_plan_now.max_devices }} device{{ member_plan_now.max_devices|pluralize }}{% if member_plan_now.speed_limit %} · {{ member_plan_now.speed_limit }}{% endif %}{% endif %}{% if member.router %} · {{ member.router.name }}{% endif %}
+          <br>{% if b.free_internet %}{% if member.expires_at %}Valid until {{ member.expires_at|date:"j M Y" }}{% else %}Active{% endif %}{% else %}Switched off{% endif %}</div>
+      </div>
+      {% if password %}<div class="alert alert-success small mt-2 mb-0 no-print"><i class="bi bi-key"></i> Give this password to {{ agent.name }} now — it is shown <b>only once</b>. Lost it? Make a new one.</div>{% endif %}
+      <div class="d-flex flex-wrap gap-2 mt-3 no-print">
+        {% if wa %}<a class="btn btn-success btn-sm" href="{{ wa }}" target="_blank" rel="noopener"><i class="bi bi-whatsapp"></i> Send on WhatsApp</a>{% endif %}
+        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="window.print()"><i class="bi bi-printer"></i> Print card</button>
+        <a class="btn btn-outline-secondary btn-sm" href="{% url 'member_detail' member.id %}"><i class="bi bi-person-badge"></i> Member page</a>
+        {% if can_manage %}<form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="action" value="new_password"><button class="btn btn-outline-primary btn-sm"><i class="bi bi-arrow-repeat"></i> New password</button></form>{% endif %}
+      </div>
+      {% elif b.free_internet %}<div class="alert alert-warning small">The member account was deleted. Switch free internet on again to make a new one.</div>
+      {% else %}
+      <div class="wifi-card off"><div class="brandline">{{ current_business.business_name }} · Wi-Fi</div><h4>{{ agent.name }}</h4>
+        <div class="cred"><span>Username</span><b>{{ suggested }}</b><span></span><span>Password</span><b>5 random characters</b><span></span></div>
+        <div class="meta">Preview — the account is made when you switch free internet on.</div></div>
+      {% endif %}
+    </div>
+    <div class="col-lg-6">
+      {% if can_manage %}
+      {% if b.free_internet and member %}
+      <form method="post" onsubmit="return confirm('Switch off free internet for {{ agent.name|escapejs }}? Their login stops working; it can be switched back on later.')">{% csrf_token %}<input type="hidden" name="action" value="free_off">
+        <label class="bn-switch"><input class="form-check-input" type="checkbox" role="switch" checked onchange="this.form.requestSubmit()"> Free internet is on</label></form>
+      <p class="small text-secondary">Change the plan by switching it off and on again with another plan, or on the member page.</p>
+      {% else %}
+      <form method="post">{% csrf_token %}<input type="hidden" name="action" value="free_on">
+        <label class="bn-switch"><input class="form-check-input" type="checkbox" role="switch" disabled> Free internet is off</label>
+        <label class="small fw-bold d-block mb-1">Member plan</label>
+        <div class="bn-opts" style="grid-template-columns:1fr">
+          {% for p in plans %}<label class="bn-opt"><input type="radio" name="plan" value="{{ p.id }}" {% if preselect and p.id == preselect.id %}checked{% endif %}><b>{{ p.name }}{% if default_plan and p.id == default_plan.id %}<span class="rec">⭐ DEFAULT FOR AGENTS</span>{% endif %}</b>
+            <small>{% if p.price %}{{ p.price|money:c }}{% else %}Free{% endif %} · {{ p.duration_text }} · {{ p.max_devices }} device{{ p.max_devices|pluralize }}{% if p.speed_limit %} · {{ p.speed_limit }}{% endif %}{% if p.price %} · the agent is not charged{% endif %}</small></label>{% endfor %}
+          <label class="bn-opt"><input type="radio" name="plan" value="new" {% if not plans %}checked{% endif %}><b>✨ Create “Agent Wi-Fi”</b><small>A new free member plan — unlimited time, 2 devices — made the default for every agent.</small></label>
+        </div>
+        {% if plans %}<label class="form-check small mt-2"><input class="form-check-input" type="checkbox" name="make_default" value="1" {% if not default_plan %}checked{% endif %}> Make the chosen plan the default for all agents</label>{% endif %}
+        {% if routers|length > 1 %}<label class="small fw-bold d-block mt-2 mb-1">Router</label><select class="form-select form-select-sm" name="router" style="max-width:260px">{% for r in routers %}<option value="{{ r.id }}" {% if router_guess and r.id == router_guess.id %}selected{% endif %}>{{ r.name }}</option>{% endfor %}</select>
+        {% elif router_guess %}<input type="hidden" name="router" value="{{ router_guess.id }}">{% endif %}
+        <button class="btn btn-success mt-3"><i class="bi bi-wifi"></i> Switch on free internet</button>
+        <small class="d-block text-secondary mt-2">{% if member %}{{ agent.name }}'s old login <b>{{ member.code }}</b> comes back.{% else %}{{ agent.name }} will log in as <b>{{ suggested }}</b> with a random 5-character password.{% endif %} Members only use member plans.</small>
+      </form>
+      {% endif %}
+      {% if plans %}<details class="mt-3"><summary class="small fw-bold text-secondary">Default plan for agents</summary>
+        <form method="post" class="d-flex gap-2 mt-2">{% csrf_token %}<input type="hidden" name="action" value="default_plan"><select class="form-select form-select-sm" name="plan"><option value="">— none —</option>{% for p in plans %}<option value="{{ p.id }}" {% if default_plan and p.id == default_plan.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select><button class="btn btn-sm btn-outline-primary">Save</button></form>
+        <small class="text-secondary">Picked first whenever an agent gets free internet.</small></details>{% endif %}
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</section>
+
+{% if history %}<section class="bn-sec"><h3><i class="bi bi-clock-history text-secondary"></i> Benefit history</h3>
+  <ul class="tl">{% for h in history %}<li><time>{{ h.at|slice:":16"|cut:"T"|default:"" }}</time><span>{{ h.text }} <small class="text-secondary">— {{ h.by }}</small></span></li>{% endfor %}</ul></section>{% endif %}
+
+<script>
+(function(){
+  var f=document.getElementById('commForm');
+  if(f){
+    var cur='{{ c|escapejs }}';
+    function mode(){var r=f.querySelector('input[name=cm]:checked');return r?r.value:'percent';}
+    function fmt(n){return cur+(Math.round(n*100)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});}
+    function sync(){
+      var m=mode();f.elements.commission_enabled.value=m==='off'?'':'1';if(m!=='off')f.elements.commission_mode.value=m;
+      f.querySelectorAll('[data-show]').forEach(function(el){el.style.display=el.dataset.show===m?'':'none';});
+      var pct=parseFloat(f.elements.commission_percent.value)||0,amt=parseFloat(f.elements.commission_amount.value)||0;
+      document.querySelectorAll('.bn-prev tr[data-price]').forEach(function(tr){
+        var p=parseFloat(tr.dataset.price)||0,e=m==='off'?0:m==='fixed'?Math.min(amt,p):p*pct/100;
+        tr.querySelector('[data-earn]').textContent=fmt(e);tr.querySelector('[data-pays]').textContent=fmt(p-e);});
+    }
+    f.addEventListener('input',sync);f.addEventListener('change',sync);sync();
+  }
+  var rf=document.getElementById('rfForm');
+  if(rf){
+    function total(){var n=0,v=0;rf.querySelectorAll('.rf-one').forEach(function(x){if(x.checked){n++;v+=parseFloat(x.dataset.value)||0;}});
+      document.getElementById('rfN').textContent=n;document.getElementById('rfS').textContent=n===1?'':'s';document.getElementById('rfV').textContent=v.toFixed(2);
+      var b=rf.querySelector('button.btn-warning');if(b)b.disabled=!n;
+      rf.querySelectorAll('.rf-group').forEach(function(g){var all=g.querySelectorAll('.rf-one'),on=g.querySelectorAll('.rf-one:checked').length,a=g.querySelector('.rf-all');a.checked=on===all.length;a.indeterminate=on>0&&on<all.length;});}
+    rf.addEventListener('change',function(e){if(e.target.classList.contains('rf-all')){e.target.closest('.rf-group').querySelectorAll('.rf-one').forEach(function(x){x.checked=e.target.checked;});}total();});
+    total();
+  }
+  document.querySelectorAll('[data-copy]').forEach(function(b){b.addEventListener('click',function(){var t=document.getElementById(b.dataset.copy).textContent;
+    (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.textContent='Copied';setTimeout(function(){b.textContent='Copy';},1500);});});});
+})();
+</script>
+{% endwith %}{% endblock %}

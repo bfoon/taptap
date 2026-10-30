@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views, views_business as vb, views_studio as vs, views_wan as vw, views_agents as va, views_auth
+from . import views_agent_benefits as vagb
 from . import views_wan_doctor as vdoc
 
 from . import views_help as vhelp
@@ -80,7 +81,7 @@ urlpatterns = [
     path('routers/<int:pk>/internet/doctor/fix/',vdoc.doctor_fix,name='wan_doctor_fix'), path('routers/<int:pk>/internet/doctor/script/',vdoc.doctor_script,name='wan_doctor_script'),
     # Agents, agent batches and one-off vouchers
     path('vouchers/single/',va.single_voucher,name='single_voucher'), path('vouchers/<int:pk>/card/',va.voucher_card,name='voucher_card'),
-    path('batches/<int:pk>/assign/',va.batch_assign,name='batch_assign'), path('finance/agents/<int:pk>/',va.agent_detail,name='agent_detail'), path('finance/agents/<int:pk>/qr/',va.agent_portal_rotate,name='agent_portal_rotate'), path('finance/agents/<int:pk>/log/',va.agent_log_action,name='agent_log_action'), path('finance/agents/<int:pk>/order-plans/',va.agent_order_plans,name='agent_order_plans'), path('finance/agents/<int:pk>/checker-phone/',va.agent_portal_phone,name='agent_portal_phone'),
+    path('batches/<int:pk>/assign/',va.batch_assign,name='batch_assign'), path('finance/agents/<int:pk>/',va.agent_detail,name='agent_detail'), path('finance/agents/<int:pk>/benefits/',vagb.agent_benefits,name='agent_benefits'), path('finance/agents/<int:pk>/qr/',va.agent_portal_rotate,name='agent_portal_rotate'), path('finance/agents/<int:pk>/log/',va.agent_log_action,name='agent_log_action'), path('finance/agents/<int:pk>/order-plans/',va.agent_order_plans,name='agent_order_plans'), path('finance/agents/<int:pk>/checker-phone/',va.agent_portal_phone,name='agent_portal_phone'),
     # Finance
     path('finance/',vb.finance,name='finance'), path('finance/sale/',vb.finance_sale_add,name='finance_sale_add'), path('finance/sale/<int:pk>/void/',vb.finance_sale_delete,name='finance_sale_delete'),
     path('finance/expense/',vb.finance_expense_add,name='finance_expense_add'), path('finance/expense/<int:pk>/delete/',vb.finance_expense_delete,name='finance_expense_delete'),

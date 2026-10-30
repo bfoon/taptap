@@ -30,7 +30,7 @@
     <div class="tile"><div class="k">Agent / Name</div><div class="v">{{ agent.name }}</div></div>
     <div class="tile"><div class="k">Location</div><div class="v">{{ agent.location|default:'—' }}</div></div>
     <div class="tile"><div class="k">Phone</div><div class="v">{{ agent.phone|default:'—' }}</div></div>
-    <div class="tile"><div class="k">Commission Rate</div><div class="v">{{ agent.commission_percent|pct }}%</div></div>
+    <div class="tile"><div class="k">Commission Rate</div><div class="v">{{ agent.commission_label }}</div></div>
     <div class="tile"><div class="k">Vouchers Sold in Period</div><div class="v">{{ st.sold_n }}</div></div>
     <div class="tile"><div class="k">Stock in Hand</div><div class="v">{{ st.held_n }}</div><div class="s">unsold, worth {{ st.held_value|money2:c }}</div></div>
   </div>
@@ -39,7 +39,7 @@
   <div class="bridge">
     <div class="row"><span class="op"></span><span class="lbl">Opening balance<small>Still to hand in on {{ st.from|date:'d M Y' }}</small></span><span class="amt">{{ st.opening|money2:c }}</span></div>
     <div class="row"><span class="op">+</span><span class="lbl">Sales credited to the agent<small>{{ st.sold_n }} voucher{{ st.sold_n|pluralize }} sold in the period, gross</small></span><span class="amt">{{ st.gross|money2:c }}</span></div>
-    <div class="row"><span class="op">−</span><span class="lbl">Commission earned<small>At {{ agent.commission_percent|pct }}%, kept by the agent</small></span><span class="amt">{{ st.commission|money2:c }}</span></div>
+    <div class="row"><span class="op">−</span><span class="lbl">Commission earned<small>{{ agent.commission_label }}, kept by the agent</small></span><span class="amt">{{ st.commission|money2:c }}</span></div>
     <div class="row sub"><span class="op">=</span><span class="lbl"><b>Amount due for the period</b><small>Opening balance plus net sales</small></span><span class="amt">{{ st.due|money2:c }}</span></div>
     <div class="row"><span class="op">−</span><span class="lbl">Cash handed in<small>{{ st.collections_n }} hand-in{{ st.collections_n|pluralize }}, all payment methods</small></span><span class="amt pos">{{ st.collected|money2:c }}</span></div>
     <div class="row total"><span class="op">=</span><span class="lbl"><b>Closing balance</b><small>{% if st.status.0 == 'credit' %}Paid ahead — in credit{% else %}Still to hand in{% endif %} on {{ st.to|date:'d M Y' }}</small></span>

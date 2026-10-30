@@ -144,7 +144,12 @@ def effective_price(voucher):
 
 
 def commission_for(agent, amount):
-    if not agent: return ZERO
+    """Commission on ONE voucher sold for `amount` (every caller passes one voucher's price).
+    Off → 0 · percent → that share of the sale · fixed → the fixed amount, never more than the sale itself.
+    Each sale stores its own commission, so changing an agent's benefit never rewrites past sales."""
+    if not agent or not getattr(agent, 'commission_enabled', True): return ZERO
+    if getattr(agent, 'commission_mode', 'percent') == 'fixed':
+        return min(max(ZERO, d(amount)), d(agent.commission_amount)).quantize(Decimal('0.01'))
     return (d(amount) * d(agent.commission_percent) / Decimal('100')).quantize(Decimal('0.01'))
 
 

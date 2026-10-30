@@ -703,6 +703,11 @@ class Agent(models.Model):
     phone=models.CharField(max_length=60,blank=True)
     location=models.CharField(max_length=160,blank=True)
     commission_percent=models.DecimalField(max_digits=7,decimal_places=4,default=10,help_text='Up to 4 decimals, e.g. 9.09 or 9.0909')
+    # Benefits tab (core/agent_benefits.py): commission can be switched off, or be a fixed amount per voucher sold.
+    COMMISSION_MODES=[('percent','% of each sale'),('fixed','Fixed amount per voucher')]
+    commission_enabled=models.BooleanField(default=True)
+    commission_mode=models.CharField(max_length=10,choices=COMMISSION_MODES,default='percent')
+    commission_amount=models.DecimalField(max_digits=10,decimal_places=2,default=0,help_text='Per voucher sold, when the mode is "fixed"')
     active=models.BooleanField(default=True)
     portal_token=models.CharField(max_length=40,blank=True,db_index=True,help_text='Secret in the agent\'s QR code (voucher checker)')
     customer_phone=models.CharField(max_length=60,blank=True,help_text='Number the voucher checker tells customers to call (empty = the customer help line in Settings)')
@@ -712,6 +717,22 @@ class Agent(models.Model):
     created_at=models.DateTimeField(auto_now_add=True)
     class Meta: ordering=['name']
     def __str__(self): return self.name
+    @property
+    def commission_label(self):
+        """'10% commission', 'D5 per voucher' or 'No commission' — how this agent is paid, in words."""
+        if not self.commission_enabled: return 'No commission'
+        if self.commission_mode=='fixed':
+            amt=self.commission_amount or 0
+            return f'{self.business.currency}{amt:,.2f}'.replace('.00','')+' per voucher'
+        from decimal import Decimal
+        pct=format(Decimal(str(self.commission_percent or 0)).normalize(),'f')
+        return f'{pct}% commission'
+    @property
+    def commission_js(self):
+        """data-* values for the in-page previews: percent (0 when off) and fixed per voucher (0 unless fixed)."""
+        if not self.commission_enabled: return {'pct':0,'fixed':0}
+        if self.commission_mode=='fixed': return {'pct':0,'fixed':self.commission_amount or 0}
+        return {'pct':self.commission_percent or 0,'fixed':0}
     def orderable_plans(self):
         """Active plans this agent may order: the ones ticked for them, or every active plan when none are ticked."""
         qs=self.business.plans.filter(active=True).exclude(name__startswith='*')

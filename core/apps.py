@@ -40,6 +40,7 @@ class CoreConfig(AppConfig):
         importlib.import_module("core.models_control_designer")
         importlib.import_module("core.models_backup_storage")
         importlib.import_module("core.models_investors")
+        importlib.import_module("core.models_agent_benefits")
 
     def ready(self):
         from . import team  # noqa: F401
