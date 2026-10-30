@@ -45,6 +45,10 @@ def router_profile_import(request, pk):
     if not row:
         messages.error(request, f'{name} is not on {router.name} any more. Refresh the router and try again.')
         return redirect(f'/routers/profiles/?router={router.pk}')
+    from .member_plan_prices import is_member_profile, MEMBERS_ONLY
+    if is_member_profile(name):
+        messages.info(request, f'{name} belongs to a member plan. ' + MEMBERS_ONLY)
+        return redirect(request.POST.get('next') or '/routers/profiles/')
     summary = {'duplicate_plans_skipped': 0, 'pulled_plans': 0}
     plan = _profile_to_plan(router, row, summary, timezone.now())
     if plan is None:

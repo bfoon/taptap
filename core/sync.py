@@ -378,22 +378,14 @@ def _pm_create(row):
 
 
 def _profile_to_plan(router, row, summary, now):
-    """Import one HotSpot profile as a plan. A member-plan profile takes its price and validity from the
-    member plan (core/member_plan_prices.py), so it no longer shows up as "No price · 1 day"."""
-    plan = _profile_to_plan_inner(router, row, summary, now)
-    if plan is not None:
-        try:
-            from .member_plan_prices import apply_to_plan, member_plan_for
-            mp = member_plan_for(router.business, plan.name)
-            if mp is not None:
-                apply_to_plan(plan, mp)
-                missing = summary.get('plans_without_price')
-                if missing and plan.name in missing:
-                    missing.remove(plan.name)
-        except Exception:
-            import logging
-            logging.getLogger('taptap.sync').exception('member plan price for %s', getattr(plan, 'name', ''))
-    return plan
+    """Import one HotSpot profile as a voucher plan. A member plan's profile is recorded as a router profile
+    but never becomes a voucher plan: member plans only work with members (core/member_plan_prices.py)."""
+    from .member_plan_prices import is_member_profile
+    if is_member_profile(row.get('name', '')):
+        _profile_to_plan_inner(router, row, summary, now, profile_only=True)
+        summary['member_profiles_kept_out'] = summary.get('member_profiles_kept_out', 0) + 1
+        return None
+    return _profile_to_plan_inner(router, row, summary, now)
 
 
 def _profile_to_plan_inner(
@@ -401,6 +393,7 @@ def _profile_to_plan_inner(
     row,
     summary,
     now,
+    profile_only=False,
 ):
     name = str(
         row.get(
@@ -502,6 +495,9 @@ def _profile_to_plan_inner(
             'last_seen_at': now,
         },
     )
+
+    if profile_only:
+        return None
 
     plan = (
         VoucherPlan.objects
@@ -913,6 +909,14 @@ def sync_router(
                 )
                 .first()
             )
+            if plan is None:
+                # a user on a member plan's profile: devices / length / price come from that member plan
+                from .member_plan_prices import member_plan_for
+                _mp = member_plan_for(router.business, profile_name)
+                if _mp is not None:
+                    from types import SimpleNamespace
+                    plan = SimpleNamespace(name=_mp.name, max_devices=_mp.max_devices,
+                                           duration_minutes=_mp.duration_minutes, price=_mp.price)
 
             from .profile_time import profile_devices
             max_devices = (

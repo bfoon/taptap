@@ -156,6 +156,9 @@ def voucher_set_profile(request, pk):
         name = choice[7:].strip()[:120]
         if not name:
             messages.error(request, 'Choose a profile.'); return redirect('voucher_detail', pk=pk)
+        from .member_plan_prices import is_member_profile, MEMBERS_ONLY
+        if is_member_profile(name) and v.login_type != 'member':
+            messages.error(request, MEMBERS_ONLY); return redirect('voucher_detail', pk=pk)
         v.router_profile = name
         after = name
     else:

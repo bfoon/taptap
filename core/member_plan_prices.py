@@ -1,14 +1,15 @@
-"""Member plans and their router profiles: put the price on the router, and read it back.
+"""Member plans and their router profiles.
 
 Every MemberPlan has a HotSpot user profile on the router (``taptap-member-plan-<id>``, or
-``taptap-unlimited-member-plan-<id>``). Router sync imports every profile it finds as a plan, so these
-used to come back as "MikroTik · No price" plans. Two things fix that:
+``taptap-unlimited-member-plan-<id>``). TapTap writes the plan's price into that profile's comment
+(``... · price=1000`` or ``... · free``) so the router itself carries it.
 
-1. TapTap writes the price into the profile's comment (``... · price=1000`` or ``... · free``), in the
-   format sync already reads (core/sync.py price_from_text) — so the router itself carries the price.
-2. A plan named like a member-plan profile takes its price (or Free) from that member plan directly:
-   at every router sync, when a member plan is saved, and when the Plans page opens. The member plan is
-   the source of truth, so this also works for free plans and before a router has the new comment.
+Member plans only work with members. A member-plan profile is never a voucher plan:
+  * router sync records the profile on the router but does NOT import it as a voucher plan
+    (core/sync.py); migration 0107 moved the rows imported before this change to the Bin;
+  * a voucher plan cannot be given a member-plan profile name (VoucherPlan.save / PlanForm);
+  * a voucher cannot be created on a member-plan profile, or switched onto one by hand
+    (Voucher.save, voucher_set_profile) — only members use them.
 """
 import re
 from decimal import Decimal
@@ -17,9 +18,17 @@ PROFILE_RE = re.compile(r'^taptap-(?:unlimited-)?member-plan-(\d+)$', re.I)
 SOURCE = 'member'          # VoucherPlan.price_source for prices copied from a member plan
 
 
+MEMBERS_ONLY = 'Member plans only work with members. Use a voucher plan to make vouchers.'
+
+
 def plan_id(profile_name):
     m = PROFILE_RE.match(str(profile_name or '').strip())
     return int(m.group(1)) if m else None
+
+
+def is_member_profile(name):
+    """True for a member plan's router profile (taptap-member-plan-<id> / taptap-unlimited-member-plan-<id>)."""
+    return plan_id(name) is not None
 
 
 def _amount(price):

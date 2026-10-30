@@ -286,3 +286,22 @@ class DirectApiReset(Base):
         users.set.assert_any_call(id='*1', mac_address='00:00:00:00:00:00')
         svc.release_devices.assert_called_once()
         self.assertEqual(v.status, 'active')
+
+
+class RolledBackTransactionDoesNotSilenceTheFastLane(TestCase):
+    """A voucher saved in a transaction that rolls back must not stop later vouchers from being sent at once."""
+    def test_flush_is_queued_again_after_a_rollback(self):
+        from django.db import transaction
+        from core import voucher_fastlane as fl
+        fl._local.pending = set()
+        try:
+            with transaction.atomic():
+                fl.schedule(999001)
+                raise RuntimeError('member creation failed halfway')
+        except RuntimeError:
+            pass
+        self.assertTrue(fl._local.pending)                        # the stale id is still there…
+        with self.captureOnCommitCallbacks(execute=False) as cbs:
+            fl.schedule(999002)
+        self.assertTrue(any(cb is fl._flush for cb in cbs))        # …but a flush is queued again
+        fl._local.pending = set()

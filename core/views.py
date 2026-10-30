@@ -20,6 +20,7 @@ from django.utils import timezone
 from django.urls import reverse
 from django.views.decorators.csrf import csrf_exempt
 
+from .member_plan_prices import is_member_profile as _is_member_profile
 from .models import PAYMENT_METHODS
 from .forms import RegisterForm, RouterForm, PlanForm
 from .models import (
@@ -325,7 +326,8 @@ def voucher_detail(request,pk):
         'timeline':vh.timeline(v,now),'bindings':v.device_bindings.order_by('slot_no'),
         'profile_now':_vprofile(v,business.plans.filter(name=v.plan_name).first())[0],
         'profile_router':_profile_state(v),
-        'router_profiles':list(v.router.hotspot_profiles.filter(is_present=True).order_by('name').values('name','shared_users','rate_limit')) if v.router_id else [],
+        'router_profiles':[p for p in (v.router.hotspot_profiles.filter(is_present=True).order_by('name').values('name','shared_users','rate_limit') if v.router_id else [])
+                           if v.login_type=='member' or not _is_member_profile(p['name'])],   # member plans: members only
         'profile_plans':business.plans.filter(active=True).order_by('name'),
         'free_slots':max(0,max(1,v.max_devices or 1)-v.device_bindings.count()),
         'empty_slots':[i for i in range(1,max(1,v.max_devices or 1)+1) if i not in set(v.device_bindings.values_list('slot_no',flat=True))][:10],
@@ -393,9 +395,8 @@ def plans(request):
         obj=form.save(commit=False);obj.business=business;obj.source='taptap';obj.price_source='manual';obj.save();messages.success(request,'Plan saved.')
         from .portal_deploy import schedule_redeploy; schedule_redeploy(business)
         return redirect('plans')
-    from .member_plan_prices import annotate as mp_annotate, sync_business as mp_sync
-    mp_sync(business)    # member-plan profiles: price, Free and validity come from the member plan
-    plan_list=mp_annotate(list(business.plans.select_related('imported_from_router').all().order_by('price','name')),business)
+    # Voucher plans only. Member plans (and their taptap-member-plan-<id> router profiles) live on the Members page.
+    plan_list=list(business.plans.select_related('imported_from_router').all().order_by('price','name'))
     zero=business.vouchers.filter(price=0,sold_at__isnull=True).values('plan_name').annotate(n=Count('id'))
     zero_map={r['plan_name']:r['n'] for r in zero}
     usage={r['plan_name']:r for r in business.vouchers.values('plan_name').annotate(total=Count('id'),used=Count('id',filter=Q(used_at__isnull=False)),
@@ -409,7 +410,7 @@ def plans(request):
         p.can_delete=not p.v_live and (not p.v_used or 'plans.delete_used' in perms)   # only an empty plan
     from .orphan_profiles import groups_with_traces as orphan_groups_t
     return render(request,'core/plans.html',{'plans':plan_list,'form':form,'missing':[p for p in plan_list if not p.price and not p.is_free],
-        'orphans':orphan_groups_t(business)})
+        'orphans':orphan_groups_t(business),'member_plan_count':business.member_plans.count()})
 
 
 @login_required
@@ -1233,6 +1234,9 @@ def plan_fix_profile(request):
             messages.error(request, 'Check the new plan’s price, time and devices.'); return redirect('/plans/#fix')
         if not name or price < 0 or minutes < 0:
             messages.error(request, 'Give the new plan a name, a price and a time.'); return redirect('/plans/#fix')
+        from .member_plan_prices import is_member_profile, MEMBERS_ONLY
+        if is_member_profile(name):
+            messages.error(request, MEMBERS_ONLY); return redirect('/plans/#fix')
         if business.plans.filter(name__iexact=name).exists():
             plan = business.plans.get(name__iexact=name)
         else:

@@ -37,10 +37,13 @@ def _plans_index(business):
     return by_profile, by_name
 
 
-def _describe(row, router, business, idx, users):
+def _describe(row, router, business, idx, users, member_plans=None):
+    from .member_plan_prices import plan_id
     by_profile, by_name = idx
     name = _val(row, 'name')
-    plan = by_profile.get(name.lower()) or by_name.get(name.lower())
+    mp_id = plan_id(name)
+    member_plan = (member_plans or {}).get(mp_id) if mp_id else None
+    plan = None if mp_id else (by_profile.get(name.lower()) or by_name.get(name.lower()))   # member profiles: never a voucher plan
     price, validity, price_from = profile_price(row, business.currency)
     session = _val(row, 'session-timeout')
     session_min = _routeros_minutes(session, 0) if session else 0
@@ -56,7 +59,7 @@ def _describe(row, router, business, idx, users):
         'pool': _val(row, 'address-pool'), 'comment': _val(row, 'comment'),
         'on_login': bool(_val(row, 'on-login')), 'on_logout': bool(_val(row, 'on-logout')),
         'price': price, 'validity': minutes_text(validity) if validity else '', 'price_from': price_from,
-        'plan': plan, 'taptap': made_by_taptap, 'default': name.lower() == 'default',
+        'plan': plan, 'member_plan': member_plan, 'member_profile': bool(mp_id), 'taptap': made_by_taptap, 'default': name.lower() == 'default',
         'users': users.get(name, 0),
     }
 
@@ -68,6 +71,7 @@ def gather(business, router=None, q=''):
     if router is not None:
         routers = routers.filter(pk=router.pk)
     idx = _plans_index(business)
+    member_plans = {p.pk: p for p in business.member_plans.all()}
     q = (q or '').strip().lower()
     out = []
     for r in routers:
@@ -83,13 +87,15 @@ def gather(business, router=None, q=''):
                 snap = None
             sec = (snap.sections or {}).get('HotSpot user profiles', {}) if snap else {}
             rows, captured, source = list(sec.get('rows') or []), (snap.captured_at if snap else None), 'snapshot' if sec else ''
-        profiles = [_describe(row, r, business, idx, users) for row in rows if _val(row, 'name')]
+        profiles = [_describe(row, r, business, idx, users, member_plans) for row in rows if _val(row, 'name')]
         if q:
             profiles = [p for p in profiles if q in p['name'].lower() or q in (p['comment'] or '').lower() or
-                        (p['plan'] and q in p['plan'].name.lower()) or q in (p['rate'] or '').lower()]
-        profiles.sort(key=lambda p: (p['default'], not p['plan'], p['name'].lower()))
+                        (p['plan'] and q in p['plan'].name.lower()) or (p['member_plan'] and q in p['member_plan'].name.lower()) or
+                        q in (p['rate'] or '').lower()]
+        profiles.sort(key=lambda p: (p['default'], p['member_profile'], not p['plan'], p['name'].lower()))
         out.append({'router': r, 'captured_at': captured, 'source': source, 'profiles': profiles,
-                    'linked': sum(1 for p in profiles if p['plan']), 'unlinked': sum(1 for p in profiles if not p['plan'] and not p['default'])})
+                    'linked': sum(1 for p in profiles if p['plan']),
+                    'unlinked': sum(1 for p in profiles if not p['plan'] and not p['default'] and not p['member_profile'])})
     return out
 
 

@@ -66,6 +66,9 @@ class PlanForm(forms.ModelForm):
    except ValueError as e: self.add_error('duration_value',str(e))
   if data.get('is_free') or data.get('price') is None: data['price']=0
   name=(data.get('name') or '').strip()
+  from .member_plan_prices import is_member_profile, MEMBERS_ONLY
+  if is_member_profile(name):
+   self.add_error('name',MEMBERS_ONLY+' Member plans are made on the Members page.')
   biz=getattr(self.instance,'business',None) if self.instance.business_id else None
   if name and biz and VoucherPlan.objects.filter(business=biz,name__iexact=name).exclude(pk=self.instance.pk).exists():
    self.add_error('name','You already have a plan with this name.')  # deleted plans don't count

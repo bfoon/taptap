@@ -162,6 +162,11 @@ class VoucherPlan(models.Model):
     objects=AliveManager()
     all_objects=BinQuerySet.as_manager()
     def save(self,*a,**k):
+        # Member plans only work with members: a member plan's router profile is never a voucher plan.
+        from .member_plan_prices import is_member_profile, MEMBERS_ONLY
+        if self.deleted_at is None and is_member_profile(self.name):
+            from django.core.exceptions import ValidationError
+            raise ValidationError(MEMBERS_ONLY)
         if not self.pk:
             stamp_creator(self)
             if not self.created_at: self.created_at=timezone.now()
@@ -312,7 +317,14 @@ class Voucher(models.Model):
     objects=AliveManager()
     all_objects=BinQuerySet.as_manager()
     def save(self,*a,**k):
-        if not self.pk: stamp_creator(self)
+        if not self.pk:
+            # Member plans only work with members: no new voucher on a member plan or its router profile.
+            if self.login_type!='member' and self.source=='taptap':
+                from .member_plan_prices import is_member_profile, MEMBERS_ONLY
+                if is_member_profile(self.plan_name) or is_member_profile(self.router_profile):
+                    from django.core.exceptions import ValidationError
+                    raise ValidationError(MEMBERS_ONLY)
+            stamp_creator(self)
         return super().save(*a,**k)
     @property
     def is_member(self): return self.login_type=='member'

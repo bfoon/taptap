@@ -64,6 +64,7 @@
       <tr><td><span class="pf-name">{{ p.name }}</span>{% if p.taptap %}<span class="pf-tag pf-tt" title="Made by TapTap">TapTap</span>{% elif p.default %}<span class="pf-tag pf-def">router default</span>{% else %}<span class="pf-tag pf-mk" title="Made on the router (WinBox, Mikhmon…)">router</span>{% endif %}
           {% if p.comment %}<span class="pf-sub">{{ p.comment|truncatechars:70 }}</span>{% endif %}{% if p.pool %}<span class="pf-sub">Pool: {{ p.pool }}</span>{% endif %}</td>
         <td>{% if p.plan %}<a href="{% url 'plan_detail' p.plan.id %}">{{ p.plan.name }}</a><span class="pf-sub">{{ p.plan.price|money:c }} · {{ p.plan.duration_text }}</span>
+          {% elif p.member_profile %}<span class="badge text-bg-info">Members only</span>{% if p.member_plan %} <a href="{% url 'members' %}" class="text-decoration-none">{{ p.member_plan.name }}</a>{% endif %}<span class="pf-sub">Member plan — not used for vouchers</span>
           {% elif p.default %}<span class="pf-no">—</span>
           {% elif can_manage %}<form method="post" action="{% url 'router_profile_import' g.router.id %}">{% csrf_token %}<input type="hidden" name="name" value="{{ p.name }}"><input type="hidden" name="next" value="{{ request.get_full_path }}">
             <button class="btn btn-sm btn-outline-success" title="Create a TapTap plan from this profile"><i class="bi bi-plus-lg"></i> Make a plan</button></form>

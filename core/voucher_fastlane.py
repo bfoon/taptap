@@ -379,14 +379,27 @@ def _changed(sender, instance, created, update_fields=None, **kwargs):
         logger.exception('fast lane: change hook for voucher %s', getattr(instance, 'pk', None))
 
 
+def _armed():
+    """Is a flush already queued for the current transaction? (Django drops queued callbacks on rollback.)"""
+    from django.db import connection
+    try:
+        return any(item[1] is _flush for item in connection.run_on_commit)
+    except Exception:
+        return False
+
+
 def schedule(voucher_id):
-    """Sync this voucher as soon as the current transaction commits (one send per router per commit)."""
+    """Sync this voucher as soon as the current transaction commits (one send per router per commit).
+
+    A flush is queued whenever the current transaction has none — not only when the pending set is empty.
+    Otherwise a rolled-back transaction (its flush discarded, its ids still pending) would leave this
+    worker thread unable to send any voucher at once again."""
     pending = getattr(_local, 'pending', None)
     if pending is None:
         pending = _local.pending = set()
     first = not pending
     pending.add(voucher_id)
-    if first:
+    if first or not _armed():
         transaction.on_commit(_flush)
 
 
