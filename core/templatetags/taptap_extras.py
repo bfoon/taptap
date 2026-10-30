@@ -297,3 +297,23 @@ def vouchers_members_switch(context, active):
         out['n_vouchers'] = qs.exclude(login_type='member').count()
         out['n_members'] = qs.filter(login_type='member').count()
     return out
+
+
+@register.inclusion_tag('core/partials/sales_agents_switch.html', takes_context=True)
+def sales_agents_switch(context, active):
+    """Daily sales ⇄ Agents switch, like Vouchers ⇄ Members: {% sales_agents_switch 'sales' %}.
+    Shown only when the Agents module is on and the person can open both pages."""
+    request = context.get('request')
+    business = getattr(request, 'tt_business', None) if request else None
+    perms = context.get('tt_perms') or getattr(request, 'tt_perms', frozenset())
+    feats = context.get('tt_features')
+    can_sales = bool({'sales.daily', 'finance.view'} & set(perms))
+    can_agents = bool({'finance.view', 'finance.agents'} & set(perms))
+    show = bool(business) and (feats is None or 'agents' in feats) and can_sales and can_agents
+    out = {'show': show, 'active': active}
+    if show:
+        from django.utils import timezone
+        today = timezone.localdate()
+        out['n_sales'] = business.sales.filter(sold_at__date=today).count()
+        out['n_agents'] = business.agents.filter(active=True).count()
+    return out

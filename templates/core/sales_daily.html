@@ -42,6 +42,7 @@ tr.sd-new>td{animation:sdNew 4s ease-out}
 @media (prefers-reduced-motion:reduce){.week-bars i,.hours i,.share i,.mini-bar{transition:none}.sd-flash,tr.sd-new>td,.sd-live>i{animation:none}}
 </style>{% endblock %}
 {% block content %}
+{% sales_agents_switch 'sales' %}
 <div id="sdLive" data-fp="{{ live_fp }}" data-today="{{ is_today|yesno:'1,0' }}">{% include "core/partials/sales_daily_body.html" %}</div>
 {% endblock %}
 {% block scripts %}<script src="{% static 'js/sales-live.js' %}?v=6" defer></script>{% endblock %}

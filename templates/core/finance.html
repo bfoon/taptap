@@ -2,6 +2,7 @@
 {% block title %}Finance — TapTap{% endblock %}{% block heading %}Finance{% endblock %}
 {% block content %}
 {% with c=current_business.currency s=summary pq=period.as_dict %}
+{% if tab == 'agents' %}{% sales_agents_switch 'agents' %}{% endif %}
 {% if fin_full and 'finance.manage' in tt_perms %}{% if health.missing_count or health.unpriced or not health.auto %}
 <section class="sales-health mb-3">
   <i class="bi bi-clipboard2-pulse"></i>
