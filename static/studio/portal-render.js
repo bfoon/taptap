@@ -611,6 +611,21 @@
       // After a failed login the router shows this page again with its error: reopen the tab the customer used.
       var remembered = ''; try { remembered = sessionStorage.getItem('tp-mode') || ''; } catch (e) {}
       if (mUser && ctx.mt && ctx.mt.error && remembered === 'member') setMode('member', false);
+      // ---- Login guarantee (core/voucher_ready.py): TapTap puts the voucher on the router first. The page logs in the
+      // moment the router has it (it asks TapTap every 2 s) instead of failing on a router that has not got it yet.
+      function remember(c, st, isMember) {
+        try { sessionStorage.setItem('tp-last', JSON.stringify({ c: c, t: (st && st.ready_token) || '', m: isMember ? 1 : 0, at: Date.now(), h: 0 })); } catch (e) {}
+      }
+      function whenReady(st, go) {
+        var left = Math.min(Math.max(0, +st.wait || 0), 45), token = st.ready_token, done = false, tm = null, pl = null;
+        if (!left) { go(); return; }
+        var fin = function () { if (done) return; done = true; clearInterval(tm); if (pl) clearInterval(pl); go(); };
+        say('ok', esc(st.message || 'Getting your connection ready…') + ' <b class="tp-left">' + left + '</b> s');
+        tm = setInterval(function () { left--; var n = out.querySelector('.tp-left'); if (n) n.textContent = Math.max(0, left); if (left <= 0) fin(); }, 1000);
+        if (token && ctx.readyUrl && st.ready === false) {
+          pl = setInterval(function () { postJSON(ctx.readyUrl, { t: token }, function (r) { if (r && r.ready) fin(); }, null, 3000); }, 2000);
+        }
+      }
       form.addEventListener('submit', function (ev) {
         ev.preventDefault();
         var member = form.getAttribute('data-mode') === 'member', code, mpw = '';
@@ -643,12 +658,11 @@
           postJSON(ctx.stateUrl, { code: code, fp: dv0.fp || '', c: dv0.c || {}, mac: ctx.mt.mac || '', ip: ctx.mt.ip || '' }, function (st) {
             if (security(st)) return;      // wrong code / warning / locked: answered here, nothing sent to the router
             if (st.blocked) { btn.disabled = false; out.innerHTML = ''; showBlock(ctx, st, login); return; }
-            if (st.wait) {   // TapTap is clearing this voucher's old session on the router first
-              var left = +st.wait; say('ok', esc(st.message || 'Getting your connection ready…') + ' <b class="tp-left">' + left + '</b> s');
-              var tm = setInterval(function () { left--; var n = out.querySelector('.tp-left'); if (n) n.textContent = Math.max(0, left); if (left <= 0) { clearInterval(tm); login(code); } }, 1000);
-              return;
-            }
-            login(st.code || code);
+            // The real username (letter case) in every case — also after waiting (it used to log in with what was typed).
+            var real = st.code || code;
+            remember(real, st, member);
+            // wait: TapTap is putting the voucher on the router, or clearing this voucher's old session there
+            whenReady(st, function () { login(real); });
           }, function () { sendDevice(ctx, code); login(code); }, 4000);
           return;
         }
@@ -669,10 +683,11 @@
           if (!d.success && security(d)) return;
           if (!d.success) { btn.disabled = false; say('err', esc(d.message || (member ? 'Username or password is wrong.' : 'That code was not recognised. Check it and try again.'))); reportOffer(root, code, (d.title ? d.title + ': ' : '') + (d.message || '')); return; }
           var real = d.code || code;
+          remember(real, d, member);
           if (ctx.mt && ctx.mt.linkLoginOnly) {
             var go = function () { postForm(ctx.mt.linkLoginOnly, { username: real, password: passFor(real), dst: dst, popup: 'true' }); };
             say('ok', (member ? 'Welcome back, ' + esc(real) : 'Valid ' + esc(d.plan) + ' voucher') + ' — connecting…');
-            if (d.wait) setTimeout(go, d.wait * 1000); else go();      // waits while TapTap clears an old session
+            whenReady(d, go);      // waits until the router has the voucher (or TapTap cleared an old session)
           }
           else if (member) { btn.disabled = false; say('ok', 'Your account is ready. Join <b>' + esc(ctx.business.ssid || 'our Wi-Fi') + '</b> and log in on the Wi-Fi page with your username and password.'); }
           else { btn.disabled = false; say('ok', '<b>' + esc(d.plan) + '</b> voucher is valid' + (d.duration ? ' (' + esc(d.duration) + ')' : '') + '. Join <b>' + esc(ctx.business.ssid || 'our Wi-Fi') + '</b> and enter it on the login page to go online.'); }
@@ -683,6 +698,30 @@
         if (member) { body.member = true; body.password = mpw; }
         xhr.send(JSON.stringify(body));
       });
+      // ---- Self-healing login: the router refused a code TapTap had allowed (its error is on this page). TapTap
+      // fixes the cause (sends the voucher again, clears an old session or device pin) and the page tries once more by
+      // itself — once per code every 3 minutes, so a real refusal is never retried in a loop.
+      (function autoHeal() {
+        if (!ctx.healUrl || !ctx.mt || !ctx.mt.error || !ctx.mt.linkLoginOnly || (ctx.mode !== 'mikrotik' && ctx.mode !== 'hosted')) return;
+        var last = null; try { last = JSON.parse(sessionStorage.getItem('tp-last') || 'null'); } catch (e) {}
+        if (!last || !last.t || !last.c || Date.now() - (last.at || 0) > 180000 || (last.h || 0) >= 1) return;
+        var u = String(ctx.mt.username || '');
+        if (u && u.toUpperCase() !== String(last.c).toUpperCase()) return;
+        last.h = (last.h || 0) + 1; try { sessionStorage.setItem('tp-last', JSON.stringify(last)); } catch (e) {}
+        btn.disabled = true; say('ok', 'The Wi-Fi did not take the login yet — fixing it for you…');
+        postJSON(ctx.healUrl, { t: last.t, error: ctx.mt.error, mac: ctx.mt.mac || '' }, function (r) {
+          if (!r || !r.retry) { btn.disabled = false; if (r && r.message) say('err', esc(r.message)); else out.innerHTML = ''; return; }
+          var real = r.code || last.c;
+          if (last.m) {      // members: the password is never kept on the phone — ask them to tap again
+            btn.disabled = false; if (mUser) { setMode('member', false); mUser.value = real; if (mPass) mPass.focus(); }
+            say('ok', 'Fixed. Type your password and tap the button again.'); return;
+          }
+          whenReady({ wait: r.wait || 1, ready: r.ready === false ? false : undefined, ready_token: last.t, message: r.message || 'Fixing your connection…' }, function () {
+            var pw = real; if (ctx.mt.chapId) pw = md5(ctx.mt.chapId + pw + ctx.mt.chapChallenge);
+            postForm(ctx.mt.linkLoginOnly, { username: real, password: pw, dst: dstOf(cfg, ctx), popup: 'true' });
+          });
+        }, function () { btn.disabled = false; out.innerHTML = ''; }, 6000);
+      })();
     });
   }
 

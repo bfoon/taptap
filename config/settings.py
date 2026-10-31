@@ -155,6 +155,23 @@ CELERY_TASK_ROUTES['core.tasks.deliver_notifications'] = {'queue': 'live'}
 # Voucher work has its own queue + worker: a new or changed voucher never waits behind a full sync or the live loop.
 CELERY_TASK_ROUTES['core.tasks.push_vouchers_task'] = {'queue': 'vouchers'}
 CELERY_TASK_ROUTES['core.tasks.forget_mac_task'] = {'queue': 'vouchers'}
+CELERY_TASK_ROUTES['core.tasks.push_members_task'] = {'queue': 'vouchers'}
+
+# Ready to browse (core/voucher_ready.py): vouchers whose push failed are retried every few seconds instead of
+# waiting for the next full sync; the login page waits at most READY_API_WAIT s for a Direct API / Tunnel push.
+VOUCHER_SWEEP_SECONDS = int(os.getenv('VOUCHER_SWEEP_SECONDS', '10'))
+READY_API_WAIT = float(os.getenv('READY_API_WAIT', '2.0'))
+CELERY_BEAT_SCHEDULE['taptap-voucher-sweep'] = {'task': 'core.tasks.sweep_vouchers_task', 'schedule': float(VOUCHER_SWEEP_SECONDS),
+                                                'options': {'expires': VOUCHER_SWEEP_SECONDS * 2}}
+CELERY_TASK_ROUTES['core.tasks.sweep_vouchers_task'] = {'queue': 'vouchers'}
+# Router-served login pages are re-installed by themselves when TapTap's copy is newer (needs SITE_URL).
+PORTAL_AUTO_REFRESH = env_bool('PORTAL_AUTO_REFRESH', True)
+CELERY_BEAT_SCHEDULE['taptap-portal-refresh'] = {'task': 'core.tasks.refresh_portals_task', 'schedule': 3600.0, 'options': {'expires': 1800}}
+CELERY_TASK_ROUTES['core.tasks.refresh_portals_task'] = {'queue': 'live'}
+# TapTap Link: vouchers per command (RouterOS 7 / RouterOS 6) and follow-up check-ins per minute while a customer waits.
+LINK_VOUCHER_CHUNK = int(os.getenv('LINK_VOUCHER_CHUNK', '25'))
+LINK_VOUCHER_CHUNK_V6 = int(os.getenv('LINK_VOUCHER_CHUNK_V6', '8'))
+LINK_TURBO_PER_MINUTE = int(os.getenv('LINK_TURBO_PER_MINUTE', '12'))
 
 
 # ─── Sign-in security ───────────────────────────────────────────────────

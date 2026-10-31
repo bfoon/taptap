@@ -20,40 +20,62 @@ def _on_link(router):
     return channel(router) == 'TapTap Link'
 
 
-def push_now(router, voucher_ids):
-    """Push these vouchers to this router over the API (runs in the worker). Returns (sent, failed)."""
+def push_now(router, voucher_ids, timeout=None):
+    """Push these vouchers to this router over the API (runs in the worker). Returns (sent, failed).
+
+    * Plans are matched without regard to letter case, like every other path (a plan saved as "1day" and a
+      voucher of "1Day" used to fall back to a generic profile with the wrong time and speed).
+    * "May it be online" is the same rule everywhere (voucher_fastlane.can_be_online): a voucher whose time
+      is up is sent switched off instead of being switched back on until the expiry pass catches it.
+    * A voucher that could not be sent is released at once, so the voucher sweeper retries it within seconds
+      instead of the next full sync."""
     from .durations import router_limit
     from .mikrotik import MikroTikService
     from .models import Voucher
-    from .sync import voucher_profile
+    from .utils import voucher_profile
+    from .voucher_fastlane import can_be_online, unclaim
     vouchers = list(Voucher.objects.filter(pk__in=voucher_ids, router=router, source='taptap').exclude(status__in=['expired', 'archived']).select_related('router'))
     if not vouchers:
         return 0, 0
-    plans = {p.name: p for p in router.business.plans.all()}
+    plans = {p.name.lower(): p for p in router.business.plans.all()}
     sent = failed = 0
+    done, missed = [], []
     try:
-        svc = MikroTikService(router).connect()
+        svc = MikroTikService(router, timeout=timeout).connect()
     except Exception as exc:
-        Voucher.objects.filter(pk__in=[v.pk for v in vouchers]).update(mikrotik_sync_status='Pending', mikrotik_sync_error=f'Router not reachable: {exc}'[:500])
+        ids = [v.pk for v in vouchers]
+        Voucher.objects.filter(pk__in=ids).update(mikrotik_sync_status='Pending', mikrotik_sync_error=f'Router not reachable: {exc}'[:500])
+        unclaim(ids)
         return 0, len(vouchers)
     ensured = set()
     try:
         for v in vouchers:
             try:
-                profile, shared, rate = voucher_profile(v, plans.get(v.plan_name))
+                plan = plans.get((v.plan_name or '').lower())
+                profile, shared, rate = voucher_profile(v, plan)
                 if profile not in ensured:
                     svc.ensure_hotspot_profile(profile, shared, rate); ensured.add(profile)
                 kind = 'member' if v.is_member else 'voucher'
-                _, item_id = svc.upsert_voucher(v.code, profile, limit_uptime=router_limit(v, plans.get(v.plan_name)), password=v.login_password,
-                                                disabled=(v.status != 'active' or bool(v.frozen_at) or bool(v.deleted_at)),
+                _, item_id = svc.upsert_voucher(v.code, profile, limit_uptime=router_limit(v, plan), password=v.login_password,
+                                                disabled=not can_be_online(v),
                                                 comment=f'TapTap {kind} {v.code}' + (f' · {v.customer_name}' if v.customer_name else ''))
                 Voucher.objects.filter(pk=v.pk).update(mikrotik_id=str(item_id or ''), mikrotik_sync_status='Synced', mikrotik_sync_error='')
+                done.append(v.pk)
                 sent += 1
             except Exception as exc:
                 Voucher.objects.filter(pk=v.pk).update(mikrotik_sync_status='Pending', mikrotik_sync_error=str(exc)[:500])
+                missed.append(v.pk)
                 failed += 1
     finally:
         svc.close()
+    if missed:
+        unclaim(missed)
+    if done:
+        try:
+            from .voucher_ready import confirm
+            confirm(done)
+        except Exception:
+            logger.debug('ready confirm', exc_info=True)
     return sent, failed
 
 

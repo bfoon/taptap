@@ -58,12 +58,14 @@ services:
       - static_volume:/app/staticfiles
 
   vouchers:
-    # Voucher fast lane: pushes new/changed vouchers to Direct API / Tunnel routers the moment they change.
-    # Nothing else runs here, so a voucher never waits behind a full sync or the live loop.
+    # Voucher fast lane: pushes new/changed vouchers to Direct API / Tunnel routers the moment they change, and the
+    # voucher sweeper retries any that could not be sent (every VOUCHER_SWEEP_SECONDS, default 10).
+    # Nothing else runs here, so a voucher never waits behind a full sync or the live loop. 4 at a time by default:
+    # one slow or unreachable router (up to MIKROTIK_TIMEOUT) must not hold back the vouchers of the others.
     build: .
     restart: unless-stopped
     env_file: .env
-    entrypoint: ["sh", "-c", "until python manage.py migrate --check >/dev/null 2>&1; do echo 'vouchers: waiting for database migrations...'; sleep 5; done; exec celery -A config worker -Q vouchers -n vouchers@%h --concurrency=${VOUCHER_WORKER_CONCURRENCY:-2} --loglevel=INFO"]
+    entrypoint: ["sh", "-c", "until python manage.py migrate --check >/dev/null 2>&1; do echo 'vouchers: waiting for database migrations...'; sleep 5; done; exec celery -A config worker -Q vouchers -n vouchers@%h --concurrency=${VOUCHER_WORKER_CONCURRENCY:-4} --loglevel=INFO"]
     depends_on:
       db:
         condition: service_healthy

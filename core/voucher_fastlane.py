@@ -259,11 +259,14 @@ def release_stuck(router, force=False):
 
 # ─────────────────────────── immediate per-voucher sync ───────────────────────────
 
-def sync_now(voucher_ids, user=None):
-    """Send just these vouchers to their routers right now. Returns {router_name: message}."""
+def sync_now(voucher_ids, user=None, force=False):
+    """Send just these vouchers to their routers right now. Returns {router_name: message}.
+    ``force``: send even if this exact state went out a moment ago (the router says it does not have it)."""
     from .models import Voucher
     vouchers = list(Voucher.objects.filter(pk__in=list(voucher_ids), source='taptap', router__isnull=False)
                     .exclude(status__in=['expired', 'archived']).select_related('router', 'business'))
+    if force:
+        unclaim([v.pk for v in vouchers])
     by_router = {}
     for v in vouchers:
         if claim(v):
@@ -291,7 +294,9 @@ def _send_link(router, items, user=None):
             push_one(v)
         except Exception:
             logger.exception('fast lane: member %s', v.code)
-    now_part, later = plain[:LINK_CHUNK], plain[LINK_CHUNK:]
+    from .agent import voucher_chunk
+    size = voucher_chunk(router)            # safe batch size for this router's RouterOS (learned when it stalls)
+    now_part, later = plain[:size], plain[size:]
     if now_part:
         plans = _plans(router.business)
         users, profiles = [], {}
@@ -311,7 +316,7 @@ def _send_link(router, items, user=None):
             unclaim([v.pk for v in now_part])
             return f'{len(now_part)} voucher(s) waiting: {exc}'
         Voucher.objects.filter(pk__in=[v.pk for v in now_part]).update(mikrotik_sync_status='Queued', mikrotik_sync_error='')
-    if later:                                # big batches: the rest go 25 per check-in, ahead of everything else
+    if later:                                # big batches: the rest go a batch per check-in, ahead of everything else
         Voucher.objects.filter(pk__in=[v.pk for v in later]).update(mikrotik_sync_status='Pending', mikrotik_sync_error='')
         unclaim([v.pk for v in later])
     return f'{len(now_part) + len(members)} voucher(s) go to {router.name} at its next check-in' \

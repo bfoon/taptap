@@ -314,6 +314,45 @@ Note on time limits: a member's RouterOS `limit-uptime` is *time left × device 
 devices shows `60d`) because MikroTik counts every concurrent session. TapTap's expiry still ends the member at
 the real date — see `core/router_time.py`.
 
+## Ready to browse — the voucher is on the router before the customer logs in
+
+**The problem it fixes:** a customer types a valid code, TapTap shows the voucher in use with the phone's MAC
+address, but the phone has no internet. The login page asked TapTap first; TapTap checked its own database, locked
+the phone to the voucher and said "go ahead" — and the router then refused the login because it did not have the
+voucher yet (still Pending, a TapTap Link batch waiting for the next check-in, a push that failed while the router was
+briefly unreachable), had it switched off, had its time counter used up, or had an old session in the way
+(`core/voucher_ready.py`).
+
+* **Login guarantee.** Before the page logs in, TapTap makes sure the router has the voucher, switched on.
+  Direct API / Tunnel routers get it at once (the page waits 2 s at most, `READY_API_WAIT`); TapTap Link routers get
+  it as a top-priority command and check in faster while the customer waits. The page asks `/p/<slug>/ready/` every
+  2 s and logs in the moment the router has it. Vouchers already on the router cost two database reads, nothing more.
+  Login pages already installed on routers keep working: they wait the seconds TapTap sends back.
+* **Self-healing login.** If the router still refuses, the page sends the router's own error to `/p/<slug>/heal/`.
+  TapTap fixes that cause — sends the exact user again, clears a stale session ("no more sessions are allowed"),
+  removes an old MAC pin ("invalid mac address"; never a pin staff made permanent) — and the page tries once more by
+  itself, once per code every 3 minutes. Members are asked to type their password again (it is never kept on the phone).
+  Both addresses take a short-lived signed token from the voucher check, so they cannot be used to test codes.
+* **No voucher waits for a sync.** Vouchers and members whose push failed are retried every
+  `VOUCHER_SWEEP_SECONDS` (10) on the voucher worker, per router, with backoff for routers that are down. Before, a
+  voucher on a Direct API router that missed its push waited until someone pressed Sync.
+* **TapTap Link.** While a customer waits (or more voucher work is queued) the router checks in again 2 s after
+  running voucher commands instead of after its normal interval (at most `LINK_TURBO_PER_MINUTE`, 12, per minute;
+  heartbeat v4+). Vouchers go `LINK_VOUCHER_CHUNK` (25) per command on RouterOS 7 and `LINK_VOUCHER_CHUNK_V6` (8) on
+  RouterOS 6, and a router that stops answering gets smaller batches until it answers again. The router now reports
+  the codes it refused by name, so only those are marked "Error" — a voucher is "Synced" only when it really saved.
+* **History.** Every fix made at login is noted on the voucher's history ("Ready to browse").
+* **Support.** `python manage.py ready_check CODE` shows what TapTap and the router think of a code;
+  `--fix` puts it on the router now.
+* **Router pages stay current.** Routers with an outdated copy of the login page get the current one hourly
+  (needs `SITE_URL`; switch off with `PORTAL_AUTO_REFRESH=0`).
+
+**Add-on views now really run.** The URLconf was loaded early during startup, so add-ons that replaced a view
+afterwards changed nothing for real requests: the expired-voucher page and the wrong-code protection on both login
+paths, and the voucher-entry settings on Security, had never been active. `core/url_alignment.py` points those URLs at
+the current views after every add-on is installed (decorated URLs such as `login_required(view)` are left alone).
+If you switched on **Security → Voucher entry protection** before, it now takes effect on the login pages.
+
 ## Fit looks after members
 
 Fit can look up members (`find_member`, `members_overview`, `member_plans`) and offer every member change as a

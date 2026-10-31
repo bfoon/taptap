@@ -203,13 +203,47 @@ VOUCHER_QUEUE = "vouchers"
 
 
 @shared_task(ignore_result=True, queue=VOUCHER_QUEUE)
-def push_vouchers_task(router_id, voucher_ids):
-    """Send only these vouchers to one router (no full sync)."""
-    from .models import Router
+def push_vouchers_task(router_id, voucher_ids, sweep=False):
+    """Send only these vouchers to one router (no full sync).
+
+    Members go through the member-exact sender. ``sweep``: a retry by the voucher sweeper — its result sets
+    the router's backoff (core/voucher_ready.after_sweep_push). A first push that fails is released at once,
+    so the sweeper retries it within seconds instead of the next full sync."""
+    from .models import Router, Voucher
     from .voucher_push import push_now
-    router = Router.objects.filter(pk=router_id).first()
-    if router:
-        return push_now(router, voucher_ids)
+    router = Router.objects.filter(pk=router_id).select_related('business').first()
+    if not router:
+        return 0, 0
+    member_ids = set(Voucher.objects.filter(pk__in=list(voucher_ids), login_type='member').values_list('pk', flat=True))
+    plain = [i for i in voucher_ids if i not in member_ids]
+    sent = failed = 0
+    try:
+        if plain:
+            s, f = push_now(router, plain)
+            sent, failed = sent + s, failed + f
+        if member_ids:
+            from .member_sync import push_members
+            s, f = push_members(member_ids)
+            sent, failed = sent + s, failed + f
+    finally:
+        if sweep:
+            from .voucher_ready import after_sweep_push
+            after_sweep_push(router_id, voucher_ids, sent, failed)
+    return sent, failed
+
+
+@shared_task(ignore_result=True, queue=VOUCHER_QUEUE)
+def sweep_vouchers_task():
+    """Every few seconds: vouchers / members whose push failed are sent again (core/voucher_ready.sweep)."""
+    from .voucher_ready import sweep
+    return sweep()
+
+
+@shared_task(ignore_result=True)
+def refresh_portals_task():
+    """Hourly: routers with an outdated copy of the login page get the current one (core/voucher_ready)."""
+    from .voucher_ready import refresh_portals
+    return refresh_portals()
 
 
 @shared_task(ignore_result=True, queue=VOUCHER_QUEUE)

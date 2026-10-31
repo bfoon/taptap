@@ -103,7 +103,11 @@ def _update(self, **kwargs):
 
 
 def _schedule_many(ids):
-    """Queue members in the fast lane: one send per router when the transaction commits (or right away)."""
+    """Queue members in the fast lane: one send per router when the transaction commits (or right away).
+
+    A flush is queued whenever the current transaction has none — not only when the pending set was empty.
+    Before, a rolled-back transaction (its flush discarded by Django, its ids still pending) left this worker
+    thread with a non-empty set for good: every later member change on it waited for the next full sync."""
     from django.db import transaction
     from . import voucher_fastlane as vf
     pending = getattr(vf._local, 'pending', None)
@@ -111,7 +115,7 @@ def _schedule_many(ids):
         pending = vf._local.pending = set()
     first = not pending
     pending.update(ids)
-    if first:
+    if first or not vf._armed():
         transaction.on_commit(vf._flush)
 
 

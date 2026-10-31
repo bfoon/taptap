@@ -58,6 +58,92 @@ def delivery_order():
 
 
 BATCH_GAP = 45   # seconds: one unanswered command must never freeze the whole queue
+
+# ─────────── voucher batch size per router (TapTap Link) ───────────
+# One voucher in a hotspot_users command is ~400 bytes of RouterOS script. RouterOS 7 reads up to 63 KiB from a
+# check-in; older RouterOS 6 builds cut much earlier, and a cut script never runs (so the batch was re-sent for
+# ever and those vouchers never arrived). Batches are therefore sized per router, and shrink by themselves when a
+# router stops answering them (they grow back after good answers).
+LINK_CHUNK_V7 = int(getattr(settings, 'LINK_VOUCHER_CHUNK', 25))
+LINK_CHUNK_V6 = int(getattr(settings, 'LINK_VOUCHER_CHUNK_V6', 8))
+LINK_CHUNK_MIN = 3
+
+
+def ros_major(router):
+    try:
+        ver = str(router.agent.ros_version or '')
+    except Exception:
+        return 0
+    m = re.match(r'\s*(\d+)', ver)
+    return int(m.group(1)) if m else 0
+
+
+def voucher_chunk(router):
+    """How many vouchers go to this router in one Link command."""
+    base = LINK_CHUNK_V6 if ros_major(router) == 6 else LINK_CHUNK_V7
+    learned = cache.get(f'tt:link:chunk:{router.pk}')
+    if learned:
+        return max(LINK_CHUNK_MIN, min(base, int(learned)))
+    return base
+
+
+def _learn_chunk(router, users, answered):
+    """A batch of ``users`` vouchers was answered (grow back slowly) or never answered (halve)."""
+    try:
+        key = f'tt:link:chunk:{router.pk}'
+        base = LINK_CHUNK_V6 if ros_major(router) == 6 else LINK_CHUNK_V7
+        if answered:
+            learned = cache.get(key)
+            if learned:
+                if int(learned) + 2 >= base:
+                    cache.delete(key)
+                else:
+                    cache.set(key, int(learned) + 2, 86400)
+        elif users > LINK_CHUNK_MIN:
+            cache.set(key, max(LINK_CHUNK_MIN, users // 2), 86400)
+            logger.warning('TapTap Link: %s did not answer a %s-voucher batch — sending %s at a time for now',
+                           router, users, max(LINK_CHUNK_MIN, users // 2))
+    except Exception:
+        logger.debug('chunk learning for %s', router, exc_info=True)
+
+
+# ─────────── turbo check-in (TapTap Link) ───────────
+# A Link router checks in every 10 s or more. While a customer waits on a voucher (login page open) or more voucher
+# work is queued, the reply ends with a follow-up check-in 2 s after its commands ran, so the next step (the next
+# batch, the router's confirmation) does not wait a whole interval. Bounded per router per minute.
+TURBO_LINE = ':do { :delay 2s; /system script run taptap-link } on-error={}'
+TURBO_PER_MINUTE = int(getattr(settings, 'LINK_TURBO_PER_MINUTE', 12))
+TURBO_MIN_SCRIPT = 4          # heartbeat v4+: the scheduler runs the script by name (single-instance guard)
+
+
+def mark_urgent(router, seconds=90):
+    """A customer is waiting on this router (login page): check-ins speed up for a while."""
+    try:
+        cache.set(f'tt:link:urgent:{router.pk}', 1, seconds)
+    except Exception:
+        pass
+
+
+def _wants_turbo(router):
+    try:
+        if int(getattr(router.agent, 'script_version', 0) or 0) < TURBO_MIN_SCRIPT:
+            return False
+    except Exception:
+        return False
+    waiting = bool(cache.get(f'tt:link:urgent:{router.pk}'))
+    if not waiting:
+        waiting = AgentCommand.objects.filter(router=router, status='queued', kind__in=VOUCHER_KINDS).exists() or \
+            router.vouchers.filter(source='taptap').exclude(mikrotik_sync_status__in=['Synced', 'Queued']) \
+            .exclude(status__in=['expired', 'archived']).exists()
+    if not waiting:
+        return False
+    key = f'tt:link:turbo:{router.pk}'
+    if cache.add(key, 1, 60):
+        return True
+    try:
+        return cache.incr(key) <= TURBO_PER_MINUTE
+    except Exception:
+        return False
 TRAVEL_ALONE = {'reboot', 'self_update'}
 NEVER_RESEND = {'restore'}     # a restore reboots the router before it can confirm: sending it again would restore twice
 ACK_WAIT = {'restore': 3600, 'filecopy': 3600, 'cleanup': 300, 'nettest': 240, 'portal_install': 300, 'inventory_piece': 600, 'backup': 3600, 'hotspot_users': 300, 'self_update': 300, 'clock': 120}   # seconds before a resend
@@ -586,6 +672,12 @@ def _catalogue_body(cmd):
         return line + f':foreach n in={{{names}}} do={{ :do {{ /ip hotspot user set [find name=$n] profile={rs(prof["name"])} }} on-error={{}} }}'
     if k == 'hotspot_users':
         lines = []
+        # Honest result per voucher: a code the router refused used to be logged on the router only, while the
+        # whole batch was acknowledged "ok" and TapTap showed it as Synced (and the customer's login then failed).
+        # wrap() hands us a report address; refused codes are sent back to TapTap before the batch's own ok.
+        report = getattr(cmd, '_tt_report', None)
+        if report:
+            lines.append(':local ttBad ""')
         for prof in p.get('profiles', []):
             lines.append(f':if ([:len [/ip hotspot user profile find name={rs(prof["name"])}]] = 0) do={{ /ip hotspot user profile add name={rs(prof["name"])} '
                          f'shared-users={int(prof.get("shared") or 1)}' + (f' rate-limit={rs(prof["rate"])}' if prof.get('rate') else '') + ' }')
@@ -602,9 +694,14 @@ def _catalogue_body(cmd):
             pw_set = f' password={rs(u["pw"])}' if u.get('pw') else ''
             # Each user on its own: one bad voucher (e.g. a profile the router does not have) must not stop the
             # rest of the batch. An existing user is updated in place ("set"), so its used time is kept.
+            note_bad = f'; :set ttBad ($ttBad . "," . {rs(u["n"])})' if report else ''
             lines.append(f':do {{ :if ([:len [/ip hotspot user find name={rs(u["n"])}]] = 0) do={{ /ip hotspot user add name={rs(u["n"])} password={rs(u.get("pw") or u["n"])} '
                          f'profile={rs(u["prof"])} comment={rs(u.get("c", "TapTap voucher"))}{extra} }} else={{ /ip hotspot user set [find name={rs(u["n"])}] '
-                         f'profile={rs(u["prof"])}{pw_set}{extra} }} }} on-error={{ :log warning ("TapTap: could not save " . {rs(u["n"])} . " with profile " . {rs(u["prof"])}) }}')
+                         f'profile={rs(u["prof"])}{pw_set}{extra} }} }} on-error={{ :log warning ("TapTap: could not save " . {rs(u["n"])} . " with profile " . {rs(u["prof"])}){note_bad} }}')
+        if report:
+            prefix, check = report
+            lines.append(f':if ([:len $ttBad] > 0) do={{ :do {{ /tool fetch url=({rs(prefix)} . $ttBad) output=none '
+                         f'check-certificate={check} duration=8s idle-timeout=5s }} on-error={{}} }}')
         return '; '.join(lines) or ':nothing'
     if k == 'protection':
         # Security → Protection: DDoS / IDS-IPS rules (core/protection.py)
@@ -820,6 +917,8 @@ def wrap(cmd, url, check):
         from .router_clock import link_body as clock_body
         body = clock_body(cmd, url, check, nonce(cmd))
     else:
+        if cmd.kind == 'hotspot_users':      # refused codes are reported back by name (see _catalogue_body)
+            cmd._tt_report = (f'{url}/api/agent/v1/ack?c={cmd.pk}&n={nonce(cmd)}&s=part&r=', check)
         body = command_body(cmd)
     result = f'{cmd.params.get("file")}.backup, {cmd.params.get("file")}.rsc' if cmd.kind == 'backup' else ''
     ok, fail = _ack(url, cmd, "ok", check, result), _ack(url, cmd, "fail", check)
@@ -1033,9 +1132,10 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
     return cmd
 
 
-def push_pending_vouchers(router, limit=25):
+def push_pending_vouchers(router, limit=None):
     """Queue TapTap vouchers the router does not have yet (newest first: the voucher just sold is the one a
-    customer is waiting for)."""
+    customer is waiting for). ``limit`` defaults to the router's safe batch size (voucher_chunk)."""
+    limit = int(limit or voucher_chunk(router))
     from .voucher_fastlane import release_stuck, user_row
     try:
         release_stuck(router)          # 'Queued' vouchers no command carries any more are sent again
@@ -1336,10 +1436,15 @@ def auto_sync(router, first=False):
         enqueue_router_sync(router)
 
 
-def _release_voucher_batches(cmds, why):
+def _release_voucher_batches(cmds, why, unanswered=False):
     """Vouchers of a hotspot_users batch that will never be confirmed go back to Pending — before this they
-    stayed 'Queued' for good, push_pending_vouchers() skipped them, and the router never got those codes."""
+    stayed 'Queued' for good, push_pending_vouchers() skipped them, and the router never got those codes.
+    ``unanswered``: the router never confirmed the batch (expired / no answer) — next batches get smaller."""
     ids = [i for c in cmds if c.kind == 'hotspot_users' for i in ((c.params or {}).get('ids') or [])]
+    if unanswered:
+        for c in cmds:
+            if c.kind == 'hotspot_users' and c.router_id:
+                _learn_chunk(c.router, len((c.params or {}).get('users') or []), answered=False)
     if ids:
         from .voucher_fastlane import release_ids, unclaim
         release_ids(ids, why)
@@ -1358,7 +1463,7 @@ def build_response(router, url):
     expiring = list(AgentCommand.objects.filter(router=router, status__in=['queued', 'sent'], expires_at__lt=now))
     if expiring:
         AgentCommand.objects.filter(pk__in=[c.pk for c in expiring]).update(status='expired', done_at=now)
-        _release_voucher_batches(expiring, 'The batch expired before the router confirmed it — sending again')
+        _release_voucher_batches(expiring, 'The batch expired before the router confirmed it — sending again', unanswered=True)
         for cmd in expiring:
             if cmd.kind == 'inventory_piece' and not (cmd.params or {}).get('received'):
                 cmd.status, cmd.result = 'expired', 'Expired before the router answered'
@@ -1375,7 +1480,7 @@ def build_response(router, url):
                 AgentCommand.objects.filter(pk=cmd.pk).update(status='queued')
             else:
                 AgentCommand.objects.filter(pk=cmd.pk).update(status='failed', result='No answer from the router', done_at=now)
-                _release_voucher_batches([cmd], 'The router never answered — sending again')
+                _release_voucher_batches([cmd], 'The router never answered — sending again', unanswered=True)
                 if cmd.kind == 'inventory_piece':
                     cmd.status, cmd.result = 'failed', 'No answer from the router'
                     unanswered.append(cmd)
@@ -1392,7 +1497,7 @@ def build_response(router, url):
         # Voucher commands still travel one batch at a time, so their order on the router is kept.
         voucher_only = True
     from .agent_inventory import send_function
-    parts, size, helper = [], 0, False
+    parts, size, helper, voucher_work = [], 0, False, False
     pending = AgentCommand.objects.filter(router=router, status='queued')
     if voucher_only:
         pending = pending.filter(kind__in=VOUCHER_KINDS)
@@ -1413,10 +1518,18 @@ def build_response(router, url):
             size += extra
         parts.append(chunk)
         size += len(chunk) + 1
+        voucher_work = voucher_work or cmd.kind in VOUCHER_KINDS
         AgentCommand.objects.filter(pk=cmd.pk).update(status='sent', sent_at=now, attempts=cmd.attempts + 1)
         if cmd.kind in ('reboot', 'self_update'):
             break
-    return '\n'.join(parts)
+    script = '\n'.join(parts)
+    if voucher_work and parts[-1:] and 'system reboot' not in parts[-1]:
+        try:
+            if _wants_turbo(router):
+                script += '\n' + TURBO_LINE      # check in again right after these voucher commands ran
+        except Exception:
+            logger.debug('turbo check for %s', router, exc_info=True)
+    return script
 
 
 def handle_ack(cmd_id, given_nonce, status, result=''):
@@ -1425,10 +1538,16 @@ def handle_ack(cmd_id, given_nonce, status, result=''):
     cmd = AgentCommand.objects.select_related('router__business').filter(pk=cmd_id).first()
     if not cmd or not hmac.compare_digest(nonce(cmd), str(given_nonce)) or cmd.status in ('done', 'failed', 'cancelled'):
         return False
-    ok = status == 'ok'
+    # 'part' (hotspot_users only): the batch ran, but the router refused the codes listed in ``result``.
+    partial = status == 'part' and cmd.kind == 'hotspot_users'
+    refused = [n for n in str(result or '').split(',') if n.strip()] if partial else []
+    ok = status == 'ok' or partial
     cmd.status = 'done' if ok else 'failed'
     cmd.done_at = timezone.now()
-    cmd.result = (result or ('OK' if ok else 'The router reported an error'))[:500]
+    if partial:
+        cmd.result = ('Saved, except: ' + ', '.join(refused))[:500]
+    else:
+        cmd.result = (result or ('OK' if ok else 'The router reported an error'))[:500]
     cmd.save(update_fields=['status', 'done_at', 'result'])
     r = cmd.router
     if cmd.kind in ('portal_install', 'portal_reset'):
@@ -1449,6 +1568,21 @@ def handle_ack(cmd_id, given_nonce, status, result=''):
     if cmd.kind == 'hotspot_users':
         ids = cmd.params.get('ids', [])
         Voucher.objects.filter(pk__in=ids).update(mikrotik_sync_status='Synced' if ok else 'Error', mikrotik_sync_error='' if ok else 'Router rejected the batch')
+        bad_ids = []
+        if refused:
+            names = {n.strip().upper() for n in refused} | {n.strip().replace(' ', '+').upper() for n in refused}
+            bad_ids = [v.pk for v in Voucher.objects.filter(pk__in=ids).only('pk', 'code') if v.code.upper() in names]
+            Voucher.objects.filter(pk__in=bad_ids).update(
+                mikrotik_sync_status='Error',
+                mikrotik_sync_error='The router refused this code — see its log ("TapTap: could not save"). It is sent again.')
+        if ok:
+            _learn_chunk(r, len(cmd.params.get('users') or []), answered=True)
+            try:      # the router confirmed these exact states: the login check trusts them (core/voucher_ready.py)
+                from .voucher_ready import confirm, unconfirm
+                confirm([i for i in ids if i not in bad_ids])
+                unconfirm(bad_ids)
+            except Exception:
+                logger.debug('ready confirm', exc_info=True)
     elif cmd.kind == 'interface_set' and ok:
         r.interfaces.filter(name=cmd.params.get('name')).update(disabled=not cmd.params.get('enabled'))
     elif cmd.kind == 'backup':

@@ -187,6 +187,7 @@ def _public_ctx(request, page, mode):
     base = request.build_absolute_uri('/').rstrip('/')
     return {'mode': mode, 'kind': page.kind, 'business': business_ctx(business), 'plans': plans_ctx(business),
             'mt': mt, 'checkUrl': f'/p/{page.slug}/check/', 'deviceUrl': f'/p/device/{page.slug}/',
+            'readyUrl': f'/p/{page.slug}/ready/', 'healUrl': f'/p/{page.slug}/heal/',
             'acceptUrl': f'/p/{page.slug}/accept/', 'reportUrl': f'/p/{page.slug}/report/',
             'bonanza': bonanza_ctx(business),
             'qrLib': static('vendor/jsqr.js'),          # QR decoder, loaded only when a customer taps "Scan"
@@ -295,10 +296,13 @@ def _export_html(page, base='', router=None):
            # frozen / warned vouchers: the page asks TapTap first and shows the warning instead of logging in
            'stateUrl': f'{base}/p/{page.slug}/state/' if base else '', 'acceptUrl': f'{base}/p/{page.slug}/accept/' if base else '',
            'reportUrl': f'{base}/p/{page.slug}/report/' if base else '',
+           # login guarantee (core/voucher_ready.py): wait for the router to have the voucher; heal a refused login
+           'readyUrl': f'{base}/p/{page.slug}/ready/' if base else '', 'healUrl': f'{base}/p/{page.slug}/heal/' if base else '',
            # phone clock check: TapTap's time when reachable, else "a phone dated before this page is wrong"
            'clock': _clock_ctx(url=f'{base}/p/clock.json' if base else '', built=True)}
     # Values that may contain quotes go through the DOM, not a JS string literal.
-    hidden = '<div id="tp-err" hidden>$(error)</div><div id="tp-orig" hidden>$(link-orig)</div>' if page.kind == 'login' else ''
+    hidden = ('<div id="tp-err" hidden>$(error)</div><div id="tp-orig" hidden>$(link-orig)</div>'
+              '<div id="tp-user" hidden>$(username)</div>') if page.kind == 'login' else ''
     if page.kind == 'login' and _wants_scan(page.config):
         qr = (STATIC_DIR / 'vendor' / 'jsqr.js').read_text(encoding='utf-8').replace('</script', '<\\/script')
         hidden += f'<script type="text/plain" id="tp-jsqr">{qr}</script>'
@@ -322,8 +326,9 @@ def _export_html(page, base='', router=None):
 var cfg={_safe_json(page.config)};
 var ctx={_safe_json(ctx)};
 ctx.mt={MT_VARS[page.kind]};
-var e=document.getElementById('tp-err'),o=document.getElementById('tp-orig');
+var e=document.getElementById('tp-err'),o=document.getElementById('tp-orig'),u=document.getElementById('tp-user');
 if(e)ctx.mt.error=e.textContent.replace(/^\\s+|\\s+$/g,'');if(o)ctx.mt.linkOrig=o.textContent.replace(/^\\s+|\\s+$/g,'');
+if(u)ctx.mt.username=u.textContent.replace(/^\\s+|\\s+$/g,'');
 TapPortal.render(document.getElementById('tp'),cfg,ctx);
 </script></body></html>'''
 
@@ -337,7 +342,7 @@ def _redirect_stub(public_url):
 <input type="hidden" name="link-login-only" value="$(link-login-only)">
 <input type="hidden" name="link-orig" value="$(link-orig)">
 <input type="hidden" name="mac" value="$(mac)"><input type="hidden" name="ip" value="$(ip)">
-<input type="hidden" name="error" value="$(error)">
+<input type="hidden" name="error" value="$(error)"><input type="hidden" name="username" value="$(username)">
 <noscript><button type="submit">Continue to the login page</button></noscript>
 </form><p>Opening the login page…</p>
 <script>document.go.submit();</script></body></html>'''

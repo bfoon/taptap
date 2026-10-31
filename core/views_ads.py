@@ -237,7 +237,9 @@ def portal_state(request, slug):
             # the login ("no more sessions"): remove it first, and tell the page how long to wait.
             wait = device_lock.release_stale(v, data.get('mac', ''))
             if wait:
-                return _cors(JsonResponse({'ok': True, 'wait': wait, 'message': 'Getting your connection ready…'}))
+                # 'code': the real username (letter case) — without it the page logged in with what was typed
+                # after the countdown, and the router refused lower/mixed-case codes.
+                return _cors(JsonResponse({'ok': True, 'wait': wait, 'code': v.code, 'message': 'Getting your connection ready…'}))
     # The real username (right upper/lower case) so router-served pages log members in exactly.
     return _cors(JsonResponse(block or {'ok': True, 'code': v.code}))
 

@@ -389,8 +389,9 @@ def push_one(voucher, plan=None):
             profile, shared, rate = voucher_profile(voucher, plan)
             svc.ensure_hotspot_profile(profile, shared, rate)
             kind = 'member' if voucher.is_member else 'voucher'
+            from .voucher_fastlane import can_be_online      # same rule as every other sender (time up = off)
             _, item_id = svc.upsert_voucher(voucher.code, profile, limit_uptime=router_limit(voucher, plan), password=voucher.login_password,
-                                            disabled=(voucher.status != 'active' or bool(voucher.frozen_at) or bool(voucher.deleted_at)),
+                                            disabled=not can_be_online(voucher),
                                             comment=f'TapTap {kind} {voucher.code}' + (f' · {voucher.customer_name}' if voucher.customer_name else ''))
         finally:
             svc.close()
