@@ -209,3 +209,18 @@ MAP_TILE_FALLBACK_ATTRIBUTION = os.getenv('MAP_TILE_FALLBACK_ATTRIBUTION', '&cop
 ROUTER_OFFLINE_ALERT_MINUTES = int(os.getenv('ROUTER_OFFLINE_ALERT_MINUTES', '3'))
 ROUTER_OFFLINE_CHECKS = int(os.getenv('ROUTER_OFFLINE_CHECKS', '3'))
 ROUTER_OFFLINE_SECONDS = int(os.getenv('ROUTER_OFFLINE_SECONDS', '40'))
+
+# Router pulse (core/router_pulse.py): a quick connection check (TCP knock on the API port, no login) of every Direct API /
+# Tunnel router every ROUTER_PULSE_SECONDS, all in parallel — independent of the heavier full live sync.
+ROUTER_PULSE_SECONDS = int(os.getenv('ROUTER_PULSE_SECONDS', '10'))
+ROUTER_PULSE_TIMEOUT = float(os.getenv('ROUTER_PULSE_TIMEOUT', '4'))
+CELERY_BEAT_SCHEDULE['taptap-router-pulse'] = {'task': 'core.tasks.router_pulse_task', 'schedule': float(ROUTER_PULSE_SECONDS),
+                                               'options': {'expires': ROUTER_PULSE_SECONDS}}
+CELERY_TASK_ROUTES['core.tasks.router_pulse_task'] = {'queue': 'live'}
+CELERY_TASK_ROUTES['core.tasks.watch_router_task'] = {'queue': 'live'}
+# Full live checks of several routers run side by side; a pass no longer waits for a router that answers slowly.
+LIVE_PARALLEL = int(os.getenv('LIVE_PARALLEL', '8'))
+LIVE_HOUSEKEEPING_SECONDS = int(os.getenv('LIVE_HOUSEKEEPING_SECONDS', '30'))
+CELERY_BEAT_SCHEDULE['taptap-live-housekeeping'] = {'task': 'core.tasks.live_housekeeping_task', 'schedule': float(LIVE_HOUSEKEEPING_SECONDS),
+                                                    'options': {'expires': LIVE_HOUSEKEEPING_SECONDS}}
+CELERY_TASK_ROUTES['core.tasks.live_housekeeping_task'] = {'queue': 'live'}

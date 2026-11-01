@@ -16,7 +16,7 @@ It runs from Celery beat (``core.tasks.live_watch_all``), from the
 browser heartbeat of any open TapTap page.
 """
 import logging
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import timedelta
 
 from django.conf import settings
@@ -486,9 +486,18 @@ def _watch_in_thread(router_id, force):
         connection.close()
 
 
-def watch_business(business, force=False):
-    if not business.live_sync and not force:
-        return []
+def settle_stuck_syncs(minutes=30):
+    """A Direct API / Tunnel sync that made no progress for half an hour stopped (TapTap restarted during it, the
+    worker died): mark it failed, so the header no longer says "1 sync running" for ever. Link syncs are settled
+    by agent_inventory.settle_stalled_jobs."""
+    from .models import RouterSyncJob
+    cutoff = timezone.now() - timedelta(minutes=minutes)
+    return RouterSyncJob.objects.filter(status__in=['queued', 'running'], updated_at__lt=cutoff).exclude(router__connection_mode='agent').update(
+        status='failed', phase='Stopped — TapTap restarted or the sync stopped answering. Press Sync to run it again.',
+        error='No progress for 30 minutes', finished_at=timezone.now())
+
+
+def _watch_ids(business, force=False):
     from .tunnel import tunnel_ready
     ids = []
     for r in business.routers.all():
@@ -496,10 +505,39 @@ def watch_business(business, force=False):
         # also get the full 15 s live watch over the RouterOS API.
         if r.connection_mode == 'agent' and not tunnel_ready(r):
             continue
-        # Offline routers are retried once a minute, not every pass.
+        # Offline routers get a full check once a minute (the 10 s pulse — core/router_pulse — re-checks one at
+        # once when it answers again).
         if r.status == 'Offline' and not force and not cache.add(f'tt:watch:retry:{r.pk}', 1, 60):
             continue
         ids.append(r.pk)
+    return ids
+
+
+def _watch_parallel(ids, deadline):
+    """Full checks of these routers side by side. The pass waits at most ``deadline`` seconds: a router that answers
+    slowly keeps being checked in the background (its own lock stops a second copy) instead of holding up the
+    next check of every other router — which aged their "last checked" past a minute ("Live · 1m ago")."""
+    if len(ids) <= 1 or connection.vendor == 'sqlite':
+        return [watch_router(Router.objects.select_related('business').get(pk=i)) for i in ids]
+    pool = ThreadPoolExecutor(max_workers=min(int(getattr(settings, 'LIVE_PARALLEL', 8)), len(ids)), thread_name_prefix='tt-live')
+    futs = [pool.submit(_watch_in_thread, i, False) for i in ids]
+    done, late = wait(futs, timeout=deadline)
+    pool.shutdown(wait=False)
+    if late:
+        logger.info('live pass: %s router(s) still being checked after %s s — not waiting for them', len(late), deadline)
+    out = []
+    for f in done:
+        try:
+            out.append(f.result())
+        except Exception:
+            logger.exception('live check')
+    return out
+
+
+def watch_business(business, force=False):
+    if not business.live_sync and not force:
+        return []
+    ids = _watch_ids(business, force)
     if not ids:
         return []
     if len(ids) == 1 or connection.vendor == 'sqlite':
@@ -534,11 +572,15 @@ def watch_all():
                 settle_stalled_jobs()
             except Exception as exc:
                 logger.info('settle stalled Link syncs: %s', exc)
-        results = []
+            try:
+                settle_stuck_syncs()
+            except Exception as exc:
+                logger.info('settle stuck syncs: %s', exc)
+        ids = []
         for business in Business.objects.filter(live_sync=True, routers__isnull=False).distinct():
-            if not business.has_access:
-                continue
-            results += watch_business(business)
+            if business.has_access:
+                ids += _watch_ids(business)
+        results = _watch_parallel(ids, deadline=max(5, interval() - 3))
         # Freezes planned on the voucher time bar (core/voucher_schedule.py): fire the ones whose moment has come.
         try:
             from .voucher_schedule import run_due
@@ -553,6 +595,19 @@ def watch_all():
             sweep(watched=watched)
         except Exception:
             logger.exception('expiry sweep')
+        return results
+    finally:
+        cache.delete('tt:watch:all')
+
+
+def housekeeping():
+    """Everything the live pass used to do after checking routers — remote admin sessions, blacklist, sharing
+    protection, rule upgrades, app control, business alerts, monitors, Link plan time. Its own task every
+    LIVE_HOUSEKEEPING_SECONDS (30): several of these talk to routers one after another, and an unreachable router
+    made the pass so slow that the next router checks were skipped."""
+    if not cache.add('tt:live:house', 1, timeout=180):
+        return 'previous housekeeping still running'
+    try:
         # Remote admin pages of other routers: close expired sessions (their NAT rules go away).
         try:
             from .netdev import close_expired as _rm_close
@@ -623,9 +678,8 @@ def watch_all():
                     plan_auto(r)
         except Exception:
             logger.exception('plan limits (link)')
-        return results
     finally:
-        cache.delete('tt:watch:all')
+        cache.delete('tt:live:house')
 
 
 def beat_alive():

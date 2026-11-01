@@ -36,12 +36,19 @@ def _b(request):
 
 
 def _status(business):
-    routers = list(business.routers.all().order_by('name'))
-    last = max((r.last_watch_at for r in routers if r.last_watch_at), default=None)
+    from .router_pulse import seen
+    routers = list(business.routers.select_related('agent').order_by('name'))
+    # "Live · 5s ago" = when TapTap last confirmed a router reachable: the 10 s pulse, a full live check or a TapTap
+    # Link check-in (core/router_pulse) — not when the slowest full sync finished.
+    seen_at = {r.pk: seen(r) for r in routers}
+    fresh = [t for r in routers for t in [seen_at[r.pk]] if t and r.status == 'Online'] or [t for t in seen_at.values() if t]
+    last = min(fresh) if fresh else None             # the least recently confirmed online router: honest for several
+    data = max((r.last_watch_at for r in routers if r.last_watch_at), default=None)
     return {
         'ok': True, 'live': business.live_sync, 'mode': 'scheduler' if beat_alive() else 'browser', 'interval': interval(),
-        'last_watch_at': last.isoformat() if last else None, 'now': timezone.now().isoformat(),
-        'routers': [{'id': r.id, 'name': r.name, 'status': r.status, 'last_watch_at': r.last_watch_at.isoformat() if r.last_watch_at else None} for r in routers],
+        'last_watch_at': last.isoformat() if last else None, 'data_at': data.isoformat() if data else None, 'now': timezone.now().isoformat(),
+        'routers': [{'id': r.id, 'name': r.name, 'status': r.status, 'last_watch_at': r.last_watch_at.isoformat() if r.last_watch_at else None,
+                     'seen': seen_at[r.pk].isoformat() if seen_at[r.pk] else None} for r in routers],
         'incidents': business.session_incidents.filter(status='open').count(),
         'events': recent_events(business.pk)[:15],
     }
@@ -54,6 +61,13 @@ def live_tick(request):
     ran = None
     if business.live_sync and not beat_alive() and cache.add(f'tt:watch:biz:{business.pk}', 1, interval()):
         ran = watch_business(business)
+    # No scheduler: this page knocks on the routers itself, every ROUTER_PULSE_SECONDS (core/router_pulse).
+    from .router_pulse import every as pulse_every, pulse
+    if business.live_sync and not beat_alive() and cache.add(f'tt:pulse:biz:{business.pk}', 1, pulse_every()):
+        try:
+            pulse(business)
+        except Exception:
+            pass
     # No scheduler running: this page does the strict expiry sweep itself (live sync on or off).
     if not beat_alive() and cache.add(f'tt:expiry:biz:{business.pk}', 1, interval()):
         try:

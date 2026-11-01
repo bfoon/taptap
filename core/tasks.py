@@ -126,6 +126,28 @@ def live_watch_all():
 
 
 @shared_task(ignore_result=True)
+def live_housekeeping_task():
+    """Every 30 s: the live pass's other jobs (blacklist, sharing, app control, alerts, monitors…), so router
+    checks never wait for them (core/live.housekeeping)."""
+    from .live import housekeeping
+    housekeeping()
+
+
+@shared_task(ignore_result=True)
+def router_pulse_task():
+    """Every few seconds: a quick connection check of every Direct API / Tunnel router (core/router_pulse)."""
+    from .router_pulse import pulse
+    pulse()
+
+
+@shared_task(ignore_result=True)
+def watch_router_task(router_id):
+    """A full live check of one router now (the pulse saw an offline router answer again)."""
+    from .live import _watch_in_thread
+    return _watch_in_thread(router_id, True)
+
+
+@shared_task(ignore_result=True)
 def deliver_notifications():
     """Deliver business notifications and opt-in member expiry reminders."""
     from .notify import deliver

@@ -73,12 +73,14 @@ services:
         condition: service_healthy
 
   live:
-    # Scheduler + live-sync worker: checks every router every LIVE_WATCH_SECONDS (default 15).
+    # Scheduler + live-sync worker: a quick connection check of every router every ROUTER_PULSE_SECONDS (10), the full live
+    # check every LIVE_WATCH_SECONDS (15), housekeeping every 30 s. Only the live queue: voucher pushes have their own
+    # worker (below), so they can never hold up a router check.
     build: .
     restart: unless-stopped
     env_file: .env
     # Waits until the database is fully migrated so it never runs new code against an old schema.
-    entrypoint: ["sh", "-c", "until python manage.py migrate --check >/dev/null 2>&1; do echo 'live: waiting for database migrations...'; sleep 5; done; exec celery -A config worker -Q live,vouchers -B --concurrency=2 --loglevel=INFO --schedule=/tmp/celerybeat-schedule"]
+    entrypoint: ["sh", "-c", "until python manage.py migrate --check >/dev/null 2>&1; do echo 'live: waiting for database migrations...'; sleep 5; done; exec celery -A config worker -Q live -B --concurrency=${LIVE_WORKER_CONCURRENCY:-3} --loglevel=INFO --schedule=/tmp/celerybeat-schedule"]
     depends_on:
       db:
         condition: service_healthy

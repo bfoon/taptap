@@ -353,6 +353,27 @@ paths, and the voucher-entry settings on Security, had never been active. `core/
 the current views after every add-on is installed (decorated URLs such as `login_required(view)` are left alone).
 If you switched on **Security → Voucher entry protection** before, it now takes effect on the login pages.
 
+## Router connection checked every 10 seconds
+
+**What people saw:** the header pill turned orange — "Live · 1m ago", then "1 router offline" — for a router that
+was fine. The only connection check was the full live sync, a heavy pass that went through the businesses one after
+another, waited for its slowest router, then did more router work (blacklist, sharing, clean-ups) before the next
+pass could start; the live worker also took voucher pushes. One slow router held up every router's next check.
+A router marked offline was retried only once a minute, so "offline" lingered after it was reachable again.
+
+* **Router pulse** (`core/router_pulse.py`): every `ROUTER_PULSE_SECONDS` (10) every Direct API router gets a quick
+  knock on its API port — all routers in parallel, `ROUTER_PULSE_TIMEOUT` (4 s), no login, so the router's log does
+  not fill with API logins. A failed knock counts toward offline like a failed check (still several in a row over
+  40 s+); an offline router that answers is re-checked at once, so it is back within seconds. TapTap Link routers
+  check in every few seconds by themselves — that is their pulse.
+* **The pill** shows when TapTap last confirmed your routers reachable (pulse, full check or Link check-in). The
+  live panel says when session details were last refreshed if a router is slow to send them.
+* **Full live checks** of all routers run side by side (`LIVE_PARALLEL`, 8) and a pass no longer waits for a router
+  that answers slowly. The other jobs moved to their own task every `LIVE_HOUSEKEEPING_SECONDS` (30). The live worker
+  runs only live work (3 processes); voucher pushes stay on their own worker.
+* A Direct API sync that made no progress for 30 minutes (TapTap restarted during it) is marked failed, so
+  "1 sync running" no longer stays in the header for ever.
+
 ## Router online / offline without false alarms
 
 **What people saw:** "it keeps saying the internet is down and back, and emails me — as if the internet goes off

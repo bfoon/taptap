@@ -1,28 +1,28 @@
-# TapTap update 9 — no more "internet down / back" every few seconds
+# TapTap update 10 — router connection checked every 10 seconds
 
-Install updates 7 and 8 first (this update is built on them). No database migration.
+Install updates 7, 8 and 9 first (this update is built on them). No database migration.
 
     cd /opt/taptap
-    unzip -o ~/taptap-update-9.zip -d /tmp && cp -r /tmp/taptap/* /opt/taptap/
+    unzip -o ~/taptap-update-10.zip -d /tmp && cp -r /tmp/taptap/* /opt/taptap/
     docker compose build web worker vouchers live
     docker compose up -d --force-recreate web worker vouchers live
 
-(or in a git checkout with updates 7 and 8: `git apply taptap-update-9.patch`)
+(or in a git checkout with updates 7–9: `git apply taptap-update-10.patch`)
+
+Important: recreate the **live** service (as above). Its command changed: it now runs only live work, with 3
+processes, and the scheduler adds the 10-second router pulse and the 30-second housekeeping task.
 
 What changes
-* TapTap Link routers get heartbeat v9 by themselves within a few check-ins (no reinstall): a customer logging
-  out, a slow TapTap answer or a TapTap-side error is no longer counted as a missed check-in; the internet-route
-  watch stops restarting the tunnel on routes that merely flicker.
-* Offline / back-online: shown after several failed checks, emailed only after 3 minutes; "back online" only after
-  an "offline" email; several drops → one "connection unstable" email; a TapTap restart never marks routers offline.
-* Notifications page: new rows "A router's connection is unstable" and "A Link router could not reach TapTap for a
-  while" (digest by default — switch it off there if you prefer).
-* See what happened: `docker compose exec web python manage.py connection_history`
+* Every Direct API router's connection is checked every 10 s (a quick knock on its API port, all routers at once,
+  no login). An offline router that answers is re-checked immediately.
+* The header pill shows when your routers last answered, so it stays "Live · a few s ago" while they are reachable.
+* One slow router no longer delays the checks of the others; the live worker no longer runs voucher pushes.
+* A sync stuck "running" after a restart is cleared after 30 minutes.
 
-Optional .env: ROUTER_OFFLINE_ALERT_MINUTES=3, ROUTER_OFFLINE_CHECKS=3, ROUTER_OFFLINE_SECONDS=40.
+Optional .env: ROUTER_PULSE_SECONDS=10, ROUTER_PULSE_TIMEOUT=4, LIVE_PARALLEL=8, LIVE_HOUSEKEEPING_SECONDS=30,
+LIVE_WORKER_CONCURRENCY=3.
 
-Changed: README.md, config/settings.py, core/agent.py, core/live.py, core/notify.py, core/tasks.py, core/views.py,
-core/views_link.py. New: core/uptime_guard.py, core/management/commands/connection_history.py,
-core/tests/test_flapping.py.
+Changed: README.md, config/settings.py, docker-compose.yml, core/live.py, core/tasks.py, core/views_live.py,
+static/js/live.js, templates/core/base.html. New: core/router_pulse.py, core/tests/test_router_pulse.py.
 
-Tests: python manage.py test core (271).
+Tests: python manage.py test core (285).
