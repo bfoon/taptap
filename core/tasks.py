@@ -96,9 +96,9 @@ def sync_router_task(self, job_id):
 
     except Exception as exc:
         now = timezone.now()
-        Router.objects.filter(pk=router.pk).exclude(connection_mode="agent").update(
-            status="Offline", last_error=str(exc), last_tested_at=now
-        )
+        if getattr(router, "connection_mode", "api") != "agent":
+            from .live import note_failure      # a failed sync is one failure, not an outage (core/uptime_guard)
+            note_failure(router, exc, now)
         job.status = "failed"
         job.phase = "Synchronization failed"
         job.error = str(exc)

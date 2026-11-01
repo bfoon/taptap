@@ -125,6 +125,31 @@ def fix_incident(incident, svc=None, user=None, by='user'):
             svc.close()
 
 
+# Offline needs several failed checks in a row over some time (one slow answer is not an outage).
+FAIL_CHECKS = int(getattr(settings, 'ROUTER_OFFLINE_CHECKS', 3))
+FAIL_SPAN = timedelta(seconds=int(getattr(settings, 'ROUTER_OFFLINE_SECONDS', 40)))
+
+
+def note_failure(router, exc, now=None):
+    """TapTap could not reach this (Direct API / Tunnel) router once. Offline only after FAIL_CHECKS failures in a
+    row spanning FAIL_SPAN; the owner is emailed only after a few minutes (core/uptime_guard). Also used by one-off
+    actions (topology refresh, security scan, full sync), which used to mark a router offline on a single failure."""
+    from . import uptime_guard
+    now = now or timezone.now()
+    fk = f'tt:watch:fails:{router.pk}'
+    fails = cache.get(fk) or {'n': 0, 'since': now.isoformat()}
+    fails['n'] += 1
+    cache.set(fk, fails, 3600)
+    first_fail = uptime_guard._dt(fails['since']) or now
+    Router.objects.filter(pk=router.pk).update(last_error=str(exc)[:2000], last_tested_at=now)
+    if router.status != 'Offline' and fails['n'] >= FAIL_CHECKS and now - first_fail >= FAIL_SPAN:
+        Router.objects.filter(pk=router.pk).update(status='Offline')
+        push_event(router.business_id, f'{router.name} went offline', 'bad')
+        router.status = 'Offline'
+    if router.status == 'Offline':
+        uptime_guard.still_down(router, since=first_fail, why=str(exc)[:240])
+
+
 # ─────────────────────────── one router ───────────────────────────
 def watch_router(router, force=False):
     lock = f'tt:watch:router:{router.pk}'
@@ -143,12 +168,10 @@ def watch_router(router, force=False):
             # marked degraded and the router falls back to TapTap Link.
             cache.delete(lock)
             return {**summary, 'error': str(exc)[:300], 'fallback': 'link'}
-        if router.status != 'Offline':
-            Router.objects.filter(pk=router.pk).update(status='Offline', last_error=str(exc)[:2000], last_tested_at=now)
-            push_event(business.pk, f'{router.name} went offline', 'bad')
-            from .notify import notify
-            notify(business, 'router_offline', f'{router.name} is offline', f'TapTap cannot reach {router.name}: {str(exc)[:240]}',
-                   severity='critical', link='/routers/', key=f'router:{router.pk}:offline')
+        # One slow answer is not an outage: offline only after FAIL_CHECKS failures in a row spanning FAIL_SPAN.
+        # (Before, one failed pass marked the router offline and the next one back online — a flap every few
+        # seconds and an email pair every 15 minutes.) Emails: core/uptime_guard (only after a few minutes).
+        note_failure(router, exc, now)
         cache.delete(lock)
         return {**summary, 'error': str(exc)[:300]}
     try:
@@ -426,12 +449,12 @@ def watch_router(router, force=False):
             exp.delete()
 
         updates = {'last_watch_at': now, 'last_tested_at': now}
+        cache.delete(f'tt:watch:fails:{router.pk}')
         if router.status != 'Online':
             updates.update(status='Online', last_error='')
             push_event(business.pk, f'{router.name} is back online', 'good')
-            if router.status == 'Offline':
-                from .notify import notify
-                notify(business, 'router_online', f'{router.name} is back online', f'{router.name} answers again.', key=f'router:{router.pk}:online')
+            from . import uptime_guard
+            uptime_guard.came_back(router, via='TapTap Tunnel' if getattr(router, 'connection_mode', 'api') == 'agent' else 'the API')
         if not baseline:
             updates['sales_baseline_at'] = now
         Router.objects.filter(pk=router.pk).update(**updates)

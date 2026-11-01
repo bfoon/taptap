@@ -987,7 +987,8 @@ def topology_refresh(request,pk):
             'seconds':round((timezone.now()-started).total_seconds(),1)})
     except Exception as e:
         logger.warning('Topology refresh failed for %s: %s',router.name,e)
-        Router.objects.filter(pk=router.pk).exclude(connection_mode='agent').update(status='Offline',last_error=str(e)[:2000],last_tested_at=timezone.now())
+        if router.connection_mode!='agent':
+            from .live import note_failure; note_failure(router,e)   # one failed action is not an outage (core/uptime_guard)
         return JsonResponse({'success':False,'router_id':router.id,'name':router.name,'message':str(e)},status=200)
 
 
@@ -1086,7 +1087,8 @@ def security_rescan(request,pk):
         Router.objects.filter(pk=router.pk).update(status='Online',last_error='',last_tested_at=timezone.now())
         return JsonResponse({'success':True,'router_id':router.id,'sections':len(sections)})
     except Exception as e:
-        Router.objects.filter(pk=router.pk).exclude(connection_mode='agent').update(status='Offline',last_error=str(e)[:2000],last_tested_at=timezone.now())
+        if router.connection_mode!='agent':
+            from .live import note_failure; note_failure(router,e)   # one failed action is not an outage (core/uptime_guard)
         return JsonResponse({'success':False,'router_id':router.id,'name':router.name,'message':str(e)})
 
 

@@ -96,7 +96,20 @@ def agent_poll(request):
         data = dict(parse_qsl(request.body.decode('utf-8', 'ignore'), keep_blank_values=True))
     import logging, time
     started = time.monotonic()
-    script = link.handle_poll(agent, data, ip, link.base_url(request))
+    try:
+        script = link.handle_poll(agent, data, ip, link.base_url(request))
+    except Exception:
+        # A TapTap-side error must never look like "the router cannot reach TapTap": an HTTP 500 is counted as a
+        # missed check-in by the router, and a few in a row were reported to the owner as an internet outage.
+        # The router reached TapTap: record the check-in (the watchdog must not call it silent) and answer normally,
+        # without commands this time. Its status is settled by the next check-in.
+        logging.getLogger('taptap.link').exception('TapTap Link check-in failed on TapTap for router %s', agent.router_id)
+        try:
+            from django.utils import timezone as _tz
+            RouterAgent.objects.filter(pk=agent.pk).update(last_seen_at=_tz.now(), last_ip=ip)
+        except Exception:
+            pass
+        script = ''
     took = time.monotonic() - started
     if took > 6:
         # The router gives up on a check-in after 20 s (8 s before heartbeat v7). Slow answers at busy hours

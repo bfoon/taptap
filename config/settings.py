@@ -202,3 +202,10 @@ MAP_TILE_MAX_ZOOM = int(os.getenv('MAP_TILE_MAX_ZOOM', '19'))
 # Used automatically when the main provider refuses the tiles (e.g. "403 Blocked"); empty = no fallback.
 MAP_TILE_FALLBACK_URL = os.getenv('MAP_TILE_FALLBACK_URL', 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png')
 MAP_TILE_FALLBACK_ATTRIBUTION = os.getenv('MAP_TILE_FALLBACK_ATTRIBUTION', '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>')
+
+# Router up/down (core/uptime_guard.py): a router is shown offline after ROUTER_OFFLINE_CHECKS failed checks in a row
+# spanning ROUTER_OFFLINE_SECONDS (Direct API / Tunnel; TapTap Link: no check-in for 90 s), and the owner is emailed only
+# when it stays unreachable for ROUTER_OFFLINE_ALERT_MINUTES. Several drops in 30 min send one "connection unstable" email.
+ROUTER_OFFLINE_ALERT_MINUTES = int(os.getenv('ROUTER_OFFLINE_ALERT_MINUTES', '3'))
+ROUTER_OFFLINE_CHECKS = int(os.getenv('ROUTER_OFFLINE_CHECKS', '3'))
+ROUTER_OFFLINE_SECONDS = int(os.getenv('ROUTER_OFFLINE_SECONDS', '40'))

@@ -353,6 +353,33 @@ paths, and the voucher-entry settings on Security, had never been active. `core/
 the current views after every add-on is installed (decorated URLs such as `login_required(view)` are left alone).
 If you switched on **Security → Voucher entry protection** before, it now takes effect on the login pages.
 
+## Router online / offline without false alarms
+
+**What people saw:** "it keeps saying the internet is down and back, and emails me — as if the internet goes off
+and on every few seconds." The internet line was usually fine. TapTap took every short blip for an outage
+(`core/uptime_guard.py`):
+
+* **The router counted check-ins as missed that were not** (TapTap Link heartbeat v8 and older): a customer logging
+  out while the router listed sessions ended the check-in with an error; TapTap answering slowly at a busy moment
+  hit a 10-second limit; an error on TapTap's side came back as HTTP 500. Each was counted as "cannot reach TapTap",
+  and a few in a row came back as "could not reach TapTap … internet link was down". **Heartbeat v9** (installed
+  on Link routers automatically) skips a session that vanished, waits up to 25 s for TapTap's answer, and TapTap
+  now answers a check-in normally even if something fails on its side (the error is logged).
+* **The internet-route watch** restarted the TapTap Tunnel whenever the router's active default routes looked
+  different — on routers with two lines sharing traffic or failover routes that flicker, almost every check-in.
+  It now needs the new route to hold for two check-ins and moves the tunnel at most every ~2 minutes.
+* **One failed check meant offline** for Direct API / Tunnel routers (and one failed topology refresh, security
+  scan or sync). Now: offline after 3 failed checks in a row spanning 40 s or more.
+* **Emails:** "offline" only when a router stays unreachable for 3 minutes (`ROUTER_OFFLINE_ALERT_MINUTES`); "back
+  online" only after an "offline" email, with how long and why — in one email, not two. Three or more drops in 30
+  minutes send **one** "connection unstable" email and pause per-drop emails for an hour. "Could not reach TapTap
+  for …" now goes in the digest, can be switched off on the Notifications page, and is not sent for blips.
+* **TapTap-side incidents:** when nearly every Link router goes silent at once (TapTap restarting or unreachable),
+  no router is marked offline or emailed.
+
+The dashboard still shows every change. To see what happened to a router and why:
+`python manage.py connection_history [name]`.
+
 ## Calls: point, draw, take control, and look your best
 
 **The other person sees exactly where you point.** When you click on someone's shared screen, the ripple shows

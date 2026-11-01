@@ -210,7 +210,7 @@ def free_login(user_expr):
             f':do {{ /ip hotspot cookie remove $c }} on-error={{}}; $drop m=$m }}')
 
 
-SCRIPT_VERSION = 8   # v8: globals re-declared inside nested blocks (the missed-check-in counter stayed at 1 on RouterOS 7, so self-repair never ran); v7: resets the TapTap Tunnel when the router's internet line changes (multi-WAN failover), longer check-in timeout at busy hours; v6: self-healing check-in (DNS fallback, wrong-clock repair, dead-WAN diagnosis) and outage report; v5: reports IP-binding bypass devices (fair usage); v4: direct scheduler execution + single-instance guard
+SCRIPT_VERSION = 9   # v9: a check-in is "missed" only when TapTap cannot be reached — a customer logging out while sessions were listed, or TapTap answering slowly (10 s idle limit → 25 s), no longer counted as an internet outage; the internet-route watch needs a change to hold for two check-ins and moves the tunnel at most every ~2 min; v8: globals re-declared inside nested blocks (the missed-check-in counter stayed at 1 on RouterOS 7, so self-repair never ran); v7: resets the TapTap Tunnel when the router's internet line changes (multi-WAN failover), longer check-in timeout at busy hours; v6: self-healing check-in (DNS fallback, wrong-clock repair, dead-WAN diagnosis) and outage report; v5: reports IP-binding bypass devices (fair usage); v4: direct scheduler execution + single-instance guard
 
 
 def _wan_watch_block():
@@ -231,20 +231,32 @@ def _wan_watch_block():
     except Exception:
         port, ifname = 51820, 'taptap-wg'
     return f''':global ttWanGw
+:global ttWanNew
+:global ttWanCool
 :if ([:typeof $ttWanGw] != "str") do={{ :set ttWanGw "" }}
+:if ([:typeof $ttWanNew] != "str") do={{ :set ttWanNew "" }}
+:if ([:typeof $ttWanCool] != "num") do={{ :set ttWanCool 0 }}
 :do {{
-  :global ttWanGw
+  :global ttWanGw; :global ttWanNew; :global ttWanCool
   :local wanNow ""
-  :foreach rt in=[/ip route find where dst-address="0.0.0.0/0" and active] do={{ :set wanNow ($wanNow . [:tostr [/ip route get $rt gateway]] . " ") }}
-  :if ([:len $ttWanGw] > 0 and $wanNow != $ttWanGw) do={{
-    :log warning ("TapTap: internet route changed (" . $ttWanGw . "-> " . $wanNow . ") - moving the TapTap Tunnel to the working line")
-    :do {{ /ip firewall connection remove [find where protocol="udp" and dst-address~":{port}"] }} on-error={{}}
-    :do {{
-      :local wgReset [:parse "/interface wireguard peers disable [find where interface=\\"{ifname}\\"]; :delay 1s; /interface wireguard peers enable [find where interface=\\"{ifname}\\"]"]
-      $wgReset
-    }} on-error={{}}
+  :foreach rt in=[/ip route find where dst-address="0.0.0.0/0" and active] do={{ :do {{ :set wanNow ($wanNow . [:tostr [/ip route get $rt gateway]] . " ") }} on-error={{}} }}
+  :if ($ttWanCool > 0) do={{ :set ttWanCool ($ttWanCool - 1) }}
+  :if ([:len $ttWanGw] = 0) do={{ :set ttWanGw $wanNow }}
+  :if ($wanNow = $ttWanGw) do={{ :set ttWanNew "" }} else={{
+    # A real failover holds: the new route must be seen on two check-ins in a row (a route that flickers, or
+    # routes taking turns being active, is not a line change), and the tunnel moves at most every ~2 minutes.
+    :if ($wanNow = $ttWanNew and $ttWanCool = 0) do={{
+      :log warning ("TapTap: internet route changed (" . $ttWanGw . "-> " . $wanNow . ") - moving the TapTap Tunnel to the working line")
+      :do {{ /ip firewall connection remove [find where protocol="udp" and dst-address~":{port}"] }} on-error={{}}
+      :do {{
+        :local wgReset [:parse "/interface wireguard peers disable [find where interface=\\"{ifname}\\"]; :delay 1s; /interface wireguard peers enable [find where interface=\\"{ifname}\\"]"]
+        $wgReset
+      }} on-error={{}}
+      :set ttWanGw $wanNow
+      :set ttWanNew ""
+      :set ttWanCool 12
+    }} else={{ :set ttWanNew $wanNow }}
   }}
-  :set ttWanGw $wanNow
 }} on-error={{}}
 '''
 
@@ -287,9 +299,13 @@ def agent_script(url, token, check):
   :local n 0
   :foreach s in=[/ip hotspot active find] do={{
     :if ($n < 300) do={{
-      :local e [/ip hotspot active get $s]
-      :set a ($a . ($e->"user") . "," . ($e->"mac-address") . "," . ($e->"address") . "," . ($e->"uptime") . "," . ($e->"bytes-in") . "," . ($e->"bytes-out") . "," . ($e->".id") . ";")
-      :set n ($n + 1)
+      # A customer who logs out between "find" and "get" is skipped. Before v9 that error ended the whole check-in
+      # inside the block below, and the router counted it as "cannot reach TapTap" (a busy hotspot looked offline).
+      :do {{
+        :local e [/ip hotspot active get $s]
+        :set a ($a . ($e->"user") . "," . ($e->"mac-address") . "," . ($e->"address") . "," . ($e->"uptime") . "," . ($e->"bytes-in") . "," . ($e->"bytes-out") . "," . ($e->".id") . ";")
+        :set n ($n + 1)
+      }} on-error={{}}
     }}
   }}
   :local bp ""
@@ -305,13 +321,15 @@ def agent_script(url, token, check):
   :local m 0
   :foreach i in=[/interface find where running=yes] do={{
     :if ($m < 60) do={{
-      :local f [/interface get $i]
-      :set ic ($ic . ($f->"name") . "," . ($f->"rx-byte") . "," . ($f->"tx-byte") . ";")
-      :set m ($m + 1)
+      :do {{
+        :local f [/interface get $i]
+        :set ic ($ic . ($f->"name") . "," . ($f->"rx-byte") . "," . ($f->"tx-byte") . ";")
+        :set m ($m + 1)
+      }} on-error={{}}
     }}
   }}
   :local body ("id=" . [/system identity get name] . "&ver=" . $ver . "&up=" . $up . "&cpu=" . $cpu . "&mf=" . $mf . "&mt=" . $mt . "&board=" . $board . "&n=" . [:len [/ip hotspot active find]] . "&sv={SCRIPT_VERSION}&ifc=" . $ic . "&act=" . $a . "&bp=" . $bp . "&lf=" . $ttLinkFail . "&lw=" . $ttLinkWhy . "&lg=" . $ttLinkGw)
-  :local res [/tool fetch url=($url . "/poll") http-method=post http-data=$body http-header-field=("Authorization: Bearer " . $tok) output=user as-value check-certificate={check} duration=20s idle-timeout=10s]
+  :local res [/tool fetch url=($url . "/poll") http-method=post http-data=$body http-header-field=("Authorization: Bearer " . $tok) output=user as-value check-certificate={check} duration=25s idle-timeout=25s]
   :if (($res->"status") = "finished") do={{
     :if ($ttLinkFail > 0) do={{ :log info ("TapTap Link: connected again after " . $ttLinkFail . " missed check-ins") }}
     :set ttLinkFail 0
@@ -1198,8 +1216,11 @@ OUTAGE_ADVICE = {
 }
 
 
-def note_outage(router, data, ip):
-    """The first check-in after missed ones: tell the owner how long, why, and what fixes it for good."""
+def note_outage(router, data, ip, covered=False):
+    """The first check-in after missed ones: tell the owner how long, why, and what fixes it for good.
+
+    Emailed only when the outage lasted ROUTER_OFFLINE_ALERT_MINUTES or more, and not when the offline / back-online
+    emails already told the story (``covered``). A short blip is kept for the Link page and the dashboard only."""
     try:
         missed = int(str(data.get('lf', '0')).strip() or 0)
     except ValueError:
@@ -1220,12 +1241,17 @@ def note_outage(router, data, ip):
         detail += f' Its active internet route at the time: {gw}.'
     cache.set(f'tt:link:outage:{router.pk}', {'at': timezone.localtime().strftime('%d %b %Y %H:%M'), 'missed': missed, 'why': why,
                                                'gateway': gw, 'detail': detail}, 30 * 86400)
+    from . import uptime_guard
     from .live import push_event
     from .notify import notify
-    push_event(router.business_id, f'{router.name}: TapTap Link back after {took}', 'warn')
-    notify(router.business, 'link_outage', f'{router.name} could not reach TapTap for {took}', detail,
-           key=f'link:{router.pk}:outage:{timezone.now():%Y%m%d%H}')
-    log(router.business, 'TapTap Link', detail[:255], status='Failed')
+    long_enough = missed * secs >= uptime_guard.alert_minutes() * 60
+    push_event(router.business_id, f'{router.name}: TapTap Link back after {took}', 'warn' if long_enough else 'info')
+    if long_enough and not covered:
+        notify(router.business, 'link_outage', f'{router.name} could not reach TapTap for {took}', detail,
+               key=f'link:{router.pk}:outage:{timezone.now():%Y%m%d%H}')
+    if long_enough:
+        log(router.business, 'TapTap Link', detail[:255], status='Failed')
+    uptime_guard._remember(router.pk, event='blip' if not long_enough else 'outage', secs=missed * secs, why=why)
     return detail
 
 
@@ -1260,9 +1286,12 @@ def handle_poll(agent, data, ip, url):
     from .live import push_event
     if first:
         push_event(router.business_id, f'{router.name} connected through TapTap Link', 'good')
-    elif was_offline:
+    covered = False
+    if was_offline and not first:
         push_event(router.business_id, f'{router.name} is back online (TapTap Link)', 'good')
-        notify(router.business, 'router_online', f'{router.name} is back online', f'{router.name} reconnected through TapTap Link from {ip}.', key=f'router:{router.pk}:online')
+        from . import uptime_guard
+        why = OUTAGE_ADVICE.get(str(data.get('lw', '')).strip()[:20], '') if str(data.get('lf', '0')).strip() not in ('', '0') else ''
+        covered = uptime_guard.came_back(router, via='TapTap Link', detail=why)
     if first:
         notify(router.business, 'link_connected', f'{router.name} connected with TapTap Link',
                f'{router.name} ({agent.board}, RouterOS {agent.ros_version}) is now managed through TapTap Link from {ip}.')
@@ -1272,7 +1301,8 @@ def handle_poll(agent, data, ip, url):
                f'if you did not expect it, revoke the token in TapTap.', key=f'link:{router.pk}:ip:{ip}')
 
     try:
-        note_outage(router, data, ip)
+        from . import uptime_guard as _ug
+        note_outage(router, data, ip, covered=covered or _ug.quiet(router.pk))
     except Exception as exc:
         logger.info('link outage note %s: %s', router, exc)
 
@@ -1694,18 +1724,32 @@ def fix_incident_via_link(inc, user=None, by='user'):
 
 
 def check_offline_agents():
-    """Called from the live-sync beat: mark Link routers offline when they stop calling in."""
+    """Called from the live-sync beat: mark Link routers offline when they stop calling in.
+
+    * Most routers silent at the same moment = TapTap's server or connection (a restart, an overloaded server):
+      nobody is marked offline or emailed (core/uptime_guard.taptap_side_incident).
+    * The status turns Offline after max(90 s, 6 check-ins) without a check-in; the owner is emailed only when it
+      stays silent for ROUTER_OFFLINE_ALERT_MINUTES (core/uptime_guard.still_down)."""
+    from . import uptime_guard
     from .live import push_event
-    from .notify import notify
     now = timezone.now()
-    for agent in RouterAgent.objects.select_related('router__business').filter(revoked=False, last_seen_at__isnull=False, router__connection_mode='agent'):
+    agents = list(RouterAgent.objects.select_related('router__business').filter(revoked=False, last_seen_at__isnull=False, router__connection_mode='agent'))
+    def limit(a):
+        return max(90, (a.poll_seconds or 10) * 6)
+    recent = [a for a in agents if (now - a.last_seen_at).total_seconds() < 6 * 3600]      # long-dead routers do not count
+    silent_now = [a for a in recent if (now - a.last_seen_at).total_seconds() > limit(a) and a.router.status == 'Online']
+    if uptime_guard.taptap_side_incident(len(silent_now), len(recent)):
+        return
+    for agent in agents:
         silent = (now - agent.last_seen_at).total_seconds()
-        if silent > max(90, agent.poll_seconds * 6) and agent.router.status == 'Online':
+        if silent <= limit(agent):
+            continue
+        if agent.router.status == 'Online':
             Router.objects.filter(pk=agent.router_id).update(status='Offline', last_error=f'No TapTap Link check-in for {int(silent)} s')
             push_event(agent.router.business_id, f'{agent.router.name} stopped calling in (TapTap Link)', 'bad')
-            notify(agent.router.business, 'router_offline', f'{agent.router.name} is offline',
-                   f'{agent.router.name} has not checked in through TapTap Link since {timezone.localtime(agent.last_seen_at):%H:%M}. Check its power and Internet connection.',
-                   severity='critical', key=f'router:{agent.router_id}:offline')
+            agent.router.status = 'Offline'
+        if agent.router.status == 'Offline':
+            uptime_guard.still_down(agent.router, since=agent.last_seen_at, why='no TapTap Link check-in', via='TapTap Link')
 
 
 

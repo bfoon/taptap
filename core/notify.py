@@ -28,8 +28,10 @@ logger = logging.getLogger('taptap.notify')
 
 # key: (label, explanation, default mode, severity, group)
 EVENTS = OrderedDict([
-    ('router_offline', ('A router goes offline', 'TapTap cannot reach a router (direct or TapTap Link).', 'instant', 'critical', 'Routers')),
+    ('router_offline', ('A router goes offline', 'TapTap cannot reach a router (direct or TapTap Link) for a few minutes (ROUTER_OFFLINE_ALERT_MINUTES, default 3).', 'instant', 'critical', 'Routers')),
     ('router_online', ('A router is back online', 'Sent after a router that went offline reconnects.', 'instant', 'info', 'Routers')),
+    ('link_outage', ('A Link router could not reach TapTap for a while', 'Reported when it checks in again: how long, why, and what fixes it. Short blips are not emailed.', 'digest', 'warning', 'Routers')),
+    ('router_unstable', ('A router’s connection is unstable', 'It dropped several times in 30 minutes: one email instead of one per drop.', 'instant', 'warning', 'Routers')),
     ('device_offline', ('A watched device goes offline', 'Switches, access points and devices your alert rules watch.', 'instant', 'warning', 'Network')),
     ('device_online', ('A watched device is back', 'Sent when a device you were told about returns.', 'digest', 'info', 'Network')),
     ('traffic_guard', ('Traffic guard triggers', 'A port reached its speed limit and was slowed down or switched off.', 'instant', 'warning', 'Network')),
@@ -47,7 +49,7 @@ EVENTS = OrderedDict([
     ('stock_low', ('Voucher stock running low', 'A plan has fewer than 20 unsold vouchers (checked each morning).', 'digest', 'warning', 'Business')),
     ('subscription', ('TapTap subscription ending', 'Reminder 3 days and 1 day before your subscription ends.', 'instant', 'warning', 'Business')),
 ])
-COOLDOWN_MIN = {'router_offline': 15, 'router_online': 15, 'device_offline': 30, 'device_online': 30, 'link_ip_change': 360,
+COOLDOWN_MIN = {'router_offline': 15, 'router_online': 15, 'router_unstable': 60, 'link_outage': 60, 'device_offline': 30, 'device_online': 30, 'link_ip_change': 360,
                 'link_rejected': 60, 'fit_monitor': 5, 'traffic_guard': 30, 'stock_low': 1440, 'subscription': 1440}
 SEVERITY_COLOR = {'critical': '#d64545', 'warning': '#f59e0b', 'info': '#1769e0', 'good': '#18a66a'}
 
