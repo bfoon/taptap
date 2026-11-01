@@ -87,6 +87,45 @@ services:
       redis:
         condition: service_healthy
 
+  turn:
+    # TURN relay for chat calls and screen sharing (coturn). Optional — start it with:
+    #   docker compose --profile turn up -d turn
+    # Without it, calls between mobile networks (carrier-grade NAT), strict office firewalls or a router that
+    # fails over between two internet links cannot always connect directly, and drop more often.
+    # Needs in .env (web reads the same secret, so credentials match):
+    #   CHAT_TURN_SECRET=<long random string>
+    #   CHAT_TURN_URLS=turn:turn.taptapnetwork.com:3478?transport=udp,turn:turn.taptapnetwork.com:3478?transport=tcp
+    #   TURN_EXTERNAL_IP=<this server's public IP>   (needed when the server sits behind NAT, e.g. most clouds)
+    #   TURN_REALM=taptapnetwork.com                 (optional)
+    # The TURN hostname must point straight at this server (DNS only, NOT through a Cloudflare proxy).
+    # Open in the firewall: 3478/udp, 3478/tcp and the relay range ${TURN_MIN_PORT:-49160}-${TURN_MAX_PORT:-49359}/udp.
+    image: coturn/coturn:4.6.2
+    profiles: ["turn"]
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      CHAT_TURN_SECRET: ${CHAT_TURN_SECRET:-}
+      TURN_EXTERNAL_IP: ${TURN_EXTERNAL_IP:-}
+      TURN_REALM: ${TURN_REALM:-taptapnetwork.com}
+      TURN_MIN_PORT: ${TURN_MIN_PORT:-49160}
+      TURN_MAX_PORT: ${TURN_MAX_PORT:-49359}
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        if [ -z "$$CHAT_TURN_SECRET" ]; then echo 'turn: set CHAT_TURN_SECRET in .env'; sleep 60; exit 1; fi;
+        exec turnserver -n --log-file=stdout --no-cli --fingerprint
+        --listening-port=3478
+        --use-auth-secret --static-auth-secret="$$CHAT_TURN_SECRET" --realm="$$TURN_REALM"
+        $${TURN_EXTERNAL_IP:+--external-ip=$$TURN_EXTERNAL_IP}
+        --min-port="$$TURN_MIN_PORT" --max-port="$$TURN_MAX_PORT"
+        --no-multicast-peers --no-tlsv1 --no-tlsv1_1 --stale-nonce=600
+        --denied-peer-ip=0.0.0.0-0.255.255.255 --denied-peer-ip=10.0.0.0-10.255.255.255
+        --denied-peer-ip=100.64.0.0-100.127.255.255 --denied-peer-ip=127.0.0.0-127.255.255.255
+        --denied-peer-ip=169.254.0.0-169.254.255.255 --denied-peer-ip=172.16.0.0-172.31.255.255
+        --denied-peer-ip=192.168.0.0-192.168.255.255 --denied-peer-ip=::1
+        --total-quota=200 --user-quota=12
+
 volumes:
   postgres_data:
   redis_data:

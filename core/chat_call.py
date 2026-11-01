@@ -14,6 +14,9 @@ Every piece of a call is its own cache key, written once, so concurrent requests
     call:<id>:end      why it ended                                   (cache.add: logged exactly once)
     call:<id>:dec:<u>  this person declined
     call:<id>:hb:<u>   last heartbeat from each side (a closed laptop ends the call)
+    call:<id>:ro       {gen, desc}  caller's ICE-restart offer (the line dropped: new network paths)
+    call:<id>:ra       {gen, desc}  callee's ICE-restart answer for that generation
+    call:<id>:rask     time the callee asked the caller to restart (only the caller sends restart offers)
     call:ring:<uid>    calls ringing for a person (checked by the cheap poll)
     call:user:<uid>    the call a person is in (busy signal)
 
@@ -27,6 +30,11 @@ In-call tools (all peer-to-peer over the call's encrypted data channel, see stat
 camera flip / back camera, drag-to-capture an area into the chat, short screen recordings (stored as chat
 video clips, deleted with every chat file after a week) and remote control of a shared TapTap tab — which
 the sharer must allow, can take back at any moment (Esc), and which leaves a note in the conversation.
+
+Reconnecting: when the line drops (Wi-Fi hop, dual-WAN failover, phone switching networks) the call is not
+hung up. The caller sends a fresh ICE-restart offer through this module, the callee answers, and the same call
+carries on over the new path — audio, camera, screen share and the data channel all survive. Only after
+RECONNECT_GIVE_UP seconds in the browser (or HEARTBEAT_LOST seconds of silence here) does the call end as "lost".
 
 Privacy: CHAT_TURN_ONLY=1 sends every call through your TURN relay, so neither side ever learns the
 other's IP address (useful when TapTap Support calls customers). The browser verifies the other side
@@ -47,7 +55,12 @@ from . import chat
 
 RING_SECONDS = 40
 CALL_TTL = 4 * 3600
-HEARTBEAT_LOST = 40
+# A call is ended as "lost" only after this long without a poll from the other side. 40 s was too short: a phone
+# that briefly backgrounds the call, or a router failing over to its second internet link, went silent for that
+# long while the media itself was fine or about to come back. The browser gives up by itself after 60 s of no
+# media (static/js/chat-call.js), so this is only the backstop for a closed laptop or a killed tab.
+HEARTBEAT_LOST = 90
+MAX_RESTART_GEN = 500
 MAX_SDP = 24000
 
 
@@ -241,6 +254,62 @@ def post_answer(call, user, desc):
     cache.set(_k(call['id'], 'live_at'), time.time(), CALL_TTL)
 
 
+# ─────────────────────────────── reconnect (ICE restart) ───────────────────────────────
+
+def _gen(v):
+    try:
+        g = int(v)
+    except (TypeError, ValueError):
+        raise chat.ChatError('Bad connection details.')
+    if not 1 <= g <= MAX_RESTART_GEN:
+        raise chat.ChatError('Bad connection details.')
+    return g
+
+
+def _live_for(call, user):
+    t = _taken(call['id'])
+    if not t:
+        raise chat.ChatError('The call is not connected yet.')
+    if cache.get(_k(call['id'], 'end')):
+        raise chat.ChatError('The call has ended.')
+    return t
+
+
+def post_reoffer(call, user, desc, gen):
+    """Caller: a new offer with fresh ICE credentials, after the line dropped. Newer generations replace older."""
+    if user.pk != call['caller']:
+        raise chat.ChatError('Only the caller restarts the connection.')
+    _live_for(call, user)
+    g = _gen(gen)
+    cur = cache.get(_k(call['id'], 'ro'))
+    if cur and cur.get('gen', 0) > g:
+        return
+    cache.set(_k(call['id'], 'ro'), {'gen': g, 'desc': _sdp(desc, 'offer')}, CALL_TTL)
+    heartbeat(call, user.pk)
+
+
+def post_reanswer(call, user, desc, gen):
+    """Callee: the answer to restart generation `gen`."""
+    t = _live_for(call, user)
+    if t['uid'] != user.pk:
+        raise chat.ChatError('Answer the call first.')
+    g = _gen(gen)
+    cur = cache.get(_k(call['id'], 'ro'))
+    if not cur or cur.get('gen') != g:
+        return                                   # a newer restart is already on its way; this answer is stale
+    cache.set(_k(call['id'], 'ra'), {'gen': g, 'desc': _sdp(desc, 'answer')}, CALL_TTL)
+    heartbeat(call, user.pk)
+
+
+def ask_restart(call, user):
+    """Callee: my side lost the line — caller, please send a restart offer."""
+    t = _live_for(call, user)
+    if t['uid'] != user.pk:
+        raise chat.ChatError('Answer the call first.')
+    cache.set(_k(call['id'], 'rask'), time.time(), CALL_TTL)
+    heartbeat(call, user.pk)
+
+
 def decline(call, user):
     cid = call['id']
     cache.set(_k(cid, f'dec:{user.pk}'), 1, RING_SECONDS + 20)
@@ -354,6 +423,9 @@ def public_state(call, uid):
             out['peer'] = {'name': chat.display_name(u), 'initials': chat.initials(u)} if u else None
     if call['caller'] == uid and st in ('connecting', 'active'):
         out['answer'] = cache.get(_k(cid, 'answer'))
+        out['reanswer'] = cache.get(_k(cid, 'ra'))
+        out['rask'] = cache.get(_k(cid, 'rask'))
     if call['caller'] != uid and st in ('connecting', 'active'):
         out['offer'] = cache.get(_k(cid, 'offer'))
+        out['reoffer'] = cache.get(_k(cid, 'ro'))
     return out

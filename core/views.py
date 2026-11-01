@@ -154,17 +154,49 @@ def vouchers(request):
         'designs':business.voucher_designs.all(),'params':params.urlencode()})
 
 
+def _voucher_limit(name, default):
+    import os
+    try:
+        return max(1, int(getattr(settings, name, None) or os.getenv(name) or default))
+    except (TypeError, ValueError):
+        return default
+
+
+def voucher_confirm_above():
+    """Batches bigger than this ask the owner to confirm the amount first (VOUCHER_CONFIRM_ABOVE, default 500)."""
+    return _voucher_limit('VOUCHER_CONFIRM_ABOVE', 500)
+
+
+def voucher_batch_max():
+    """Technical ceiling for one batch (VOUCHER_BATCH_MAX, default 50,000): one batch is created in a single request,
+    so a mistyped 5,000,000 must not run until the server gives up. Raise it in .env if you really need bigger."""
+    return max(voucher_confirm_above(), _voucher_limit('VOUCHER_BATCH_MAX', 50000))
+
+
 @login_required
 def generate_vouchers(request):
     business=b(request); plans=business.plans.filter(active=True).exclude(name__startswith='*'); routers=business.routers.all()
     portal_len=portal_code_length(business)
+    confirm_above, batch_max = voucher_confirm_above(), voucher_batch_max()
     ctx={'plans':plans,'routers':routers,'designs':business.voucher_designs.all(),
          'agents':business.agents.filter(active=True),'owner':request.GET.get('agent',''),'methods':[m for m in PAYMENT_METHODS if m[0]!='auto'],
-         'cf':code_format_ctx(business),'sn':serials.settings_ctx(business)}
+         'cf':code_format_ctx(business),'sn':serials.settings_ctx(business),'confirm_above':confirm_above,'batch_max':batch_max}
     if request.method=='POST':
         plan=get_object_or_404(plans,pk=request.POST.get('plan'))
-        try: qty=max(1,min(500,int(request.POST.get('quantity','1'))))
+        try: qty=max(1,int(request.POST.get('quantity','1')))
         except ValueError: qty=1
+        if qty>batch_max:
+            messages.error(request,f'{qty:,} vouchers is more than one batch can hold ({batch_max:,}). Make it in several batches, '
+                                   f'or raise VOUCHER_BATCH_MAX in the server settings.')
+            ctx['cf']=code_format_ctx(business,request.POST); ctx['sn']=serials.settings_ctx(business,request.POST)
+            return render(request,'core/generate_vouchers.html',ctx,status=400)
+        if qty>confirm_above and (request.POST.get('confirm_qty') or '').strip()!=str(qty):
+            # A big batch: say how many and what they are worth, and create them only once the owner confirms that
+            # exact amount (normally asked in the browser before sending; this page is the fallback).
+            ctx.update(confirm_qty=qty,confirm_plan=plan,confirm_value=plan.price*qty,
+                       confirm_fields=[(k,v) for k,vals in request.POST.lists() if k not in ('csrfmiddlewaretoken','confirm_qty') for v in vals])
+            ctx['cf']=code_format_ctx(business,request.POST); ctx['sn']=serials.settings_ctx(business,request.POST)
+            return render(request,'core/generate_vouchers.html',ctx)
         router_id=(request.POST.get('router') or '').strip()
         router=routers.filter(pk=int(router_id)).first() if router_id.isdigit() else None
         batch_name=request.POST.get('batch_name','').strip() or f'{plan.name} {timezone.localtime():%Y-%m-%d %H:%M}'

@@ -317,6 +317,7 @@ def router_link(request, pk):
         agent = None
     token = request.session.pop(f'link_token_{router.pk}', None)
     script = link.enrollment_script(router, token, request) if token else ''
+    connect_script = link.connect_script(router, token, request) if token else ''
     advanced_script = link.advanced_enrollment_script(router, token, request) if token else ''
     cmds = router.agent_commands.select_related('created_by').order_by('-created_at')[:40]
     return render(request, 'core/router_link.html', {
@@ -324,6 +325,7 @@ def router_link(request, pk):
         'agent': agent,
         'token': token,
         'script': script,
+        'connect_script': connect_script,
         'advanced_script': advanced_script,
         'current_version': link.SCRIPT_VERSION,
         'upgrade_failed': bool(agent and agent.script_version < link.SCRIPT_VERSION

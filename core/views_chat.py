@@ -349,7 +349,8 @@ def chat_call_poll(request):
 @login_required
 @require_POST
 def chat_call_act(request):
-    """start · offer · accept · answer · decline · end · reply (decline with a quick message) · log (remote-control note)."""
+    """start · offer · accept · answer · decline · end · reply (decline with a quick message) · log (remote-control note)
+    · reoffer / reanswer / reask (reconnect a dropped call with an ICE restart — see core/chat_call.py)."""
     from . import chat_call
     d = _body(request) if request.content_type == 'application/json' else request.POST.dict()
     act, user = d.get('action'), request.user
@@ -371,6 +372,12 @@ def chat_call_act(request):
                                  'call': chat_call.public_state(call, user.pk), 'from': call['label']})
         elif act == 'answer':
             chat_call.post_answer(call, user, d.get('desc'))
+        elif act == 'reoffer':
+            chat_call.post_reoffer(call, user, d.get('desc'), d.get('gen'))
+        elif act == 'reanswer':
+            chat_call.post_reanswer(call, user, d.get('desc'), d.get('gen'))
+        elif act == 'reask':
+            chat_call.ask_restart(call, user)
         elif act in ('decline', 'reply'):
             chat_call.decline(call, user)
             text = (d.get('text') or '').strip()[:300]

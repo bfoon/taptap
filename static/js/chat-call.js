@@ -43,12 +43,14 @@
   var R = document.getElementById('ttCall'); if (!R) return;
   var D = R.dataset, CSRF = D.csrf, EMBED = D.embedded === '1';
   var LEASE_MS = 15 * 60 * 1000, WARN_MS = 60 * 1000, CTL_MS = 15 * 60 * 1000;
+  // Reconnect: a dropped line gets an ICE restart (new network paths, same call) instead of a hang-up.
+  var RECONNECT_GIVE_UP = 60 * 1000, RESTART_AFTER = 2500, RESTART_RETRY = 8000, GATHER_MS = 4000;
   var REC_MS = Math.max(5, +D.videoSecs || 30) * 1000, VIDEO_MAX = Math.max(1, +D.videoMb || 16) * 1024 * 1024;
   var MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
   var bc = window.BroadcastChannel ? new BroadcastChannel('tt-call') : null;
   var S = { cid: '', role: D.join ? 'callee' : 'caller', thread: +D.thread || 0, video: D.video === '1', pc: null, dc: null,
             T: {}, mic: null, micProbe: null, cam: null, share: null, peer: { name: '', initials: '?' }, remote: { mic: true, cam: false, screen: null },
-            state: 'init', liveAt: 0, ice: null, verified: { me: false, them: false }, relay: false, timers: {}, lastAsk: 0, quality: 4, lowered: false, ended: false,
+            state: 'init', liveAt: 0, ice: null, reconnecting: false, rgen: 0, rgenApplied: 0, rgenSeen: 0, restarting: 0, raskSeen: 0, askAt: 0, verified: { me: false, them: false }, relay: false, timers: {}, lastAsk: 0, quality: 4, lowered: false, ended: false,
             facing: 'user', camDevice: '', camIds: [],      // camera flip
             rc: 'none', rcAt: 0,                          // as the viewer: none | asked | on
             ctl: { on: false, since: 0, until: 0, n: 0, sec: 0 },   // as the sharer: is the other person controlling my tab?
@@ -328,12 +330,82 @@
     };
     pc.onconnectionstatechange = function () {
       var st = pc.connectionState;
-      if (st === 'connected') { banner('net', ''); clearTimeout(S.timers.lost); onLive(); }
-      else if (st === 'disconnected') { banner('net', '📶 Connection dropped — reconnecting…', 'warn'); S.timers.lost = setTimeout(function () { hangup('lost'); }, 15000); }
-      else if (st === 'failed') hangup('failed');
+      if (st === 'connected') reconnected();
+      else if (st === 'disconnected') {
+        if (!S.liveAt) return;                    // still setting up: the first connection has its own timeouts
+        lineDropped();
+        clearTimeout(S.timers.rstart);            // often comes back by itself within a second or two
+        S.timers.rstart = setTimeout(recover, RESTART_AFTER);
+      }
+      else if (st === 'failed') {
+        if (!S.liveAt) return hangup('failed');   // never connected at all: networks block it (needs TURN)
+        lineDropped(); recover();
+      }
     };
     return pc;
   }
+
+  // ───────── reconnect: ICE restart over the server, the call itself carries on ─────────
+  function lineDropped() {
+    if (S.ended) return;
+    if (!S.reconnecting) { S.reconnecting = true; banner('net', '📶 Connection dropped — reconnecting…', 'warn'); status('Reconnecting…'); }
+    if (!S.timers.lost) S.timers.lost = setTimeout(function () { hangup('lost'); }, RECONNECT_GIVE_UP);
+    pollCall(800);                                // signaling needs to be quick while we reconnect
+  }
+  function reconnected() {
+    clearTimeout(S.timers.lost); S.timers.lost = 0; clearTimeout(S.timers.rstart); clearTimeout(S.timers.rretry);
+    S.restarting = 0;
+    if (S.reconnecting) { S.reconnecting = false; banner('net', '✅ Reconnected', 'info', 2500); tuneSenders(); sendState(); }
+    else banner('net', '');
+    onLive();
+  }
+  function connected() { return S.pc && S.pc.connectionState === 'connected'; }
+  function recover() {
+    if (S.ended || !S.pc || !S.liveAt || connected()) return;
+    lineDropped();
+    if (S.role === 'caller') restartIce();
+    else if (Date.now() - S.askAt > 4000) { S.askAt = Date.now(); act('reask'); }   // only the caller sends offers
+    clearTimeout(S.timers.rretry);
+    S.timers.rretry = setTimeout(function () { S.restarting = 0; recover(); }, RESTART_RETRY);
+  }
+  function restartIce() {
+    var pc = S.pc; if (!pc || S.ended || pc.signalingState === 'closed') return;
+    if (S.restarting && Date.now() - S.restarting < RESTART_RETRY - 500) return;   // one restart in flight at a time
+    S.restarting = Date.now(); var gen = ++S.rgen;
+    try { if (pc.restartIce) pc.restartIce(); } catch (e) {}
+    pc.createOffer({ iceRestart: true }).then(function (o) { return pc.setLocalDescription(o); })
+      .then(function () { return gathered(pc, GATHER_MS); })
+      .then(function () {
+        if (gen !== S.rgen || S.ended) return;
+        return act('reoffer', { gen: gen, desc: { type: 'offer', sdp: pc.localDescription.sdp } });
+      })
+      .catch(function () { S.restarting = 0; });
+  }
+  function answerRestart(ro) {
+    var pc = S.pc; if (!pc || S.ended || !ro || !ro.desc) return;
+    var gen = ro.gen;
+    var ready = pc.signalingState === 'have-local-offer' ? pc.setLocalDescription({ type: 'rollback' }) : Promise.resolve();
+    ready.then(function () { return pc.setRemoteDescription(ro.desc); })
+      .then(function () { return pc.createAnswer(); }).then(function (a) { return pc.setLocalDescription(a); })
+      .then(function () { return gathered(pc, GATHER_MS); })
+      .then(function () {
+        if (S.ended || gen !== S.rgenSeen) return;
+        return act('reanswer', { gen: gen, desc: { type: 'answer', sdp: pc.localDescription.sdp } });
+      })
+      .catch(function () { S.rgenSeen = 0; });   // try this generation again on the next poll
+  }
+  // Back from the background (phone screen on, laptop lid open) or the network came back: check at once.
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState !== 'visible' || S.ended || !S.cid || !S.pc) return;
+    pollCall(0);
+    if (S.liveAt && !connected()) recover();
+  });
+  window.addEventListener('online', function () {
+    if (S.ended || !S.liveAt || !S.pc) return;
+    pollCall(0);
+    if (S.role === 'caller') { S.restarting = 0; restartIce(); }   // new network: new paths, even if ICE has not noticed yet
+    else { S.askAt = Date.now(); act('reask'); }
+  });
   function gathered(pc, ms) {
     return new Promise(function (res) {
       if (pc.iceGatheringState === 'complete') return res();
@@ -342,12 +414,17 @@
     });
   }
   function tuneSenders() {
+    screenBitrate(S.lowered);
+    camBitrate(S.lowered ? 250000 : 700000, S.lowered ? 2 : 1);
+  }
+  // Screen share keeps its sharpness (text must stay readable) but on a weak line it sends fewer frames and
+  // fewer bits, so it no longer floods a shaky Wi-Fi hop and takes the voice down with it.
+  function screenBitrate(low) {
     try {
       var p = S.T.screen.sender.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}];
-      p.encodings[0].maxBitrate = 1500000; p.encodings[0].maxFramerate = 15; p.degradationPreference = 'maintain-resolution';
+      p.encodings[0].maxBitrate = low ? 450000 : 1500000; p.encodings[0].maxFramerate = low ? 5 : 15; p.degradationPreference = 'maintain-resolution';
       S.T.screen.sender.setParameters(p).catch(function () {});
     } catch (e) {}
-    camBitrate(S.lowered ? 250000 : 700000, S.lowered ? 2 : 1);
   }
   function camBitrate(bps, down) {
     try { var p = S.T.cam.sender.getParameters(); if (!p.encodings || !p.encodings.length) p.encodings = [{}]; p.encodings[0].maxBitrate = bps; p.encodings[0].scaleResolutionDownBy = down; S.T.cam.sender.setParameters(p).catch(function () {}); } catch (e) {}
@@ -366,7 +443,7 @@
         S.T.cam = pc.addTransceiver(camOut() || 'video', { direction: 'sendrecv' });
         S.T.screen = pc.addTransceiver('video', { direction: 'sendrecv' });
         return pc.createOffer().then(function (o) { return pc.setLocalDescription(o); })
-          .then(function () { return gathered(pc, 2500); })
+          .then(function () { return gathered(pc, GATHER_MS); })
           .then(function () { return act('offer', { desc: { type: 'offer', sdp: pc.localDescription.sdp } }); })
           .then(function (r) { if (!r.ok) throw new Error(r.message); ringback(true); pollCall(1000); });
       })
@@ -389,7 +466,7 @@
         t.forEach(function (x) { x.direction = 'sendrecv'; });
         return Promise.all([S.T.audio.sender.replaceTrack(S.mic), S.T.cam.sender.replaceTrack(camOut())]);
       }).then(function () { return pc.createAnswer(); }).then(function (a) { return pc.setLocalDescription(a); })
-        .then(function () { return gathered(pc, 2500); })
+        .then(function () { return gathered(pc, GATHER_MS); })
         .then(function () { return act('answer', { desc: { type: 'answer', sdp: pc.localDescription.sdp } }); })
         .then(function (r) { if (!r.ok) throw new Error(r.message); status('Connecting…'); computeSafety(); pollCall(2500); });
     }).catch(function (e) { fail(e && e.name ? mediaError(e) : (e && e.message) || 'Could not join the call.'); });
@@ -424,7 +501,19 @@
           S.pc.setRemoteDescription(c.answer).then(computeSafety).catch(function () { hangup('failed'); });
         }
         if (S.role === 'caller' && c.state === 'connecting' && !c.answer) status('Answering…');
-        pollCall(S.liveAt ? 3000 : 1000);
+        // reconnect signaling (ICE restart)
+        if (S.role === 'caller' && S.pc && c.reanswer && c.reanswer.gen === S.rgen && S.rgenApplied !== S.rgen && S.pc.signalingState === 'have-local-offer') {
+          S.rgenApplied = S.rgen;
+          S.pc.setRemoteDescription(c.reanswer.desc).catch(function () { S.rgenApplied = 0; S.restarting = 0; });
+        }
+        if (S.role === 'caller' && c.rask && c.rask > S.raskSeen) {
+          S.raskSeen = c.rask;
+          if (S.liveAt) { S.restarting = 0; lineDropped(); restartIce(); }   // the callee lost the line
+        }
+        if (S.role === 'callee' && S.pc && S.pc.remoteDescription && c.reoffer && c.reoffer.gen > S.rgenSeen) {
+          S.rgenSeen = c.reoffer.gen; answerRestart(c.reoffer);
+        }
+        pollCall(!S.liveAt || S.reconnecting ? 1000 : 3000);
       });
     }, ms);
   }
@@ -434,7 +523,7 @@
     if (S.liveAt) return;
     S.liveAt = Date.now(); ringback(false); overlay(''); tone([660, 880], 0.18, 0.12, 0.05); tuneSenders();
     S.timers.clock = setInterval(function () {
-      var t = clock(Date.now() - S.liveAt); status(t + (S.share ? ' · sharing your screen' : S.remote.screen ? ' · viewing their screen' : ''));
+      var t = clock(Date.now() - S.liveAt); status(t + (S.reconnecting ? ' · reconnecting…' : S.share ? ' · sharing your screen' : S.remote.screen ? ' · viewing their screen' : ''));
       bcast({ t: 'call', state: 'live', peer: S.peer.name, since: S.liveAt, sharing: !!S.share, viewing: !!S.remote.screen });
       leaseTick();
     }, 1000);
@@ -463,8 +552,9 @@
       var loss = dr + dl > 0 ? dl / (dr + dl) * 100 : 0;
       var q = rtt < 150 && loss < 2 ? 4 : rtt < 300 && loss < 5 ? 3 : rtt < 600 && loss < 12 ? 2 : 1;
       S.quality = q; el.bars.dataset.q = q; el.bars.title = 'Connection: ' + ['', 'poor', 'weak', 'good', 'excellent'][q] + ' · ' + Math.round(rtt) + ' ms' + (S.relay ? ' · via relay' : ' · direct');
-      if (q <= 2 && !S.lowered && S.cam) { S.lowered = true; camBitrate(250000, 2); banner('low', '📶 Weak network — your video was lowered so the voice stays clear', 'info', 6000); }
-      else if (q >= 4 && S.lowered) { S.lowered = false; camBitrate(700000, 1); }
+      if (S.reconnecting) return renderSafety();
+      if (q <= 2 && !S.lowered && (S.cam || S.share)) { S.lowered = true; tuneSenders(); banner('low', '📶 Weak network — your ' + (S.share ? 'screen and video were' : 'video was') + ' lowered so the voice stays clear', 'info', 6000); }
+      else if (q >= 4 && S.lowered) { S.lowered = false; tuneSenders(); }
       renderSafety();
     }).catch(function () {});
   }
@@ -1378,12 +1468,14 @@
   // ───────── ending ─────────
   var REASON = { ended: 'Call ended', missed: 'No answer', declined: 'Call declined', cancelled: 'Call cancelled', lost: 'The connection was lost',
                  failed: 'Could not connect — your networks may block direct calls. Ask your TapTap admin to set up a TURN relay.', gone: 'Call ended' };
+  REASON.lost = 'The connection was lost and could not come back within a minute';
   function hangup(reason, remote) {
     if (S.ended) return; S.ended = true;
     ctlStop('share'); recStop();                // a recording in progress is still saved to the chat
     if (!remote) { send({ t: 'bye' }); if (S.cid) act('end', { reason: reason }); }
     ringback(false); stopShare();
     Object.keys(S.timers).forEach(function (k) { clearTimeout(S.timers[k]); clearInterval(S.timers[k]); });
+    banner('net', '');
     [S.mic, S.micProbe, S.cam].forEach(function (t) { try { t && t.stop(); } catch (e) {} });
     if (FX) FX.detach(); if (studioUI) studioUI.close(); lensClose();
     try { S.pc && S.pc.close(); } catch (e) {}

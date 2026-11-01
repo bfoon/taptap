@@ -497,26 +497,15 @@ def _backup_helper_block():
         return ""
 
 
-def enrollment_script(router, token, request=None):
-    url = base_url(request)
-    check = tls_flag(url)
+def _link_install_lines(router, token, url, check):
+    """Step 2 of every installer: (re)install the taptap-link heartbeat and its scheduler, then run it once."""
     try:
         agent = router.agent
     except RouterAgent.DoesNotExist:
         agent = None
     secs = max(10, int(agent.poll_seconds if agent else 10))
     body = agent_script(url, token, check)
-    name = re.sub(r'[^\x20-\x7e]', '?', router.name)
-    from .link_trust import trust_block, tunnel_block, update_block, wan_check_block
-    text = f'''# --- TapTap Link for "{name}" ---
-# Paste the whole block into WinBox > New Terminal. It is ONE block: nothing runs until the last line
-# has arrived (the terminal drops text pasted while a command is still running). It runs 4 steps:
-#   1) clock + certificates  2) TapTap Link  3) TapTap Tunnel (RouterOS 7)  4) internet-lines check + RouterOS update check (no reboot)
-# The router connects OUT to {url}; no port-forwarding or public IP is required.
-# Keep the token private. Rotate it from TapTap if it is ever exposed.
-''' + trust_block(url, check) + f'''
-# === 2) TapTap Link ===
-/system scheduler disable [find where name="taptap-link"]
+    return f'''/system scheduler disable [find where name="taptap-link"]
 /system script job remove [find where trace~"scheduler:taptap-link"]
 :do {{ /system script job remove [find where script="taptap-link"] }} on-error={{}}
 /system scheduler remove [find where name="taptap-link"]
@@ -525,8 +514,65 @@ def enrollment_script(router, token, request=None):
 /system scheduler add name="taptap-link" interval={secs}s start-time=startup policy={POLICY} on-event=taptap-link comment="TapTap Link"
 /system script run taptap-link
 :log info "TapTap Link installed"
-:put "Step 2 OK: TapTap Link installed - the TapTap Link page turns green after the first check-in"
+'''
+
+
+def _router_label(router):
+    return re.sub(r'[^\x20-\x7e]', '?', router.name)
+
+
+def enrollment_script(router, token, request=None):
+    """FULL install (the current one): certificates → Link → backup helper → Tunnel → internet-lines check → update check."""
+    url = base_url(request)
+    check = tls_flag(url)
+    name = _router_label(router)
+    from .link_trust import trust_block, tunnel_block, update_block, wan_check_block
+    text = f'''# --- TapTap Link for "{name}" - FULL install ---
+# Paste the whole block into WinBox > New Terminal. It is ONE block: nothing runs until the last line
+# has arrived (the terminal drops text pasted while a command is still running). It runs 4 steps:
+#   1) clock + certificates  2) TapTap Link  3) TapTap Tunnel (RouterOS 7)  4) internet-lines check + RouterOS update check (no reboot)
+# The router connects OUT to {url}; no port-forwarding or public IP is required.
+# Keep the token private. Rotate it from TapTap if it is ever exposed.
+''' + trust_block(url, check) + '''
+# === 2) TapTap Link ===
+''' + _link_install_lines(router, token, url, check) + ''':put "Step 2 OK: TapTap Link installed - the TapTap Link page turns green after the first check-in"
 ''' + _backup_helper_block() + (tunnel_block(token) or _tunnel_trigger(token)) + wan_check_block() + update_block()
+    return one_block(text)
+
+
+def connect_script(router, token, request=None):
+    """SHORT install — just connect: clock, HTTPS trust (built-in trust store only) and the TapTap Link heartbeat.
+
+    No embedded root certificates, no backup helper, no Tunnel, no internet-lines or update check — a few lines a
+    router reads in a second, for re-connecting a router quickly or a new router that already has HTTPS working.
+    Everything else can be added later by pasting the FULL install (same token), or arrives through Link itself.
+    """
+    url = base_url(request)
+    check = tls_flag(url)
+    name = _router_label(router)
+    hello = rs(url + '/api/agent/v1/hello')
+    trust = '' if check == 'no' else f'''
+# === 1) Clock and HTTPS trust (short: RouterOS built-in trust store, no certificate import) ===
+:do {{ /system ntp client set enabled=yes servers=pool.ntp.org }} on-error={{ :do {{ /system ntp client set enabled=yes server-dns-names=pool.ntp.org }} on-error={{}} }}
+{{
+  :local ok false
+  :do {{ /tool fetch url={hello} output=none check-certificate={check} duration=8s idle-timeout=5s; :set ok true }} on-error={{}}
+  :if (!$ok) do={{
+    :do {{ /certificate settings set builtin-trust-anchors=trusted }} on-error={{}}
+    :delay 2s
+    :do {{ /tool fetch url={hello} output=none check-certificate={check} duration=8s idle-timeout=5s; :set ok true }} on-error={{}}
+  }}
+  :if ($ok) do={{ :put "Step 1 OK: HTTPS to TapTap works" }} else={{ :put "Step 1: HTTPS to TapTap is not trusted on this router - use the FULL install (it brings its own certificates)" }}
+}}
+'''
+    text = f'''# --- TapTap Link for "{name}" - SHORT install (just connect) ---
+# Paste into WinBox > New Terminal. Installs only the TapTap Link connection.
+# No Tunnel, backups helper or checks: paste the FULL install later if you want those.
+# Keep the token private. Rotate it from TapTap if it is ever exposed.
+''' + trust + '''
+# === 2) TapTap Link ===
+''' + _link_install_lines(router, token, url, check) + ''':put "TapTap Link installed - the TapTap Link page turns green after the first check-in"
+'''
     return one_block(text)
 
 

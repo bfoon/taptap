@@ -1,8 +1,13 @@
 {% extends 'core/base.html' %}{% load taptap_extras %}{% block title %}Generate Vouchers — TapTap{% endblock %}{% block heading %}Generate Vouchers{% endblock %}{% block content %}
 <div class="d-flex gap-2 mb-3"><a class="btn btn-dark btn-sm" href="{% url 'generate_vouchers' %}"><i class="bi bi-stack"></i> A batch</a><a class="btn btn-outline-dark btn-sm" href="{% url 'single_voucher' %}"><i class="bi bi-person"></i> One voucher for one person</a></div>
-<div class="row g-4"><div class="col-lg-7"><div class="panel form-panel"><h3>Create voucher batch</h3><p>Generate up to 500 secure vouchers at once, in the code format you choose.</p><form method="post" id="genForm">{% csrf_token %}
+<div class="row g-4"><div class="col-lg-7"><div class="panel form-panel"><h3>Create voucher batch</h3><p>Generate secure vouchers in the code format you choose — as many as you need. Batches above {{ confirm_above }} ask you to confirm the amount first.</p>
+{% if confirm_qty %}<div class="alert alert-warning" id="bigConfirm"><h5 class="mb-2"><i class="bi bi-exclamation-triangle"></i> You are about to create {{ confirm_qty }} vouchers</h5>
+  <p class="mb-2"><b>{{ confirm_plan.name }}</b>{% if not confirm_plan.is_free %} · {{ current_business.currency }}{{ confirm_plan.price }} each · total value <b>{{ current_business.currency }}{{ confirm_value }}</b>{% endif %}</p>
+  <form method="post" class="d-flex gap-2 flex-wrap">{% csrf_token %}{% for k, v in confirm_fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input type="hidden" name="confirm_qty" value="{{ confirm_qty }}">
+    <button class="btn btn-warning"><i class="bi bi-check2-circle"></i> Yes, create {{ confirm_qty }} vouchers</button><a class="btn btn-outline-secondary" href="{% url 'generate_vouchers' %}">Change the amount</a></form></div>{% endif %}
+<form method="post" id="genForm">{% csrf_token %}
 {% if request.GET.order %}<div class="alert alert-success py-2 small"><i class="bi bi-cart-check"></i> Making an agent's order — the agent sees “Ready” on their phone once you generate.</div>{% endif %}<label>Plan</label><select class="form-select" name="plan" required>{% for p in plans %}<option value="{{ p.id }}" data-price="{{ p.price }}" {% if request.GET.plan == p.id|stringformat:"s" %}selected{% endif %}>{{ p.name }} — {% if p.is_free %}Free{% else %}{{ current_business.currency }}{{ p.price }}{% endif %} / {{ p.duration_minutes|minutes_text }} / {{ p.max_devices }} device{{ p.max_devices|pluralize }}</option>{% endfor %}</select>
-<div class="row g-3"><div class="col-md-6"><label>Quantity</label><input class="form-control" type="number" name="quantity" min="1" max="500" value="{{ request.GET.quantity|default:'1' }}">{% if request.GET.order %}<input type="hidden" name="order" value="{{ request.GET.order }}">{% endif %}</div><div class="col-md-6"><label>Batch name</label><input class="form-control" name="batch_name" placeholder="Optional"></div></div>
+<div class="row g-3"><div class="col-md-6"><label>Quantity</label><input class="form-control" type="number" name="quantity" min="1" max="{{ batch_max }}" value="{% firstof confirm_qty request.GET.quantity '1' %}"><input type="hidden" name="confirm_qty" value=""><small class="d-block mt-1" id="qtyHint"></small>{% if request.GET.order %}<input type="hidden" name="order" value="{{ request.GET.order }}">{% endif %}</div><div class="col-md-6"><label>Batch name</label><input class="form-control" name="batch_name" placeholder="Optional"></div></div>
 <label>MikroTik router</label><select class="form-select" name="router"><option value="">Create locally only</option>{% for r in routers %}<option value="{{ r.id }}">{{ r.name }} — {% if r.connection_mode == 'agent' %}TapTap Link{% else %}{{ r.ip_address }}{% endif %}</option>{% endfor %}</select>
 
 <div class="border rounded-3 p-3 mt-4">{% include "core/partials/code_format.html" %}</div>
@@ -31,6 +36,21 @@
 function upd(){box.hidden=!o.value;const pre=f.querySelector('input[name=settlement]:checked').value==='prepaid';pp.hidden=!pre||!o.value;
  const opt=o.selectedOptions[0],pl=f.elements.plan.selectedOptions[0];if(!opt||!pl)return;const q=+f.elements.quantity.value||0,price=+pl.dataset.price||0,c=+(opt.dataset.comm||0);
  const fx=+(opt.dataset.commFixed||0),gross=q*price,comm=fx?q*Math.min(fx,price):gross*c/100;sum.innerHTML=`${q} × ${cur}${price} = <b>${cur}${gross.toLocaleString()}</b> in sales · commission ${cur}${comm.toLocaleString(undefined,{maximumFractionDigits:2})} · agent pays <b>${cur}${(gross-comm).toLocaleString(undefined,{maximumFractionDigits:2})}</b>`;}
-f.addEventListener('input',upd);f.addEventListener('change',upd);upd();})();
+f.addEventListener('input',upd);f.addEventListener('change',upd);upd();
+// Big batches: tell the owner how many and what they are worth, and go ahead only once they confirm that amount.
+const ABOVE={{ confirm_above|default:500 }},MAX={{ batch_max|default:50000 }},hint=document.getElementById('qtyHint');
+function money(n){return cur+n.toLocaleString(undefined,{maximumFractionDigits:2});}
+function big(){const q=Math.floor(+f.elements.quantity.value||0),pl=f.elements.plan.selectedOptions[0],price=pl?+pl.dataset.price||0:0;
+  if(f.elements.confirm_qty.value!==String(q))f.elements.confirm_qty.value='';
+  if(q>MAX){hint.className='d-block mt-1 text-danger';hint.textContent='One batch can hold up to '+MAX.toLocaleString()+' vouchers.';}
+  else if(q>ABOVE){hint.className='d-block mt-1 text-warning-emphasis';hint.textContent='Large batch: '+q.toLocaleString()+' vouchers'+(price?' worth '+money(q*price):'')+' — you will be asked to confirm.';}
+  else{hint.className='d-block mt-1';hint.textContent='';}}
+f.elements.quantity.addEventListener('input',big);f.elements.plan.addEventListener('change',big);big();
+f.addEventListener('submit',function(e){const q=Math.floor(+f.elements.quantity.value||0);if(q<=ABOVE||f.elements.confirm_qty.value===String(q))return;
+  if(q>MAX){e.preventDefault();alert('One batch can hold up to '+MAX.toLocaleString()+' vouchers. Make it in several batches.');return;}
+  const pl=f.elements.plan.selectedOptions[0],price=pl?+pl.dataset.price||0:0,name=pl?pl.textContent.split(' — ')[0].trim():'';
+  const msg='You are about to create '+q.toLocaleString()+' vouchers.\n\nPlan: '+name+(price?'\nPrice: '+money(price)+' each\nTotal value: '+money(q*price):'')+'\n\nCreate them?';
+  if(confirm(msg)){f.elements.confirm_qty.value=String(q);}else{e.preventDefault();f.elements.quantity.focus();}});
+})();
 
 </script>{% endblock %}

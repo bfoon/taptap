@@ -70,13 +70,31 @@
 
 {% if script %}
 <section class="panel mb-3" id="setup">
-  <div class="panel-head"><div><h3>Quick install — WinBox / New Terminal</h3><p>This block contains the private router token and is shown only now. Copy the whole block.</p></div>
-    <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" id="lkCopy"><i class="bi bi-clipboard"></i> Copy quick install</button><button class="btn btn-outline-primary btn-sm" id="lkDownload"><i class="bi bi-download"></i> Download .rsc</button></div></div>
-  <ol class="lk-steps"><li>Open WinBox on {{ router.name }} and choose <b>New Terminal</b>.</li><li>Paste the complete quick-install block below and press Enter. It runs four steps by itself:
-    <b>1</b> clock and certificates (installs them when the router has none), <b>2</b> TapTap Link, <b>3</b> TapTap Tunnel (RouterOS 7), <b>4</b> RouterOS update — last, because it reboots the router.</li>
-  <li>Each step prints <code>Step … OK</code>. The page turns green after the router checks in; after an update it comes back by itself once the router has rebooted.</li></ol>
+  <div class="panel-head"><div><h3>Install TapTap Link — WinBox / New Terminal</h3><p>These blocks contain the private router token and are shown only now. Pick one and copy the whole block.</p></div></div>
   {% if not https %}<div class="alert alert-warning small"><i class="bi bi-exclamation-triangle"></i> TapTap is not on HTTPS ({{ site|default:'SITE_URL not set' }}). Put TapTap behind HTTPS and set <code>SITE_URL=https://…</code> before using Link.</div>{% endif %}
-  <pre class="lk-script" id="lkScript">{{ script }}</pre>
+
+  <ul class="nav nav-pills mb-3" role="tablist">
+    <li class="nav-item"><button class="nav-link active" type="button" data-lk-tab="lkShortPane"><i class="bi bi-lightning-charge"></i> Short — just connect</button></li>
+    <li class="nav-item"><button class="nav-link" type="button" data-lk-tab="lkFullPane"><i class="bi bi-boxes"></i> Full install</button></li>
+  </ul>
+
+  <div id="lkShortPane" class="lk-pane">
+    <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap mb-2">
+      <p class="small text-secondary mb-0" style="max-width:640px">Only the connection: clock, HTTPS check and the TapTap Link heartbeat. Pastes in a second. Use it to reconnect a router, or on a new router whose HTTPS already works. If step 1 says HTTPS is not trusted, use the <b>Full install</b> instead. You can paste the Full install later for the Tunnel, backups and checks.</p>
+      <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" id="lkCopyShort"><i class="bi bi-clipboard"></i> Copy short install</button><button class="btn btn-outline-primary btn-sm" id="lkDownloadShort"><i class="bi bi-download"></i> Download .rsc</button></div>
+    </div>
+    <pre class="lk-script" id="lkShortScript">{{ connect_script }}</pre>
+  </div>
+
+  <div id="lkFullPane" class="lk-pane d-none">
+    <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap mb-2">
+      <ol class="lk-steps mb-0"><li>Open WinBox on {{ router.name }} and choose <b>New Terminal</b>.</li><li>Paste the complete block below and press Enter. It runs four steps by itself:
+        <b>1</b> clock and certificates (installs them when the router has none), <b>2</b> TapTap Link, <b>3</b> TapTap Tunnel (RouterOS 7), <b>4</b> internet-lines and RouterOS update check.</li>
+      <li>Each step prints <code>Step … OK</code>. The page turns green after the router checks in.</li></ol>
+      <div class="d-flex gap-2"><button class="btn btn-primary btn-sm" id="lkCopy"><i class="bi bi-clipboard"></i> Copy full install</button><button class="btn btn-outline-primary btn-sm" id="lkDownload"><i class="bi bi-download"></i> Download .rsc</button></div>
+    </div>
+    <pre class="lk-script" id="lkScript">{{ script }}</pre>
+  </div>
 
   <details class="lk-advanced mt-3">
     <summary><i class="bi bi-tools"></i> Advanced / recovery install — use if quick install does not connect</summary>
@@ -173,6 +191,12 @@
   var sc=document.getElementById('lkScript'), adv=document.getElementById('lkAdvancedScript');
   if(sc){copyButton(document.getElementById('lkCopy'),sc,'Copied');downloadButton(document.getElementById('lkDownload'),sc,'taptap-link.rsc');window.addEventListener('beforeunload',function(e){if(!window._lkDone){e.preventDefault();e.returnValue='';}});}
   if(adv){copyButton(document.getElementById('lkCopyAdvanced'),adv,'Recovery copied');downloadButton(document.getElementById('lkDownloadAdvanced'),adv,'taptap-link-recovery.rsc');}
+  var sh=document.getElementById('lkShortScript');
+  if(sh){copyButton(document.getElementById('lkCopyShort'),sh,'Copied');downloadButton(document.getElementById('lkDownloadShort'),sh,'taptap-link-short.rsc');}
+  document.querySelectorAll('[data-lk-tab]').forEach(function(t){t.onclick=function(){
+    document.querySelectorAll('[data-lk-tab]').forEach(function(x){x.classList.toggle('active',x===t);});
+    document.querySelectorAll('.lk-pane').forEach(function(p){p.classList.toggle('d-none',p.id!==t.dataset.lkTab);});
+  };});
   var st=document.getElementById('lkState'); if(!st) return;
   function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
   function ago(iso){if(!iso)return 'never';var s=(Date.now()-new Date(iso))/1000;return s<60?Math.round(s)+' s ago':s<3600?Math.round(s/60)+' min ago':new Date(iso).toLocaleString();}
