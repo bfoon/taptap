@@ -1,27 +1,29 @@
-# TapTap update 7 — vouchers ready before the login, self-healing logins, no voucher waits for a sync
+# TapTap update 8 — calls: the sharer sees your clicks, guided control, video effects
 
-Fixes "the voucher shows on TapTap with the phone's MAC, but the customer cannot browse". See README →
-"Ready to browse". Based on bfoon/taptap master (5953a51). No database migration.
+Install update 7 first (this update is built on it). No database migration.
 
     cd /opt/taptap
-    unzip -o ~/taptap-update-7.zip -d /tmp && cp -r /tmp/taptap/* /opt/taptap/
+    unzip -o ~/taptap-update-8.zip -d /tmp && cp -r /tmp/taptap/* /opt/taptap/
     docker compose build web worker vouchers live
     docker compose up -d --force-recreate web worker vouchers live
 
-(or in a git checkout: `git apply taptap-update-7.patch`)
+(or in a git checkout with update 7: `git apply taptap-update-8.patch`)
 
-After the restart
-* Make sure SITE_URL is set in .env: routers then get the new login page within the hour by themselves. To do it
-  now: Portal Studio → Put on routers.
-* The voucher worker now runs 4 at a time (VOUCHER_WORKER_CONCURRENCY). The sweeper and the faster TapTap Link
-  check-ins start by themselves.
-* Check any code from the server:  docker compose exec web python manage.py ready_check ABC123   (add --fix)
+What changes for people
+* Your click on a shared screen ripples on the sharer's own screen, with a receipt saying where it was seen;
+  📍 floating pointer window for window / whole-screen shares; laser and drawing on their screen.
+* Asking for control: take control or just guide, 5/15/30 min, with a reason. Ghost cursor, guardian for risky
+  buttons, Pause, +5 min, a live log, and a fuller audit note in the chat.
+* ✨ Effects: background blur / scenes / photo, face masks, drawing on your video (can stick to your face),
+  name tag. All on the device.
 
-Changed: config/settings.py, docker-compose.yml, README.md, static/studio/portal-render.js, core/agent.py,
-core/apps.py, core/member_sync.py, core/tasks.py, core/urls.py, core/views_ads.py, core/views_agents.py,
-core/views_studio.py, core/voucher_fastlane.py, core/voucher_push.py.
-New: core/voucher_ready.py, core/url_alignment.py, core/management/commands/ready_check.py,
-core/tests/test_voucher_ready.py.
+Browsers load the new call code automatically (asset version call5). The effect models add about 17 MB of
+static files (served by TapTap; downloaded by a browser only when someone turns an effect on).
 
-New .env settings (all optional): VOUCHER_SWEEP_SECONDS=10, READY_API_WAIT=2.0, PORTAL_AUTO_REFRESH=1,
-LINK_VOUCHER_CHUNK=25, LINK_VOUCHER_CHUNK_V6=8, LINK_TURBO_PER_MINUTE=12, VOUCHER_WORKER_CONCURRENCY=4.
+Changed: README.md, core/chat_call.py, core/views_chat.py, static/css/chat-call.css, static/css/chat.css,
+static/js/chat-call.js, static/js/chat.js, templates/core/base.html, templates/core/chat_call.html,
+templates/core/chat_standalone.html, templates/core/platform/base.html.
+New: static/js/call-fx.js, static/vendor/mediapipe/ (MediaPipe, Apache-2.0, see NOTICE.md),
+core/tests/test_call_studio.py, tools/call_tests/ (real-browser tests).
+
+Tests: `python manage.py test core` (252) · real browser: `tools/call_tests/run.sh` (4 suites, 73 checks).

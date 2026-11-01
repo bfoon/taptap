@@ -53,6 +53,7 @@
             rc: 'none', rcAt: 0,                          // as the viewer: none | asked | on
             ctl: { on: false, since: 0, until: 0, n: 0, sec: 0 },   // as the sharer: is the other person controlling my tab?
             rec: null, snip: false,
+            tool: 'point', pings: {}, acks: {}, rcUntil: 0, ctlMins: 15,   // pointer tools, delivery receipts, control time
             mask: { rects: [], prev: [], prevUntil: 0, vw: 0, vh: 0, waiting: true, waitSince: 0 } };
 
   // ───────── helpers ─────────
@@ -87,7 +88,8 @@
     flip: '<svg viewBox="0 0 24 24"><path d="M4 7h3l2-3h6l2 3h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/><path d="M9 12a3 3 0 0 1 5.2-2M15 14a3 3 0 0 1-5.2 2M14.5 8v2.2h-2.2M9.5 18v-2.2h2.2"/></svg>',
     snip: '<svg viewBox="0 0 24 24"><path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/><rect x="8" y="8" width="8" height="8" rx="1" stroke-dasharray="2 2"/></svg>',
     rec: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4" fill="currentColor"/></svg>',
-    mouse: '<svg viewBox="0 0 24 24"><path d="M5 3l14 7-6 2-2 6z"/><path d="M13 12l5 5"/></svg>'
+    mouse: '<svg viewBox="0 0 24 24"><path d="M5 3l14 7-6 2-2 6z"/><path d="M13 12l5 5"/></svg>',
+    fx: '<svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.7 4.7 1.8-4.7 1.8L12 16l-1.8-4.7-4.7-1.8 4.7-1.8zM19 15l.9 2.1 2.1.9-2.1.9L19 21l-.9-2.1-2.1-.9 2.1-.9zM5 14l.7 1.6 1.6.7-1.6.7L5 18.6l-.7-1.6-1.6-.7 1.6-.7z"/></svg>'
   };
 
   // ───────── layout ─────────
@@ -96,8 +98,12 @@
     '<header class="cw-top"><button class="cw-lock" data-a="safety" title="Encryption and safety emoji">' + ICON.lock + '<span>Encrypted</span></button>' +
       '<div class="cw-title"><b class="cw-peername">…</b><small class="cw-status">Starting…</small></div><span class="cw-bars" title="Connection quality"><i></i><i></i><i></i><i></i></span></header>' +
     '<main class="cw-stage">' +
-      '<div class="cw-screen cw-h"><video class="cw-rscreen" playsinline autoplay muted></video><div class="cw-wm"></div><div class="cw-curtain cw-h"><b>Screen paused</b><small>They paused sharing for a moment</small></div><div class="cw-ptrs"></div>' +
+      '<div class="cw-screen cw-h"><video class="cw-rscreen" playsinline autoplay muted></video><div class="cw-wm"></div><div class="cw-curtain cw-h"><b>Screen paused</b><small>They paused sharing for a moment</small></div><canvas class="cw-ink"></canvas><div class="cw-ptrs"></div>' +
         '<div class="cw-screen-tools"><span class="cw-chip cw-hint">Click to point · drag to capture an area</span>' +
+          '<span class="cw-modes"><button class="cw-ib on" data-a="tool" data-t="point" title="Point — click to show a ripple on their screen">🎯</button>' +
+          '<button class="cw-ib" data-a="tool" data-t="laser" title="Laser — move to show a live pointer on their screen">🔴</button>' +
+          '<button class="cw-ib" data-a="tool" data-t="draw" title="Draw on their screen (they see it on their own screen)">✏️</button>' +
+          '<button class="cw-ib cw-h" data-a="inkclear" title="Clear your drawings">🧽</button></span>' +
           '<button class="cw-ib cw-ctlbtn cw-h" data-a="rc" title="Ask for control of their TapTap tab">' + ICON.mouse + '<em>Control</em></button>' +
           '<button class="cw-ib" data-a="snip" title="Capture an area to the chat (or just drag over the screen)">' + ICON.snip + '</button>' +
           '<button class="cw-ib cw-recbtn" data-a="rec" title="Record a short clip to the chat">' + ICON.rec + '<em></em></button>' +
@@ -107,7 +113,8 @@
         '<div class="cw-peer-tools cw-h"><span class="cw-chip cw-hint2">Drag to capture an area</span><button class="cw-ib" data-a="snip" title="Capture an area of their camera">' + ICON.snip + '</button>' +
           '<button class="cw-ib cw-recbtn" data-a="rec" title="Record a short clip of their camera">' + ICON.rec + '<em></em></button></div><div class="cw-snipbox cw-h"></div></div>' +
       '<div class="cw-self"><video class="cw-lcam cw-h" playsinline autoplay muted></video><b class="cw-selfini"></b><span class="cw-mylevel"></span></div>' +
-      '<div class="cw-myshare cw-h"><video class="cw-lscreen" playsinline autoplay muted></video><div class="cw-ptrs"></div><span class="cw-grade"></span></div>' +
+      '<div class="cw-myshare cw-h"><video class="cw-lscreen" playsinline autoplay muted></video><canvas class="cw-ink"></canvas><div class="cw-ptrs"></div><span class="cw-grade"></span>' +
+        '<button class="cw-ib cw-lensbtn cw-h" data-a="lens" title="Keep their pointer on top of all your apps">📍</button></div>' +
       '<div class="cw-banners"></div><div class="cw-react"></div>' +
     '</main>' +
     '<section class="cw-safety cw-h"></section>' +
@@ -115,6 +122,7 @@
       '<button class="cw-btn" data-a="mic" title="Mute (M)">' + ICON.mic + '<small>Mute</small></button>' +
       '<button class="cw-btn" data-a="cam" title="Camera (V)">' + ICON.camoff + '<small>Camera</small></button>' +
       '<button class="cw-btn cw-h" data-a="flip" title="Switch front / back camera (F)">' + ICON.flip + '<small>Flip</small></button>' +
+      '<button class="cw-btn cw-fxbtn" data-a="fx" title="Studio — background, face masks, drawing, name tag (E)">' + ICON.fx + '<small>Effects</small></button>' +
       '<div class="cw-sharewrap"><button class="cw-btn" data-a="sharemenu" title="Share your screen">' + ICON.screen + '<small>Share</small></button></div>' +
       '<button class="cw-btn cw-h" data-a="pause" title="Pause sharing">' + ICON.pause + '<small>Pause</small></button>' +
       '<button class="cw-btn cw-h live" data-a="ctlstop" title="Take back control (Esc in the shared tab)">' + ICON.mouse + '<small>Take back</small></button>' +
@@ -131,13 +139,40 @@
     self: $('.cw-self', R), lcam: $('.cw-lcam', R), selfini: $('.cw-selfini', R), mylevel: $('.cw-mylevel', R),
     myshare: $('.cw-myshare', R), lscreen: $('.cw-lscreen', R), lptrs: $('.cw-myshare .cw-ptrs', R), grade: $('.cw-grade', R),
     banners: $('.cw-banners', R), react: $('.cw-react', R), safety: $('.cw-safety', R), raudio: $('.cw-raudio', R), bar: $('.cw-bar', R),
-    ptools: $('.cw-peer-tools', R), pfacing: $('.cw-pfacing', R), ctlbtn: $('.cw-ctlbtn', R)
+    ptools: $('.cw-peer-tools', R), pfacing: $('.cw-pfacing', R), ctlbtn: $('.cw-ctlbtn', R),
+    rink: $('.cw-screen .cw-ink', R), link: $('.cw-myshare .cw-ink', R), lensbtn: $('.cw-lensbtn', R)
   };
   el.selfini.textContent = D.meInitials || 'ME';
   var CAN_DISPLAY = !!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia);
   function canCamShare() { return MOBILE || S.camIds.length > 0; }
   function shareVisible() { $('.cw-sharewrap', R).classList.toggle('cw-h', !CAN_DISPLAY && !canCamShare()); }
   shareVisible();
+
+  // ───────── Studio: camera effects (static/js/call-fx.js) — they run on this device; only the finished video is sent ─────────
+  var FX = window.TTCallFX && TTCallFX.supported() ? TTCallFX.engine({ base: D.fxBase || '/static/vendor/mediapipe/', name: D.me || '', title: D.meTitle || '', color: D.brand || '' }) : null;
+  var studioUI = null;
+  if (!FX) $('[data-a=fx]', R).classList.add('cw-h');
+  function camOut() {              // what goes out as my camera: the finished picture with effects, else the camera itself
+    if (!S.cam || S.cam.readyState !== 'live') return null;
+    if (FX && FX.active()) { if (FX.src !== S.cam || !FX.track) FX.attach(S.cam); return FX.track; }
+    return S.cam;
+  }
+  function showSelf() { var t = camOut(); if (!t) return; el.lcam.srcObject = new MediaStream([t]); el.self.classList.toggle('fx', !!(FX && FX.active())); }
+  function applyCam() {            // effects switched on/off mid-call: swap the sent track, no renegotiation
+    var t = camOut(); if (!t) { syncButtons(); return Promise.resolve(); }
+    showSelf();
+    return (S.T.cam ? S.T.cam.sender.replaceTrack(t) : Promise.resolve()).then(function () { if (studioUI) studioUI.refresh(); syncButtons(); }, function () {});
+  }
+  if (FX) FX.on(function (what) { if (what === 'active') applyCam(); });
+  function openStudio() {
+    if (!FX) return banner('fx', '✨ Effects need a newer browser (Chrome, Edge, Firefox or Safari).', 'info', 4000);
+    if (studioUI) { studioUI.close(); return; }
+    // mounted inside the stage, so Mute and End in the bar stay reachable while the Studio is open
+    studioUI = TTCallFX.studio(FX, { mount: $('.cw-stage', R), preview: camOut, onCamera: function () { if (!S.cam) toggleCam(); }, onClose: function () { studioUI = null; syncButtons(); } });
+    syncButtons();
+  }
+  function clamp01(v) { return Math.max(0, Math.min(1, +v || 0)); }
+  function rid() { return Math.random().toString(36).slice(2, 10); }
 
   function status(t) { el.status.textContent = t; }
   function banner(id, html, kind, ms) {
@@ -223,9 +258,9 @@
     return navigator.mediaDevices.getUserMedia({ video: camVideo({ facing: facing, device: opts.device }) }).then(function (s) {
       S.cam = s.getVideoTracks()[0]; S.cam.contentHint = 'motion';
       S.facing = facingOf(S.cam, facing); S.camDevice = (S.cam.getSettings && S.cam.getSettings().deviceId) || '';
-      el.lcam.srcObject = new MediaStream([S.cam]); el.lcam.classList.remove('cw-h'); el.self.classList.add('has-video');
+      el.lcam.classList.remove('cw-h'); el.self.classList.add('has-video');
       el.self.classList.toggle('back', S.facing === 'environment');           // only the selfie view is mirrored
-      listCams(); return S.cam;
+      listCams(); showSelf(); if (studioUI) studioUI.refresh(); return camOut();
     });
   }
   function canFlip() { return MOBILE || S.camIds.length > 1; }
@@ -238,7 +273,7 @@
     if (!S.cam || S.cam.readyState !== 'live') return;
     var was = { facing: S.facing, device: S.camDevice }, next = nextCamOpts(was), btn = $('[data-a=flip]', el.bar);
     if (btn.disabled) return;
-    S.cam.stop(); S.cam = null; btn.disabled = true;     // most phones cannot open two cameras at once
+    S.cam.stop(); S.cam = null; if (FX) FX.detach(); btn.disabled = true;     // most phones cannot open two cameras at once
     getCam(next).then(function (t) { return S.T.cam && S.T.cam.sender.replaceTrack(t); }).then(function () {
       tuneSenders();
       banner('flip', S.facing === 'environment' ? '📷 Back camera — they see what your phone is pointing at' : '🤳 Front camera', 'info', 2500);
@@ -328,7 +363,7 @@
         S.cid = d.call.id; S.ice = d.ice; S.peer.name = d.title; paintPeer(); overlay(ringHTML('Calling ' + esc(d.title) + '…', 'Ringing'));
         var pc = makePC();
         S.T.audio = pc.addTransceiver(S.mic, { direction: 'sendrecv' });
-        S.T.cam = pc.addTransceiver(S.cam || 'video', { direction: 'sendrecv' });
+        S.T.cam = pc.addTransceiver(camOut() || 'video', { direction: 'sendrecv' });
         S.T.screen = pc.addTransceiver('video', { direction: 'sendrecv' });
         return pc.createOffer().then(function (o) { return pc.setLocalDescription(o); })
           .then(function () { return gathered(pc, 2500); })
@@ -352,7 +387,7 @@
       return pc.setRemoteDescription(offer).then(function () {
         var t = pc.getTransceivers(); S.T.audio = t[0]; S.T.cam = t[1]; S.T.screen = t[2];
         t.forEach(function (x) { x.direction = 'sendrecv'; });
-        return Promise.all([S.T.audio.sender.replaceTrack(S.mic), S.T.cam.sender.replaceTrack(S.cam || null)]);
+        return Promise.all([S.T.audio.sender.replaceTrack(S.mic), S.T.cam.sender.replaceTrack(camOut())]);
       }).then(function () { return pc.createAnswer(); }).then(function (a) { return pc.setLocalDescription(a); })
         .then(function () { return gathered(pc, 2500); })
         .then(function () { return act('answer', { desc: { type: 'answer', sdp: pc.localDescription.sdp } }); })
@@ -464,6 +499,10 @@
     b.querySelector('small').textContent = S.rc === 'on' ? 'Release' : S.rc === 'asked' ? 'Waiting…' : 'Control';
     b.title = S.rc === 'on' ? 'Give control back' : 'Ask to take over their screen to support them';
     R.classList.toggle('controlling', S.rc === 'on');
+    b = $('[data-a=fx]', el.bar); b.classList.toggle('on', !!(FX && FX.active())); b.classList.toggle('open', !!studioUI);
+    el.lensbtn.classList.toggle('cw-h', !(S.share && S.share.surface !== 'camera' && window.documentPictureInPicture));
+    el.lensbtn.classList.toggle('on', !!LENS);
+    $('[data-a=inkclear]', el.screen).classList.toggle('cw-h', S.tool !== 'draw');
     R.classList.toggle('snipping', S.snip);
     el.ptools.classList.toggle('cw-h', !(S.remote.cam && !rs));
     [].forEach.call(R.querySelectorAll('.cw-recbtn'), function (x) {
@@ -474,7 +513,7 @@
   function toggleMic() { if (!S.mic) return; S.mic.enabled = !S.mic.enabled; banner('muted', ''); syncButtons(); sendState(); }
   function toggleCam() {
     if (S.cam && S.cam.readyState === 'live') {
-      S.cam.stop(); S.cam = null; S.T.cam && S.T.cam.sender.replaceTrack(null); el.lcam.classList.add('cw-h'); el.self.classList.remove('has-video'); syncButtons(); sendState(); return;
+      S.cam.stop(); S.cam = null; if (FX) FX.detach(); S.T.cam && S.T.cam.sender.replaceTrack(null); el.lcam.classList.add('cw-h'); el.self.classList.remove('has-video', 'fx'); if (studioUI) studioUI.refresh(); syncButtons(); sendState(); return;
     }
     if (S.share && S.share.surface === 'camera') return banner('cam', '📷 Your camera is in the big view. Stop “Show with camera” first.', 'info', 4000);
     getCam().then(function (t) { return S.T.cam && S.T.cam.sender.replaceTrack(t); }).then(function () { tuneSenders(); syncButtons(); sendState(); })
@@ -561,6 +600,7 @@
             g.drawImage(frame, 0, 0, w, h); var ts = frame.timestamp; frame.close();
             paintMasks(g, w, h, list);
             ctl.enqueue(new VideoFrame(cv, { timestamp: ts }));
+            return new Promise(function (r) { setTimeout(r, 0); });   // let timers (the call heartbeat) run between frames
           }
         })).pipeTo(gen.writable).catch(function () {});
         try { gen.contentHint = 'detail'; } catch (e) {}
@@ -621,7 +661,8 @@
         banner('grade', '<b>' + g[1] + '</b> · ' + g[2] + (surface === 'browser' ? (S.share.out
           ? ' Your screen stays sharp — passwords, keys and your chats are hidden <b>only in what ' + esc(first(S.peer.name) || 'they') + ' sees</b>. Your preview shows their view.'
           : ' Secrets on TapTap pages are blurred while you share.') + (handle ? '' : ' (Remote control and the private mask need Chrome or Edge on your side.)')
-          : ' TapTap tabs blur passwords on your own screen too — share a TapTap tab to keep your screen sharp.'), g[0] === 'risky' ? 'warn' : 'info', 8000);
+          : ' TapTap tabs blur passwords on your own screen too — share a TapTap tab to keep your screen sharp.' +
+            (window.documentPictureInPicture ? ' <button class="cw-link" data-a="lens">📍 Show their pointer over all my apps</button>' : '')), g[0] === 'risky' ? 'warn' : 'info', surface === 'browser' ? 8000 : 14000);
         el.myshare.classList.toggle('masked', !!S.share.out);
         bcast(shieldMsg());
         sendState(); syncButtons(); tone([523, 784], 0.15, 0.1, 0.04);
@@ -637,7 +678,7 @@
   // "Show with camera": the camera goes into the big screen slot, sharper than the face camera.
   function startCamShare() {
     var m = $('.cw-menu', el.bar); if (m) m.remove();
-    if (S.cam) { S.cam.stop(); S.cam = null; S.T.cam && S.T.cam.sender.replaceTrack(null); el.lcam.classList.add('cw-h'); el.self.classList.remove('has-video'); }
+    if (S.cam) { S.cam.stop(); S.cam = null; if (FX) FX.detach(); S.T.cam && S.T.cam.sender.replaceTrack(null); el.lcam.classList.add('cw-h'); el.self.classList.remove('has-video', 'fx'); }
     var opts = MOBILE || S.camIds.length < 2 ? { facing: 'environment', big: true } : { device: S.camDevice || S.camIds[0], big: true };
     camShareTrack(opts).catch(function (e) {
       banner('share', '📷 ' + (e && e.name === 'NotAllowedError' ? 'Camera access is blocked in your browser.' : 'Could not start the camera.'), 'warn', 5000);
@@ -684,6 +725,7 @@
     el.myshare.classList.toggle('paused', S.share.paused); sendState(); syncButtons();
   }
   function leaseTick() {
+    if (S.rc === 'on' && S.rcUntil) { var rl = $('.cw-rcleft', R); if (rl) rl.textContent = clock(S.rcUntil - Date.now()); }
     if (S.ctl.on) { if (Date.now() > S.ctl.until) ctlStop('time'); else syncButtons(); }
     if (S.rec) syncButtons();
     if (!S.share) return;
@@ -703,7 +745,8 @@
   // Where a video frame really sits inside its element (object-fit contain or cover).
   function fit(video) {
     var r = video.getBoundingClientRect(), vw = video.videoWidth, vh = video.videoHeight; if (!vw || !vh) return null;
-    var cover = getComputedStyle(video).objectFit === 'cover', sc = cover ? Math.max(r.width / vw, r.height / vh) : Math.min(r.width / vw, r.height / vh);
+    var view = (video.ownerDocument && video.ownerDocument.defaultView) || window;
+    var cover = view.getComputedStyle(video).objectFit === 'cover', sc = cover ? Math.max(r.width / vw, r.height / vh) : Math.min(r.width / vw, r.height / vh);
     var w = vw * sc, h = vh * sc; return { r: r, sc: sc, ox: (r.width - w) / 2, oy: (r.height - h) / 2, w: w, h: h, vw: vw, vh: vh };
   }
   function ripple(layer, video, x, y, label, cls) {
@@ -722,15 +765,17 @@
   }
 
   // ───────── pointer on their screen / camera: click = point (or click, with control) · drag = capture an area ─────────
-  function gesture(video, box, onClick, src) {
+  function gesture(video, box, onClick, src, hooks) {
     var g = null;
     video.addEventListener('pointerdown', function (ev) {
       if (ev.button !== 0 || !video.videoWidth) return;
+      if (hooks && hooks.down && hooks.down(ev)) { g = { draw: true, id: ev.pointerId }; try { video.setPointerCapture(ev.pointerId); } catch (e) {} ev.preventDefault(); return; }
       g = { x: ev.clientX, y: ev.clientY, id: ev.pointerId, moved: false }; try { video.setPointerCapture(ev.pointerId); } catch (e) {}
       ev.preventDefault();
     });
     video.addEventListener('pointermove', function (ev) {
       if (!g || ev.pointerId !== g.id) return;
+      if (g.draw) { hooks.move(ev); return; }
       if (!g.moved && Math.abs(ev.clientX - g.x) + Math.abs(ev.clientY - g.y) < 10) return;
       g.moved = true; var pr = box.parentNode.getBoundingClientRect();
       box.style.left = (Math.min(g.x, ev.clientX) - pr.left) + 'px'; box.style.top = (Math.min(g.y, ev.clientY) - pr.top) + 'px';
@@ -739,6 +784,7 @@
     function up(ev) {
       if (!g || ev.pointerId !== g.id) return;
       var start = g; g = null; box.classList.add('cw-h');
+      if (start.draw) { hooks.up(ev); return; }
       if (ev.type === 'pointercancel') return;
       if (start.moved) snipArea(video, start, ev, src);
       else if (S.snip) banner('snip', '✂️ Drag over the part you want to capture.', 'info', 2500);
@@ -750,10 +796,93 @@
   gesture(el.rscreen, $('.cw-screen .cw-snipbox', R), function (ev) {
     var p = videoPoint(el.rscreen, ev); if (!p) return;
     var x = +p.x.toFixed(4), y = +p.y.toFixed(4), dbl = Date.now() - lastTap < 350; lastTap = Date.now();
-    if (S.rc === 'on') { ripple(el.rptrs, el.rscreen, x, y, '', 'ctl'); send({ t: 'rc', op: dbl ? 'dbl' : 'click', x: x, y: y }); }
-    else { ripple(el.rptrs, el.rscreen, x, y); send({ t: 'ptr', x: x, y: y }); }
+    if (S.rc === 'on' && S.tool === 'point' && !S.rcHeld) { ripple(el.rptrs, el.rscreen, x, y, '', 'ctl'); send({ t: 'rc', op: dbl ? 'dbl' : 'click', x: x, y: y }); }
+    else { var id = rid(); ripple(el.rptrs, el.rscreen, x, y); pingSent(id, x, y); send({ t: 'ptr', x: x, y: y, id: id }); }
     $('.cw-hint', el.screen).classList.add('cw-h');
-  }, 'screen');
+  }, 'screen', { down: inkDown, move: inkMove, up: inkUp });
+
+  // ───────── pointer tools on their screen: receipts · laser · drawing ─────────
+  // Receipt: the sharer's side says where the ripple was really seen — on their shared TapTap tab, in the pointer
+  // window that floats over their apps, in their call window, as a notification — or that it was not seen.
+  var ACK = { tab: ['✓ On their screen', 'ok'], lens: ['✓ Shown over their apps', 'ok'], window: ['👁 In their call window', 'mid'],
+              notice: ['🔔 Sent as a notification', 'mid'], missed: ['⚠ Not seen — their TapTap tab is hidden', 'bad'] };
+  function pingSent(id, x, y) {
+    var now = Date.now(); Object.keys(S.pings).forEach(function (k) { if (now - S.pings[k].at > 6000) delete S.pings[k]; });
+    S.pings[id] = { x: x, y: y, at: now };
+  }
+  function chipAt(layer, video, x, y, text, cls) {
+    var f = fit(video) || { ox: 0, oy: 0, w: video.clientWidth, h: video.clientHeight };
+    var d = document.createElement('i'); d.className = 'cw-ack ' + (cls || ''); d.textContent = text;
+    d.style.left = (f.ox + x * f.w) + 'px'; d.style.top = (f.oy + y * f.h) + 'px'; layer.appendChild(d); setTimeout(function () { d.remove(); }, 2400);
+  }
+  function setTool(t) {
+    if (S.tool === 'laser' && t !== 'laser') send({ t: 'laser', off: true });
+    S.tool = t; [].forEach.call(el.screen.querySelectorAll('[data-a=tool]'), function (b) { b.classList.toggle('on', b.dataset.t === t); });
+    R.classList.toggle('tool-laser', t === 'laser'); R.classList.toggle('tool-draw', t === 'draw'); syncButtons();
+    var hint = { point: S.rc === 'on' ? 'Click to click on their tab' : 'Click to point', laser: 'Move to show your laser on their screen', draw: 'Drag to draw on their screen' }[t];
+    banner('tool', hint ? '🖱 ' + hint : '', 'info', 2200);
+  }
+  // Ink over a <video>: strokes are fractions of the video frame, so they land on the same spot on every screen.
+  function inkLayer(cv, video) {
+    var L = { strokes: {}, order: [], raf: 0, win: (cv.ownerDocument && cv.ownerDocument.defaultView) || window };
+    L.add = function (id, pts, c, w, end, fade) {
+      var st = L.strokes[id];
+      if (!st) { st = L.strokes[id] = { pts: [], c: c || '#facc15', w: w || 4, at: Date.now(), end: false, fade: fade || 8000 }; L.order.push(id); if (L.order.length > 40) delete L.strokes[L.order.shift()]; }
+      (pts || []).forEach(function (q) { if (q && q.length === 2) st.pts.push([clamp01(q[0]), clamp01(q[1])]); });
+      if (st.pts.length > 1500) st.pts.splice(0, st.pts.length - 1500);
+      if (end) { st.end = true; st.at = Date.now(); }
+      L.kick();
+    };
+    L.clear = function () { L.strokes = {}; L.order = []; L.kick(); };
+    L.kick = function () { if (!L.raf) L.raf = L.win.requestAnimationFrame(L.draw); };
+    L.draw = function () {
+      L.raf = 0; var r = cv.getBoundingClientRect(), dpr = L.win.devicePixelRatio || 1, W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
+      if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H;
+      var g = cv.getContext('2d'); g.clearRect(0, 0, W, H); var f = fit(video); if (!f) return;
+      var now = Date.now(), live = false;
+      L.order.forEach(function (id) {
+        var st = L.strokes[id]; if (!st || !st.pts.length) return;
+        var age = st.end ? now - st.at : 0; if (age > st.fade) { delete L.strokes[id]; return; } live = true;
+        g.globalAlpha = age > st.fade - 800 ? Math.max(0, (st.fade - age) / 800) : 1; g.strokeStyle = g.fillStyle = st.c; g.lineWidth = st.w * dpr; g.lineCap = g.lineJoin = 'round';
+        g.beginPath(); st.pts.forEach(function (q, i) { var px = (f.ox + q[0] * f.w) * dpr, py = (f.oy + q[1] * f.h) * dpr; i ? g.lineTo(px, py) : g.moveTo(px, py); });
+        if (st.pts.length === 1) { g.arc((f.ox + st.pts[0][0] * f.w) * dpr, (f.oy + st.pts[0][1] * f.h) * dpr, st.w * dpr / 2, 0, 7); g.fill(); } else g.stroke();
+      });
+      L.order = L.order.filter(function (id) { return L.strokes[id]; });
+      if (live) L.kick();
+    };
+    return L;
+  }
+  S.rInk = inkLayer(el.rink, el.rscreen); S.lInk = inkLayer(el.link, el.lscreen);
+  var INK_ME = '#facc15', myInk = null;
+  // a shared TapTap tab paints the drawing back into its own video, so my local copy fades fast to avoid a double line
+  function inkFade() { return S.remote.screen && S.remote.screen.surface === 'browser' ? 1200 : 8000; }
+  function inkDown(ev) {
+    if (S.tool !== 'draw') return false;
+    var p = videoPoint(el.rscreen, ev); if (!p) return true;
+    myInk = { id: rid(), pts: [[+p.x.toFixed(4), +p.y.toFixed(4)]], sent: 0, t: null };
+    S.rInk.add(myInk.id, myInk.pts.slice(), INK_ME, 4, false, inkFade()); inkFlush(false); return true;
+  }
+  function inkMove(ev) {
+    if (!myInk) return; var p = videoPoint(el.rscreen, ev); if (!p) return;
+    var q = [+p.x.toFixed(4), +p.y.toFixed(4)], last = myInk.pts[myInk.pts.length - 1];
+    if (last && Math.abs(last[0] - q[0]) + Math.abs(last[1] - q[1]) < 0.002) return;
+    myInk.pts.push(q); S.rInk.add(myInk.id, [q]); if (!myInk.t) myInk.t = setTimeout(function () { inkFlush(false); }, 40);
+  }
+  function inkFlush(end) {
+    var st = myInk; if (!st) return; clearTimeout(st.t); st.t = null;
+    var batch = st.pts.slice(st.sent); st.sent = st.pts.length;
+    for (var i = 0; i < batch.length || (end && i === 0); i += 200) send({ t: 'ink', id: st.id, pts: batch.slice(i, i + 200), c: INK_ME, w: 4, end: !!end && i + 200 >= batch.length });
+  }
+  function inkUp() { if (!myInk) return; inkFlush(true); S.rInk.add(myInk.id, [], null, null, true); myInk = null; }
+  // laser (and, while in control, the ghost cursor that shows them what you are about to click)
+  var lz = { at: 0, on: false };
+  el.rscreen.addEventListener('pointermove', function (ev) {
+    var ctl = S.rc === 'on' && S.tool === 'point' && !S.rcHeld;
+    if (S.tool !== 'laser' && !ctl) return;
+    if (Date.now() - lz.at < 50) return; var p = videoPoint(el.rscreen, ev); if (!p) return;
+    lz.at = Date.now(); lz.on = true; send({ t: 'laser', x: +p.x.toFixed(4), y: +p.y.toFixed(4), ctl: ctl });
+  });
+  el.rscreen.addEventListener('pointerleave', function () { if (lz.on) { lz.on = false; send({ t: 'laser', off: true }); } });
   gesture(el.rcam, $('.cw-peer .cw-snipbox', R), function () {}, 'cam');
 
   // What captures and recordings use: their screen, else their camera, else my own share.
@@ -859,7 +988,7 @@
 
   // ───────── remote control of a shared TapTap tab ─────────
   // As the sharer: the other person's clicks/keys arrive here and go to the shared tab (chat.js), matched by its capture handle.
-  function rcMode(on) { if (S.share) bcast({ t: 'rc-mode', on: !!on, handle: S.share.handle, who: first(S.peer.name) }); }
+  function rcMode(on) { if (S.share) bcast({ t: 'rc-mode', on: !!on, hold: !!(on && S.ctl.hold), handle: S.share.handle, who: first(S.peer.name) }); }
   // "Allow" when nothing (or not a TapTap tab) is shared yet: open the tab picker; control starts once it is shared.
   function ctlShareAndAllow() {
     banner('rcask', '');
@@ -878,19 +1007,19 @@
   function noShareWhy() {
     return first(D.me) + ' is on a phone or a browser that cannot share a tab. Remote control needs TapTap open in Chrome or Edge on a computer — ask them to use “Show with camera” instead.';
   }
-  function ctlAllow() {
+  function ctlAllow(mins) {
     banner('rcask', ''); bcast({ t: 'rc-asking', done: true });
     if (!canControl()) { send({ t: 'rc-no', why: 'Control works only while a TapTap tab is shared from Chrome or Edge.' }); return; }
-    S.ctl = { on: true, since: Date.now(), until: Date.now() + CTL_MS, n: 0, sec: 0 };
-    rcMode(true); send({ t: 'rc-ok', mins: Math.round(CTL_MS / 60000) }); sendState(); syncButtons();
-    banner('ctl', '🖱 <b>' + esc(first(S.peer.name)) + ' is controlling your TapTap tab.</b> Their clicks show as ripples. Press <b>Esc</b> in that tab or <button class="cw-link" data-a="ctlstop">take back control</button>.', 'ask');
+    mins = Math.max(1, Math.min(30, +mins || S.ctlMins || 15));
+    S.ctl = { on: true, since: Date.now(), until: Date.now() + mins * 60000, n: 0, sec: 0, log: [], pages: {}, blocked: 0, hold: false };
+    rcMode(true); send({ t: 'rc-ok', mins: mins }); sendState(); syncButtons(); ctlBanner();
   }
   function ctlStop(why) {
     if (!S.ctl.on) return;
     var secs = Math.round((Date.now() - S.ctl.since) / 1000);
-    S.ctl.on = false; rcMode(false); send({ t: 'rc-off', why: why }); banner('ctl', ''); sendState(); syncButtons();
-    if (S.cid) act('log', { event: 'control', secs: secs });
-    var msg = { you: 'You took back control.', time: 'Remote control ended after ' + Math.round(CTL_MS / 60000) + ' minutes.', released: first(S.peer.name) + ' gave control back.',
+    S.ctl.on = false; rcMode(false); send({ t: 'rc-off', why: why }); banner('ctl', ''); var lg = $('.cw-log', R); if (lg) lg.remove(); sendState(); syncButtons();
+    if (S.cid) act('log', { event: 'control', secs: secs, summary: ctlSummary() });
+    var msg = { you: 'You took back control.', time: 'Remote control time is up (' + Math.round(secs / 60) + ' min).', released: first(S.peer.name) + ' gave control back.',
                 pause: 'Remote control stopped while sharing is paused.', share: 'Remote control ended with the screen share.', left: 'Remote control stopped — the shared tab was closed.' }[why];
     if (msg && !S.ended) banner('ctlend', '🖱 ' + esc(msg), 'info', 4000);
   }
@@ -899,6 +1028,10 @@
     var sec = Math.floor(Date.now() / 1000); if (S.ctl.sec !== sec) { S.ctl.sec = sec; S.ctl.n = 0; }
     if (++S.ctl.n > 30) return;                                       // a flood of events is dropped, not queued
     var op = String(m.op || ''); if (['click', 'dbl', 'scroll', 'key', 'text'].indexOf(op) < 0) return;
+    if (S.ctl.hold) {                                                 // paused: a click becomes a pointer, the rest waits
+      if ((op === 'click' || op === 'dbl') && typeof m.x === 'number') { ripple(el.lptrs, el.lscreen, clamp01(m.x), clamp01(m.y), first(S.peer.name)); var tg = shareTarget(); tg.t = 'ptr'; tg.x = clamp01(m.x); tg.y = clamp01(m.y); bcast(tg); }
+      return send({ t: 'rc-res', ok: false, why: first(D.me) + ' paused control — your clicks show as pointers until they resume.' });
+    }
     var fs = frameSize(), out = { t: 'rc', handle: S.share.handle, op: op, who: first(S.peer.name), fw: fs[0], fh: fs[1] };
     if (typeof m.x === 'number' && typeof m.y === 'number') { out.x = Math.max(0, Math.min(1, m.x)); out.y = Math.max(0, Math.min(1, m.y)); }
     if (op === 'scroll') { out.dx = Math.max(-2000, Math.min(2000, +m.dx || 0)); out.dy = Math.max(-2000, Math.min(2000, +m.dy || 0)); }
@@ -911,16 +1044,13 @@
   function rcAsk() {
     if (S.rc === 'on') { send({ t: 'rc-release' }); S.rc = 'none'; banner('rc', ''); syncButtons(); return; }
     if (S.rc === 'asked' && Date.now() - S.rcAt < 30000) return banner('rc2', 'You already asked — give them a moment.', 'info', 3000);
-    var rs = S.remote.screen, ready = !!(rs && rs.rc && !rs.paused);
-    S.rc = 'asked'; S.rcAt = Date.now(); send({ t: 'rc-ask' }); syncButtons();
-    banner('rc2', '🖱 Asked ' + esc(first(S.peer.name)) + (ready ? ' for control of their TapTap tab.' : ' to let you take over their screen. They pick their TapTap tab, then you are in control.'), 'info', 5000);
-    rcWaitFor(ready ? 30000 : 60000);
+    rcCard();
   }
   function rcWaitFor(ms) {
     clearTimeout(S.timers.rcask);
     S.timers.rcask = setTimeout(function () { if (S.rc === 'asked') { S.rc = 'none'; syncButtons(); banner('rc2', '🖱 No answer from ' + esc(first(S.peer.name)) + ' — ask again any time.', 'info', 4000); } }, ms);
   }
-  function rcOff(text) { if (S.rc === 'none') return; S.rc = 'none'; banner('rc', ''); if (text) banner('rc2', '🖱 ' + esc(text), 'info', 4000); syncButtons(); }
+  function rcOff(text) { if (S.rc === 'none') return; S.rc = 'none'; S.rcHeld = false; banner('rc', ''); banner('rchold', ''); if (text) banner('rc2', '🖱 ' + esc(text), 'info', 4000); syncButtons(); }
   var wheel = { dx: 0, dy: 0, t: null, x: 0.5, y: 0.5 };
   el.rscreen.addEventListener('wheel', function (ev) {
     if (S.rc !== 'on') return; ev.preventDefault();
@@ -944,6 +1074,137 @@
     el.wm.style.backgroundImage = 'url(' + c.toDataURL() + ')';
   }
 
+
+  // ───────── as the sharer: make sure I really SEE where they point ─────────
+  // A ripple first goes to the shared TapTap tab; the tab answers whether it is on screen. If it is not (or a
+  // window / whole screen is shared, which no web page can draw on), it shows in the pointer lens — a small
+  // window that floats over every app — else in this call window, else as a notification. The viewer gets a
+  // receipt saying which.
+  var LENS = null;
+  var LENS_CSS = 'html,body{margin:0;height:100%;background:#0b1220;overflow:hidden;font:12px system-ui,sans-serif;color:#fff}' +
+    '.z{position:absolute;inset:0;transition:transform .35s ease}.z video{width:100%;height:100%;object-fit:contain;display:block}' +
+    '.p,canvas{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}.lab{position:absolute;left:6px;bottom:6px;background:rgba(0,0,0,.6);padding:3px 8px;border-radius:8px}' +
+    '.rp{position:absolute;width:0;height:0}.rp:before,.rp:after{content:"";position:absolute;left:-17px;top:-17px;width:34px;height:34px;border-radius:50%;border:3px solid #facc15;box-shadow:0 0 12px rgba(250,204,21,.7);animation:r 1.5s ease-out forwards}' +
+    '.rp:after{animation-delay:.25s}.rp b{position:absolute;left:14px;top:12px;background:#facc15;color:#1c1917;font:700 11px system-ui;padding:2px 7px;border-radius:7px;white-space:nowrap}' +
+    '@keyframes r{from{transform:scale(.3);opacity:1}to{transform:scale(2.6);opacity:0}}' +
+    '.lz{position:absolute;width:14px;height:14px;margin:-7px 0 0 -7px;border-radius:50%;background:#ef4444;box-shadow:0 0 12px 4px rgba(239,68,68,.75);display:none}';
+  function lensOpen() {
+    if (LENS) return lensClose();
+    if (!window.documentPictureInPicture) return banner('lens', '📍 The floating pointer window needs Chrome or Edge on a computer. Their pointer still shows in your preview here.', 'info', 5000);
+    if (!S.share || !el.lscreen.srcObject) return;
+    documentPictureInPicture.requestWindow({ width: 380, height: 240 }).then(function (w) {
+      var d = w.document; d.title = 'Where ' + first(S.peer.name) + ' points';
+      var st = d.createElement('style'); st.textContent = LENS_CSS; d.head.appendChild(st);
+      d.body.innerHTML = '<div class="z"><video autoplay muted playsinline></video></div><canvas></canvas><div class="p"><i class="lz"></i></div><div class="lab">📍 ' + esc(first(S.peer.name)) + '’s pointer — stays on top of your apps</div>';
+      var v = d.querySelector('video'); v.srcObject = el.lscreen.srcObject; var pl = v.play(); if (pl && pl.catch) pl.catch(function () {});
+      LENS = { win: w, v: v, z: d.querySelector('.z'), p: d.querySelector('.p'), lz: d.querySelector('.lz'), ink: inkLayer(d.querySelector('canvas'), v) };
+      w.addEventListener('pagehide', function () { LENS = null; syncButtons(); });
+      banner('lens', '📍 Their pointer now floats over all your apps. Close that little window to stop.', 'info', 4000); syncButtons();
+    }).catch(function () { banner('lens', '📍 Could not open the floating pointer window.', 'warn', 4000); });
+  }
+  function lensClose() { if (LENS) { try { LENS.win.close(); } catch (e) {} LENS = null; } syncButtons(); }
+  function lensPing(x, y) {
+    if (!LENS || !LENS.v.videoWidth) return false;
+    var f = fit(LENS.v); if (!f) return false;
+    var px = f.ox + x * f.w, py = f.oy + y * f.h, d = LENS.win.document.createElement('i');
+    LENS.z.style.transformOrigin = px + 'px ' + py + 'px'; LENS.z.style.transform = 'scale(2.2)';        // zoom on the spot: the point stays put
+    clearTimeout(LENS.zt); LENS.zt = setTimeout(function () { if (LENS) LENS.z.style.transform = ''; }, 1900);
+    d.className = 'rp'; d.style.left = px + 'px'; d.style.top = py + 'px'; d.innerHTML = '<b>' + esc(first(S.peer.name)) + '</b>';
+    LENS.p.appendChild(d); setTimeout(function () { d.remove(); }, 1700);
+    return true;
+  }
+  function lensLaser(x, y, off) {
+    if (!LENS) return; var f = fit(LENS.v); if (!f || off) { LENS.lz.style.display = 'none'; return; }
+    LENS.lz.style.display = 'block'; LENS.lz.style.left = (f.ox + x * f.w) + 'px'; LENS.lz.style.top = (f.oy + y * f.h) + 'px';
+    clearTimeout(LENS.lzt); LENS.lzt = setTimeout(function () { if (LENS) LENS.lz.style.display = 'none'; }, 1500);
+  }
+  function notifyPoint(x, y) {
+    if (!window.Notification || Notification.permission !== 'granted' || !el.lscreen.videoWidth) return false;
+    try {
+      var vw = el.lscreen.videoWidth, vh = el.lscreen.videoHeight, c = document.createElement('canvas'); c.width = 480; c.height = 270;
+      var sw = vw * 0.4, sh = vh * 0.4, sx = Math.max(0, Math.min(vw - sw, x * vw - sw / 2)), sy = Math.max(0, Math.min(vh - sh, y * vh - sh / 2)), g = c.getContext('2d');
+      g.drawImage(el.lscreen, sx, sy, sw, sh, 0, 0, 480, 270);
+      g.strokeStyle = '#facc15'; g.lineWidth = 6; g.beginPath(); g.arc((x * vw - sx) / sw * 480, (y * vh - sy) / sh * 270, 24, 0, 7); g.stroke();
+      new Notification(first(S.peer.name) + ' is pointing at your screen', { body: 'Here — open the call window to see.', image: c.toDataURL('image/jpeg', 0.8), tag: 'tt-ptr', renotify: true });
+      return true;
+    } catch (e) { return false; }
+  }
+  var laserDot = null;
+  function previewLaser(x, y, off) {
+    if (off) { if (laserDot) laserDot.style.display = 'none'; return; }
+    if (!laserDot) { laserDot = document.createElement('i'); laserDot.className = 'cw-laser'; el.lptrs.appendChild(laserDot); }
+    var f = fit(el.lscreen); if (!f) return;
+    laserDot.style.display = 'block'; laserDot.style.left = (f.ox + x * f.w) + 'px'; laserDot.style.top = (f.oy + y * f.h) + 'px';
+    clearTimeout(S.timers.laser); S.timers.laser = setTimeout(function () { if (laserDot) laserDot.style.display = 'none'; }, 1500);
+  }
+  function ackWait(id, x, y) {
+    if (!id) return;
+    S.acks[id] = { x: x, y: y };
+    if (S.share && S.share.surface === 'browser') S.acks[id].t = setTimeout(function () { ackFallback(id); }, 450);
+    else ackFallback(id);
+  }
+  function ackFallback(id) {
+    var a = S.acks[id]; if (!a) return; delete S.acks[id]; clearTimeout(a.t);
+    var where = lensPing(a.x, a.y) ? 'lens' : !document.hidden ? 'window' : notifyPoint(a.x, a.y) ? 'notice' : 'missed';
+    if (where !== 'missed' && where !== 'notice') tone([1046], 0.07, 0, 0.03);
+    send({ t: 'ptr-ack', id: id, where: where });
+  }
+  function shareTarget() { var fs = frameSize(); return { handle: S.share.handle, surface: S.share.surface, who: first(S.peer.name), fw: fs[0], fh: fs[1] }; }
+
+  // ───────── control: what they did, pause, more time ─────────
+  function ctlBanner() {
+    if (!S.ctl.on) return banner('ctl', '');
+    var n = S.ctl.log.filter(function (e) { return e.op !== 'page' && !e.wait; }).length, who = esc(first(S.peer.name));
+    banner('ctl', '🖱 <b>' + who + (S.ctl.hold ? '’s control is paused.' : ' is controlling your TapTap tab.') + '</b> ' +
+      (S.ctl.hold ? 'Their clicks show only as pointers. ' : 'Buttons that delete, reset or pay wait for your OK. ') +
+      '<span class="cw-ctlacts">' + n + ' action' + (n === 1 ? '' : 's') + (S.ctl.log.length ? ' · <button class="cw-link" data-a="ctllog">see</button>' : '') + '</span> · ' +
+      '<button class="cw-link" data-a="ctlhold">' + (S.ctl.hold ? 'Resume' : 'Pause') + '</button> · <button class="cw-link" data-a="ctlplus">+5 min</button> · ' +
+      '<button class="cw-link" data-a="ctlstop">Take back (Esc)</button>', 'ask');
+  }
+  function ctlLog() {
+    var old = $('.cw-log', R); if (old) { old.remove(); return; }
+    var box = document.createElement('div'); box.className = 'cw-log';
+    box.innerHTML = '<b>What ' + esc(first(S.peer.name)) + ' did</b><button class="cw-x" data-a="ctllog">✕</button><ol>' + S.ctl.log.slice(-40).reverse().map(function (e) {
+      return '<li class="' + (e.ok === false ? 'no' : e.wait ? 'wait' : '') + '"><time>' + new Date(e.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + '</time>' +
+        (e.op === 'page' ? '📄 Opened ' : e.ok === false ? '🚫 ' : e.wait ? '⏳ ' : '✓ ') + esc(e.label) + '</li>';
+    }).join('') + '</ol>';
+    R.appendChild(box);
+  }
+  function ctlSummary() {
+    var acts = S.ctl.log.filter(function (e) { return e.op !== 'page' && !e.wait; });     // a "waiting for OK" step is not an action
+    return { actions: acts.length, blocked: S.ctl.blocked || 0, pages: Object.keys(S.ctl.pages || {}).slice(0, 8),
+             last: acts.slice(-8).map(function (e) { return (e.ok === false ? '🚫 ' : '') + String(e.label || '').slice(0, 60); }) };
+  }
+
+  // ───────── as the viewer: ask how to help ─────────
+  function rcCard() {
+    var old = $('.cw-req', R); if (old) { old.remove(); return; }
+    var c = document.createElement('div'); c.className = 'cw-req'; c.setAttribute('role', 'dialog');
+    c.innerHTML = '<b>Help ' + esc(first(S.peer.name)) + ' on their screen</b>' +
+      '<label class="cw-opt"><input type="radio" name="rcm" value="full" checked><span><b>🖱 Take control</b><small>Click, scroll and type in their TapTap tab. They approve first, risky buttons wait for their OK, and Esc gives it back.</small></span></label>' +
+      '<label class="cw-opt"><input type="radio" name="rcm" value="guide"><span><b>👆 Just guide</b><small>Point, laser and draw on their screen. Nothing is clicked for them.</small></span></label>' +
+      '<div class="cw-reqrow">For <select class="cw-reqmins"><option value="5">5 minutes</option><option value="15" selected>15 minutes</option><option value="30">30 minutes</option></select></div>' +
+      '<input class="cw-reqwhy" maxlength="80" placeholder="Why? They will see this — e.g. Fix your voucher plan">' +
+      '<div class="cw-chips">' + ['Fix a setting', 'Show you where it is', 'Check a voucher', 'Set up the router'].map(function (t) { return '<button class="cw-chipbtn" data-a="rcwhy">' + t + '</button>'; }).join('') + '</div>' +
+      '<div class="cw-row"><button class="cw-pill" data-a="rcsend">Ask</button><button class="cw-pill ghost" data-a="rccancel">Cancel</button></div>';
+    R.appendChild(c); var i = c.querySelector('.cw-reqwhy'); try { i.focus(); } catch (e) {}
+  }
+  function rcSend() {
+    var c = $('.cw-req', R); if (!c) return;
+    var mode = (c.querySelector('input[name=rcm]:checked') || {}).value || 'full', mins = +c.querySelector('.cw-reqmins').value || 15, why = c.querySelector('.cw-reqwhy').value.trim().slice(0, 80);
+    c.remove();
+    if (mode === 'guide') {
+      setTool('laser'); send({ t: 'guide', why: why });
+      banner('rc2', '👆 Guide mode — use 🔴 Laser or ✏️ Draw over their screen' + (S.remote.screen ? '.' : ' once they share it. Asked them to share.'), 'info', 6000);
+      if (!S.remote.screen && Date.now() - S.lastAsk > 20000) { S.lastAsk = Date.now(); send({ t: 'ask' }); }
+      return;
+    }
+    var rs = S.remote.screen, ready = !!(rs && rs.rc && !rs.paused);
+    S.rc = 'asked'; S.rcAt = Date.now(); send({ t: 'rc-ask', mins: mins, why: why }); syncButtons();
+    banner('rc2', '🖱 Asked ' + esc(first(S.peer.name)) + (ready ? ' for control of their TapTap tab.' : ' to let you take over their screen. They pick their TapTap tab, then you are in control.'), 'info', 5000);
+    rcWaitFor(ready ? 45000 : 75000);
+  }
+
   // ───────── data channel messages ─────────
   function onCtl(m) {
     if (m.t === 'hello') { if (m.name) { S.peer.name = S.peer.name || m.name; S.peer.initials = m.initials || S.peer.initials; paintPeer(); } }
@@ -964,18 +1225,20 @@
     else if (m.t === 'rc' && S.share) ctlRun(m);
     else if (m.t === 'rc-ask') {
       if (S.ctl.on || S.pendingCtl) return;
-      var who = esc(first(S.peer.name)), mins = Math.round(CTL_MS / 60000);
-      var limits = ' They can click, scroll and type there — never in passwords, the chat, or other websites. You take back control any time with <b>Esc</b>.';
+      var who = esc(first(S.peer.name)), mins = Math.max(1, Math.min(30, Math.round(+m.mins || 15))), why = String(m.why || '').slice(0, 80);
+      S.ctlMins = mins;
+      var limits = (why ? ' <q class="cw-why">' + esc(why) + '</q>' : '') + ' They can click, scroll and type there — never in passwords, the chat, or other websites; buttons that delete, reset or pay wait for your OK. <b>Esc</b> takes it back.';
+      var opts = (mins > 5 ? ' · <button class="cw-link" data-a="%A" data-mins="5">Only 5 min</button>' : '') + ' · <button class="cw-link" data-a="ctlguide">Let them point instead</button> · <button class="cw-link" data-a="ctlno">No</button>';
       if (canControl()) {
         banner('rcask', '🖱 <b>' + who + ' asks to control your TapTap tab</b> to help you.' + limits + ' ' +
-          '<button class="cw-link" data-a="ctlallow">Allow for ' + mins + ' min</button> · <button class="cw-link" data-a="ctlno">No</button>', 'ask');
+          '<button class="cw-link" data-a="ctlallow" data-mins="' + mins + '">Allow for ' + mins + ' min</button>' + opts.replace('%A', 'ctlallow'), 'ask');
       } else if (!CAN_DISPLAY) {
         send({ t: 'rc-no', why: noShareWhy() });
         banner('rcask', '🖱 ' + who + ' wanted to take over your screen, but this device cannot share a TapTap tab. Use <b>Share → Show with camera</b> so they can see it.', 'info', 8000);
         return;
       } else {
         banner('rcask', '🖱 <b>' + who + ' wants to take over your screen to help you.</b> Pick your <b>TapTap tab</b> in the next window.' + limits + ' ' +
-          '<button class="cw-link" data-a="ctlshare">' + (S.share ? 'Switch to my TapTap tab and allow' : 'Allow — choose my TapTap tab') + '</button> · <button class="cw-link" data-a="ctlno">No</button>', 'ask');
+          '<button class="cw-link" data-a="ctlshare" data-mins="' + mins + '">' + (S.share ? 'Switch to my TapTap tab and allow' : 'Allow — choose my TapTap tab') + ' · ' + mins + ' min</button>' + opts.replace('%A', 'ctlshare'), 'ask');
       }
       tone([880, 988], 0.15, 0.12, 0.05);
       try { window.focus(); } catch (e) {}
@@ -985,9 +1248,25 @@
     else if (m.t === 'rc-release') ctlStop('released');
     else if (m.t === 'rc-ok') {
       if (S.rc !== 'asked') return;                 // only an answer to a request we actually made
-      clearTimeout(S.timers.rcask); S.rc = 'on'; syncButtons(); tone([660, 880], 0.15, 0.1, 0.05);
-      banner('rc', '🖱 <b>You control ' + esc(first(S.peer.name)) + '’s TapTap tab.</b> Click, scroll and type on their screen — every click shows as a ripple. Drag still captures an area. <button class="cw-link" data-a="rc">Give back</button>', 'ask');
+      clearTimeout(S.timers.rcask); S.rc = 'on'; S.rcHeld = false; S.rcUntil = Date.now() + Math.max(1, Math.min(30, +m.mins || 15)) * 60000; setTool('point'); syncButtons(); tone([660, 880], 0.15, 0.1, 0.05);
+      banner('rc', '🖱 <b>You control ' + esc(first(S.peer.name)) + '’s TapTap tab</b> · <span class="cw-rcleft"></span> left. Click, scroll and type on their screen; they see your cursor and what you point at. Buttons that delete or reset wait for their OK. <button class="cw-link" data-a="rc">Give back</button>', 'ask');
     }
+    else if (m.t === 'rc-hold') { S.rcHeld = !!m.on; banner('rchold', m.on ? '⏸ ' + esc(first(S.peer.name)) + ' paused your control — clicks show as pointers for now.' : '▶ ' + esc(first(S.peer.name)) + ' resumed your control.', 'info', m.on ? 0 : 3000); }
+    else if (m.t === 'rc-ext') { S.rcUntil = Date.now() + Math.max(1, Math.min(60, +m.mins || 5)) * 60000; banner('rcext', '⏱ ' + esc(first(S.peer.name)) + ' gave you more time.', 'info', 3000); }
+    else if (m.t === 'guide') { banner('guide', '👆 <b>' + esc(first(S.peer.name)) + ' will guide you</b>' + (m.why ? ' — <q class="cw-why">' + esc(String(m.why).slice(0, 80)) + '</q>' : '') + '. They can point, laser and draw on your shared screen; nothing is clicked for you.' + (S.share ? '' : ' Share your screen so they can see it.'), 'info', 8000); }
+    else if (m.t === 'ptr-ack') { var pk = S.pings[m.id]; if (pk && ACK[m.where]) { delete S.pings[m.id]; chipAt(el.rptrs, el.rscreen, pk.x, pk.y, ACK[m.where][0], ACK[m.where][1]); } }
+    else if (m.t === 'laser' && S.share) {
+      var lx = clamp01(m.x), ly = clamp01(m.y); previewLaser(lx, ly, !!m.off); lensLaser(lx, ly, !!m.off);
+      var tl = shareTarget(); tl.t = 'laser'; tl.x = lx; tl.y = ly; tl.off = !!m.off; tl.ctl = !!(m.ctl && S.ctl.on && !S.ctl.hold); bcast(tl);
+    }
+    else if (m.t === 'ink' && S.share) {
+      var iid = String(m.id || '').slice(0, 12), col = /^#[0-9a-f]{6}$/i.test(m.c || '') ? m.c : '#facc15', wd = Math.max(1, Math.min(12, +m.w || 4));
+      var pts = (Array.isArray(m.pts) ? m.pts : []).slice(0, 300).filter(function (q) { return Array.isArray(q) && q.length === 2; }).map(function (q) { return [clamp01(q[0]), clamp01(q[1])]; });
+      if (!iid) return;
+      S.lInk.add(iid, pts, col, wd, !!m.end, 8000); if (LENS) LENS.ink.add(iid, pts, col, wd, !!m.end, 8000);
+      var ti = shareTarget(); ti.t = 'ink'; ti.id = iid; ti.pts = pts; ti.c = col; ti.w = wd; ti.end = !!m.end; bcast(ti);
+    }
+    else if (m.t === 'ink-clear') { S.lInk.clear(); if (LENS) LENS.ink.clear(); if (S.share) { var tc = shareTarget(); tc.t = 'ink-clear'; bcast(tc); } }
     else if (m.t === 'rc-no') { clearTimeout(S.timers.rcask); S.rc = 'none'; syncButtons(); banner('rc2', '🖱 ' + esc(m.why || (first(S.peer.name) + ' would rather keep control.')), 'info', 4500); }
     else if (m.t === 'rc-off') rcOff({ you: first(S.peer.name) + ' took back control.', time: 'Control time is up.', pause: 'They paused sharing.', share: 'They stopped sharing.', left: 'The shared tab was closed.', gone: 'Control has ended.' }[m.why] || '');
     else if (m.t === 'rc-res') { if (m.why) banner('rcres', (m.ok ? 'ℹ️ ' : '🚫 ') + esc(m.why), m.ok ? 'info' : 'warn', 3000); }
@@ -1004,9 +1283,10 @@
     }
     else if (m.t === 'recstop') { if (S.rec) { recStop(); banner('rec2', esc(first(S.peer.name)) + ' asked you to stop recording — the clip so far is saved.', 'info', 4500); } }
     else if (m.t === 'ptr' && S.share) {
-      ripple(el.lptrs, el.lscreen, m.x, m.y, first(S.peer.name));
+      m.x = clamp01(m.x); m.y = clamp01(m.y); m.id = String(m.id || '').slice(0, 12);
+      ripple(el.lptrs, el.lscreen, m.x, m.y, first(S.peer.name)); ackWait(m.id, m.x, m.y);
       var fp = frameSize();
-      bcast({ t: 'ptr', x: m.x, y: m.y, handle: S.share.handle, surface: S.share.surface, who: first(S.peer.name), fw: fp[0], fh: fp[1] });
+      bcast({ t: 'ptr', x: m.x, y: m.y, id: m.id, handle: S.share.handle, surface: S.share.surface, who: first(S.peer.name), fw: fp[0], fh: fp[1] });
     }
     else if (m.t === 'ask') {
       if (S.share) return;
@@ -1042,8 +1322,19 @@
     else if (a === 'rec') recToggle();
     else if (a === 'recno') { send({ t: 'recstop' }); banner('recd', '🔴 Asked ' + esc(first(S.peer.name)) + ' to stop recording.', 'danger', 3000); }
     else if (a === 'rc') rcAsk();
-    else if (a === 'ctlallow') ctlAllow();
-    else if (a === 'ctlshare') ctlShareAndAllow();
+    else if (a === 'rcsend') rcSend();
+    else if (a === 'rccancel') { var rq = $('.cw-req', R); if (rq) rq.remove(); }
+    else if (a === 'rcwhy') { var wi = $('.cw-reqwhy', R); if (wi) { wi.value = b.textContent; wi.focus(); } }
+    else if (a === 'ctlallow') ctlAllow(+b.dataset.mins);
+    else if (a === 'ctlshare') { S.ctlMins = +b.dataset.mins || S.ctlMins; ctlShareAndAllow(); }
+    else if (a === 'ctlguide') { banner('rcask', ''); bcast({ t: 'rc-asking', done: true }); send({ t: 'rc-no', why: first(D.me) + ' would rather you guide them — use 🔴 Laser or ✏️ Draw on their screen.' }); }
+    else if (a === 'ctlhold') { if (S.ctl.on) { S.ctl.hold = !S.ctl.hold; rcMode(true); send({ t: 'rc-hold', on: S.ctl.hold }); ctlBanner(); } }
+    else if (a === 'ctlplus') { if (S.ctl.on) { S.ctl.until = Math.min(S.ctl.since + 60 * 60000, S.ctl.until + 5 * 60000); send({ t: 'rc-ext', mins: Math.round((S.ctl.until - Date.now()) / 60000) }); syncButtons(); banner('ctlplus', '⏱ ' + clock(S.ctl.until - Date.now()) + ' of control left.', 'info', 2500); } }
+    else if (a === 'ctllog') ctlLog();
+    else if (a === 'tool') setTool(b.dataset.t);
+    else if (a === 'inkclear') { S.rInk.clear(); send({ t: 'ink-clear' }); }
+    else if (a === 'lens') lensOpen();
+    else if (a === 'fx') openStudio();
     else if (a === 'ctlno') { banner('rcask', ''); send({ t: 'rc-no' }); bcast({ t: 'rc-asking', done: true }); }
     else if (a === 'ctlstop') ctlStop('you');
     else if (a === 'askno') { banner('ask', ''); send({ t: 'askno' }); }
@@ -1081,6 +1372,7 @@
     if (e.key === 'm' || e.key === 'M') toggleMic();
     if (e.key === 'v' || e.key === 'V') toggleCam();
     if (e.key === 'f' || e.key === 'F') flipCam();
+    if (e.key === 'e' || e.key === 'E') openStudio();
   });
 
   // ───────── ending ─────────
@@ -1093,6 +1385,7 @@
     ringback(false); stopShare();
     Object.keys(S.timers).forEach(function (k) { clearTimeout(S.timers[k]); clearInterval(S.timers[k]); });
     [S.mic, S.micProbe, S.cam].forEach(function (t) { try { t && t.stop(); } catch (e) {} });
+    if (FX) FX.detach(); if (studioUI) studioUI.close(); lensClose();
     try { S.pc && S.pc.close(); } catch (e) {}
     bcast({ t: 'call', state: 'ended' }); bcast({ t: 'shield', on: false });
     tone([660, 440], 0.2, 0.15, 0.05);
@@ -1142,6 +1435,17 @@
     // from the shared tab: its owner pressed Esc / "Take back control", or a command result to pass on
     if (m.t === 'rc-stop' && S.share && m.handle === S.share.handle) ctlStop('you');
     if (m.t === 'rc-res' && S.share && m.handle === S.share.handle && S.ctl.on) send({ t: 'rc-res', ok: !!m.ok, why: String(m.why || '').slice(0, 120) });
+    // receipt from the shared tab (browsers without capture handles: from the visible TapTap tab that showed it)
+    if (m.t === 'ptr-seen' && S.share && S.acks[m.id] && (S.share.handle ? m.handle === S.share.handle : S.share.surface === 'browser')) {
+      if (m.visible) { clearTimeout(S.acks[m.id].t); delete S.acks[m.id]; send({ t: 'ptr-ack', id: m.id, where: 'tab' }); } else ackFallback(m.id);
+    }
+    if ((m.t === 'rc-act' || m.t === 'rc-page') && S.share && m.handle === S.share.handle && S.ctl.on) {
+      var en = { at: Date.now(), op: m.t === 'rc-page' ? 'page' : String(m.op || ''), label: String(m.label || m.path || '').slice(0, 80), ok: m.ok !== false, wait: !!m.wait };
+      if (m.t === 'rc-page') S.ctl.pages[en.label] = 1;
+      if (m.ok === false) S.ctl.blocked = (S.ctl.blocked || 0) + 1;
+      S.ctl.log.push(en); if (S.ctl.log.length > 120) S.ctl.log.shift();
+      ctlBanner(); var lg = $('.cw-log', R); if (lg) { lg.remove(); ctlLog(); }
+    }
   };
   syncButtons(); listCams();
   if (S.role === 'callee') startCallee(); else startCaller();

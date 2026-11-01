@@ -286,8 +286,34 @@ def finish(call, reason='ended'):
         pass
 
 
-def log_control(call, user, secs):
-    """The sharer's call window reports that a remote-control session ended: leave an audit note in the chat."""
+def control_summary(summary):
+    """The sharer's window sends what happened during control (counts, pages, last actions). Clean it before it
+    goes into the chat: only numbers, short labels and page paths — never anything typed."""
+    if not isinstance(summary, dict):
+        return ''
+    def num(v):
+        try:
+            return max(0, min(int(v or 0), 9999))
+        except (TypeError, ValueError):
+            return 0
+    def text(v, n=60):
+        return ' '.join(str(v or '').split())[:n]
+    acts, blocked = num(summary.get('actions')), num(summary.get('blocked'))
+    pages = [text(p, 60) for p in (summary.get('pages') or [])[:6] if isinstance(p, str) and p.startswith('/')]
+    last = [text(x) for x in (summary.get('last') or [])[:6] if isinstance(x, str) and text(x)]
+    parts = []
+    if acts or blocked:
+        parts.append(f'{acts} action{"" if acts == 1 else "s"}' + (f', {blocked} blocked' if blocked else ''))
+    if pages:
+        parts.append('pages: ' + ', '.join(pages))
+    if last:
+        parts.append('last: ' + ' · '.join(last))
+    return '\n'.join(parts)
+
+
+def log_control(call, user, secs, summary=None):
+    """The sharer's call window reports that a remote-control session ended: leave an audit note in the chat
+    (how long, how many actions, which pages, the last few things clicked)."""
     other = other_uid(call, user.pk)
     if not other:
         return
@@ -302,7 +328,8 @@ def log_control(call, user, secs):
         thread = ChatThread.objects.select_related('business').get(pk=call['thread'])
         who = chat.display_name(u).split(' ')[0] if u else 'Someone'
         me = chat.display_name(user).split(' ')[0]
-        chat.post(thread, user, f'🖱 {who} had remote control of {me}’s TapTap tab · {secs // 60}:{secs % 60:02d}', system=True)
+        detail = control_summary(summary)
+        chat.post(thread, user, f'🖱 {who} had remote control of {me}’s TapTap tab · {secs // 60}:{secs % 60:02d}' + (f'\n{detail}' if detail else ''), system=True)
     except Exception:
         pass
 

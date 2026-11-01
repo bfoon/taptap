@@ -148,3 +148,61 @@ svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-l
 .cw-rcbar.wait svg{background:#4c1d95;animation:ttrec 1.2s ease-in-out infinite}.cw-rcbar.on svg{background:#16a34a}
 /* masked TapTap-tab share: the preview shows exactly what the viewer receives */
 .cw-myshare.masked::before{content:"👁 Their view";position:absolute;right:6px;bottom:6px;z-index:3;font:700 10.5px/1 system-ui,sans-serif;color:#ede9fe;background:rgba(91,33,182,.85);padding:3px 7px;border-radius:7px;pointer-events:none}
+
+/* ── pointer tools on their screen: point · laser · draw, receipts ── */
+.cw-ink{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1}
+.cw-modes{display:inline-flex;gap:4px;padding:3px;border-radius:12px;background:rgba(0,0,0,.35)}
+.cw-modes .cw-ib{font-size:15px;min-width:32px;height:32px}
+.cw-modes .cw-ib.on{background:var(--acc);box-shadow:0 0 0 2px rgba(255,255,255,.25)}
+.cw.tool-laser .cw-rscreen{cursor:none}.cw.tool-draw .cw-rscreen{cursor:crosshair}
+.cw-ack{position:absolute;transform:translate(14px,-34px);white-space:nowrap;font:700 11.5px/1 system-ui,sans-serif;padding:5px 8px;border-radius:8px;pointer-events:none;
+  z-index:4;animation:cwack 2.4s ease forwards;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+.cw-ack.ok{background:#16a34a;color:#fff}.cw-ack.mid{background:#f59e0b;color:#1c1917}.cw-ack.bad{background:#ef4444;color:#fff}
+@keyframes cwack{0%{opacity:0;transform:translate(14px,-26px)}12%{opacity:1;transform:translate(14px,-34px)}80%{opacity:1}100%{opacity:0}}
+.cw-laser{position:absolute;width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%;background:#ef4444;box-shadow:0 0 10px 3px rgba(239,68,68,.7);display:none;z-index:4;pointer-events:none}
+.cw-lensbtn{position:absolute;right:6px;top:6px;z-index:3;width:30px;height:30px;font-size:15px}.cw-lensbtn.on{background:var(--acc)}
+/* ── Effects (Studio) ── */
+.cw-fxbtn.on svg{color:#facc15;filter:drop-shadow(0 0 6px rgba(250,204,21,.6))}.cw-fxbtn.open{background:#1e2a42}
+.cw-self.fx video{transform:none}          /* with effects the preview is exactly what they see (text reads correctly) */
+.fx-sheet{position:absolute;inset:8px;z-index:30;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line);border-radius:18px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.fx-head{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--line)}.fx-head small{flex:1;color:var(--mut);font-size:11.5px}
+.fx-x{border:0;background:#1e2a42;border-radius:10px;width:30px;height:30px;cursor:pointer}
+.fx-stage{position:relative;flex:0 0 auto;aspect-ratio:16/9;max-height:42vh;background:#000;touch-action:none}
+.fx-prev{width:100%;height:100%;object-fit:contain;display:block}
+.fx-sheet.drawing .fx-stage{cursor:crosshair;outline:2px dashed rgba(250,204,21,.6);outline-offset:-4px}
+.fx-hint{position:absolute;left:8px;top:8px;font-size:11px;background:rgba(0,0,0,.55);padding:3px 8px;border-radius:8px;pointer-events:none}.fx-hint:empty{display:none}
+.fx-status{position:absolute;left:8px;bottom:8px;right:8px;font-size:11.5px;color:#fde68a;text-shadow:0 1px 2px #000;pointer-events:none}
+.fx-nocam{position:absolute;inset:0;display:grid;place-content:center;text-align:center;gap:8px;background:rgba(11,18,32,.85)}
+.fx-text{position:absolute;transform:translate(-50%,-50%);z-index:2;border:2px solid #facc15;border-radius:8px;background:rgba(0,0,0,.7);color:#fff;padding:6px 8px;font:700 14px system-ui;min-width:140px}
+.fx-tabs{display:flex;gap:4px;padding:8px 10px 0}.fx-tabs button{flex:1;border:0;border-radius:10px 10px 0 0;padding:8px 4px;background:transparent;color:var(--mut);font-weight:700;cursor:pointer}
+.fx-tabs button.on{background:#1a2640;color:var(--ink)}
+.fx-pane{flex:1;min-height:0;overflow:auto;padding:10px 12px;background:#1a2640;display:flex;flex-direction:column;gap:10px}
+.fx-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:6px}
+.fx-tile{border:1px solid var(--line);background:#121b2e;border-radius:12px;padding:8px 4px;cursor:pointer;display:grid;gap:3px;justify-items:center}
+.fx-tile b{font-size:22px;line-height:1}.fx-tile small{font-size:10.5px;color:var(--mut);text-align:center;line-height:1.15}
+.fx-tile.on{border-color:var(--acc);box-shadow:0 0 0 2px rgba(59,130,246,.45);background:#16233d}.fx-tile.on small{color:var(--ink)}
+.fx-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.fx-sw{width:28px;height:28px;border-radius:50%;border:2px solid rgba(255,255,255,.18);cursor:pointer;display:grid;place-items:center;font-size:14px}.fx-sw.on{border-color:#fff;box-shadow:0 0 0 2px var(--acc)}
+.fx-pick{background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red)}
+.fx-upload{align-self:flex-start;border:1px dashed var(--line);border-radius:10px;padding:8px 12px;cursor:pointer;font-weight:600;font-size:12.5px}
+.fx-tools button,.fx-stk{border:1px solid var(--line);background:#121b2e;border-radius:10px;min-width:38px;height:36px;font-size:17px;cursor:pointer}
+.fx-tools button.on,.fx-stk.on{border-color:#facc15;background:#2a2410}.fx-sep{width:1px;height:24px;background:var(--line)}
+.fx-chk{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}.fx-chk input{width:16px;height:16px;accent-color:var(--acc)}
+.fx-in{border:1px solid var(--line);background:#0b1220;color:var(--ink);border-radius:10px;padding:9px 10px;font:inherit}
+.fx-tip{margin:0;color:var(--mut);font-size:12px}
+.fx-foot{display:flex;align-items:center;gap:10px;padding:10px 12px;border-top:1px solid var(--line)}.fx-perf{flex:1;text-align:center;color:var(--mut);font-size:11.5px}
+.fx-pill{border:0;border-radius:20px;padding:8px 16px;background:var(--acc);font-weight:700;cursor:pointer}.fx-pill.ghost{background:#1e2a42}
+/* ── asking for control: the request card, the sharer's log ── */
+.cw-req,.cw-log{position:absolute;left:50%;bottom:86px;transform:translateX(-50%);width:min(94%,420px);z-index:25;background:var(--panel);border:1px solid var(--line);border-radius:16px;
+  padding:14px;box-shadow:0 18px 50px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:9px;animation:cwin .2s ease}
+.cw-opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:12px;padding:9px 10px;cursor:pointer}
+.cw-opt:has(input:checked){border-color:var(--acc);background:#16233d}.cw-opt input{margin-top:3px;accent-color:var(--acc)}
+.cw-opt span{display:grid;gap:2px}.cw-opt small{color:var(--mut);font-size:12px;line-height:1.35}
+.cw-reqrow{display:flex;align-items:center;gap:8px;font-size:13px}.cw-reqrow select,.cw-reqwhy{border:1px solid var(--line);background:#0b1220;color:var(--ink);border-radius:10px;padding:8px 10px;font:inherit}
+.cw-chips{display:flex;flex-wrap:wrap;gap:6px}.cw-chipbtn{border:1px solid var(--line);background:#121b2e;border-radius:14px;padding:5px 10px;font-size:12px;cursor:pointer}
+.cw-req .cw-row{margin-top:4px;justify-content:flex-end}
+.cw-why{font-style:italic;color:#fde68a}.cw-why::before{content:"“"}.cw-why::after{content:"”"}
+.cw-log{max-height:46vh}.cw-log ol{margin:0;padding:0;list-style:none;overflow:auto;display:grid;gap:4px;font-size:12.5px}
+.cw-log li{display:flex;gap:8px}.cw-log li.no{color:#fca5a5}.cw-log li.wait{color:#fde68a}.cw-log time{color:var(--mut);font-variant-numeric:tabular-nums}
+.cw-log .cw-x{position:absolute;right:10px;top:10px;border:0;background:#1e2a42;border-radius:8px;width:26px;height:26px;cursor:pointer}
+@media(prefers-reduced-motion:reduce){.cw-ack{animation:none}}

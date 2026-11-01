@@ -187,3 +187,24 @@ html.tt-controlled.tt-shared body::before{content:"● Sharing this tab · remot
 .tt-rcbar kbd{font:700 10.5px/1 system-ui,sans-serif;background:rgba(5,46,26,.18);border-radius:4px;padding:2px 5px;margin-left:4px}
 @media print{.tt-rcbar,.tt-hl{display:none}}
 @media(prefers-reduced-motion:reduce){.tt-hl{animation:none}}
+/* ── co-browsing marks on the shared tab: laser, the controller's cursor, drawings, guardian ── */
+.tt-laser{position:fixed;left:0;top:0;z-index:2147483647;pointer-events:none;transition:transform .06s linear,opacity .2s}
+.tt-laser.off{opacity:0}
+.tt-laser i{position:absolute;left:-8px;top:-8px;width:16px;height:16px;border-radius:50%;background:#ef4444;box-shadow:0 0 14px 5px rgba(239,68,68,.65)}
+.tt-laser span{position:absolute;left:14px;top:12px;background:#ef4444;color:#fff;font:700 11px/1 system-ui,sans-serif;padding:3px 7px;border-radius:8px;white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis}
+.tt-laser span:empty{display:none}
+.tt-laser.ctl i{left:-2px;top:-2px;width:0;height:0;border-radius:0;background:none;box-shadow:none;border-style:solid;border-width:0 0 22px 14px;border-color:transparent transparent transparent #22c55e;
+  filter:drop-shadow(0 0 2px #052e1a) drop-shadow(0 2px 4px rgba(0,0,0,.5));transform:rotate(-20deg);transform-origin:0 0}
+.tt-laser.ctl span{background:#16a34a}
+.tt-hov{position:fixed;z-index:2147483646;pointer-events:none;border:2px dashed #22c55e;border-radius:8px;box-shadow:0 0 0 3px rgba(34,197,94,.18);transition:all .08s linear}
+.tt-hov.risky{border-color:#ef4444;box-shadow:0 0 0 3px rgba(239,68,68,.22)}.tt-hov.off{opacity:0}
+.tt-ink{position:fixed;inset:0;width:100vw;height:100vh;z-index:2147483645;pointer-events:none}
+.tt-guard{position:fixed;z-index:2147483647;width:280px;background:#0b1220;color:#e8eef7;border:2px solid #ef4444;border-radius:14px;padding:12px;box-shadow:0 16px 40px rgba(0,0,0,.45);
+  font:13px/1.35 system-ui,sans-serif;display:grid;gap:8px;animation:ttguard .2s ease}
+.tt-guard q{font-weight:800;color:#fca5a5}.tt-guard q::before{content:"“"}.tt-guard q::after{content:"”"}
+.tt-guard div{display:flex;gap:8px}.tt-guard button{flex:1;border:0;border-radius:10px;padding:9px;font:800 13px system-ui,sans-serif;cursor:pointer}
+.tt-guard [data-g=ok]{background:#22c55e;color:#052e1a}.tt-guard [data-g=no]{background:#334155;color:#fff}.tt-guard small{color:#94a3b8;font-size:11px}
+@keyframes ttguard{from{transform:translateY(6px);opacity:0}to{transform:none;opacity:1}}
+.tt-rcbar.held{background:#78350f!important}
+@media print{.tt-laser,.tt-hov,.tt-ink,.tt-guard{display:none}}
+@media(prefers-reduced-motion:reduce){.tt-laser,.tt-hov{transition:none}.tt-guard{animation:none}}

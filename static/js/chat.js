@@ -573,9 +573,94 @@
   function pointAt(m, cls) {
     if (m.surface !== 'browser' && !cls) return;
     if (m.handle ? m.handle !== TAB : document.hidden) return;   // only the tab that is actually being shared
-    var p = toPage(m.x, m.y, m.fw, m.fh);
+    var p = toPage(m.x, m.y, m.fw, m.fh), anchor = anchorAt(p[0], p[1]);
     var d = document.createElement('div'); d.className = 'tt-ptr' + (cls ? ' ' + cls : ''); d.style.left = p[0] + 'px'; d.style.top = p[1] + 'px';
     d.innerHTML = '<span>' + esc(m.who || '') + '</span>'; document.body.appendChild(d); setTimeout(function () { d.remove(); }, 1700);
+    follow(d, anchor, 1700);
+    // receipt: was this ripple really on screen? (the call window falls back to its floating pointer window if not)
+    if (m.id && bc) bc.postMessage({ t: 'ptr-seen', handle: TAB, id: String(m.id).slice(0, 12), visible: document.visibilityState === 'visible' });
+  }
+  // A mark sticks to the element it points at: if the page scrolls or moves under it, the mark moves along.
+  function anchorAt(px, py) {
+    var e = document.elementFromPoint(px, py); if (!e || e === document.documentElement || e === document.body) return null;
+    var r = e.getBoundingClientRect(); return { el: e, fx: r.width ? (px - r.left) / r.width : 0, fy: r.height ? (py - r.top) / r.height : 0 };
+  }
+  function follow(node, a, ms) {
+    if (!a) return; var end = Date.now() + ms;
+    (function tick() {
+      if (!node.isConnected || Date.now() > end) return;
+      var r = a.el.getBoundingClientRect(); if (r.width || r.height) { node.style.left = (r.left + a.fx * r.width) + 'px'; node.style.top = (r.top + a.fy * r.height) + 'px'; }
+      requestAnimationFrame(tick);
+    })();
+  }
+  function sharedHere(m) { return m.surface === 'browser' && (m.handle ? m.handle === TAB : !document.hidden); }
+  // What is under a point, in words ("Save plan", "Voucher code field") — never the content of a private field.
+  function describe(e) {
+    if (!e) return '';
+    if (e.closest(SECRET)) return '🔒 a private field';
+    var t = e.closest('button,a[href],input,select,textarea,label,[role=button],[role=tab],[role=menuitem],summary,[onclick],[data-label]') || e;
+    var txt = t.getAttribute('aria-label') || t.getAttribute('data-label') || t.title || '';
+    if (!txt && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) {
+      var lab = (t.id && document.querySelector('label[for="' + (window.CSS && CSS.escape ? CSS.escape(t.id) : t.id) + '"]')) || t.closest('label');
+      txt = (lab && lab.textContent) || t.placeholder || t.name || '';
+      txt = txt ? txt.replace(/\s+/g, ' ').trim() + ' field' : 'a field';
+    }
+    if (!txt && t.tagName === 'INPUT' && /^(submit|button)$/i.test(t.type)) txt = t.value;
+    if (!txt) txt = (t.innerText || t.textContent || '').replace(/\s+/g, ' ').trim();
+    return txt.slice(0, 48);
+  }
+
+  // ───────── laser · the controller's cursor · drawings (from the other person, on this shared tab) ─────────
+  var LZ = { el: null, hov: null, t: null };
+  function hoverOff() { if (LZ.hov) LZ.hov.classList.add('off'); }
+  function laserAt(m) {
+    if (!sharedHere(m)) return;
+    if (!LZ.el) { LZ.el = document.createElement('div'); LZ.el.className = 'tt-laser off'; LZ.el.innerHTML = '<i></i><span></span>'; document.body.appendChild(LZ.el); }
+    clearTimeout(LZ.t);
+    if (m.off) { LZ.el.classList.add('off'); hoverOff(); return; }
+    var p = toPage(+m.x || 0, +m.y || 0, m.fw, m.fh), ctl = !!(m.ctl && RC.on && !RC.hold), label = esc(m.who || '');
+    LZ.el.classList.remove('off'); LZ.el.classList.toggle('ctl', ctl); LZ.el.style.transform = 'translate(' + Math.round(p[0]) + 'px,' + Math.round(p[1]) + 'px)';
+    if (ctl) {         // in control: show the owner what the next click would hit
+      var tgt = document.elementFromPoint(p[0], p[1]), act = tgt && !tgt.closest(PRIVATE) && tgt.closest('button,a[href],input,select,textarea,label,[role=button],summary,[onclick]');
+      if (act) {
+        var r = act.getBoundingClientRect();
+        if (!LZ.hov) { LZ.hov = document.createElement('div'); LZ.hov.className = 'tt-hov off'; document.body.appendChild(LZ.hov); }
+        LZ.hov.classList.remove('off'); LZ.hov.classList.toggle('risky', !!risky(act));
+        LZ.hov.style.left = (r.left - 3) + 'px'; LZ.hov.style.top = (r.top - 3) + 'px'; LZ.hov.style.width = (r.width + 6) + 'px'; LZ.hov.style.height = (r.height + 6) + 'px';
+        var what = describe(act); if (what) label += ' → ' + esc(what);
+      } else hoverOff();
+    } else hoverOff();
+    LZ.el.querySelector('span').innerHTML = label;
+    LZ.t = setTimeout(function () { if (LZ.el) LZ.el.classList.add('off'); hoverOff(); }, 1600);
+  }
+  // Drawings are kept in page coordinates: they stay on the content when the page scrolls, and fade after 8 s.
+  var INK = { cv: null, strokes: {}, order: [], raf: 0 };
+  function inkKick() { if (!INK.raf) INK.raf = requestAnimationFrame(inkDraw); }
+  function inkAt(m) {
+    if (!sharedHere(m)) return;
+    if (!INK.cv) { INK.cv = document.createElement('canvas'); INK.cv.className = 'tt-ink'; document.body.appendChild(INK.cv); addEventListener('resize', inkKick); addEventListener('scroll', inkKick, true); }
+    if (m.t === 'ink-clear') { INK.strokes = {}; INK.order = []; return inkKick(); }
+    var id = String(m.id || '').slice(0, 12); if (!id) return;
+    var st = INK.strokes[id];
+    if (!st) { st = INK.strokes[id] = { pts: [], c: /^#[0-9a-f]{6}$/i.test(m.c || '') ? m.c : '#facc15', w: Math.max(1, Math.min(12, +m.w || 4)), end: false, at: Date.now() }; INK.order.push(id); if (INK.order.length > 40) delete INK.strokes[INK.order.shift()]; }
+    (Array.isArray(m.pts) ? m.pts : []).slice(0, 300).forEach(function (q) { if (!Array.isArray(q)) return; var pp = toPage(+q[0] || 0, +q[1] || 0, m.fw, m.fh); st.pts.push([pp[0] + scrollX, pp[1] + scrollY]); });
+    if (m.end) { st.end = true; st.at = Date.now(); }
+    inkKick();
+  }
+  function inkDraw() {
+    INK.raf = 0; var cv = INK.cv; if (!cv) return;
+    var dpr = window.devicePixelRatio || 1, W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr); if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H;
+    var g = cv.getContext('2d'), now = Date.now(), live = false; g.clearRect(0, 0, W, H);
+    INK.order.forEach(function (id) {
+      var st = INK.strokes[id]; if (!st || !st.pts.length) return;
+      var age = st.end ? now - st.at : 0; if (age > 8000) { delete INK.strokes[id]; return; } live = true;
+      g.globalAlpha = age > 7200 ? (8000 - age) / 800 : 1; g.strokeStyle = g.fillStyle = st.c; g.lineWidth = st.w * dpr; g.lineCap = g.lineJoin = 'round';
+      g.shadowColor = 'rgba(0,0,0,.35)'; g.shadowBlur = 3 * dpr;
+      g.beginPath(); st.pts.forEach(function (q, i) { var x = (q[0] - scrollX) * dpr, y = (q[1] - scrollY) * dpr; i ? g.lineTo(x, y) : g.moveTo(x, y); });
+      if (st.pts.length === 1) { g.arc((st.pts[0][0] - scrollX) * dpr, (st.pts[0][1] - scrollY) * dpr, st.w * dpr / 2, 0, 7); g.fill(); } else g.stroke();
+    });
+    INK.order = INK.order.filter(function (id) { return INK.strokes[id]; });
+    if (live) inkKick();
   }
   // Outline of an area the other person captured from this tab.
   function highlight(m) {
@@ -642,17 +727,49 @@
   var RC = { on: false, who: '', bar: null, dirty: null, n: 0, sec: 0 };
   var SECRET = 'input[type=password],input[type=file],input[name*=pass i],input[name*=secret i],input[name*=token i],input[name*=apikey i],input[name*=api_key i],' +
     'input[autocomplete=one-time-code],input[autocomplete=current-password],input[autocomplete=new-password],[data-tt-secret],.tt-secret';
-  var PRIVATE = '#ttChat,.ttc-ring,.ttc-callpill,.ttc-callframe,.tt-rcbar,[data-no-remote]';
+  var PRIVATE = '#ttChat,.ttc-ring,.ttc-callpill,.ttc-callframe,.tt-rcbar,.tt-guard,[data-no-remote]';
+  // Guardian: a remote click on something that deletes, resets, pays or signs out waits for the owner's own tap.
+  // Mark a button data-tt-danger to always ask, or data-tt-safe to never ask.
+  var DANGER = /\b(delete|remove|reset|reboot|restart|revoke|void|wipe|erase|factory|disable|deactivate|suspend|archive|refund|pay|payout|withdraw|transfer|sign[\s-]?out|log[\s-]?out|unlink|kick|ban|block|cancel subscription)\b/i;
+  function risky(e) {
+    var t = e && (e.closest('button,a[href],input[type=submit],input[type=button],[role=button],summary') || e); if (!t) return '';
+    if (t.closest('[data-tt-safe]')) return '';
+    var txt = (t.getAttribute('aria-label') || t.title || (t.tagName === 'INPUT' ? t.value : '') || t.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (t.closest('[data-tt-danger]') || t.matches('.btn-danger,.btn-outline-danger,.danger,.is-danger')) return txt || 'this button';
+    return DANGER.test(txt) ? txt : '';
+  }
+  var GUARD = null;
+  function guard(target, label, run) {
+    if (GUARD) GUARD.cancel();
+    var r = target.getBoundingClientRect(), b = document.createElement('div'); b.className = 'tt-guard'; b.setAttribute('role', 'alertdialog');
+    b.innerHTML = '<b>🛡 ' + esc(RC.who || 'Support') + ' wants to click</b><q>' + esc(label) + '</q><div><button type="button" data-g="ok">Allow once</button><button type="button" data-g="no">Block</button></div><small>Only you can answer · blocks by itself in 20 s</small>';
+    b.style.left = Math.max(8, Math.min(innerWidth - 300, r.left)) + 'px'; b.style.top = (r.bottom + 128 > innerHeight ? Math.max(8, r.top - 124) : r.bottom + 8) + 'px';
+    document.body.appendChild(b);
+    var timer = setTimeout(function () { done(false, true); }, 20000);
+    function done(ok, timeout) {
+      if (!b.isConnected) return; b.remove(); clearTimeout(timer); if (GUARD && GUARD.el === b) GUARD = null;
+      if (ok && RC.on) { run(); rcSay(true, 'Allowed: “' + label + '”'); rcAct('click', label, true); }
+      else { rcSay(false, (timeout ? 'No answer — ' : 'Blocked by the owner — ') + '“' + label + '” was not clicked.'); rcAct('click', label, false); }
+    }
+    b.addEventListener('click', function (e) { if (!e.isTrusted) return; var g = e.target.closest('[data-g]'); if (g) done(g.dataset.g === 'ok'); });   // a remote click is never trusted
+    GUARD = { el: b, cancel: function () { done(false); } };
+    rcSay(true, 'Waiting for the owner to confirm “' + label + '”…'); rcAct('click', label + ' (waiting for OK)', true, true);
+  }
+  var lastTyped = { el: null, at: 0 };
+  function rcAct(op, label, ok, wait) { if (bc) bc.postMessage({ t: 'rc-act', handle: TAB, op: op, label: String(label || '').slice(0, 80), ok: ok !== false, wait: !!wait }); }
   function rcSay(ok, why) { if (bc) bc.postMessage({ t: 'rc-res', handle: TAB, ok: ok, why: why || '' }); }
-  function rcModeSet(on, who) {
-    RC.on = !!on; RC.who = who || RC.who; document.documentElement.classList.toggle('tt-controlled', RC.on);
+  function rcModeSet(on, who, hold) {
+    var was = RC.on; RC.on = !!on; RC.who = who || RC.who; RC.hold = !!(on && hold); document.documentElement.classList.toggle('tt-controlled', RC.on);
+    if (RC.on && !was && bc) bc.postMessage({ t: 'rc-page', handle: TAB, path: location.pathname });     // the log shows each page they open
+    if (!RC.on && GUARD) GUARD.cancel();
     if (RC.on && !RC.bar) {
       RC.bar = document.createElement('div'); RC.bar.className = 'tt-rcbar'; RC.bar.setAttribute('role', 'status');
       RC.bar.addEventListener('click', function (e) { if (e.isTrusted && e.target.closest('button')) rcRevoke(); });
       document.body.appendChild(RC.bar);
     }
     if (RC.bar) {
-      if (RC.on) RC.bar.innerHTML = '<span>🖱 <b>' + esc(RC.who || 'Support') + '</b> is controlling this tab</span><button type="button">Take back control <kbd>Esc</kbd></button>';
+      if (RC.on) RC.bar.innerHTML = '<span>' + (RC.hold ? '⏸ <b>' + esc(RC.who || 'Support') + '</b>’s control is paused' : '🖱 <b>' + esc(RC.who || 'Support') + '</b> is controlling this tab') + '</span><button type="button">Take back control <kbd>Esc</kbd></button>';
+      if (RC.on) RC.bar.classList.toggle('held', RC.hold);
       else { RC.bar.remove(); RC.bar = null; }
     }
     if (!RC.on) RC.dirty = null;
@@ -726,22 +843,29 @@
     var ev; if (/^pointer/.test(type) && window.PointerEvent) { o.pointerId = 1; o.pointerType = 'mouse'; o.isPrimary = true; ev = new PointerEvent(type, o); } else ev = new MouseEvent(type, o);
     return el.dispatchEvent(ev);
   }
+  function doClick(el, px, py, dbl) {
+    flushChange(el);
+    mouse(el, 'pointerdown', px, py); mouse(el, 'mousedown', px, py);
+    var focusTarget = el.closest('input,textarea,select,button,a[href],[tabindex],[contenteditable=true]');
+    if (focusTarget) { try { focusTarget.focus({ preventScroll: true }); } catch (e) {} }
+    else if (document.activeElement && document.activeElement !== document.body) { try { document.activeElement.blur(); } catch (e) {} }
+    mouse(el, 'pointerup', px, py); mouse(el, 'mouseup', px, py); mouse(el, 'click', px, py);
+    if (dbl) mouse(el, 'dblclick', px, py, { detail: 2 });
+    return focusTarget;
+  }
   function remoteDo(m) {
-    if (!RC.on || m.handle !== TAB) return;
+    if (!RC.on || RC.hold || m.handle !== TAB) return;
     var sec = Math.floor(Date.now() / 1000); if (RC.sec !== sec) { RC.sec = sec; RC.n = 0; } if (++RC.n > 30) return;
     var pp = toPage(m.x || 0, m.y || 0, m.fw, m.fh), px = pp[0], py = pp[1];
     if (m.op === 'click' || m.op === 'dbl') {
       var el = document.elementFromPoint(px, py), why = rcWhyNot(el);
       pointAt({ x: m.x, y: m.y, who: m.who, handle: TAB }, 'ctl');
-      if (why) return rcSay(false, why);
-      flushChange(el);
-      mouse(el, 'pointerdown', px, py); mouse(el, 'mousedown', px, py);
-      var focusTarget = el.closest('input,textarea,select,button,a[href],[tabindex],[contenteditable=true]');
-      if (focusTarget) { try { focusTarget.focus({ preventScroll: true }); } catch (e) {} }
-      else if (document.activeElement && document.activeElement !== document.body) { try { document.activeElement.blur(); } catch (e) {} }
-      mouse(el, 'pointerup', px, py); mouse(el, 'mouseup', px, py); mouse(el, 'click', px, py);
-      if (m.op === 'dbl') mouse(el, 'dblclick', px, py, { detail: 2 });
-      if (focusTarget && focusTarget.tagName === 'SELECT') rcSay(true, 'A list is selected — use ↑ ↓ on your keyboard to choose.');
+      if (why) { rcAct('click', (describe(el) || 'there') + ' — ' + why, false); return rcSay(false, why); }
+      var danger = risky(el);
+      if (danger) return guard(el, danger, function () { doClick(el, px, py, m.op === 'dbl'); });
+      var ft = doClick(el, px, py, m.op === 'dbl');
+      rcAct('click', describe(el) || el.tagName.toLowerCase(), true);
+      if (ft && ft.tagName === 'SELECT') rcSay(true, 'A list is selected — use ↑ ↓ on your keyboard to choose.');
       return;
     }
     if (m.op === 'scroll') {
@@ -752,21 +876,25 @@
     }
     var t = document.activeElement;
     if (t && t !== document.body && (t.closest(SECRET) || t.closest(PRIVATE))) return rcSay(false, 'Passwords and secret fields stay with the owner.');
-    if (m.op === 'text') { if (isText(t)) typeText(t, String(m.text || '')); else rcSay(false, 'Click a text box first.'); return; }
+    if (m.op === 'text') { if (isText(t)) { typeText(t, String(m.text || '')); typedLog(t); } else rcSay(false, 'Click a text box first.'); return; }
     if (m.op !== 'key') return;
     var key = String(m.key || ''), target = t || document.body;
     var kd = new KeyboardEvent('keydown', { key: key, bubbles: true, cancelable: true, composed: true, shiftKey: !!m.shift });
     var go = target.dispatchEvent(kd);
     if (go) {
-      if (key.length === 1) { if (isText(t)) typeText(t, key); }
+      if (key.length === 1) { if (isText(t)) { typeText(t, key); typedLog(t); } }
       else if (key === 'Backspace' || key === 'Delete') { if (isText(t)) deleteText(t, key === 'Delete'); }
       else if (key === 'Enter') {
         if (t && (t.tagName === 'TEXTAREA' || t.isContentEditable)) typeText(t, '\n');
         else if (t && t.tagName === 'INPUT' && t.form) {
-          var whyF = rcWhyNot(t.form); if (whyF) rcSay(false, whyF);
-          else { flushChange(null); if (t.form.requestSubmit) t.form.requestSubmit(); else t.form.submit(); }
+          var whyF = rcWhyNot(t.form), sub = t.form.querySelector('[type=submit],button:not([type=button]):not([type=reset])'), dF = sub && risky(sub);
+          var go2 = function () { flushChange(null); if (t.form.requestSubmit) t.form.requestSubmit(); else t.form.submit(); };
+          if (whyF) rcSay(false, whyF); else if (dF) guard(sub, dF, go2); else { go2(); rcAct('submit', 'Sent the form' + (sub ? ' (' + describe(sub) + ')' : ''), true); }
         }
-        else if (t && t.matches && t.matches('button,a[href],[role=button],summary')) { var w = rcWhyNot(t); if (w) rcSay(false, w); else t.click(); }
+        else if (t && t.matches && t.matches('button,a[href],[role=button],summary')) {
+          var w = rcWhyNot(t), dB = risky(t);
+          if (w) rcSay(false, w); else if (dB) guard(t, dB, function () { t.click(); }); else { t.click(); rcAct('click', describe(t), true); }
+        }
       }
       else if (key === 'Tab') {
         var list = focusables(), i = list.indexOf(t), nx = list[(i + (m.shift ? -1 : 1) + list.length) % list.length];
@@ -786,6 +914,7 @@
     }
     target.dispatchEvent(new KeyboardEvent('keyup', { key: key, bubbles: true, cancelable: true, composed: true, shiftKey: !!m.shift }));
   }
+  function typedLog(t) { var now = Date.now(); if (lastTyped.el !== t || now - lastTyped.at > 5000) rcAct('type', 'Typed in ' + (describe(t) || 'a text box'), true); lastTyped = { el: t, at: now }; }
   if (bc) {
     bc.onmessage = function (e) {
       var m = e.data || {};
@@ -793,7 +922,9 @@
       else if (m.t === 'shield') { shield(m.on, m.handle && m.handle === TAB, m.css); if (!m.on && RC.on) rcModeSet(false); }
       else if (m.t === 'ptr') pointAt(m);
       else if (m.t === 'hl') highlight(m);
-      else if (m.t === 'rc-mode') { if (m.handle && m.handle === TAB) rcModeSet(m.on, m.who); else if (RC.on && m.handle !== TAB) rcModeSet(false); }
+      else if (m.t === 'rc-mode') { if (m.handle && m.handle === TAB) rcModeSet(m.on, m.who, m.hold); else if (RC.on && m.handle !== TAB) rcModeSet(false); }
+      else if (m.t === 'laser') laserAt(m);
+      else if (m.t === 'ink' || m.t === 'ink-clear') inkAt(m);
       else if (m.t === 'rc') remoteDo(m);
       else if (m.t === 'rc-asking') {       // the other person wants to take over: point them to the call window
         var old = toasts.querySelector('[data-key="rc-asking"]'); if (old) old.remove();

@@ -320,6 +320,9 @@ def chat_call_page(request):
         'thread': int(request.GET.get('thread') or 0), 'video': request.GET.get('video') == '1',
         'join': (request.GET.get('join') or '')[:40], 'embedded': request.GET.get('embed') == '1',
         'me': chat.display_name(request.user), 'me_initials': chat.initials(request.user),
+        # Studio name tag: "TapTap Support" for agents, else the business name (editable in the call)
+        'me_title': 'TapTap Support' if chat.is_agent(request.user) else getattr(_biz(request), 'business_name', '') or '',
+        'brand': getattr(_biz(request), 'brand_color', '') or '',
         'image_days': chat_media.DAYS, 'video_secs': chat_media.VIDEO_SECONDS,
         'video_mb': chat_media.VIDEO_MAX_BYTES // (1024 * 1024)})
     r['Permissions-Policy'] = 'camera=(self), microphone=(self), display-capture=(self), autoplay=(self)'
@@ -376,7 +379,7 @@ def chat_call_act(request):
                 chat.post(ChatThread.objects.select_related('business').get(pk=call['thread']), user, text)
         elif act == 'log':
             if d.get('event') == 'control':
-                chat_call.log_control(call, user, d.get('secs'))
+                chat_call.log_control(call, user, d.get('secs'), d.get('summary'))
         elif act == 'end':
             chat_call.finish(call, 'cancelled' if user.pk == call['caller'] and chat_call.state(call)[0] == 'ringing' else d.get('reason') or 'ended')
         else:

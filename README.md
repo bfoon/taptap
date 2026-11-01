@@ -353,6 +353,48 @@ paths, and the voucher-entry settings on Security, had never been active. `core/
 the current views after every add-on is installed (decorated URLs such as `login_required(view)` are left alone).
 If you switched on **Security → Voucher entry protection** before, it now takes effect on the login pages.
 
+## Calls: point, draw, take control, and look your best
+
+**The other person sees exactly where you point.** When you click on someone's shared screen, the ripple shows
+on *their* screen, on their own TapTap tab, at the same spot, and sticks to the button you clicked even if the page
+scrolls. You get a receipt next to your click: "✓ On their screen", "✓ Shown over their apps", "👁 In their call
+window", "🔔 Sent as a notification" or "⚠ Not seen". When a window or the whole screen is shared (no web page can
+draw on other apps), the sharer taps **📍** for a small floating window that stays over every app and zooms in
+wherever you point.
+
+**Point, laser, draw.** Over a shared screen: 🎯 point (click), 🔴 laser (a live dot follows your mouse on their
+screen) and ✏️ draw (they see the drawing on their own screen; it stays on the content when they scroll and fades
+after 8 s; 🧽 clears it).
+
+**Asking for control.** "Control" asks *how* you want to help: **Take control** (click, scroll and type in their
+TapTap tab) or **Just guide** (point, laser and draw; nothing is clicked), for 5, 15 or 30 minutes, with a reason
+they will see ("Fix a setting"). They answer **Allow**, **Only 5 min**, **Let them point instead** or **No**.
+While you are in control:
+* they see your cursor and the name of the button under it ("Lamin → Save plan") before you click;
+* **guardian:** clicks on anything that deletes, resets, pays, transfers or signs out wait for the owner's own tap
+  (a remote or scripted click can never approve it). Mark a button `data-tt-danger` to always ask, `data-tt-safe`
+  to never ask;
+* passwords, secret fields, the chat and other websites stay out of reach, as before;
+* the owner has **Pause**, **+5 min**, **Take back (Esc)** and a live log of what was done (pages opened, buttons,
+  where something was typed — never what);
+* the note left in the chat says how long, how many actions, which pages and the last few clicks.
+
+**✨ Effects (Studio).** Runs on your own device; only the finished video is sent. Background: soft or strong blur,
+spotlight, painted scenes (studio, office, sunset, ocean, night sky, café lights, clean wall), a colour, or your own
+photo. While the background model loads, the whole picture stays softened, so a room you chose to hide is never
+shown by surprise. Face: shades, glasses, masquerade, hero mask, cat, crown, support headset, mustache, party hat,
+halo, an emoji head that opens its mouth when you do, and a privacy face that pixelates you while you talk.
+Touch-up and low-light boost. Draw on your own video with pen, highlighter, arrows, stickers and text —
+**Stick to my face** pins a drawing to your face so it moves with you. Name tag: "Lamin · TapTap Support"
+(agents) or your business name. Settings are remembered on that device. Keyboard: **E**.
+
+The models (MediaPipe Selfie Segmentation and Face Mesh, Apache-2.0) are served by TapTap from
+`static/vendor/mediapipe/` (WebAssembly SIMD builds: Chrome/Edge 91+, Firefox 89+, Safari 16.4+; older browsers
+fetch the plain build from jsDelivr). A slow device drops frames rather than sending an unprocessed one, and never
+stalls the call.
+
+Real-browser tests for all of this: `tools/call_tests/` (see its README).
+
 ## Fit looks after members
 
 Fit can look up members (`find_member`, `members_overview`, `member_plans`) and offer every member change as a
