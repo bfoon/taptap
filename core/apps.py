@@ -80,6 +80,7 @@ class CoreConfig(AppConfig):
         _install_optional("voucher_fastlane")   # voucher changes reach the router at once; newest Link command wins; real reset
         _install_optional("member_sync")        # members too: catches QuerySet.update() changes; exact member sender
         _install_optional("voucher_ready")      # login guarantee: voucher on the router before the login; refused logins heal; retries
+        _install_optional("probe_guard")        # phones' connection tests always need a login: the login page always opens
         _install_optional("fit_members")        # Fit can look after members and member plans (Take action)
         _install_optional("fit_monitors")   # last: wraps device_lock.claim() outside every other rule
         _install_optional("login_addresses")  # easy addresses customers type (taptap.wifi) → online sign-in

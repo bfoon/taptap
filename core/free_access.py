@@ -185,6 +185,16 @@ def link_command_body(params):
     return body
 
 def apply_router(router, user=None):
+    ok, msg = _apply_router(router, user)
+    try:      # free sites must never let phones' connection tests through (core/probe_guard.py)
+        from .probe_guard import apply as guard
+        guard(router, user)
+    except Exception:
+        pass
+    return ok, msg
+
+
+def _apply_router(router, user=None):
     try:
         from .linkops import uses_link
         if uses_link(router):
@@ -207,6 +217,15 @@ def _save_from_request(request):
     except (json.JSONDecodeError, FreeAccessError) as exc: messages.error(request, str(exc)); return redirect("/settings/#free-access")
     active = sum(1 for x in items if x["enabled"])
     messages.success(request, f"Saved {len(items)} free-access website{'s' if len(items)!=1 else ''} ({active} enabled).")
+    try:
+        from .probe_guard import covers_test
+        tests = [x['host'] for x in items if x.get('enabled') and covers_test(x['host'], x.get('include_subdomains', True))]
+        if tests:
+            messages.info(request, f"{', '.join(tests)} also holds the address phones use to test for internet. TapTap keeps that "
+                                   "test behind the login page, so customers without a voucher still get their login sheet; "
+                                   "the website itself stays free.")
+    except Exception:
+        pass
     www = [x["host"] for x in items if x["enabled"] and x["host"].startswith("www.")]
     if www: messages.info(request, "TapTap also allows the matching non-www address for: " + ", ".join(www[:4]) + ".")
     if request.POST.get("free_access_apply"):

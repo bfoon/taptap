@@ -1,28 +1,29 @@
-# TapTap update 10 — router connection checked every 10 seconds
+# TapTap update 11 — syncs get through; phones always find the login page
 
-Install updates 7, 8 and 9 first (this update is built on them). No database migration.
+Install updates 7–10 first (this update is built on them). No database migration.
 
     cd /opt/taptap
-    unzip -o ~/taptap-update-10.zip -d /tmp && cp -r /tmp/taptap/* /opt/taptap/
+    unzip -o ~/taptap-update-11.zip -d /tmp && cp -r /tmp/taptap/* /opt/taptap/
     docker compose build web worker vouchers live
     docker compose up -d --force-recreate web worker vouchers live
 
-(or in a git checkout with updates 7–9: `git apply taptap-update-10.patch`)
-
-Important: recreate the **live** service (as above). Its command changed: it now runs only live work, with 3
-processes, and the scheduler adds the 10-second router pulse and the 30-second housekeeping task.
+(or in a git checkout with updates 7–10: `git apply taptap-update-11.patch`)
 
 What changes
-* Every Direct API router's connection is checked every 10 s (a quick knock on its API port, all routers at once,
-  no login). An offline router that answers is re-checked immediately.
-* The header pill shows when your routers last answered, so it stays "Live · a few s ago" while they are reachable.
-* One slow router no longer delays the checks of the others; the live worker no longer runs voucher pushes.
-* A sync stuck "running" after a restart is cleared after 30 minutes.
+* TapTap Link syncs no longer starve behind voucher batches: check-ins take turns. Your failed syncs retry by
+  themselves and should now complete.
+* A voucher code the router refuses 3 times is no longer re-sent at every check-in (it is marked "Refused by the
+  router"); pressing Sync tries it again once.
+* A phone logged back in by its MAC cookie is no longer left in a sign-in window showing only the redirect page.
+* Phones' connection tests always need a login, so the login sheet opens even when free-access websites include
+  Google or Apple. Routers get these rules within minutes (housekeeping) and with every portal install.
+* The status page goes to the login page as soon as the time is up.
 
-Optional .env: ROUTER_PULSE_SECONDS=10, ROUTER_PULSE_TIMEOUT=4, LIVE_PARALLEL=8, LIVE_HOUSEKEEPING_SECONDS=30,
-LIVE_WORKER_CONCURRENCY=3.
+Router pages carry the new page code: routers with TapTap's portal installed get it within the hour by themselves
+(needs SITE_URL), or now with Portal Studio › Put on routers.
 
-Changed: README.md, config/settings.py, docker-compose.yml, core/live.py, core/tasks.py, core/views_live.py,
-static/js/live.js, templates/core/base.html. New: core/router_pulse.py, core/tests/test_router_pulse.py.
+Changed: README.md, core/agent.py, core/agent_inventory.py, core/apps.py, core/free_access.py, core/live.py,
+core/portal_deploy.py, core/views_studio.py, static/studio/portal-render.js.
+New: core/probe_guard.py, core/tests/test_sync_turns.py.
 
-Tests: python manage.py test core (285).
+Tests: python manage.py test core (301).

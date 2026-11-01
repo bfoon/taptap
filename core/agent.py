@@ -51,10 +51,50 @@ VOUCHER_KINDS = ('hotspot_users', 'hotspot_user_set', 'hotspot_user_remove', 'ho
                  'hotspot_kick', 'disconnect', 'hotspot_users_limit', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove')
 
 
-def delivery_order():
+def delivery_order(others_first=False):
+    """Vouchers first, sync tables last — except on the other side's turn (``others_first``): then everything but
+    vouchers goes oldest first, so a sync queued earlier is never overtaken by a stream of newer commands."""
     from django.db.models import Case, IntegerField, Value, When
+    if others_first:
+        return Case(When(kind__in=VOUCHER_KINDS, then=Value(3)), default=Value(1), output_field=IntegerField())
     return Case(When(kind__in=VOUCHER_KINDS, then=Value(0)), When(kind='inventory_piece', then=Value(2)),
                 default=Value(1), output_field=IntegerField())
+
+
+# Fair turns (TapTap Link): voucher batches went first at every check-in, and a big voucher batch travels alone.
+# With a voucher backlog — or a code the router refused, re-sent at every check-in — sync tables and every other
+# command waited for ever: syncs failed with "the sync commands never reached the router". Now, while both kinds
+# are waiting, check-ins take turns: one for vouchers, one for the rest.
+FAIR_WAIT = int(getattr(settings, 'LINK_FAIR_WAIT_SECONDS', 15))     # other work waiting this long gets the next turn
+# A code the router refuses this many times is no longer re-sent automatically (it stays marked; Sync tries again).
+REFUSE_STRIKES = 3
+REFUSED_MARK = 'Refused by the router'
+
+
+def _strike(ids, why):
+    """Count failed attempts per voucher; after REFUSE_STRIKES the voucher stops being re-sent by itself."""
+    out = []
+    for pk in ids:
+        k = f'tt:link:strikes:{pk}'
+        n = int(cache.get(k) or 0) + 1
+        cache.set(k, n, 7 * 86400)
+        if n >= REFUSE_STRIKES:
+            out.append(pk)
+    if out:
+        Voucher.objects.filter(pk__in=out).update(
+            mikrotik_sync_status='Error',
+            mikrotik_sync_error=(f'{REFUSED_MARK} {REFUSE_STRIKES} times ({why}) — not re-sent automatically. Look for '
+                                 '"TapTap: could not save" in the router log, then press Sync to try again.')[:500])
+    return out
+
+
+def clear_refused(router):
+    """A sync the owner asked for: try the codes the router refused once more."""
+    ids = list(router.vouchers.filter(mikrotik_sync_status='Error', mikrotik_sync_error__startswith=REFUSED_MARK).values_list('pk', flat=True))
+    if ids:
+        cache.delete_many([f'tt:link:strikes:{pk}' for pk in ids])
+        Voucher.objects.filter(pk__in=ids).update(mikrotik_sync_status='Pending', mikrotik_sync_error='')
+    return len(ids)
 
 
 BATCH_GAP = 45   # seconds: one unanswered command must never freeze the whole queue
@@ -299,8 +339,8 @@ def agent_script(url, token, check):
   :local n 0
   :foreach s in=[/ip hotspot active find] do={{
     :if ($n < 300) do={{
-      # A customer who logs out between "find" and "get" is skipped. Before v9 that error ended the whole check-in
-      # inside the block below, and the router counted it as "cannot reach TapTap" (a busy hotspot looked offline).
+      # A customer who logs out between find and get is skipped. Before v9 that error ended the whole check-in
+      # inside the block below, and the router counted it as a missed check-in (a busy hotspot looked offline).
       :do {{
         :local e [/ip hotspot active get $s]
         :set a ($a . ($e->"user") . "," . ($e->"mac-address") . "," . ($e->"address") . "," . ($e->"uptime") . "," . ($e->"bytes-in") . "," . ($e->"bytes-out") . "," . ($e->".id") . ";")
@@ -1164,7 +1204,9 @@ def push_pending_vouchers(router, limit=None):
     if AgentCommand.objects.filter(router=router, kind='hotspot_users', status='queued').exists():
         return 0
     todo = list(router.vouchers.filter(source='taptap').exclude(mikrotik_sync_status__in=['Synced', 'Queued'])
-                .exclude(status__in=['expired', 'archived']).order_by('-pk')[:limit])   # vouchers that are over are never re-sent
+                .exclude(status__in=['expired', 'archived'])                                  # vouchers that are over are never re-sent
+                .exclude(mikrotik_sync_status='Error', mikrotik_sync_error__startswith=REFUSED_MARK)   # refused 3×: not every check-in
+                .order_by('-pk')[:limit])
     if not todo:
         return 0
     plans = {p.name.lower(): p for p in router.business.plans.all()}
@@ -1529,9 +1571,13 @@ def build_response(router, url):
     from .agent_inventory import send_function
     parts, size, helper, voucher_work = [], 0, False, False
     pending = AgentCommand.objects.filter(router=router, status='queued')
+    turn_key = f'tt:link:lastv:{router.pk}'
+    others_turn = False
     if voucher_only:
         pending = pending.filter(kind__in=VOUCHER_KINDS)
-    for cmd in pending.annotate(prio=delivery_order()).order_by('prio', 'created_at')[:40]:
+    elif cache.get(turn_key) and pending.exclude(kind__in=VOUCHER_KINDS).filter(created_at__lte=now - timedelta(seconds=FAIR_WAIT)).exists():
+        others_turn = True          # the last check-in carried vouchers and other work is waiting: its turn now
+    for cmd in pending.annotate(prio=delivery_order(others_turn)).order_by('prio', 'created_at')[:40]:
         if cmd.kind in ('reboot', 'self_update') and parts:
             break  # these always travel alone
         try:
@@ -1553,6 +1599,8 @@ def build_response(router, url):
         if cmd.kind in ('reboot', 'self_update'):
             break
     script = '\n'.join(parts)
+    if parts:
+        cache.set(turn_key, 1 if voucher_work else 0, 600)
     if voucher_work and parts[-1:] and 'system reboot' not in parts[-1]:
         try:
             if _wants_turbo(router):
@@ -1605,8 +1653,12 @@ def handle_ack(cmd_id, given_nonce, status, result=''):
             Voucher.objects.filter(pk__in=bad_ids).update(
                 mikrotik_sync_status='Error',
                 mikrotik_sync_error='The router refused this code — see its log ("TapTap: could not save"). It is sent again.')
+            _strike(bad_ids, 'the router would not save it')
+        if not ok:
+            _strike(ids, 'the whole batch failed on the router')
         if ok:
             _learn_chunk(r, len(cmd.params.get('users') or []), answered=True)
+            cache.delete_many([f'tt:link:strikes:{pk}' for pk in ids if pk not in bad_ids])
             try:      # the router confirmed these exact states: the login check trusts them (core/voucher_ready.py)
                 from .voucher_ready import confirm, unconfirm
                 confirm([i for i in ids if i not in bad_ids])

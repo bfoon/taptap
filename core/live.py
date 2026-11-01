@@ -608,6 +608,12 @@ def housekeeping():
     if not cache.add('tt:live:house', 1, timeout=180):
         return 'previous housekeeping still running'
     try:
+        # Phones' connection tests always need a login (core/probe_guard.py): each router once.
+        try:
+            from .probe_guard import ensure_all as _probe_guard
+            _probe_guard()
+        except Exception:
+            logger.exception('probe guard')
         # Remote admin pages of other routers: close expired sessions (their NAT rules go away).
         try:
             from .netdev import close_expired as _rm_close

@@ -353,6 +353,30 @@ paths, and the voucher-entry settings on Security, had never been active. `core/
 the current views after every add-on is installed (decorated URLs such as `login_required(view)` are left alone).
 If you switched on **Security → Voucher entry protection** before, it now takes effect on the login pages.
 
+## Syncs that get through, and phones that always find the login page
+
+**"My sync keeps failing — the sync commands never reached the router."** TapTap Link check-ins always carried
+voucher batches first, and a big voucher batch travels alone. With a voucher backlog — or a code the router refused,
+which was re-sent at every check-in for ever — sync tables (and every other command) never got a turn. Now, while
+both are waiting, check-ins take turns (vouchers, then the rest, oldest first). A code the router refuses three times
+is no longer re-sent by itself: it is marked "Refused by the router…" (see the router log for "TapTap: could not
+save"), and a Sync you start tries it once more. A failed sync now says whether the router was silent or TapTap was
+busy sending it other commands.
+
+**"When my phone has been away it asks me to sign in, and only shows the redirect page."** A phone that comes back is
+logged in again by its MAC cookie on its first request — usually its own "is there internet?" test — and the router
+answered that test with the after-login page, so the phone opened a sign-in window that showed only TapTap's page
+(a countdown, then another website) and stayed open. The after-login page now sends the phone straight back to its
+test: the test passes, the phone sees it is online and the window closes by itself.
+
+**"When a voucher ends, the login page sometimes will not come."** Phones show their login sheet only when their
+connection test fails. Free-access websites include their sub-domains, so allowing google.com, gstatic.com or
+apple.com let those tests through — the phone believed it was online and never showed the page. TapTap now keeps
+every known connection test (Android, Apple, Windows, Firefox, Ubuntu, Xiaomi, Huawei, OPPO, vivo…) behind the login
+page with "requires login" rules on top of the walled garden (`core/probe_guard.py`); where a test shares a host with
+a real site, only the test path is held back. Applied with portal installs, after free-site changes and once to every
+router. The status page also reloads the moment the time runs out, so a customer looking at it sees the login page.
+
 ## Router connection checked every 10 seconds
 
 **What people saw:** the header pill turned orange — "Live · 1m ago", then "1 router offline" — for a router that

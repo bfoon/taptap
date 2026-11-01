@@ -247,6 +247,13 @@ def start_agent_inventory_sync(job):
         agent = None
     if not agent or agent.revoked:
         raise ValueError('TapTap Link is not enrolled for this router.')
+    if getattr(job, 'requested_by_id', None):
+        # A sync someone asked for: codes the router refused 3 times get one more try (core/agent.py _strike).
+        try:
+            from .agent import clear_refused
+            clear_refused(router)
+        except Exception:
+            logger.debug('clear refused codes on %s', router, exc_info=True)
 
     router.agent_commands.filter(kind='inventory_piece', status__in=['queued', 'sent']).update(
         status='cancelled', done_at=timezone.now(), result='Superseded by a newer full synchronization'
@@ -765,7 +772,7 @@ def _is_missing(cmd, now):
     return cmd.status == 'done' and cmd.done_at is not None and now - cmd.done_at > UNPROCESSED_AFTER
 
 
-def _no_data_reason(pieces):
+def _no_data_reason(pieces, router=None, job=None):
     """Say WHICH step failed instead of always blaming the router clock."""
     uploaded = sum(1 for c in pieces if (c.params or {}).get('uploaded'))
     ran = sum(1 for c in pieces if c.status == 'done' or (c.params or {}).get('uploaded'))
@@ -779,6 +786,17 @@ def _no_data_reason(pieces):
     if sent:
         return ('The router took the sync commands but never reported back — it may be busy, or an earlier command '
                 'failed on it. Check /log print where message~"TapTap" — will retry automatically')
+    # Nothing was handed over: was the router silent, or did it check in while other commands took every turn?
+    try:
+        seen = router.agent.last_seen_at if router is not None else None
+    except Exception:
+        seen = None
+    if job is not None and seen is not None:
+        if seen < job.created_at + timedelta(seconds=30):
+            return (f'The router has not checked in since {timezone.localtime(seen):%H:%M} — it is offline or its TapTap Link '
+                    'script stopped. Check its power and internet; the sync retries automatically')
+        return ('The router checked in, but TapTap was busy sending it other commands (voucher updates) the whole time. '
+                'Check-ins now take turns, so the next sync gets through — it retries automatically')
     return 'The sync commands never reached the router (it did not ask for them in time) — will retry automatically'
 
 
@@ -820,7 +838,7 @@ def _record_piece(router, job_id, piece_summary):
                 job.summary = _merge_summary(job.summary, {'errors': [f'Topology rebuild: {exc}']})
         if not received:
             job.status, job.finished_at = 'failed', now
-            job.phase = _no_data_reason(pieces)
+            job.phase = _no_data_reason(pieces, router, job)
             job.save(update_fields=['status', 'phase', 'summary', 'finished_at', 'updated_at'])
             return
         job.status, job.progress, job.finished_at = 'success', 100, now

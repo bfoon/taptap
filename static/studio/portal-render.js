@@ -810,9 +810,42 @@
     requestAnimationFrame(frame);
   }
 
+  /* ---------- the phone's own connection test ----------
+   * A phone that comes back (screen on again, back in range, router restarted) is logged in again by its MAC
+   * cookie on its first request — usually the phone's own "is there internet?" test. The router then answers
+   * that test with this after-login page instead of the reply the phone expects, so the phone says "Sign in to
+   * Wi-Fi" and its sign-in window showed only this page (a countdown, then another website), and stayed open.
+   * Now this page sends the phone straight back to its test: the test passes, the phone sees it is online and
+   * the sign-in window closes by itself. */
+  var PROBE_HOSTS = /^(connectivitycheck\.(gstatic|android)\.com|clients[0-9]\.google\.com|captive\.apple\.com|(www\.|ipv6\.)?msftconnecttest\.com|www\.msftncsi\.com|detectportal\.firefox\.com|connectivity-check\.ubuntu\.com|nmcheck\.gnome\.org|network-test\.debian\.org|connect\.rom\.miui\.com|connectivitycheck\.platform\.hicloud\.com|conn[0-9]\.oppomobile\.com|wifi\.vivo\.com\.cn|cp\.cloudflare\.com)$/i;
+  var PROBE_PATHS = /^\/(generate_204|gen_204|hotspot-detect\.html|library\/test\/success\.html|connecttest\.txt|ncsi\.txt)(\?|$)/i;
+  function probeUrl(u) {
+    var m = /^http:\/\/([^\/:?#]+)(:[0-9]+)?(\/[^#\s]*)?/i.exec(String(u || '').replace(/^\s+|\s+$/g, ''));
+    if (!m) return '';
+    return (PROBE_HOSTS.test(m[1]) || PROBE_PATHS.test(m[3] || '/')) ? m[0] : '';
+  }
+  function secsOf(t) {     // RouterOS time like 1d2h3m4s / 59m58s → seconds (0 when empty or unknown)
+    var n = 0, m, re = /([0-9]+)([wdhms])/g, k = { w: 604800, d: 86400, h: 3600, m: 60, s: 1 };
+    while ((m = re.exec(String(t || '')))) n += +m[1] * k[m[2]];
+    return n;
+  }
+
   /* ---------- main ---------- */
   function render(root, cfg, ctx) {
     var t = cfg.theme || {}; ctx.theme = t; ctx.settings = cfg.settings || {}; ctx.mt = ctx.mt || {};
+    if (ctx.mode === 'mikrotik' && ctx.kind === 'redirect') {
+      var probe = probeUrl(ctx.mt.linkOrig) || probeUrl(ctx.mt.linkRedirect);
+      if (probe) {
+        root.innerHTML = '<div style="font:600 18px system-ui,sans-serif;text-align:center;padding:40px 16px">&#10003; Connected</div>';
+        try { location.replace(probe); } catch (e) { location.href = probe; }
+        return;
+      }
+    }
+    if (ctx.mode === 'mikrotik' && ctx.kind === 'status') {
+      // When the time runs out the router signs the phone out: reload then, so the login page shows at once.
+      var left = secsOf(ctx.mt.timeLeft);
+      if (left > 0 && left < 7 * 86400) setTimeout(function () { location.reload(); }, (left + 3) * 1000);
+    }
     CASE_SENSITIVE = !!ctx.settings.case_sensitive;
     if (!ctx.dest) ctx.dest = ctx.settings.redirect_url || ctx.mt.linkRedirect || ctx.mt.linkOrig || '';
     var q = [];

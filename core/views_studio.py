@@ -302,7 +302,10 @@ def _export_html(page, base='', router=None):
            'clock': _clock_ctx(url=f'{base}/p/clock.json' if base else '', built=True)}
     # Values that may contain quotes go through the DOM, not a JS string literal.
     hidden = ('<div id="tp-err" hidden>$(error)</div><div id="tp-orig" hidden>$(link-orig)</div>'
-              '<div id="tp-user" hidden>$(username)</div>') if page.kind == 'login' else ''
+              '<div id="tp-user" hidden>$(username)</div>') if page.kind == 'login' else (
+        # after login: the address the phone first asked for — when that was its connection test, the page goes
+        # straight back there so the phone sees it is online and its sign-in window closes (portal-render.js)
+        '<div id="tp-orig" hidden>$(link-orig)</div>' if page.kind in ('redirect', 'status') else '')
     if page.kind == 'login' and _wants_scan(page.config):
         qr = (STATIC_DIR / 'vendor' / 'jsqr.js').read_text(encoding='utf-8').replace('</script', '<\\/script')
         hidden += f'<script type="text/plain" id="tp-jsqr">{qr}</script>'

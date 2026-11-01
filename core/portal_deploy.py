@@ -115,6 +115,12 @@ def install_script(base, token, files, host, check, dns_name=''):
         lines.append(f':do {{ :if ([:len [/ip hotspot walled-garden ip find dst-host={_rs(host)}]] = 0) do={{ '
                      f'/ip hotspot walled-garden ip add dst-host={_rs(host)} action=accept comment="TapTap portal (https: voucher check, warnings)" }} }} on-error={{ :log warning "TapTap portal: could not add the https walled-garden entry" }}')
     lines.append(':if ($n = 0) do={ :error "TapTap portal: no hotspot is set up on this router" }')
+    # Phones' connection tests always need a login, so the login sheet always opens (core/probe_guard.py).
+    try:
+        from .probe_guard import script as probe_guard_script
+        lines.append(probe_guard_script())
+    except Exception:
+        pass
     lines.append(':log info "TapTap portal installed"')
     return '; '.join(lines)
 
