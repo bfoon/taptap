@@ -66,6 +66,11 @@ def trusted_addresses():
             out.append(str(wg_network()))
     except Exception:
         pass
+    try:      # the address TapTap's connections really come from, as routers see it (core/self_trust.py)
+        from .self_trust import learned
+        out += learned()
+    except Exception:
+        pass
     return [a for i, a in enumerate(out) if a not in out[:i]]
 
 

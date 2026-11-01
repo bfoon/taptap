@@ -353,6 +353,23 @@ paths, and the voucher-entry settings on Security, had never been active. `core/
 the current views after every add-on is installed (decorated URLs such as `login_required(view)` are left alone).
 If you switched on **Security → Voucher entry protection** before, it now takes effect on the login pages.
 
+## The header pill tells the truth
+
+**"It says Live · 40s right after a check, while the daily live view is right."** The pill compared the server's
+timestamps with this computer's clock; the daily live view times its own refreshes with this computer's clock only.
+A computer clock 40 s ahead showed every fresh check as "40s ago". Every answer from TapTap carries the server's
+time, and the pill now uses it (the live panel says when this computer's clock is off).
+
+**"It still says 1 router offline."** Two causes:
+* a router that never connected (status "Not connected" — a spare entry, a TapTap Link router not enrolled yet)
+  counted as offline. Now only routers TapTap lost count; the others show "not connected yet" in the panel;
+* TapTap's own router protection blocked TapTap. It exempts the address SITE_URL points at — where routers reach
+  TapTap, not always where TapTap's connections come from (Cloudflare or a proxy in front, NAT). TapTap's checks
+  then counted as password guessing and TapTap was blocked for an hour. After each connection TapTap now asks the
+  router which address its own session comes from and trusts exactly that (`core/self_trust.py`); the 10-second
+  connection check only knocks where protection is absent or TapTap is confirmed trusted, and never on a router the
+  full check confirmed a moment ago.
+
 ## Syncs that get through, and phones that always find the login page
 
 **"My sync keeps failing — the sync commands never reached the router."** TapTap Link check-ins always carried

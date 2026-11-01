@@ -37,8 +37,11 @@ class Base(TestCase):
     def tearDown(self):
         self.srv.close()
 
-    def router(self, name='Shop', port=None, status='Online', **kw):
-        return Router.objects.create(business=self.biz, name=name, ip_address='127.0.0.1', api_port=port or self.port, status=status, **kw)
+    def router(self, name='Shop', port=None, status='Online', trust='none', **kw):
+        r = Router.objects.create(business=self.biz, name=name, ip_address='127.0.0.1', api_port=port or self.port, status=status, **kw)
+        if trust:      # what the first live check records (core/self_trust.py): knocking is safe on this router
+            cache.set(f'tt:selftrust:state:{r.pk}', trust, 3600)
+        return r
 
 
 class Knock(Base):

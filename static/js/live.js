@@ -8,12 +8,17 @@
   function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch (e) { return null; } }
   function sessionStorageSet(k, v) { try { sessionStorage.setItem(k, v); } catch (e) {} }
   var token = (document.cookie.match(/(?:^|; )csrftoken=([^;]+)/) || [])[1] || '';
-  function ago(iso) { if (!iso) return 'never'; var s = Math.max(0, (Date.now() - new Date(iso)) / 1000); return s < 60 ? Math.round(s) + 's ago' : s < 3600 ? Math.round(s / 60) + 'm ago' : Math.round(s / 3600) + 'h ago'; }
+  // Times come from TapTap's server. This computer's clock may be off by seconds or minutes: "Live · 40s ago" right
+  // after a check was that difference, not a slow router. Each answer carries the server's time; ages use it.
+  var skew = 0, rtt = 0;
+  function serverNow() { return Date.now() - skew; }
+  function ago(iso) { if (!iso) return 'never'; var s = Math.max(0, (serverNow() - new Date(iso)) / 1000); return s < 60 ? Math.round(s) + 's ago' : s < 3600 ? Math.round(s / 60) + 'm ago' : Math.round(s / 3600) + 'h ago'; }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function paint() {
     if (!state) return;
-    var offline = state.routers.filter(function (r) { return r.status !== 'Online'; }).length;
-    var stale = !state.last_watch_at || (Date.now() - new Date(state.last_watch_at)) / 1000 > state.interval * 4;
+    // only routers TapTap lost count as offline — one that never connected yet ("Not connected") is not an outage
+    var offline = state.routers.filter(function (r) { return r.status === 'Offline'; }).length;
+    var stale = !state.last_watch_at || (serverNow() - new Date(state.last_watch_at)) / 1000 > state.interval * 4;
     var cls = !state.live ? 'off' : offline ? 'warn' : stale ? 'warn' : 'ok';
     pill.className = 'live-pill ' + cls;
     pill.querySelector('.lp-text').textContent = !state.live ? 'Live sync off' : (offline ? offline + ' router' + (offline > 1 ? 's' : '') + ' offline' : 'Live · ' + ago(state.last_watch_at));
@@ -21,9 +26,11 @@
     var box = document.getElementById('livePanel'); if (!box || !box.classList.contains('show')) return;
     box.querySelector('.lp-mode').innerHTML = state.mode === 'scheduler' ? '<i class="bi bi-check-circle text-success"></i> Checking every ' + state.interval + ' s, around the clock.' :
       '<i class="bi bi-exclamation-circle text-warning"></i> Checking every ' + state.interval + ' s while TapTap is open. Start the <b>live</b> service for 24/7 checks.';
+    if (Math.abs(skew) > 30000)
+      box.querySelector('.lp-mode').innerHTML += '<br><small class="text-secondary">This computer’s clock is ' + Math.round(Math.abs(skew) / 1000) + ' s ' + (skew > 0 ? 'ahead' : 'behind') + ' — the times shown are corrected.</small>';
     if (state.data_at && state.last_watch_at && (new Date(state.last_watch_at) - new Date(state.data_at)) / 1000 > state.interval * 4)
       box.querySelector('.lp-mode').innerHTML += '<br><small class="text-secondary">Routers answer; session details last refreshed ' + ago(state.data_at) + ' (a router is slow to send them).</small>';
-    box.querySelector('.lp-routers').innerHTML = state.routers.map(function (r) { return '<div><span class="lp-dot ' + (r.status === 'Online' ? 'on' : '') + '"></span>' + esc(r.name) + '<small>' + (r.status === 'Online' ? ago(r.seen || r.last_watch_at) : esc(r.status)) + '</small></div>'; }).join('') || '<small class="text-secondary">No routers yet.</small>';
+    box.querySelector('.lp-routers').innerHTML = state.routers.map(function (r) { return '<div><span class="lp-dot ' + (r.status === 'Online' ? 'on' : '') + '"></span>' + esc(r.name) + '<small>' + (r.status === 'Online' ? ago(r.seen || r.last_watch_at) : r.status === 'Offline' ? 'offline' : 'not connected yet') + '</small></div>'; }).join('') || '<small class="text-secondary">No routers yet.</small>';
     box.querySelector('.lp-events').innerHTML = (state.events || []).map(function (e) { return '<div class="lp-ev ' + e.kind + '"><time>' + new Date(e.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + '</time>' + esc(e.text) + '</div>'; }).join('') || '<small class="text-secondary">No changes yet — they appear here as they happen on your routers.</small>';
     box.querySelector('.lp-inc').innerHTML = state.incidents ? '<a href="/security/#incidents" class="btn btn-sm btn-danger w-100 mt-2"><i class="bi bi-shield-exclamation"></i> ' + state.incidents + ' session' + (state.incidents > 1 ? 's' : '') + ' should not be online</a>' : '';
   }
@@ -105,6 +112,7 @@
     firstTick = false; paintBell();
   }
   function apply(d) {
+    if (d && d.now) { var sn = Date.parse(d.now); if (!isNaN(sn)) skew = Date.now() - sn - rtt / 2; }
     state = d; fail = 0; paintAlerts(d.alerts); paintEvents(d.biz_alerts);
     var ids = (d.events || []).map(function (e) { return e.t; }).join('|');
     if (lastIds && ids !== lastIds) window.dispatchEvent(new CustomEvent('taptap:live', { detail: d }));
@@ -113,7 +121,8 @@
   function tick() {
     clearTimeout(timer);
     if (document.hidden) { timer = setTimeout(tick, 30000); return; }
-    fetch(TICK + '?since=' + (firstTick ? 0 : lastAlert) + '&esince=' + (firstEv ? 0 : lastEv), { credentials: 'same-origin', cache: 'no-store' }).then(function (r) { return r.json(); }).then(apply)
+    var t0 = Date.now();
+    fetch(TICK + '?since=' + (firstTick ? 0 : lastAlert) + '&esince=' + (firstEv ? 0 : lastEv), { credentials: 'same-origin', cache: 'no-store' }).then(function (r) { rtt = Date.now() - t0; return r.json(); }).then(apply)
       .catch(function () { fail++; }).then(function () { timer = setTimeout(tick, Math.min(60000, ((state && state.interval) || 15) * 1000 * Math.pow(2, fail))); });
   }
   pill.addEventListener('click', function (e) { e.preventDefault(); var box = document.getElementById('livePanel'); box.classList.toggle('show'); pill.setAttribute('aria-expanded', box.classList.contains('show')); paint(); });

@@ -174,6 +174,11 @@ def watch_router(router, force=False):
         note_failure(router, exc, now)
         cache.delete(lock)
         return {**summary, 'error': str(exc)[:300]}
+    try:      # TapTap's own protection on the router must never block TapTap (core/self_trust.py)
+        from .self_trust import ensure as _self_trust
+        _self_trust(svc, router)
+    except Exception:
+        logger.debug('self-trust %s', router, exc_info=True)
     try:
         users = svc.hotspot_users()
         active = svc.active_users()

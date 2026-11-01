@@ -87,9 +87,20 @@ def _routers(business=None):
     return [r for r in qs.filter(business__live_sync=True) if r.business.has_access]
 
 
+def _safe_to_knock(router, now):
+    """Knock only where it can never hurt: TapTap's protection on the router must have TapTap's own address
+    trusted (each knock is a new connection to the API port — protection counts those as password guessing),
+    and a router the full live check confirmed a moment ago needs no extra connection."""
+    from .self_trust import state
+    if state(router.pk) not in ('none', 'trusted'):
+        return False
+    return not (router.status == 'Online' and router.last_watch_at and (now - router.last_watch_at).total_seconds() < 20)
+
+
 def pulse(business=None):
     """Knock on every router (or one business's) in parallel and apply the results. Returns {router_id: ok}."""
-    routers = [(r, target(r)) for r in _routers(business)]
+    now = timezone.now()
+    routers = [(r, target(r)) for r in _routers(business) if _safe_to_knock(r, now)]
     routers = [(r, t) for r, t in routers if t]
     if not routers:
         return {}
