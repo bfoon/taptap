@@ -250,13 +250,45 @@
       t.animation === 'rise' ? '.tp-card{animation:tprise .55s cubic-bezier(.2,.8,.2,1) both}@keyframes tprise{from{opacity:0;transform:translateY(18px)}}' : '',
       t.animation === 'fade' ? '.tp-card{animation:tpfade .5s ease both}@keyframes tpfade{from{opacity:0}}' : '',
       '@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}',
-      /* floating call button */
-      '.tp-float{position:fixed;z-index:60;bottom:calc(18px + env(safe-area-inset-bottom,0px))}.tp-float.right{right:calc(16px + env(safe-area-inset-right,0px))}.tp-float.left{left:calc(16px + env(safe-area-inset-left,0px))}',
-      '.tp-call{display:inline-flex;align-items:center;gap:8px;height:56px;padding:0 20px 0 16px;border-radius:999px;background:' + t.accent + ';color:' + t.accent_text + '!important;text-decoration:none;font-weight:700;font-size:15px;box-shadow:0 10px 28px -6px ' + hexA(t.accent, .6) + ',0 2px 6px rgba(0,0,0,.18);-webkit-tap-highlight-color:transparent;transition:transform .15s}',
-      '.tp-call:active{transform:scale(.94)}.tp-call.round{width:58px;height:58px;padding:0;justify-content:center}.tp-call-i{display:flex}',
-      '.tp-call.pulse{animation:tpCallPulse 2.4s ease-out infinite}.tp-call.pulse .tp-call-i{animation:tpRing 2.4s ease-in-out infinite}',
-      '@keyframes tpCallPulse{0%{box-shadow:0 0 0 0 ' + hexA(t.accent, .55) + ',0 10px 28px -6px ' + hexA(t.accent, .6) + '}70%{box-shadow:0 0 0 16px ' + hexA(t.accent, 0) + ',0 10px 28px -6px ' + hexA(t.accent, .6) + '}100%{box-shadow:0 0 0 0 ' + hexA(t.accent, 0) + ',0 10px 28px -6px ' + hexA(t.accent, .6) + '}}',
-      '.tp-pv .tp-float[data-bid]{outline-offset:3px;border-radius:999px}',
+      /* floating call button + help card */
+      '.tp-float{position:fixed!important;z-index:60;bottom:calc(18px + env(safe-area-inset-bottom,0px));font-family:inherit}.tp-float.right{right:calc(16px + env(safe-area-inset-right,0px))}.tp-float.left{left:calc(16px + env(safe-area-inset-left,0px))}',
+      '.tp-call{display:inline-flex;align-items:center;gap:10px;height:58px;padding:0 22px 0 7px;border:0;border-radius:999px;background:' + t.accent + ';color:' + t.accent_text + '!important;text-decoration:none;font-weight:700;font-size:15px;line-height:1;font-family:inherit;white-space:nowrap;cursor:pointer;box-shadow:0 14px 30px -10px ' + hexA(t.accent, .75) + ',0 3px 8px rgba(0,0,0,.18);-webkit-tap-highlight-color:transparent;transition:transform .18s cubic-bezier(.3,1.6,.5,1)}',
+      '.tp-call:hover{transform:translateY(-2px)}.tp-call:active{transform:scale(.93)}.tp-call:focus-visible{outline:3px solid ' + hexA(t.accent, .45) + ';outline-offset:3px}',
+      '.tp-call-i{position:relative;display:flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:50%;background:' + t.accent_text + ';color:' + t.accent + ';flex:0 0 auto}',
+      '.tp-call-i svg{position:relative;z-index:1}.tp-call-t{display:flex;flex-direction:column;gap:3px;text-align:left}.tp-call-t small{font-size:11px;font-weight:600;opacity:.8;letter-spacing:.02em}',
+      '.tp-call.round{width:62px;height:62px;padding:0;justify-content:center}.tp-call.round .tp-call-i{width:62px;height:62px;background:transparent;color:inherit}',
+      '.tp-call.pulse .tp-call-i svg{animation:tpRing 2.6s ease-in-out infinite}',
+      '.tp-call.pulse .tp-call-i::before,.tp-call.pulse .tp-call-i::after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid ' + t.accent_text + ';opacity:0;animation:tpRipple 2.6s ease-out infinite}',
+      '.tp-call.pulse .tp-call-i::after{animation-delay:.9s}.tp-call.round.pulse .tp-call-i::before,.tp-call.round.pulse .tp-call-i::after{border-color:' + t.accent + '}',
+      '@keyframes tpRipple{0%{transform:scale(.85);opacity:.7}100%{transform:scale(1.9);opacity:0}}',
+      '.tp-callw.open .tp-call{transform:scale(.92);box-shadow:0 6px 16px -8px ' + hexA(t.accent, .7) + '}.tp-callw.open .tp-call .tp-call-i svg{animation:none}',
+      /* hint bubble */
+      '.tp-call-hint{position:absolute;bottom:72px;width:max-content;max-width:min(240px,calc(100vw - 40px));background:' + t.surface + ';color:' + t.text + ';border:0;border-radius:16px;padding:10px 14px;font-weight:600;font-size:13.5px;line-height:1.35;font-family:inherit;text-align:left;box-shadow:0 14px 34px -12px rgba(0,0,0,.4);cursor:pointer;white-space:normal;animation:tpHintIn .45s cubic-bezier(.3,1.5,.5,1) both}',
+      '.tp-float.right .tp-call-hint{right:4px;transform-origin:100% 100%}.tp-float.left .tp-call-hint{left:4px;transform-origin:0 100%}',
+      '.tp-call-hint::after{content:"";position:absolute;bottom:-6px;width:14px;height:14px;background:inherit;transform:rotate(45deg);border-radius:0 0 4px 0}.tp-float.right .tp-call-hint::after{right:24px}.tp-float.left .tp-call-hint::after{left:24px}',
+      '.tp-call-hint[hidden],.tp-call-pop[hidden]{display:none}@keyframes tpHintIn{from{opacity:0;transform:translateY(8px) scale(.8)}}',
+      /* help card */
+      '.tp-call-pop{position:absolute;bottom:74px;width:min(300px,calc(100vw - 32px));background:' + t.surface + ';color:' + t.text + ';border-radius:22px;padding:18px 18px 14px;text-align:left;box-shadow:0 26px 60px -18px rgba(0,0,0,.5),0 0 0 1px ' + hexA(t.text, .06) + ';animation:tpPopIn .32s cubic-bezier(.3,1.4,.5,1) both}',
+      '.tp-float.right .tp-call-pop{right:0;transform-origin:calc(100% - 30px) 100%}.tp-float.left .tp-call-pop{left:0;transform-origin:30px 100%}@keyframes tpPopIn{from{opacity:0;transform:translateY(10px) scale(.6)}}',
+      '.tp-call-pop::before{content:"";position:absolute;inset:0 0 auto;height:64px;border-radius:22px 22px 0 0;background:linear-gradient(135deg,' + hexA(t.accent, .16) + ',' + hexA(t.accent, .04) + ');pointer-events:none}',
+      '.tp-call-x{position:absolute;top:10px;right:10px;width:30px;height:30px;border:0;border-radius:50%;background:' + hexA(t.text, .07) + ';color:inherit;font:400 20px/1 system-ui,sans-serif;cursor:pointer}',
+      '.tp-call-who{position:relative;display:flex;align-items:center;gap:12px;padding-right:30px}.tp-call-who b{display:block;font-size:16px;line-height:1.25}.tp-call-who small{display:block;color:' + t.muted + ';font-size:12.5px;margin-top:2px}',
+      '.tp-call-av{position:relative;flex:0 0 auto;width:48px;height:48px;border-radius:50%;background:' + t.accent + ';color:' + t.accent_text + ';display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px;box-shadow:0 0 0 3px ' + t.surface + ',0 0 0 5px ' + hexA(t.accent, .35) + '}',
+      '.tp-call-av img{width:100%;height:100%;object-fit:contain;border-radius:50%;background:#fff;padding:5px}',
+      '.tp-call-sub{margin:14px 0;font-size:13px;color:' + t.muted + '}',
+      '.tp-call-go,.tp-call-wa{display:flex;align-items:center;justify-content:center;gap:9px;width:100%;padding:13px;border-radius:14px;font-weight:800;font-size:15px;line-height:1;font-family:inherit;text-decoration:none;transition:transform .12s}.tp-call-go:active,.tp-call-wa:active{transform:scale(.97)}',
+      '.tp-call-go{background:' + t.accent + ';color:' + t.accent_text + '!important;box-shadow:0 10px 22px -10px ' + hexA(t.accent, .8) + '}',
+      '.tp-call-wa{margin-top:8px;background:transparent;color:#128c4a!important;border:1.5px solid rgba(18,140,74,.35)}.tp-call-wa small{font-weight:600;opacity:.75}',
+      '.tp-call-foot{display:block;margin-top:10px;text-align:center;font-size:11.5px;color:' + t.muted + '}',
+      '.tp-call-go{border:0;cursor:pointer;font-family:inherit}.tp-call-go.app{justify-content:flex-start;gap:12px;padding:10px 14px 10px 10px}',
+      '.tp-cg-i{display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:12px;background:' + hexA(t.accent_text, .2) + ';flex:0 0 auto}',
+      '.tp-cg-t{display:flex;flex-direction:column;align-items:flex-start;gap:4px;text-align:left;min-width:0}.tp-cg-t b{font-size:15.5px;line-height:1.1}.tp-cg-t small{font-size:12px;font-weight:600;opacity:.85}',
+      '.tp-call-go span,.tp-call-tel span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+      '.tp-call-tel{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:8px;padding:11px;min-width:0;border-radius:14px;font-weight:700;font-size:14px;text-decoration:none;color:' + t.text + '!important;border:1.5px solid ' + hexA(t.text, .14) + '}',
+      '.tp-call-live{position:absolute;right:0;bottom:0;width:13px;height:13px;border-radius:50%;background:#22c55e;border:2px solid ' + t.surface + '}.tp-call-live[hidden]{display:none}',
+      '.tp-callframe{position:fixed;inset:0;z-index:90;background:#0b1220;animation:tpPopIn .25s ease both}.tp-callframe iframe{width:100%;height:100%;border:0;display:block}',
+      '.tp-pv .tp-float[data-bid]{outline-offset:4px;border-radius:999px}',
+      '.tp.tp-has-float{padding-bottom:calc(100px + env(safe-area-inset-bottom,0px))}',   /* the last lines can scroll clear of the button */
       /* preview helpers */
       '.tp-pv [data-bid]{position:relative;cursor:pointer;border-radius:6px;outline:2px solid transparent;outline-offset:5px;transition:outline-color .12s}.tp-pv [data-bid]:hover{outline-color:' + hexA(t.accent, .45) + '}.tp-pv [data-bid].sel{outline-color:' + t.accent + '}'
     ].join('\n');
@@ -410,18 +442,46 @@
     if (b.hours) out.push('<span>' + icon('clock', 16) + esc(b.hours) + '</span>');
     return out.length ? '<div class="tp-row">' + out.join('') + '</div>' : (ctx.mode === 'preview' ? '<div class="tp-ph">Add a phone, WhatsApp or opening hours</div>' : '');
   };
-  /* Floating call button — sits in a corner of the screen, on top of the page, and dials the business.
-     A plain tel: link, so it works on the router's own login page too (no internet needed to place the call). */
+  /* Floating call button — sits in a corner over the page.
+     In-app (the default): the customer talks to the business inside the browser, over the Wi-Fi, through TapTap's
+     own call system — it rings the people the owner picked in Portal Studio (core/portal_call.py). Browsers only
+     allow the microphone on https pages, so the router's own http:// login page opens TapTap's call page; the
+     hosted page shows it in an overlay. A normal phone call (tel:) stays available as a fallback.
+     "Help card" opens a small card first; "Start at once" goes straight to the call. */
   function telOf(v) { return String(v || '').replace(/[^\d+]/g, '').replace(/(?!^)\+/g, ''); }
   B.call = function (b, ctx) {
-    var ph = String(b.phone || (ctx.business && ctx.business.phone) || '').trim(), tel = telOf(ph);
+    var biz = ctx.business || {}, ph = String(b.phone || biz.phone || '').trim(), tel = telOf(ph);
     var pv = ctx.mode === 'preview' || ctx.mode === 'thumb';
-    if (!tel && !pv) return '';
+    var app = !!ctx.callUrl || pv, offerTel = !!tel && b.phone_option !== false;
+    if (!app && !tel && !pv) return '';
+    var href = tel ? 'tel:' + esc(tel) : '#', direct = b.mode === 'direct';
     var label = String(b.label || 'Call us').trim() || 'Call us';
-    var cls = 'tp-call ' + (b.corner === 'left' ? 'left' : 'right') + (b.show_label === false ? ' round' : '') + (b.pulse === false ? '' : ' pulse');
-    return '<a class="' + cls + '" href="' + (tel ? 'tel:' + esc(tel) : '#') + '" aria-label="' + esc(label + (ph ? ' ' + ph : '')) + '"' +
-      (tel ? '' : ' title="Add a phone number in the block settings (or in Settings)"') + '>' +
-      '<span class="tp-call-i">' + icon('phone', 22) + '</span>' + (b.show_label === false ? '' : '<span class="tp-call-t">' + esc(label) + '</span>') + '</a>';
+    var cls = 'tp-call' + (b.show_label === false ? ' round' : '') + (b.pulse === false ? '' : ' pulse');
+    var face = '<span class="tp-call-i">' + icon('phone', 22) + '</span>' +
+      (b.show_label === false ? '' : '<span class="tp-call-t">' + esc(label) + (b.sublabel ? '<small data-call-sub>' + esc(b.sublabel) + '</small>' : '') + '</span>');
+    var aria = esc(label);
+    var btn = direct
+      ? (app ? '<button type="button" class="' + cls + '" data-call-app aria-label="' + aria + '">' + face + '</button>'
+             : '<a class="' + cls + '" href="' + href + '" aria-label="' + aria + '">' + face + '</a>')
+      : '<button type="button" class="' + cls + '" data-call-open aria-expanded="false" aria-label="' + aria + '">' + face + '</button>';
+    var hint = String(b.hint == null ? 'Need help getting online? Talk to us — free over this Wi-Fi.' : b.hint).trim();
+    var out = '<div class="tp-callw" data-callw' + (app ? ' data-app="1"' : '') + '>';
+    if (hint && ctx.mode !== 'thumb') out += '<button type="button" class="tp-call-hint" data-call-hint hidden>' + esc(hint) + '</button>';
+    if (!direct) {
+      var who = String(b.title || biz.name || 'Our team').trim();
+      var av = biz.logo ? '<img src="' + esc(biz.logo) + '" alt="">' : esc(initials(who));
+      var wa = String(b.whatsapp || '').replace(/\D/g, '');
+      out += '<div class="tp-call-pop" role="dialog" aria-label="' + esc('Call ' + who) + '" hidden>' +
+        '<button type="button" class="tp-call-x" data-call-close aria-label="Close">&times;</button>' +
+        '<div class="tp-call-who"><span class="tp-call-av">' + av + '<i class="tp-call-live" data-call-dot hidden></i></span><div><b>' + esc(who) + '</b><small data-call-who>' +
+        esc(b.hours || 'We are happy to help') + '</small></div></div>' +
+        '<p class="tp-call-sub">' + esc(b.note == null ? 'Voucher not working? Can’t connect? Talk to us.' : b.note) + '</p>' +
+        (app ? '<button type="button" class="tp-call-go app" data-call-app><span class="tp-cg-i">' + icon('phone', 20) + '</span><span class="tp-cg-t"><b>Call us in the app</b><small>Free · uses this Wi-Fi</small></span></button>' : '') +
+        (offerTel ? '<a class="' + (app ? 'tp-call-tel' : 'tp-call-go') + '" href="' + href + '">' + icon('phone', 16) + '<span>' + (app ? 'Phone call · ' : 'Call now · ') + esc(ph) + '</span></a>' : '') +
+        (wa ? '<a class="tp-call-wa" href="https://wa.me/' + esc(wa) + '">' + icon('whatsapp', 18) + ' WhatsApp <small>· needs internet</small></a>' : '') +
+        '<small class="tp-call-foot">' + (app ? 'Encrypted · uses this Wi-Fi, not your phone credit' : 'A normal phone call — works without Wi-Fi.') + '</small></div>';
+    }
+    return out + btn + '</div>';
   };
   var FLOATING = { call: 1 };      // blocks drawn over the page, outside the card
 
@@ -852,6 +912,87 @@
     return n;
   }
 
+  /* ---------- floating call: help card + hint bubble ---------- */
+  var callTimers = [];
+  function wireCall(root, ctx) {
+    callTimers.forEach(clearTimeout); callTimers = [];
+    var w = root.querySelector('[data-callw]'); if (!w) return;
+    var pop = w.querySelector('.tp-call-pop'), open = w.querySelector('[data-call-open]'), hint = w.querySelector('[data-call-hint]');
+    function hideHint() { if (hint) hint.hidden = true; }
+    function setOpen(on) {
+      if (!pop) return;
+      pop.hidden = !on; w.classList.toggle('open', on); if (open) open.setAttribute('aria-expanded', on ? 'true' : 'false');
+      if (on) { hideHint(); var go = pop.querySelector('.tp-call-go'); if (go && ctx.mode !== 'preview') try { go.focus({ preventScroll: true }); } catch (e) { } }
+    }
+    if (open) open.addEventListener('click', function (e) { e.stopPropagation(); setOpen(pop.hidden); });
+    var x = w.querySelector('[data-call-close]'); if (x) x.addEventListener('click', function (e) { e.stopPropagation(); setOpen(false); if (open) open.focus(); });
+    if (hint) hint.addEventListener('click', function (e) { e.stopPropagation(); hideHint(); if (pop) setOpen(true); else { var a = w.querySelector('.tp-call'); if (a && ctx.mode !== 'preview') a.click(); } });
+    if (pop) pop.addEventListener('click', function (e) { e.stopPropagation(); if (ctx.mode === 'preview' && e.target.closest('a')) e.preventDefault(); });   // the preview never dials
+    // In-app call buttons (the floating one in "start at once" mode, and "Call in the app" in the card)
+    [].forEach.call(w.querySelectorAll('[data-call-app]'), function (btn) {
+      btn.addEventListener('click', function (e) { e.stopPropagation(); e.preventDefault(); setOpen(false); openAppCall(ctx); });
+    });
+    // Is anybody there? (the people the owner picked, core/portal_call.py) — a green dot, or fall back to the phone
+    if (ctx.callApi && w.getAttribute('data-app') && ctx.mode !== 'preview') callStatus(w, ctx);
+    if (ctx.mode === 'preview') { var dt = w.querySelector('[data-call-dot]'); if (dt) dt.hidden = false; }
+    // Once per visit, a little after the page settles; it goes away by itself. The preview shows it at once.
+    if (hint) {
+      var seen = false; try { seen = ctx.mode !== 'preview' && sessionStorage.getItem('tp-call-hint') === '1'; } catch (e) { }
+      if (!seen) {
+        callTimers.push(setTimeout(function () { if (pop && !pop.hidden) return; hint.hidden = false; try { sessionStorage.setItem('tp-call-hint', '1'); } catch (e) { } }, ctx.mode === 'preview' ? 400 : 3500));
+        if (ctx.mode !== 'preview') callTimers.push(setTimeout(hideHint, 11500));
+      }
+    }
+    if (!global.__tpCallDoc) {        // one listener for the page, whatever re-renders happen
+      global.__tpCallDoc = true;
+      document.addEventListener('click', function () { [].forEach.call(document.querySelectorAll('[data-callw].open'), function (el) { el.classList.remove('open'); var p = el.querySelector('.tp-call-pop'); if (p) p.hidden = true; var o = el.querySelector('[data-call-open]'); if (o) o.setAttribute('aria-expanded', 'false'); }); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape') document.body.click(); });
+    }
+  }
+
+  function callStatus(w, ctx) {
+    try {
+      var x = new XMLHttpRequest(); x.open('POST', ctx.callApi, true); x.setRequestHeader('Content-Type', 'text/plain'); x.timeout = 6000;
+      x.onload = function () {
+        var d; try { d = JSON.parse(x.responseText); } catch (e) { return; }
+        if (!d || !d.ok) return;
+        if (!d.open) {                      // calls switched off / nobody set up: keep only the phone option
+          [].forEach.call(w.querySelectorAll('.tp-call-go[data-call-app]'), function (el) { el.remove(); });
+          var tel = w.querySelector('.tp-call-tel'); if (tel) tel.className = 'tp-call-go';
+          var fl = w.querySelector('.tp-call[data-call-app]'); if (fl) { var a = w.querySelector('a[href^="tel:"]'); if (a) fl.onclick = function (e) { e.stopImmediatePropagation(); location.href = a.href; }; else w.parentNode.style.display = 'none'; }
+          return;
+        }
+        var dot = w.querySelector('[data-call-dot]'), who = w.querySelector('[data-call-who]');
+        if (dot) dot.hidden = !(d.online > 0);
+        if (who && d.online > 0 && !w.getAttribute('data-hours')) { w.setAttribute('data-hours', who.textContent); who.textContent = d.busy ? 'On another call — try in a minute' : 'Online now · ready to help'; }
+      };
+      x.send(JSON.stringify({ action: 'status' }));
+    } catch (e) { }
+  }
+  function openAppCall(ctx) {
+    if (ctx.mode === 'preview' || ctx.mode === 'thumb') {
+      var cw = document.querySelector('[data-callw]'), hint = cw && cw.querySelector('[data-call-hint]');     // not "h": that is the element helper
+      if (hint) { hint.textContent = 'Preview: on the live page this opens the call screen and rings the people you picked in Portal Studio.'; hint.hidden = false; }
+      return;
+    }
+    if (!ctx.callUrl) return;
+    if (ctx.mode === 'hosted' && window.isSecureContext) {         // same site, https: the call screen in an overlay
+      var old = document.querySelector('.tp-callframe'); if (old) old.remove();
+      var box = h('div', { 'class': 'tp-callframe', role: 'dialog', 'aria-label': 'Call' });
+      var f = h('iframe', { src: ctx.callUrl + '?embed=1', allow: 'microphone; autoplay', title: 'Call' });
+      box.appendChild(f); document.body.appendChild(box);
+      if (!global.__tpCallMsg) {
+        global.__tpCallMsg = true;
+        addEventListener('message', function (e) { var d = e.data || {}; if (d.tpCall === 'close') { var b = document.querySelector('.tp-callframe'); if (b) b.remove(); } });
+      }
+      return;
+    }
+    // The router's own page is http:// — browsers refuse the microphone there, so open TapTap's https call page.
+    var url = ctx.callUrl + '?back=' + encodeURIComponent(location.href);
+    var win = null; try { win = window.open(url, '_blank'); } catch (e) { }
+    if (!win) location.href = url;
+  }
+
   /* ---------- main ---------- */
   function render(root, cfg, ctx) {
     var t = cfg.theme || {}; ctx.theme = t; ctx.settings = cfg.settings || {}; ctx.mt = ctx.mt || {};
@@ -893,13 +1034,13 @@
     else if (layout === 'sheet') body = '<div class="tp-hero">' + hero.map(html).join('') + '</div><div class="tp-card">' + rest.map(html).join('') + '</div>';
     else body = (layout === 'bands' ? '<div class="tp-bands"></div>' : '') + '<main class="tp-card">' + rest.map(html).join('') + '</main>';
     body += floats.map(floatHtml).join('');
-    root.className = 'tp l-' + layout + (ctx.mode === 'preview' ? ' tp-pv' : '') + (CASE_SENSITIVE ? ' tp-cs' : '');
+    root.className = 'tp l-' + layout + (ctx.mode === 'preview' ? ' tp-pv' : '') + (CASE_SENSITIVE ? ' tp-cs' : '') + (body.indexOf('tp-float') >= 0 && layout !== 'split' ? ' tp-has-float' : '');
     root.innerHTML = body;
 
     if (ctx.kind === 'login' && ctx.settings.collect_device !== false && ctx.settings.device_notice !== '' && root.querySelector('.tp-vform')) {
       root.querySelector('.tp-vform').insertAdjacentHTML('beforeend', '<p class="tp-privacy">' + esc(ctx.settings.device_notice || 'We note basic details of your device to keep your voucher safe from misuse.') + '</p>');
     }
-    wireBoxes(root); wireVoucher(root, cfg, ctx); wireCountdown(root, cfg, ctx); wireAds(root, ctx); wireTrial(root, ctx); wireReport(root, ctx); wireClock(root, ctx);
+    wireBoxes(root); wireVoucher(root, cfg, ctx); wireCountdown(root, cfg, ctx); wireAds(root, ctx); wireTrial(root, ctx); wireReport(root, ctx); wireClock(root, ctx); wireCall(root, ctx);
     if (ctx.mt && ctx.mt.error && ctx.mode === 'mikrotik') reportOffer(root, ctx.mt.username || '', ctx.mt.error, true);
     if (ctx.autoLogin && ctx.autoLogin.code && ctx.mode === 'hosted') autoLogin(root, ctx.autoLogin);
     if (ctx.kind === 'login') sendDevice(ctx, '');

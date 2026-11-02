@@ -33,6 +33,43 @@
 .dep-r .acts{display:flex;gap:.35rem;margin-top:.2rem}.dep-note{font-size:.72rem;color:#8a9aab;margin:.8rem 0 0}
 </style>
 
+<section class="pc-panel" id="portal-calls">
+  <div class="pc-head">
+    <div><h3><i class="bi bi-telephone-inbound"></i> Calls from your Wi-Fi pages</h3>
+      <p>Customers tap <b>Call</b> on your login page and talk to you inside TapTap — free over your Wi-Fi, encrypted, no phone credit. Pick who answers: their TapTap rings like a chat call, wherever they have it open.</p></div>
+    <span class="pc-state {% if calls.enabled %}on{% endif %}">{% if calls.enabled %}<i class="bi bi-circle-fill"></i> On — a page has the Call button{% else %}Off — add the <b>Call button</b> block to a page to switch it on{% endif %}</span>
+  </div>
+  <form method="post" action="{% url 'portal_call_settings' %}">{% csrf_token %}
+    <div class="pc-people">
+      {% for r in calls.rows %}<label class="pc-person{% if r.picked %} on{% endif %}">
+        <input type="checkbox" name="handlers" value="{{ r.user.id }}"{% if r.picked %} checked{% endif %}>
+        <span class="pc-av">{{ r.initials }}{% if r.online %}<i class="pc-dot" title="TapTap open now"></i>{% endif %}</span>
+        <span class="pc-nm"><b>{{ r.name }}</b><small>{% if r.owner %}Owner{% else %}Team{% endif %} · {% if r.online %}online now{% else %}offline{% endif %}</small></span>
+        <i class="bi bi-check-circle-fill pc-tick"></i>
+      </label>{% endfor %}
+    </div>
+    <div class="pc-foot">
+      <label class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" name="online_first"{% if calls.online_first %} checked{% endif %}> <span class="form-check-label small">Ring only the people who have TapTap open — everyone picked when nobody is</span></label>
+      <span class="small text-secondary ms-auto">Rings now: <b>{{ calls.answering|join:", "|default:"nobody" }}</b>{% if not calls.rows|length %}{% endif %}</span>
+      <button class="btn btn-primary btn-sm"><i class="bi bi-check2"></i> Save</button>
+    </div>
+    <p class="pc-note">Nobody picked = the owner answers. Every call — answered or missed — leaves a note with the customer’s name and number in the team chat, so you can call back. Before login the router must let phones reach TapTap (the walled-garden entry TapTap adds) and, for the voice itself, your TURN relay — see the update notes.</p>
+  </form>
+</section>
+<style>
+.pc-panel{background:#fff;border:1px solid var(--border);border-radius:18px;padding:1rem 1.1rem;margin:0 0 1.2rem}
+.pc-head{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:flex-start}.pc-head h3{font-size:1rem;font-weight:800;margin:0 0 .2rem}.pc-head p{font-size:.82rem;color:var(--muted);margin:0;max-width:680px}
+.pc-state{font-size:.72rem;font-weight:700;border-radius:999px;padding:.25rem .7rem;background:#f1f4f8;color:#5b6b7c}.pc-state.on{background:#e4f7ee;color:#138453}.pc-state i{font-size:.5rem;vertical-align:middle}
+.pc-people{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.5rem;margin-top:.9rem}
+.pc-person{position:relative;display:flex;align-items:center;gap:.6rem;border:1.5px solid #e8edf3;border-radius:14px;padding:.55rem .7rem;cursor:pointer;transition:border-color .15s,background .15s}
+.pc-person input{position:absolute;opacity:0;pointer-events:none}.pc-person:has(input:checked){border-color:var(--bs-primary);background:rgba(13,110,253,.05)}.pc-person:has(input:focus-visible){outline:2px solid var(--bs-primary);outline-offset:2px}
+.pc-av{position:relative;width:38px;height:38px;border-radius:50%;background:#eef2f7;color:#334;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.85rem;flex:0 0 auto}
+.pc-dot{position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:50%;background:#22c55e;border:2px solid #fff}
+.pc-nm b{display:block;font-size:.86rem;line-height:1.2}.pc-nm small{color:var(--muted);font-size:.72rem}
+.pc-tick{margin-left:auto;color:var(--bs-primary);opacity:0;transition:opacity .15s}.pc-person:has(input:checked) .pc-tick{opacity:1}
+.pc-foot{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;margin-top:.8rem}.pc-note{font-size:.72rem;color:#8a9aab;margin:.7rem 0 0}
+</style>
+
 {% for kind,label in kinds %}
 <div class="kind-head"><h3>{{ label }}s</h3><p>{% if kind == 'login' %}Where customers type their voucher code.{% elif kind == 'redirect' %}Shown straight after a successful login.{% else %}Session details a customer can come back to.{% endif %}</p></div>
 <div class="page-grid">
@@ -105,7 +142,7 @@
   load();
 })();
 </script>
-<script src="{% static 'studio/thumbs.js' %}" data-renderer="{% static 'studio/portal-render.js' %}?v=7"></script>
+<script src="{% static 'studio/thumbs.js' %}" data-renderer="{% static 'studio/portal-render.js' %}?v=9"></script>
 <script>
 (function(){
   const g=JSON.parse(document.getElementById('galleryData').textContent);

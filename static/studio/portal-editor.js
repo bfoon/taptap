@@ -43,10 +43,20 @@
       f: [['title', 'text', 'Link text'], ['intro', 'text', 'Short explanation'], ['button', 'text', 'Button text']],
       note: 'Customers send the code, their name and phone to you (Vouchers → Customer reports). Opens by itself with the code and the reason when a voucher does not work. Works on the router page and online.' },
     call: { n: 'Call button (floating)', i: 'bi-telephone-forward',
-      def: { phone: '', label: 'Call us', show_label: true, corner: 'right', pulse: true },
-      f: [['phone', 'text', 'Phone to call (blank = business phone)'], ['label', 'text', 'Button text'], ['show_label', 'check', 'Show the text (off = round phone icon only)'],
-          ['corner', 'seg', 'Corner', { left: 'Bottom left', right: 'Bottom right' }], ['pulse', 'check', 'Gentle pulse so customers notice it']],
-      note: 'Floats in a corner over the whole page, on every screen size, and dials your number. A normal phone call, so it works on the router’s login page before the customer has internet. Switch it on or off with the eye in the block list — where it sits in the list does not matter.' },
+      def: { mode: 'card', phone: '', phone_option: true, whatsapp: '', label: 'Call us', sublabel: 'Free on Wi-Fi', show_label: true, corner: 'right', pulse: true,
+             title: '', hours: '', note: 'Voucher not working? Can’t connect? Talk to us.', hint: 'Need help getting online? Talk to us — free over this Wi-Fi.' },
+      f: [['mode', 'seg', 'When tapped', { card: 'Open help card', direct: 'Start the call at once' }],
+          ['label', 'text', 'Button text'], ['sublabel', 'text', 'Small line under it (optional)', null, function (b) { return b.show_label !== false; }],
+          ['show_label', 'check', 'Show the text (off = round phone icon only)'],
+          ['corner', 'seg', 'Corner', { left: 'Bottom left', right: 'Bottom right' }], ['pulse', 'check', 'Ripple + ringing phone so customers notice it'],
+          ['title', 'text', 'Help card: name (blank = business name)', null, function (b) { return b.mode !== 'direct'; }],
+          ['hours', 'text', 'Help card: hours, e.g. Every day 8am–10pm', null, function (b) { return b.mode !== 'direct'; }],
+          ['note', 'text', 'Help card: short message', null, function (b) { return b.mode !== 'direct'; }],
+          ['phone_option', 'check', 'Help card: also offer a normal phone call', null, function (b) { return b.mode !== 'direct'; }],
+          ['phone', 'text', 'Number for the normal call (blank = business phone)', null, function (b) { return b.mode !== 'direct' && b.phone_option !== false; }],
+          ['whatsapp', 'text', 'Help card: WhatsApp number (optional)', null, function (b) { return b.mode !== 'direct'; }],
+          ['hint', 'text', 'Hint bubble (blank = none)']],
+      note: 'Customers call you <b>inside TapTap</b> — free over your Wi-Fi, encrypted. It rings the people you pick under <b>Portal Studio → Calls from your Wi-Fi pages</b>, exactly like a chat call; every call (answered or missed) leaves the customer’s name and number in the team chat. Switch it on or off with the eye in the block list. If calls are off or nobody is set up, the card falls back to a normal phone call.' },
     contact: { n: 'Contact', i: 'bi-telephone', def: { phone: '', whatsapp: '', email: '', hours: '' },
       f: [['phone', 'text', 'Phone (blank = business phone)'], ['whatsapp', 'text', 'WhatsApp number'], ['email', 'text', 'Email'], ['hours', 'text', 'Opening hours']] },
     social: { n: 'Social links', i: 'bi-share', def: { facebook: '', instagram: '', tiktok: '', whatsapp: '' },
@@ -334,7 +344,7 @@
           var k = el.dataset.bk, v = el.type === 'checkbox' ? el.checked : (el.dataset.num ? +el.value : el.value);
           if (el.dataset.lines) v = el.value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
           b[k] = v; var o = el.parentElement.querySelector('output'); if (o) o.textContent = el.value + (k === 'size' || k === 'radius' ? 'px' : '');
-          commit(); if (k === 'style') renderProps();
+          commit(); if (k === 'style' || k === 'show_label' || k === 'phone_option') renderProps();
         });
       });
       $$('[data-bseg]', p).forEach(function (g) { $$('button', g).forEach(function (bt) { bt.onclick = function () { b[g.dataset.bseg] = bt.dataset.v; commit(); renderProps(); }; }); });

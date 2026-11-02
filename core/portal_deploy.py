@@ -93,6 +93,17 @@ def _rs(v):
     return rs(v)
 
 
+def turn_hosts():
+    """Host names of the TURN relay(s) in CHAT_TURN_URLS (turn:host:3478?transport=udp → host)."""
+    import os
+    out = []
+    for u in os.getenv('CHAT_TURN_URLS', '').split(','):
+        h = u.strip().split(':', 1)[-1].split('?')[0].rsplit(':', 1)[0].strip('/')
+        if h and HOST_RE.match(h) and h not in out:
+            out.append(h)
+    return out
+
+
 def install_script(base, token, files, host, check, dns_name=''):
     """RouterOS script: download each page into every hotspot HTML folder; allow TapTap in the walled garden."""
     lines = [':local n 0']
@@ -114,6 +125,11 @@ def install_script(base, token, files, host, check, dns_name=''):
         # garden: without this the login page cannot reach TapTap before login and logs in blind.
         lines.append(f':do {{ :if ([:len [/ip hotspot walled-garden ip find dst-host={_rs(host)}]] = 0) do={{ '
                      f'/ip hotspot walled-garden ip add dst-host={_rs(host)} action=accept comment="TapTap portal (https: voucher check, warnings)" }} }} on-error={{ :log warning "TapTap portal: could not add the https walled-garden entry" }}')
+    # In-app calls from the Wi-Fi page (core/portal_call.py): before login a phone can only reach the walled garden,
+    # so the voice needs your TURN relay there too (CHAT_TURN_URLS). Nothing is added when no relay is set up.
+    for th in turn_hosts():
+        lines.append(f':do {{ :if ([:len [/ip hotspot walled-garden ip find dst-host={_rs(th)}]] = 0) do={{ '
+                     f'/ip hotspot walled-garden ip add dst-host={_rs(th)} action=accept comment="TapTap calls (TURN relay)" }} }} on-error={{}}')
     lines.append(':if ($n = 0) do={ :error "TapTap portal: no hotspot is set up on this router" }')
     # Phones' connection tests always need a login, so the login sheet always opens (core/probe_guard.py).
     try:

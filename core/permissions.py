@@ -67,7 +67,7 @@ traffic_cdn app_control app_rule_save app_rule_global app_rule_action netdev_lis
 router_link_status devices device_action topology_routers topology_router_find topology_router_action topology_router_probe
 topology_field topology_field_save topology_geo topology_labels port_blink network_tools network_tools_run network_tools_test network_tools_path network_tools_devices network_tools_verdict network_tools_save_chain network_tools_blob network_tools_sink'''.split()
 _STUDIO = '''portal_studio portal_editor portal_qr portal_online_prepare portal_action portal_export portal_deploy portal_deploy_status voucher_designs
-voucher_design_editor voucher_design_action ads ad_save ad_action'''.split()
+voucher_design_editor voucher_design_action ads ad_save ad_action portal_call_settings'''.split()
 
 URL_PERMS = {
     'dashboard': 'dashboard.view',

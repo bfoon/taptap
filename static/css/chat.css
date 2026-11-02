@@ -108,6 +108,7 @@ html[data-theme="dark"] .ttc{--c-bg:#1f242b;--c-ink:#e3e9f0;--c-mut:#94a3b4;--c-
 .ttc-ring{position:fixed;top:18px;right:18px;z-index:1250;width:min(380px,calc(100vw - 24px));background:#0f1b30;color:#e8eef7;border-radius:20px;padding:14px;
   box-shadow:0 24px 60px rgba(5,10,25,.5);display:grid;grid-template-columns:auto 1fr;gap:10px 12px;align-items:center;overflow:hidden;animation:ttcslide .25s ease-out}
 .ttc-ring.support{background:linear-gradient(135deg,#1e1145,#0f1b30)}
+.ttc-ring.portal{background:linear-gradient(135deg,#0f3d2e,#0f1b30)}.ttc-ring.portal .ttc-ring-av{background:#22c55e;color:#fff}
 .ttc-ring-av{width:52px;height:52px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:18px;background:linear-gradient(135deg,#1d4ed8,#7c3aed);animation:ttcring 1.6s ease-out infinite}
 @keyframes ttcring{0%{box-shadow:0 0 0 0 rgba(96,165,250,.7)}100%{box-shadow:0 0 0 18px rgba(96,165,250,0)}}
 .ttc-ring-mid b{display:block;font-size:15px}.ttc-ring-mid small{color:#94a3b8}

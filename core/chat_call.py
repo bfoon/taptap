@@ -21,6 +21,7 @@ Every piece of a call is its own cache key, written once, so concurrent requests
     call:user:<uid>    the call a person is in (busy signal)
 
 Who can be called
+    portal   a customer on a Wi-Fi page calls the business: rings the people the owner picked (core/portal_call.py)
     direct   the other person
     support  business side → the assigned agent, or every active agent (first to answer takes it);
              agent → everyone in that business (first to answer).
@@ -334,6 +335,10 @@ def finish(call, reason='ended'):
         if cache.get(f'call:user:{uid}') == cid:
             cache.delete(f'call:user:{uid}')
     live_at = cache.get(_k(cid, 'live_at'))
+    if call.get('guest'):                     # a customer calling from a Wi-Fi page (core/portal_call.py)
+        from .portal_call import note
+        note(call, reason, live_at)
+        return
     what = 'video call' if call['video'] else 'voice call'
     first = call['caller_name'].split(' ')[0]
     if live_at:
@@ -417,7 +422,11 @@ def public_state(call, uid):
             finish(call, 'lost')
             out['state'], out['reason'] = 'ended', 'lost'
             return out
-        if other:
+        if other and call.get('guest') and other == call['caller']:     # the customer on the Wi-Fi page
+            g = call['guest']
+            out['peer'] = {'name': (g.get('name') or 'Wi-Fi customer') + (f' · {g["phone"]}' if g.get('phone') else ''),
+                           'initials': call.get('caller_initials') or '☎'}
+        elif other:
             from django.contrib.auth.models import User
             u = User.objects.filter(pk=other).first()
             out['peer'] = {'name': chat.display_name(u), 'initials': chat.initials(u)} if u else None

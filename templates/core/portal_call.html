@@ -1,0 +1,31 @@
+{% load static %}<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex"><meta name="theme-color" content="{{ accent }}">
+<title>Call {{ biz.name }}</title>
+<style>
+:root{--ac:{{ accent }};--at:{{ accent_text }}}
+</style>
+<link rel="stylesheet" href="{% static 'css/portal-call.css' %}?v=1">
+</head>
+<body class="{% if embedded %}embedded{% endif %}">
+<main class="pc" id="pc" aria-live="polite">
+  <header class="pc-top">
+    {% if embedded %}<button class="pc-close" type="button" data-a="close" aria-label="Close">&times;</button>
+    {% elif back %}<a class="pc-close" href="{{ back }}" aria-label="Back to the Wi-Fi page">&larr;</a>{% endif %}
+    <span class="pc-lock">&#128274; Encrypted · free over Wi-Fi</span>
+  </header>
+  <section class="pc-stage">
+    <div class="pc-orb" id="pcOrb"><div class="pc-rings"><i></i><i></i><i></i></div>
+      <div class="pc-av" id="pcAv">{% if biz.logo %}<img src="{{ biz.logo }}" alt="">{% else %}{{ biz.name|slice:":1"|upper }}{% endif %}</div></div>
+    <h1 class="pc-name" id="pcName">{{ biz.name }}</h1>
+    <p class="pc-sub" id="pcSub">Checking who is there…</p>
+    <p class="pc-timer" id="pcTimer" hidden>0:00</p>
+    <div class="pc-video" id="pcVideo" hidden><video id="pcRcam" playsinline autoplay muted></video><video id="pcRscreen" playsinline autoplay muted></video></div>
+  </section>
+  <section class="pc-panel" id="pcPanel"></section>
+  <audio id="pcAudio" autoplay playsinline></audio>
+</main>
+{{ cfg|json_script:"pcData" }}
+<script src="{% static 'js/portal-call.js' %}?v=1"></script>
+</body></html>

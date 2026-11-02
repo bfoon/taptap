@@ -956,10 +956,11 @@
   var QUICK = ['Can’t talk right now — I’ll call you back.', 'In a meeting. Can you text me?', 'Calling you back in 5 minutes.'];
   function showRing(r) {
     hideRing(); CALL.ring = r;
-    var card = document.createElement('div'); card.className = 'ttc-ring' + (r.kind === 'support' ? ' support' : ''); card.setAttribute('role', 'alertdialog');
-    card.innerHTML = '<div class="ttc-ring-av">' + esc(r.initials) + '</div><div class="ttc-ring-mid"><b>' + esc(r.from) + '</b><small>' + (r.video ? 'Incoming video call' : 'Incoming voice call') + ' · 🔒 encrypted</small></div>' +
+    var portal = r.kind === 'portal';      // a customer calling from a Wi-Fi page (core/portal_call.py)
+    var card = document.createElement('div'); card.className = 'ttc-ring' + (r.kind === 'support' ? ' support' : '') + (portal ? ' portal' : ''); card.setAttribute('role', 'alertdialog');
+    card.innerHTML = '<div class="ttc-ring-av">' + esc(r.initials) + '</div><div class="ttc-ring-mid"><b>' + esc(r.from) + '</b><small>' + (portal ? '📶 Customer on your Wi-Fi page' : (r.video ? 'Incoming video call' : 'Incoming voice call')) + ' · 🔒 encrypted</small></div>' +
       '<div class="ttc-ring-btns"><button class="ttc-rb no" data-r="decline" title="Decline">' + ICON.phone + '</button>' +
-      '<button class="ttc-rb msg" data-r="msg" title="Decline with a message">' + ICON.chat + '</button>' +
+      (portal ? '' : '<button class="ttc-rb msg" data-r="msg" title="Decline with a message">' + ICON.chat + '</button>') +
       (r.video ? '<button class="ttc-rb yes" data-r="video" title="Answer with video">' + ICON.video + '</button>' : '') +
       '<button class="ttc-rb yes" data-r="voice" title="Answer">' + ICON.phone + '</button></div>' +
       '<div class="ttc-ring-quick ttc-hidden">' + QUICK.map(function (q, i) { return '<button data-q="' + i + '">' + esc(q) + '</button>'; }).join('') + '</div>' +
@@ -978,7 +979,7 @@
     document.body.appendChild(card);
     ringTone();
     if (document.hidden && window.Notification && Notification.permission === 'granted') {
-      try { var n = new Notification((r.video ? 'Video call' : 'Call') + ' from ' + r.from, { body: 'Tap to answer on TapTap', tag: 'ttcall-' + r.id, requireInteraction: true });
+      try { var n = new Notification((r.kind === 'portal' ? 'Wi-Fi customer call' : (r.video ? 'Video call' : 'Call')) + ' from ' + r.from, { body: 'Tap to answer on TapTap', tag: 'ttcall-' + r.id, requireInteraction: true });
         n.onclick = function () { window.focus(); n.close(); }; CALL.note = n; } catch (e) {}
     }
   }

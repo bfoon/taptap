@@ -10,6 +10,7 @@ from . import views_rollback as vrb
 from . import views_payroll as vpay
 from . import views_fup as vfup
 from . import views_bonanza as vbz
+from . import views_portal_call as vpcall
 from . import views_netdev as vnd
 from . import views_sharing as vshare
 from . import views_tracking as vtrack
@@ -92,6 +93,7 @@ urlpatterns = [
     # Reports
     path('reports/',vb.reports,name='reports'), path('reports/data/',vb.reports_data,name='reports_data'), path('reports/export/',vb.reports_export,name='reports_export'),
     # Studios
+    path('studio/portal/calls/',vpcall.portal_call_settings,name='portal_call_settings'), path('p/<slug:slug>/call/',vpcall.portal_call_page,name='portal_call_page'), path('p/<slug:slug>/call/api/',vpcall.portal_call_api,name='portal_call_api'),
     path('studio/portal/',vs.portal_studio,name='portal_studio'), path('studio/portal/<int:pk>/',vs.portal_editor,name='portal_editor'),
     path('studio/portal/<int:pk>/action/',vs.portal_action,name='portal_action'), path('studio/portal/<int:pk>/export/',vs.portal_export,name='portal_export'),
     path('studio/vouchers/',vs.voucher_designs,name='voucher_designs'), path('studio/vouchers/<int:pk>/',vs.voucher_design_editor,name='voucher_design_editor'),

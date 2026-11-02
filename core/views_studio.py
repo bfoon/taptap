@@ -99,7 +99,13 @@ def portal_studio(request):
     return render(request, 'core/studio/portal_list.html', {
         'pages': pages, 'gallery': portal_gallery(), 'business_ctx': business_ctx(business), 'plans_ctx': plans_ctx(business),
         'kinds': PortalPage.KINDS,
+        'calls': _calls_ctx(business),
     })
+
+
+def _calls_ctx(business):
+    from .views_portal_call import settings_ctx
+    return settings_ctx(business)
 
 
 @login_required
@@ -189,6 +195,7 @@ def _public_ctx(request, page, mode):
             'mt': mt, 'checkUrl': f'/p/{page.slug}/check/', 'deviceUrl': f'/p/device/{page.slug}/',
             'readyUrl': f'/p/{page.slug}/ready/', 'healUrl': f'/p/{page.slug}/heal/',
             'acceptUrl': f'/p/{page.slug}/accept/', 'reportUrl': f'/p/{page.slug}/report/',
+            'callUrl': f'/p/{page.slug}/call/', 'callApi': f'/p/{page.slug}/call/api/',   # in-app calls (core/portal_call.py)
             'bonanza': bonanza_ctx(business),
             'qrLib': static('vendor/jsqr.js'),          # QR decoder, loaded only when a customer taps "Scan"
             'ads': {page.kind: ads_for(business, page.kind, base)},
@@ -296,6 +303,8 @@ def _export_html(page, base='', router=None):
            # frozen / warned vouchers: the page asks TapTap first and shows the warning instead of logging in
            'stateUrl': f'{base}/p/{page.slug}/state/' if base else '', 'acceptUrl': f'{base}/p/{page.slug}/accept/' if base else '',
            'reportUrl': f'{base}/p/{page.slug}/report/' if base else '',
+           # in-app call: the router page is http://, where browsers refuse the microphone — it opens TapTap's https page
+           'callUrl': f'{base}/p/{page.slug}/call/' if base else '', 'callApi': f'{base}/p/{page.slug}/call/api/' if base else '',
            # login guarantee (core/voucher_ready.py): wait for the router to have the voucher; heal a refused login
            'readyUrl': f'{base}/p/{page.slug}/ready/' if base else '', 'healUrl': f'{base}/p/{page.slug}/heal/' if base else '',
            # phone clock check: TapTap's time when reachable, else "a phone dated before this page is wrong"
