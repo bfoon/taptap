@@ -114,21 +114,27 @@ def plan_delete(request, pk):
 
 @login_required
 def voucher_bin(request):
-    """Everything deleted: read-only. Nothing here can be deleted again or restored."""
+    """Everything deleted (vouchers, batches, voucher plans, Member Plans): read-only. Nothing here can be deleted
+    again or restored."""
     business = _b(request)
-    tab = request.GET.get('tab') if request.GET.get('tab') in ('batches', 'plans') else 'vouchers'
+    tab = request.GET.get('tab') if request.GET.get('tab') in ('batches', 'plans', 'member_plans') else 'vouchers'
     q = request.GET.get('q', '').strip()
     vouchers = (Voucher.all_objects.binned().filter(business=business)
                 .select_related('deleted_by', 'router', 'batch').order_by('-deleted_at'))
     batches = (VoucherBatch.all_objects.binned().filter(business=business)
                .select_related('deleted_by', 'plan', 'agent').order_by('-deleted_at'))
     plans = VoucherPlan.all_objects.binned().filter(business=business).select_related('deleted_by').order_by('-deleted_at')
+    from .models_member_plans import MemberPlan
+    member_plans = MemberPlan.all_objects.binned().filter(business=business).select_related('deleted_by').order_by('-deleted_at')
     if q:
         vouchers = vouchers.filter(code_search_q(q, 'code', ('plan_name', 'delete_reason', 'batch__name')))
         batches = batches.filter(Q(name__icontains=q) | Q(delete_reason__icontains=q))
         plans = plans.filter(Q(name__icontains=q) | Q(delete_reason__icontains=q))
-    counts = {'vouchers': vouchers.count(), 'batches': batches.count(), 'plans': plans.count()}
-    page = Paginator({'vouchers': vouchers, 'batches': batches, 'plans': plans}[tab], 50).get_page(request.GET.get('page'))
+        member_plans = member_plans.filter(Q(name__icontains=q) | Q(delete_reason__icontains=q))
+    counts = {'vouchers': vouchers.count(), 'batches': batches.count(), 'plans': plans.count(),
+              'member_plans': member_plans.count()}
+    page = Paginator({'vouchers': vouchers, 'batches': batches, 'plans': plans,
+                      'member_plans': member_plans}[tab], 50).get_page(request.GET.get('page'))
     return render(request, 'core/voucher_bin.html', {'tab': tab, 'q': q, 'page_obj': page, 'counts': counts,
                                                      'pending': Voucher.all_objects.binned().filter(business=business, router_removal__in=['queued', 'failed']).count()})
 

@@ -250,6 +250,13 @@
       t.animation === 'rise' ? '.tp-card{animation:tprise .55s cubic-bezier(.2,.8,.2,1) both}@keyframes tprise{from{opacity:0;transform:translateY(18px)}}' : '',
       t.animation === 'fade' ? '.tp-card{animation:tpfade .5s ease both}@keyframes tpfade{from{opacity:0}}' : '',
       '@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}',
+      /* floating call button */
+      '.tp-float{position:fixed;z-index:60;bottom:calc(18px + env(safe-area-inset-bottom,0px))}.tp-float.right{right:calc(16px + env(safe-area-inset-right,0px))}.tp-float.left{left:calc(16px + env(safe-area-inset-left,0px))}',
+      '.tp-call{display:inline-flex;align-items:center;gap:8px;height:56px;padding:0 20px 0 16px;border-radius:999px;background:' + t.accent + ';color:' + t.accent_text + '!important;text-decoration:none;font-weight:700;font-size:15px;box-shadow:0 10px 28px -6px ' + hexA(t.accent, .6) + ',0 2px 6px rgba(0,0,0,.18);-webkit-tap-highlight-color:transparent;transition:transform .15s}',
+      '.tp-call:active{transform:scale(.94)}.tp-call.round{width:58px;height:58px;padding:0;justify-content:center}.tp-call-i{display:flex}',
+      '.tp-call.pulse{animation:tpCallPulse 2.4s ease-out infinite}.tp-call.pulse .tp-call-i{animation:tpRing 2.4s ease-in-out infinite}',
+      '@keyframes tpCallPulse{0%{box-shadow:0 0 0 0 ' + hexA(t.accent, .55) + ',0 10px 28px -6px ' + hexA(t.accent, .6) + '}70%{box-shadow:0 0 0 16px ' + hexA(t.accent, 0) + ',0 10px 28px -6px ' + hexA(t.accent, .6) + '}100%{box-shadow:0 0 0 0 ' + hexA(t.accent, 0) + ',0 10px 28px -6px ' + hexA(t.accent, .6) + '}}',
+      '.tp-pv .tp-float[data-bid]{outline-offset:3px;border-radius:999px}',
       /* preview helpers */
       '.tp-pv [data-bid]{position:relative;cursor:pointer;border-radius:6px;outline:2px solid transparent;outline-offset:5px;transition:outline-color .12s}.tp-pv [data-bid]:hover{outline-color:' + hexA(t.accent, .45) + '}.tp-pv [data-bid].sel{outline-color:' + t.accent + '}'
     ].join('\n');
@@ -403,6 +410,21 @@
     if (b.hours) out.push('<span>' + icon('clock', 16) + esc(b.hours) + '</span>');
     return out.length ? '<div class="tp-row">' + out.join('') + '</div>' : (ctx.mode === 'preview' ? '<div class="tp-ph">Add a phone, WhatsApp or opening hours</div>' : '');
   };
+  /* Floating call button — sits in a corner of the screen, on top of the page, and dials the business.
+     A plain tel: link, so it works on the router's own login page too (no internet needed to place the call). */
+  function telOf(v) { return String(v || '').replace(/[^\d+]/g, '').replace(/(?!^)\+/g, ''); }
+  B.call = function (b, ctx) {
+    var ph = String(b.phone || (ctx.business && ctx.business.phone) || '').trim(), tel = telOf(ph);
+    var pv = ctx.mode === 'preview' || ctx.mode === 'thumb';
+    if (!tel && !pv) return '';
+    var label = String(b.label || 'Call us').trim() || 'Call us';
+    var cls = 'tp-call ' + (b.corner === 'left' ? 'left' : 'right') + (b.show_label === false ? ' round' : '') + (b.pulse === false ? '' : ' pulse');
+    return '<a class="' + cls + '" href="' + (tel ? 'tel:' + esc(tel) : '#') + '" aria-label="' + esc(label + (ph ? ' ' + ph : '')) + '"' +
+      (tel ? '' : ' title="Add a phone number in the block settings (or in Settings)"') + '>' +
+      '<span class="tp-call-i">' + icon('phone', 22) + '</span>' + (b.show_label === false ? '' : '<span class="tp-call-t">' + esc(label) + '</span>') + '</a>';
+  };
+  var FLOATING = { call: 1 };      // blocks drawn over the page, outside the card
+
   B.social = function (b, ctx) {
     var map = [['facebook', 'facebook', 'https://facebook.com/'], ['instagram', 'instagram', 'https://instagram.com/'], ['tiktok', 'tiktok', 'https://tiktok.com/@'], ['whatsapp', 'whatsapp', 'https://wa.me/']], out = '';
     map.forEach(function (m) { var v = b[m[0]]; if (!v) return; var url = /^https?:/.test(v) ? v : m[2] + String(v).replace(/^@/, '').replace(m[0] === 'whatsapp' ? /\D/g : /$^/, ''); out += '<a href="' + esc(url) + '" aria-label="' + m[0] + '">' + icon(m[1], 19) + '</a>'; });
@@ -859,12 +881,18 @@
     if (ctx.business && ctx.business.logo && ctx.settings.auto_logo !== false && !blocks.some(function (b) { return b.type === 'logo'; }))
       blocks.unshift({ id: 'auto-logo', type: 'logo', mode: 'image', size: 56, shape: 'rounded' });
     function html(b) { var inner = B[b.type](b, ctx); if (!inner) return ''; return '<div class="tp-b tp-b-' + b.type + '"' + (ctx.mode === 'preview' ? ' data-bid="' + esc(b.id) + '"' : '') + '>' + inner + '</div>'; }
+    // Floating blocks (the call button) sit over the page, outside the card — a card with a blur or an entrance
+    // animation would otherwise pin them inside it. Only the first one of each kind is drawn.
+    var floats = [], seenF = {};
+    blocks = blocks.filter(function (b) { if (!FLOATING[b.type]) return true; if (!seenF[b.type]) { seenF[b.type] = 1; floats.push(b); } return false; });
+    function floatHtml(b) { var inner = B[b.type](b, ctx); if (!inner) return ''; return '<div class="tp-float tp-b-' + b.type + ' ' + (b.corner === 'left' ? 'left' : 'right') + '"' + (ctx.mode === 'preview' ? ' data-bid="' + esc(b.id) + '"' : '') + '>' + inner + '</div>'; }
     var layout = t.layout || 'card', hero = [], rest = blocks;
     if (layout === 'split' || layout === 'sheet') { var i = 0; while (i < blocks.length && (blocks[i].type === 'logo' || blocks[i].type === 'heading')) i++; hero = blocks.slice(0, i); rest = blocks.slice(i); }
     var body;
     if (layout === 'split') body = '<div class="tp-wrap"><div class="tp-hero">' + hero.map(html).join('') + '</div><div class="tp-side"><div class="tp-card">' + rest.map(html).join('') + '</div></div></div>';
     else if (layout === 'sheet') body = '<div class="tp-hero">' + hero.map(html).join('') + '</div><div class="tp-card">' + rest.map(html).join('') + '</div>';
     else body = (layout === 'bands' ? '<div class="tp-bands"></div>' : '') + '<main class="tp-card">' + rest.map(html).join('') + '</main>';
+    body += floats.map(floatHtml).join('');
     root.className = 'tp l-' + layout + (ctx.mode === 'preview' ? ' tp-pv' : '') + (CASE_SENSITIVE ? ' tp-cs' : '');
     root.innerHTML = body;
 

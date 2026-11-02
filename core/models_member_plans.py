@@ -10,9 +10,17 @@ from django.db import models
 from django.utils import timezone
 
 from .durations import split, text
+from .models import AliveManager, BinQuerySet
 
 
 class MemberPlan(models.Model):
+    """A reusable plan for members.
+
+    Recycle bin: a switched-off plan with no members left can be deleted. It goes to the bin with who,
+    when and why (core/member_plan_bin.py) and is never erased: ``business.member_plans`` and
+    ``MemberPlan.objects`` hide it, ``MemberPlan.all_objects`` still sees it, and renewal receipts and
+    archived members that point at it keep working. Its name can be used again by a new plan.
+    """
     business = models.ForeignKey(
         'core.Business',
         on_delete=models.CASCADE,
@@ -54,14 +62,30 @@ class MemberPlan(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Recycle bin (core/member_plan_bin.py): kept with who, when and why — never erased.
+    deleted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
+    delete_reason = models.CharField(max_length=255, blank=True)
+    delete_info = models.JSONField(default=dict, blank=True)
+
+    objects = AliveManager()
+    all_objects = BinQuerySet.as_manager()
 
     class Meta:
         app_label = 'core'
         ordering = ['price', 'name']
         constraints = [
+            # Only live plans need unique names, so a deleted plan's name can be used again.
             models.UniqueConstraint(
                 fields=['business', 'name'],
-                name='uniq_member_plan_business_name',
+                condition=models.Q(deleted_at__isnull=True),
+                name='uniq_live_member_plan_name',
             ),
         ]
 
@@ -80,6 +104,10 @@ class MemberPlan(models.Model):
     @property
     def duration_text(self):
         return text(self.duration_minutes)
+
+    @property
+    def is_deleted(self):
+        return self.deleted_at is not None
 
     @property
     def duration_value(self):

@@ -45,7 +45,8 @@ def _plan_rows(business):
     rows = []
     plans = (
         business.member_plans
-        .annotate(assigned_count=Count('assignments'))
+        # members in the bin don't count: they are not on the plan any more
+        .annotate(assigned_count=Count('assignments', filter=Q(assignments__member__deleted_at__isnull=True)))
         .order_by('-active', 'price', 'name')
     )
     for plan in plans:
@@ -200,6 +201,47 @@ def members(request):
                 'Member Plan',
                 f'{plan.name}: {"enabled" if active else "disabled"}',
             )
+            return redirect('/members/#member-plans')
+
+        if action == 'delete_plan':
+            # Only a switched-off plan; members still on it move to another plan in the same step.
+            from .member_plan_bin import MemberPlanBinError, delete_member_plan
+            if not _can(request, 'plans.manage'):
+                messages.error(
+                    request,
+                    'Your role cannot delete Member Plans.',
+                )
+                return redirect('/members/#member-plans')
+
+            plan = get_object_or_404(
+                business.member_plans,
+                pk=f.get('plan_id') or 0,
+            )
+            move_to = None
+            target = str(f.get('move_to') or '')
+            if target.isdigit():
+                move_to = business.member_plans.filter(pk=int(target)).first()
+            try:
+                result = delete_member_plan(
+                    plan,
+                    user=request.user,
+                    reason=f.get('reason', ''),
+                    move_to=move_to,
+                    perms=getattr(request, 'tt_perms', None),
+                )
+            except MemberPlanBinError as exc:
+                messages.error(request, str(exc))
+                return redirect('/members/#member-plans')
+
+            msg = f'Member Plan “{plan.name}” is in the bin.'
+            if result['moved']:
+                n = len(result['moved'])
+                msg += (
+                    f' {n} member{"s" if n != 1 else ""} moved to '
+                    f'“{result["moved_to"].name}” — time already used is kept, '
+                    'and each one is sent to its router again.'
+                )
+            messages.success(request, msg)
             return redirect('/members/#member-plans')
 
         if action == 'assign_plan':
