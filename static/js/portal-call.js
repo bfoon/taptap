@@ -68,12 +68,14 @@
     panel.innerHTML = '<p class="pc-banner" id="pcBanner"></p><div class="pc-bar">' +
       '<button class="pc-btn' + (muted ? ' off' : '') + '" data-a="mute" type="button"><span>' + (muted ? ICON.micoff : ICON.mic) + '</span>' + (muted ? 'Unmute' : 'Mute') + '</button>' +
       '<button class="pc-btn end" data-a="hangup" type="button"><span>' + ICON.phone + '</span>' + (S.state === 'live' ? 'Hang up' : 'Cancel') + '</button>' +
-      '<button class="pc-btn" data-a="speaker" type="button"><span>' + ICON.spk + '</span>Sound</button></div>';
+      '<button class="pc-btn' + (spk() ? ' on' : '') + '" data-a="speaker" type="button" aria-pressed="' + (spk() ? 'true' : 'false') + '"><span>' + ICON.spk + '</span>Speaker</button></div>';
   }
+  function spk() { return !!(window.TapSpeaker && TapSpeaker.isOn()); }
   function banner(t) { var b = $('pcBanner'); if (b) b.textContent = t || ''; }
   function done(reason, msg) {
     S.ended = true; ringback(false); stopLevel(); clearAll();
     try { if (S.pc) S.pc.close(); } catch (e) {} S.pc = null;
+    if (window.TapSpeaker) TapSpeaker.stop();
     if (S.mic) { S.mic.stop(); }
     setRoot('done'); timer.hidden = !S.liveAt;
     var talk = S.liveAt ? 'Call ended · ' + clock(Date.now() - S.liveAt) : '';
@@ -139,7 +141,10 @@
     S.dc.onmessage = function (e) { try { onCtl(JSON.parse(e.data)); } catch (x) {} };
     pc.ontrack = function (e) {
       var s = new MediaStream([e.track]);
-      if (e.track.kind === 'audio') { audio.srcObject = s; audio.play().catch(function () { banner('Tap “Sound” to hear the call'); }); level(s); }
+      if (e.track.kind === 'audio') {
+        audio.srcObject = s; audio.play().catch(function () { banner('Tap “Speaker” to hear the call'); }); level(s);
+        if (window.TapSpeaker) TapSpeaker.attach(audio, s);          // keeps the speaker choice if it was already on
+      }
       else { var slot = pc.getTransceivers().indexOf(e.transceiver); if (slot === 1) $('pcRcam').srcObject = s; else if (slot === 2) $('pcRscreen').srcObject = s; }
     };
     pc.onconnectionstatechange = function () {
@@ -239,7 +244,14 @@
     var a = b.getAttribute('data-a');
     if (a === 'hangup') hangup();
     else if (a === 'mute' && S.mic) { S.mic.enabled = !S.mic.enabled; sendState(); inCall(); }
-    else if (a === 'speaker') { ac(); audio.play().catch(function () {}); banner(''); }
+    else if (a === 'speaker') {
+      ac(); audio.play().catch(function () {});
+      if (!window.TapSpeaker) return;
+      TapSpeaker.toggle().then(function (r) {
+        inCall(); banner(r.note);
+        clearTimeout(S.t.spk); S.t.spk = setTimeout(function () { banner(''); }, r.mode === 'ios' || r.mode === 'none' ? 6000 : 2000);
+      });
+    }
     else if (a === 'close') { if (S.id && !S.ended) hangup(); try { window.parent.postMessage({ tpCall: 'close' }, '*'); } catch (x) {} }
   });
   // Closing the page ends the call for staff straight away (instead of waiting for the heartbeat).

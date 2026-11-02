@@ -73,6 +73,7 @@
   function first(n) { return String(n || '').split(' ')[0]; }
 
   var ICON = {
+    spk: '<svg viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>',
     mic: '<svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5"/></svg>',
     micoff: '<svg viewBox="0 0 24 24"><path d="M2 2l20 20M9 9v1a3 3 0 0 0 5.1 2.1M15 9.3V5a3 3 0 0 0-5.7-1.3M19 10a7 7 0 0 1-1.2 3.9M5 10a7 7 0 0 0 11 5.7M12 17v5"/></svg>',
     cam: '<svg viewBox="0 0 24 24"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="M16 10l6-3v10l-6-3z"/></svg>',
@@ -123,6 +124,7 @@
     '<footer class="cw-bar">' +
       '<button class="cw-btn" data-a="mic" title="Mute (M)">' + ICON.mic + '<small>Mute</small></button>' +
       '<button class="cw-btn" data-a="cam" title="Camera (V)">' + ICON.camoff + '<small>Camera</small></button>' +
+      (MOBILE ? '<button class="cw-btn" data-a="speaker" title="Loudspeaker" aria-pressed="false">' + ICON.spk + '<small>Speaker</small></button>' : '') +
       '<button class="cw-btn cw-h" data-a="flip" title="Switch front / back camera (F)">' + ICON.flip + '<small>Flip</small></button>' +
       '<button class="cw-btn cw-fxbtn" data-a="fx" title="Studio — background, face masks, drawing, name tag (E)">' + ICON.fx + '<small>Effects</small></button>' +
       '<div class="cw-sharewrap"><button class="cw-btn" data-a="sharemenu" title="Share your screen">' + ICON.screen + '<small>Share</small></button></div>' +
@@ -321,7 +323,10 @@
     S.dc.onmessage = function (e) { try { onCtl(JSON.parse(e.data)); } catch (x) {} };
     pc.ontrack = function (e) {
       var s = new MediaStream([e.track]);
-      if (e.track.kind === 'audio') { el.raudio.srcObject = s; el.raudio.play().catch(function () { banner('audio', '🔈 <button class="cw-link" data-a="unblock">Tap to hear the call</button>', 'warn'); }); level(s, el.aura); }
+      if (e.track.kind === 'audio') {
+        el.raudio.srcObject = s; el.raudio.play().catch(function () { banner('audio', '🔈 <button class="cw-link" data-a="unblock">Tap to hear the call</button>', 'warn'); }); level(s, el.aura);
+        if (window.TapSpeaker) TapSpeaker.attach(el.raudio, s);      // loudspeaker switch (static/js/call-speaker.js)
+      }
       else {
         // slot by position (audio, camera, screen) — on the answering side this fires before S.T is filled in
         var slot = pc.getTransceivers().indexOf(e.transceiver);
@@ -1447,6 +1452,13 @@
       wrap.parentNode.insertBefore(p, wrap.nextSibling);
     }
     else if (a === 'unblock') { el.raudio.play(); banner('audio', ''); ac(); }
+    else if (a === 'speaker' && window.TapSpeaker) {
+      ac(); el.raudio.play().catch(function () {});
+      TapSpeaker.toggle().then(function (r) {
+        b.classList.toggle('on', TapSpeaker.isOn()); b.setAttribute('aria-pressed', TapSpeaker.isOn() ? 'true' : 'false');
+        banner('spk', '🔊 ' + esc(r.note), 'info', r.mode === 'ios' || r.mode === 'none' ? 6000 : 2000);
+      });
+    }
     else if (a === 'hangup') hangup('ended');
     else if (a === 'close') closeWindow();
     else if (a === 'again') location.reload();
@@ -1473,7 +1485,7 @@
     if (S.ended) return; S.ended = true;
     ctlStop('share'); recStop();                // a recording in progress is still saved to the chat
     if (!remote) { send({ t: 'bye' }); if (S.cid) act('end', { reason: reason }); }
-    ringback(false); stopShare();
+    ringback(false); stopShare(); if (window.TapSpeaker) TapSpeaker.stop();
     Object.keys(S.timers).forEach(function (k) { clearTimeout(S.timers[k]); clearInterval(S.timers[k]); });
     banner('net', '');
     [S.mic, S.micProbe, S.cam].forEach(function (t) { try { t && t.stop(); } catch (e) {} });

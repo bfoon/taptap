@@ -42,7 +42,7 @@ body{font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#
 .pc-btn{display:flex;flex-direction:column;align-items:center;gap:7px;border:0;background:none;color:#fff;font-weight:600;font-size:12px;font-family:inherit;cursor:pointer}
 .pc-btn span{width:66px;height:66px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.14);transition:transform .12s,background .15s}
 .pc-btn:active span{transform:scale(.92)}.pc-btn svg{width:28px;height:28px}
-.pc-btn.off span{background:#fff;color:#0b1220}.pc-btn.end span{background:#ef4444;box-shadow:0 14px 30px -12px rgba(239,68,68,.9)}.pc-btn.end svg{transform:rotate(135deg)}
+.pc-btn.off span,.pc-btn.on span{background:#fff;color:#0b1220}.pc-btn.end span{background:#ef4444;box-shadow:0 14px 30px -12px rgba(239,68,68,.9)}.pc-btn.end svg{transform:rotate(135deg)}
 .pc-banner{margin:0 0 10px;text-align:center;font-size:13px;opacity:.85}
 .pc-done{text-align:center}.pc-done p{margin:0 0 14px;opacity:.85}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
