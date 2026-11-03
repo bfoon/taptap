@@ -33,6 +33,28 @@ On first start, tap **Using your own TapTap server?** if your TapTap is not at `
 
 Release builds: `flutter build apk --release` (or `appbundle`) and `flutter build ipa`.
 
+### Build on GitHub (no Flutter on your computer)
+
+The workflow `.github/workflows/mobile-app.yml` builds the app on every push that touches `mobile/`:
+
+1. Push the repo (with `.github/workflows/mobile-app.yml` and `mobile/`) to GitHub.
+2. Open **Actions → TapTap mobile app**; when the run is green, download **TapTap-android-N** from *Artifacts* —
+   it holds `TapTap-N.apk`, ready to install on Android (allow "install unknown apps" once).
+3. iPhone: **Run workflow** → tick *Also build iPhone* for an unsigned build (a compile check; sign it in Xcode).
+
+Optional repository secrets (Settings → Secrets and variables → Actions):
+
+| Secret | What it does |
+|---|---|
+| `GOOGLE_SERVICES_JSON` | Paste the whole `google-services.json` from Firebase → push + ringing when the app is closed |
+| `TAPTAP_SERVER` | Your TapTap address (e.g. `https://taptapnetwork.com`) — the address the app starts with |
+
+The release APK is signed with the build's debug key: fine for installing on your team's phones. For the Play Store,
+add your own signing key (Flutter's *Build and release an Android app* guide).
+
+If a run fails, open the failed step and paste the red lines — the *Analyze* step lists every problem in the code
+even when the build continues.
+
 ## 2. Ringing when the app is closed (optional — Firebase)
 
 Without this the app works fully while it is open (it checks every few seconds, like the website). With it, calls

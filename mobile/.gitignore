@@ -1,0 +1,24 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+pubspec.lock.bak
+*.iml
+.idea/
+.vscode/
+
+# Platform folders are made by `flutter create` + tool/configure_platforms.py (locally and on GitHub).
+# Remove these two lines if you prefer to commit them.
+/android/
+/ios/
+
+# never commit Firebase / signing secrets
+google-services.json
+GoogleService-Info.plist
+*.jks
+*.keystore
+key.properties

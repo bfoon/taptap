@@ -56,6 +56,40 @@ for g in (ROOT / 'android/app/build.gradle.kts', ROOT / 'android/app/build.gradl
             say(f'Android: minSdk 24 in {g.name}')
         break
 
+# ── Firebase (Android): only when android/app/google-services.json is there (CI writes it from a secret) ──
+gs = ROOT / 'android/app/google-services.json'
+if gs.exists():
+    for settings in (ROOT / 'android/settings.gradle.kts', ROOT / 'android/settings.gradle'):
+        if settings.exists():
+            s = settings.read_text()
+            if 'com.google.gms.google-services' not in s:
+                kts = settings.suffix == '.kts'
+                line = ('    id("com.google.gms.google-services") version "4.4.2" apply false\n' if kts
+                        else "    id 'com.google.gms.google-services' version '4.4.2' apply false\n")
+                s2 = re.sub(r'(\n\s*id[ (]["\']dev\.flutter\.flutter-plugin-loader["\'][^\n]*\n)', lambda m: m.group(1) + line, s, count=1)
+                if s2 != s:
+                    settings.write_text(s2)
+                    say(f'Firebase: Google services plugin declared in {settings.name}')
+                else:
+                    ok = False
+                    say(f'Firebase: could not find the plugins block in {settings.name} — add the Google services plugin by hand')
+            break
+    for g in (ROOT / 'android/app/build.gradle.kts', ROOT / 'android/app/build.gradle'):
+        if g.exists():
+            s = g.read_text()
+            if 'com.google.gms.google-services' not in s:
+                line = '    id("com.google.gms.google-services")\n' if g.suffix == '.kts' else "    id 'com.google.gms.google-services'\n"
+                s2 = re.sub(r'(\n\s*id[ (]["\']dev\.flutter\.flutter-gradle-plugin["\'][^\n]*\n)', lambda m: m.group(1) + line, s, count=1)
+                if s2 != s:
+                    g.write_text(s2)
+                    say(f'Firebase: Google services plugin applied in app/{g.name}')
+                else:
+                    ok = False
+                    say(f'Firebase: could not find the plugins block in app/{g.name} — add the Google services plugin by hand')
+            break
+else:
+    say('Firebase: no google-services.json — push stays off (the app still works while open)')
+
 # ── iPhone ──
 plist = ROOT / 'ios/Runner/Info.plist'
 if plist.exists():

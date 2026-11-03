@@ -1,0 +1,149 @@
+# Builds the TapTap app (mobile/) on GitHub.
+#
+#   Android: every push that touches mobile/ — download the APK from the run's "Artifacts" box.
+#   iPhone:  Actions → "TapTap mobile app" → Run workflow → tick "Also build iPhone" (unsigned build, a compile check;
+#            signing for the App Store is done in Xcode or with your own signing setup).
+#
+# Optional secrets (Settings → Secrets and variables → Actions):
+#   GOOGLE_SERVICES_JSON   the whole google-services.json from Firebase — turns on push and ringing when the app is closed
+#   TAPTAP_SERVER          your TapTap address, e.g. https://taptapnetwork.com — the address the app starts with
+#
+# The android/ and ios/ folders are not in git: each run makes them with `flutter create` and
+# mobile/tool/configure_platforms.py adds the permissions (microphone, camera, notifications, background calls).
+name: TapTap mobile app
+
+on:
+  push:
+    branches: [main, master]
+    paths: ['mobile/**', '.github/workflows/mobile-app.yml']
+  pull_request:
+    paths: ['mobile/**', '.github/workflows/mobile-app.yml']
+  workflow_dispatch:
+    inputs:
+      ios:
+        description: 'Also build iPhone (unsigned)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ORG: gm.easysolutions
+  APP: taptap_app
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Make the android/ folder
+        run: flutter create --org "$ORG" --project-name "$APP" --platforms android .
+
+      - name: Firebase config (only if the secret is set)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+            echo "Firebase: on"
+          else
+            echo "Firebase: off (no GOOGLE_SERVICES_JSON secret) — the app works while it is open"
+          fi
+
+      - name: Permissions and settings
+        run: python3 tool/configure_platforms.py
+
+      - name: Server address
+        env:
+          TAPTAP_SERVER: ${{ secrets.TAPTAP_SERVER }}
+        run: |
+          if [ -n "$TAPTAP_SERVER" ]; then
+            sed -i "s#static const defaultServer = '.*';#static const defaultServer = '${TAPTAP_SERVER%/}';#" lib/app/api.dart
+            grep -n "defaultServer =" lib/app/api.dart
+          fi
+
+      - name: Packages
+        run: flutter pub get
+
+      - name: Analyze (shows problems, does not stop the build)
+        continue-on-error: true
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Rename
+        run: |
+          mkdir -p ../out
+          cp build/app/outputs/flutter-apk/app-release.apk "../out/TapTap-${GITHUB_RUN_NUMBER}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TapTap-android-${{ github.run_number }}
+          path: out/*.apk
+          retention-days: 30
+
+  ios:
+    name: iPhone (unsigned)
+    if: github.event_name == 'workflow_dispatch' && inputs.ios
+    runs-on: macos-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Make the ios/ folder
+        run: flutter create --org "$ORG" --project-name "$APP" --platforms ios .
+
+      - name: Permissions and settings
+        run: python3 tool/configure_platforms.py
+
+      - name: Packages
+        run: |
+          flutter pub get
+          cd ios && pod install --repo-update
+
+      - name: Build (no code signing)
+        run: flutter build ios --release --no-codesign
+
+      - name: Pack
+        run: |
+          mkdir -p ../out
+          cd build/ios/iphoneos && zip -qr "../../../../out/TapTap-ios-unsigned-${GITHUB_RUN_NUMBER}.zip" Runner.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TapTap-ios-unsigned-${{ github.run_number }}
+          path: out/*.zip
+          retention-days: 14
