@@ -5,7 +5,9 @@
     flutter create --org gm.easysolutions --project-name taptap_app --platforms android,ios .
     python3 tool/configure_platforms.py
 
-Safe to run again: nothing is added twice.
+Works with only one platform made too (GitHub's Android job makes only android/, the iPhone job only ios/):
+a platform that is not there is skipped. It fails only when neither is there, or a change it must make
+could not be made. Safe to run again: nothing is added twice.
 """
 import pathlib
 import re
@@ -13,6 +15,7 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ok = True
+found = 0
 
 
 def say(msg):
@@ -22,6 +25,7 @@ def say(msg):
 # ── Android ──
 man = ROOT / 'android/app/src/main/AndroidManifest.xml'
 if man.exists():
+    found += 1
     s = man.read_text()
     perms = ['INTERNET', 'RECORD_AUDIO', 'CAMERA', 'MODIFY_AUDIO_SETTINGS', 'BLUETOOTH_CONNECT', 'ACCESS_NETWORK_STATE',
              'CHANGE_NETWORK_STATE', 'POST_NOTIFICATIONS', 'USE_FULL_SCREEN_INTENT', 'FOREGROUND_SERVICE', 'WAKE_LOCK', 'VIBRATE',
@@ -44,8 +48,7 @@ if man.exists():
         say('Android: incoming calls can show over the lock screen')
     man.write_text(s)
 else:
-    ok = False
-    say('Android: no AndroidManifest.xml — run flutter create first')
+    say('Android: no android/ folder — skipped')
 
 for g in (ROOT / 'android/app/build.gradle.kts', ROOT / 'android/app/build.gradle'):
     if g.exists():
@@ -58,7 +61,9 @@ for g in (ROOT / 'android/app/build.gradle.kts', ROOT / 'android/app/build.gradl
 
 # ── Firebase (Android): only when android/app/google-services.json is there (CI writes it from a secret) ──
 gs = ROOT / 'android/app/google-services.json'
-if gs.exists():
+if not man.exists():
+    pass
+elif gs.exists():
     for settings in (ROOT / 'android/settings.gradle.kts', ROOT / 'android/settings.gradle'):
         if settings.exists():
             s = settings.read_text()
@@ -93,6 +98,7 @@ else:
 # ── iPhone ──
 plist = ROOT / 'ios/Runner/Info.plist'
 if plist.exists():
+    found += 1
     s = plist.read_text()
     keys = {
         'NSMicrophoneUsageDescription': 'TapTap uses the microphone for calls with your team and customers.',
@@ -110,8 +116,7 @@ if plist.exists():
         plist.write_text(s)
         say('iPhone: microphone, camera, photos, speech and background-call settings added')
 else:
-    ok = False
-    say('iPhone: no Info.plist — run flutter create first')
+    say('iPhone: no ios/ folder — skipped')
 
 pod = ROOT / 'ios/Podfile'
 if pod.exists():
@@ -121,5 +126,8 @@ if pod.exists():
         pod.write_text(s2)
         say('iPhone: iOS 13 minimum in Podfile')
 
-print('Done.' if ok else 'Some files were missing — see above.')
+if not found:
+    ok = False
+    say('No android/ or ios/ folder — run flutter create first (see README)')
+print('Done.' if ok else 'Not finished — see above.')
 sys.exit(0 if ok else 1)
