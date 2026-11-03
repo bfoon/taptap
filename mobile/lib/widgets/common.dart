@@ -49,7 +49,7 @@ class ShareRow extends StatelessWidget {
               const SizedBox(height: 6),
               ClipRRect(
                 borderRadius: BorderRadius.circular(99),
-                child: LinearProgressIndicator(value: share.clamp(0, 1), minHeight: 6, backgroundColor: cs.primary.withOpacity(.1)),
+                child: LinearProgressIndicator(value: share.clamp(0, 1), minHeight: 6, backgroundColor: cs.primary.withValues(alpha: .1)),
               ),
             ]),
           ),

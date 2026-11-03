@@ -162,7 +162,7 @@ class _CaseCard extends StatelessWidget {
             if (toI(c['count']) > 1)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(color: heatColor.withOpacity(.12), borderRadius: BorderRadius.circular(99)),
+                decoration: BoxDecoration(color: heatColor.withValues(alpha: .12), borderRadius: BorderRadius.circular(99)),
                 child: Text('sent ${c['count']}×', style: TextStyle(color: heatColor, fontWeight: FontWeight.w800, fontSize: 12)),
               ),
             const Spacer(),
@@ -181,7 +181,7 @@ class _CaseCard extends StatelessWidget {
           Container(
             margin: const EdgeInsets.only(top: 4),
             padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: cs.surfaceContainerHighest.withOpacity(.6), borderRadius: BorderRadius.circular(12)),
+            decoration: BoxDecoration(color: cs.surfaceContainerHighest.withValues(alpha: .6), borderRadius: BorderRadius.circular(12)),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
                 const Icon(Icons.search, size: 16),

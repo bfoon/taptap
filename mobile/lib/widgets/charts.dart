@@ -57,8 +57,8 @@ class HourBars extends StatelessWidget {
                 borderRadius: BorderRadius.circular(4),
                 color: vals[i] == peak && peak > 0
                     ? cs.primary
-                    : (isToday && i == now ? cs.tertiary : cs.primary.withOpacity(.35)),
-                backDrawRodData: BackgroundBarChartRodData(show: true, toY: peak <= 0 ? 1 : peak * 1.15, color: cs.primary.withOpacity(.05)),
+                    : (isToday && i == now ? cs.tertiary : cs.primary.withValues(alpha: .35)),
+                backDrawRodData: BackgroundBarChartRodData(show: true, toY: peak <= 0 ? 1 : peak * 1.15, color: cs.primary.withValues(alpha: .05)),
               ),
             ]),
         ],
@@ -125,7 +125,7 @@ class WeekBars extends StatelessWidget {
                 toY: vals[i],
                 width: 22,
                 borderRadius: BorderRadius.circular(7),
-                color: i == vals.length - 1 ? cs.primary : cs.primary.withOpacity(.3),
+                color: i == vals.length - 1 ? cs.primary : cs.primary.withValues(alpha: .3),
               ),
             ]),
         ],
@@ -156,7 +156,7 @@ class FitChart extends StatelessWidget {
           Container(
             width: 140,
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: cs.primaryContainer.withOpacity(.5), borderRadius: BorderRadius.circular(14)),
+            decoration: BoxDecoration(color: cs.primaryContainer.withValues(alpha: .5), borderRadius: BorderRadius.circular(14)),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('${t['name']}', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
               const SizedBox(height: 4),
@@ -226,7 +226,7 @@ class FitChart extends StatelessWidget {
                       color: palette[j % palette.length],
                       barWidth: 3,
                       dotData: const FlDotData(show: false),
-                      belowBarData: BarAreaData(show: type == 'area' || j == 0, color: palette[j % palette.length].withOpacity(.12)),
+                      belowBarData: BarAreaData(show: type == 'area' || j == 0, color: palette[j % palette.length].withValues(alpha: .12)),
                       spots: [
                         for (var i = 0; i < (series[j]['data'] as List).length; i++) FlSpot(i.toDouble(), toD((series[j]['data'] as List)[i])),
                       ],

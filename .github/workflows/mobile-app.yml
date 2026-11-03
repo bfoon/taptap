@@ -61,7 +61,10 @@ jobs:
         run: flutter --version
 
       - name: Make the android/ folder
-        run: flutter create --org "$ORG" --project-name "$APP" --platforms android .
+        run: |
+          flutter create --org "$ORG" --project-name "$APP" --platforms android .
+          # flutter create adds a sample test for a "MyApp" class this app does not have — keep only ours
+          if grep -q "MyApp" test/widget_test.dart 2>/dev/null; then git checkout -- test/widget_test.dart 2>/dev/null || rm -f test/widget_test.dart; fi
 
       - name: Firebase config (only if the secret is set)
         env:
@@ -92,6 +95,9 @@ jobs:
       - name: Analyze (shows problems, does not stop the build)
         continue-on-error: true
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Tests
+        run: flutter test
 
       - name: Build APK
         run: flutter build apk --release
@@ -124,7 +130,9 @@ jobs:
           cache: true
 
       - name: Make the ios/ folder
-        run: flutter create --org "$ORG" --project-name "$APP" --platforms ios .
+        run: |
+          flutter create --org "$ORG" --project-name "$APP" --platforms ios .
+          if grep -q "MyApp" test/widget_test.dart 2>/dev/null; then git checkout -- test/widget_test.dart 2>/dev/null || rm -f test/widget_test.dart; fi
 
       - name: Permissions and settings
         run: python3 tool/configure_platforms.py

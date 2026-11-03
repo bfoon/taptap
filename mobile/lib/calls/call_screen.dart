@@ -77,7 +77,7 @@ class _CallScreenState extends State<CallScreen> {
                 gradient: RadialGradient(
                   center: const Alignment(0, -.8),
                   radius: 1.2,
-                  colors: [app.brand.withOpacity(.55), const Color(0xFF0B1220)],
+                  colors: [app.brand.withValues(alpha: .55), const Color(0xFF0B1220)],
                 ),
               ),
             ),
@@ -174,7 +174,7 @@ class _Btn extends StatelessWidget {
   final bool on, danger;
   @override
   Widget build(BuildContext context) {
-    final bg = danger ? const Color(0xFFEF4444) : (on ? Colors.white : Colors.white.withOpacity(.14));
+    final bg = danger ? const Color(0xFFEF4444) : (on ? Colors.white : Colors.white.withValues(alpha: .14));
     final fg = danger ? Colors.white : (on ? const Color(0xFF0B1220) : Colors.white);
     return GestureDetector(
       onTap: () {
@@ -242,7 +242,7 @@ class _PulseState extends State<_Pulse> with SingleTickerProviderStateMixin {
                   height: 128 + 110 * t,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: widget.color.withOpacity((1 - t) * .7), width: 2),
+                    border: Border.all(color: widget.color.withValues(alpha: (1 - t) * .7), width: 2),
                   ),
                 );
               }),
@@ -307,7 +307,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
       body: DecoratedBox(
         decoration: BoxDecoration(
           gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
-              colors: [accent.withOpacity(.55), const Color(0xFF0B1220)]),
+              colors: [accent.withValues(alpha: .55), const Color(0xFF0B1220)]),
         ),
         child: SafeArea(
           child: Column(children: [
@@ -362,7 +362,7 @@ class _Big extends StatelessWidget {
           child: Container(
             width: 78,
             height: 78,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle, boxShadow: [BoxShadow(color: color.withOpacity(.5), blurRadius: 24)]),
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle, boxShadow: [BoxShadow(color: color.withValues(alpha: .5), blurRadius: 24)]),
             child: Icon(icon, color: Colors.white, size: 34),
           ),
         ),

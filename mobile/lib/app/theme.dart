@@ -15,7 +15,7 @@ ThemeData buildTheme(Color brand, Brightness b) {
       centerTitle: false,
       titleTextStyle: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: scheme.onSurface, letterSpacing: -.3),
     ),
-    cardTheme: CardTheme(
+    cardTheme: CardThemeData(
       elevation: 0,
       color: dark ? const Color(0xFF141C2E) : Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),

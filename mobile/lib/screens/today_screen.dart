@@ -259,7 +259,7 @@ class _Hero extends StatelessWidget {
         borderRadius: BorderRadius.circular(26),
         gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
             colors: [brand, Color.lerp(brand, const Color(0xFF0B1220), .55)!]),
-        boxShadow: [BoxShadow(color: brand.withOpacity(.35), blurRadius: 24, offset: const Offset(0, 10))],
+        boxShadow: [BoxShadow(color: brand.withValues(alpha: .35), blurRadius: 24, offset: const Offset(0, 10))],
       ),
       child: Row(children: [
         Expanded(
@@ -323,7 +323,7 @@ class _Chip extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(color: color.withOpacity(.25), borderRadius: BorderRadius.circular(999)),
+        decoration: BoxDecoration(color: color.withValues(alpha: .25), borderRadius: BorderRadius.circular(999)),
         child: Text(text, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
       );
 }

@@ -3,11 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
-import 'package:provider/provider.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../app/api.dart';
-import '../app/state.dart';
 import '../widgets/charts.dart';
 
 /// Fit, your AI technician — the same Fit as on the website (/fit/), so it can do exactly what it may do for you
@@ -207,7 +205,7 @@ class FitScreenState extends State<FitScreen> {
                     decoration: BoxDecoration(
                       color: _listening ? const Color(0xFFEF4444) : cs.secondaryContainer,
                       shape: BoxShape.circle,
-                      boxShadow: _listening ? [BoxShadow(color: const Color(0xFFEF4444).withOpacity(.5), blurRadius: 18)] : null,
+                      boxShadow: _listening ? [BoxShadow(color: const Color(0xFFEF4444).withValues(alpha: .5), blurRadius: 18)] : null,
                     ),
                     child: Icon(_listening ? Icons.stop : Icons.mic, color: _listening ? Colors.white : cs.onSecondaryContainer),
                   ),
@@ -268,7 +266,7 @@ class _FitFace extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: LinearGradient(colors: [cs.primary, cs.tertiary]),
         shape: BoxShape.circle,
-        boxShadow: thinking ? [BoxShadow(color: cs.primary.withOpacity(.6), blurRadius: 14)] : null,
+        boxShadow: thinking ? [BoxShadow(color: cs.primary.withValues(alpha: .6), blurRadius: 14)] : null,
       ),
       child: const Icon(Icons.smart_toy, color: Colors.white, size: 20),
     );
@@ -376,7 +374,7 @@ class _ActionCardState extends State<ActionCard> {
     final proposed = status == 'proposed';
     final confirm = '${c['confirm'] ?? ''}';
     return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: color.withOpacity(.5), width: 1.5)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: BorderSide(color: color.withValues(alpha: .5), width: 1.5)),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
