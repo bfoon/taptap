@@ -280,6 +280,9 @@ def online_report(request, slug):
                 body = (f'{report.name or "A customer"} ({phone}) sent it again: {report.message or "the voucher still does not work"}.\n'
                         f'First sent {report_cases._ago(earlier[-1].created_at, timezone.now())}. TapTap found: {d["title"]}.')
             notify(page.business, 'voucher_report', title, body, link=reverse('voucher_reports'), key=f'vreport:{report.pk}')
+            from . import mobile_push                  # the mobile app (nothing happens when push is not set up)
+            if mobile_push.configured():
+                mobile_push.complaint(report)
     except Exception:
         import logging
         logging.getLogger('taptap.portal').exception('voucher report %s: notification failed', report.pk)

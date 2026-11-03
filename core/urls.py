@@ -11,6 +11,7 @@ from . import views_payroll as vpay
 from . import views_fup as vfup
 from . import views_bonanza as vbz
 from . import views_portal_call as vpcall
+from . import views_mobile as vmob
 from . import views_netdev as vnd
 from . import views_sharing as vshare
 from . import views_tracking as vtrack
@@ -93,6 +94,14 @@ urlpatterns = [
     # Reports
     path('reports/',vb.reports,name='reports'), path('reports/data/',vb.reports_data,name='reports_data'), path('reports/export/',vb.reports_export,name='reports_export'),
     # Studios
+    # The TapTap mobile app (core/views_mobile.py; chat, calls and Fit use the website's own /chat/ and /fit/ endpoints)
+    path('api/mobile/v1/auth/login/',vmob.auth_login,name='mobile_auth_login'), path('api/mobile/v1/auth/verify/',vmob.auth_verify,name='mobile_auth_verify'),
+    path('api/mobile/v1/auth/resend/',vmob.auth_resend,name='mobile_auth_resend'), path('api/mobile/v1/auth/logout/',vmob.auth_logout,name='mobile_auth_logout'),
+    path('api/mobile/v1/me/',vmob.me,name='mobile_me'), path('api/mobile/v1/business/',vmob.business,name='mobile_business'),
+    path('api/mobile/v1/push/',vmob.push,name='mobile_push'), path('api/mobile/v1/home/',vmob.home,name='mobile_home'),
+    path('api/mobile/v1/sales/',vmob.sales,name='mobile_sales'), path('api/mobile/v1/complaints/',vmob.complaints,name='mobile_complaints'),
+    path('api/mobile/v1/complaints/<int:pk>/',vmob.complaint_act,name='mobile_complaint_act'),
+    path('api/mobile/v1/customer-calls/',vmob.customer_calls,name='mobile_customer_calls'), path('api/mobile/v1/devices/',vmob.devices,name='mobile_devices'),
     path('studio/portal/calls/',vpcall.portal_call_settings,name='portal_call_settings'), path('p/<slug:slug>/call/',vpcall.portal_call_page,name='portal_call_page'), path('p/<slug:slug>/call/api/',vpcall.portal_call_api,name='portal_call_api'),
     path('studio/portal/',vs.portal_studio,name='portal_studio'), path('studio/portal/<int:pk>/',vs.portal_editor,name='portal_editor'),
     path('studio/portal/<int:pk>/action/',vs.portal_action,name='portal_action'), path('studio/portal/<int:pk>/export/',vs.portal_export,name='portal_export'),

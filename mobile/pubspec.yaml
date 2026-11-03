@@ -1,0 +1,34 @@
+name: taptap_app
+description: TapTap for business owners and their team — daily sales, customer complaints, chat & calls, and Fit, your AI.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.4.0
+  provider: ^6.1.2
+  flutter_secure_storage: ^9.2.4
+  intl: ^0.20.2
+  fl_chart: ^1.0.0
+  flutter_webrtc: ^1.2.0
+  flutter_markdown_plus: ^1.0.3
+  url_launcher: ^6.3.1
+  image_picker: ^1.1.2
+  speech_to_text: ^7.3.0
+  wakelock_plus: ^1.2.8
+  firebase_core: ^4.0.0
+  firebase_messaging: ^16.0.0
+  flutter_callkit_incoming: ^3.0.0
+  uuid: ^4.5.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

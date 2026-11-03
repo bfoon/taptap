@@ -236,6 +236,13 @@ def post(thread, user, body, page_url='', page_title='', system=False, attachmen
     thread.save(update_fields=fields)
     mark_read(thread, user, m.pk)
     cache.delete(f'chat:typing:{thread.pk}:{user.pk}')
+    if not system:
+        try:                                  # the mobile app (core/mobile_push.py); nothing happens if push is not set up
+            from . import mobile_push
+            if mobile_push.configured():
+                mobile_push.chat_message(m)
+        except Exception:
+            pass
     return m
 
 

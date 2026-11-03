@@ -133,6 +133,17 @@ def _add_ring(uid, cid):
     key = f'call:ring:{uid}'
     ids = [c for c in (cache.get(key) or []) if c != cid][-4:] + [cid]
     cache.set(key, ids, RING_SECONDS + 20)
+    _push(lambda p: p.call_ringing(uid, get(cid) or {'id': cid}))      # the mobile app's incoming-call screen
+
+
+def _push(fn):
+    """Mobile app push (core/mobile_push.py) — never lets a push problem touch the call itself."""
+    try:
+        from . import mobile_push
+        if mobile_push.configured():
+            fn(mobile_push)
+    except Exception:
+        pass
 
 
 def _drop_ring(uid, cid):
@@ -243,6 +254,7 @@ def accept(call, user):
     cache.set(f'call:user:{user.pk}', cid, CALL_TTL)
     for uid in call['targets']:
         _drop_ring(uid, cid)
+    _push(lambda p: p.call_ended([u for u in call['targets'] if u != user.pk], cid))   # stop it ringing on the others' phones
     heartbeat(call, user.pk)
     return cache.get(_k(cid, 'offer'))
 
@@ -331,6 +343,7 @@ def finish(call, reason='ended'):
         return
     for uid in call['targets']:
         _drop_ring(uid, cid)
+    _push(lambda p: p.call_ended([u for u in [call['caller']] + call['targets'] if isinstance(u, int)], cid))
     for uid in [call['caller']] + call['targets']:
         if cache.get(f'call:user:{uid}') == cid:
             cache.delete(f'call:user:{uid}')

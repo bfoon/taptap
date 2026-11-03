@@ -30,6 +30,7 @@ class CoreConfig(AppConfig):
         importlib.import_module("core.models_free_access")
         importlib.import_module("core.models_member_plans")
         importlib.import_module("core.models_portal_call")
+        importlib.import_module("core.models_mobile")
         importlib.import_module("core.models_member_arrears")
         importlib.import_module("core.models_member_portal")
         importlib.import_module("core.models_sticky_exclusions")

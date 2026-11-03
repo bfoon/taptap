@@ -201,6 +201,14 @@ def note(call, reason, live_at):
         m = ChatMessage.objects.create(thread=thread, sender=None, body=(text + where)[:4000], system=True)
         thread.last_at = m.created_at
         thread.save(update_fields=['last_at'])
+        if not live_at and reason in ('missed', 'cancelled') and phone:
+            from . import mobile_push                  # a missed customer call: tell the people who answer, with the number
+            if mobile_push.configured():
+                mobile_push.send(call.get('targets') or [], {
+                    'notification': {'title': '📶 Missed customer call', 'body': text[2:].strip()[:180]},
+                    'data': {'type': 'missed_call', 'phone': phone, 'name': g.get('name') or ''},
+                    'android': {'priority': 'HIGH', 'notification': {'channel_id': 'tt_calls_missed'}},
+                    'apns': {'payload': {'aps': {'sound': 'default'}}}})
         from .utils import log
         log(thread.business, 'Wi-Fi Call', text[:200])
     except Exception:
