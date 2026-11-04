@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../app/api.dart';
 import '../app/state.dart';
 import '../calls/call_engine.dart';
 import '../calls/call_screen.dart';
 import '../push/push.dart';
+import '../widgets/push_banner.dart';
 import 'chat_screens.dart';
 import 'complaints_screen.dart';
 import 'fit_screen.dart';
 import 'more_screen.dart';
 import 'today_screen.dart';
+import 'voucher_detail_screen.dart';
+import 'vouchers_screen.dart';
 
-/// Tabs (by meaning, so goTab() works whatever the role hides): today · complaints · chat · fit · more.
-enum AppTab { today, complaints, chat, fit, more }
+/// Tabs (by meaning, so goTab() works whatever the role hides): today · vouchers · complaints · chat · fit · more.
+enum AppTab { today, vouchers, complaints, chat, fit, more }
 
 class Shell extends StatefulWidget {
   const Shell({super.key});
@@ -34,6 +39,7 @@ class _ShellState extends State<Shell> {
       if (ctx != null) openCall(ctx, CallEngine.incoming(id: cid, from: from, video: video));
     };
     Push.onOpen = _openFromPush;
+    Push.onBanner = _banner;
     Push.register();
     Push.acceptedAtLaunch().then((extra) {
       if (extra != null && extra['cid'] != null) Push.onAccept?.call('${extra['cid']}', '${extra['from'] ?? 'Call'}', extra['video'] == true);
@@ -46,10 +52,12 @@ class _ShellState extends State<Shell> {
     Navigator.of(ctx, rootNavigator: true).push(MaterialPageRoute(fullscreenDialog: true, builder: (_) => IncomingCallScreen(ring: r)));
   }
 
+  /// A notification tapped (or its in-app banner): open what it is about.
   void _openFromPush(Map<String, dynamic> d) {
+    final ctx = navigatorKey.currentContext;
+    final app = context.read<AppState>();
     switch (d['type']) {
       case 'chat':
-        final ctx = navigatorKey.currentContext;
         if (ctx != null) openThread(ctx, int.tryParse('${d['thread']}') ?? 0, 'Chat');
         break;
       case 'complaint':
@@ -58,11 +66,70 @@ class _ShellState extends State<Shell> {
       case 'missed_call':
         goTab(AppTab.more);
         break;
+      case 'alert':
+        _openLink('${d['link'] ?? ''}');
+        break;
+      case 'vouchers':
+        final v = int.tryParse('${d['voucher'] ?? ''}');
+        final b = int.tryParse('${d['batch'] ?? ''}');
+        if (ctx != null && app.canDo('vouchers') && v != null) {
+          openVoucher(ctx, v);
+        } else if (ctx != null && app.canDo('vouchers') && b != null) {
+          openBatch(ctx, b, 'New batch');
+        } else {
+          goTab(AppTab.vouchers);
+        }
+        break;
     }
+  }
+
+  /// An alert's website link (/vouchers/12/, /batches/3/, /routers/…): open it in the app when the app has that
+  /// page, else on the website.
+  void _openLink(String link) {
+    final ctx = navigatorKey.currentContext;
+    final app = context.read<AppState>();
+    final v = RegExp(r'^/vouchers/(\d+)/').firstMatch(link);
+    final b = RegExp(r'^/batches/(\d+)/').firstMatch(link);
+    if (ctx != null && app.canDo('vouchers') && v != null) {
+      openVoucher(ctx, int.parse(v.group(1)!));
+    } else if (ctx != null && app.canDo('vouchers') && b != null) {
+      openBatch(ctx, int.parse(b.group(1)!), 'Batch');
+    } else if (app.canDo('vouchers') && (link.startsWith('/vouchers') || link.startsWith('/plans') || link.startsWith('/batches'))) {
+      goTab(AppTab.vouchers);
+    } else if (link.startsWith('/') && !link.startsWith('//')) {
+      launchUrl(Uri.parse('${Api.I.server}$link'), mode: LaunchMode.externalApplication);
+    }
+  }
+
+  /// A push while the app is open: pop it up at the top (not a chat you are reading right now).
+  void _banner(String title, String body, Map<String, dynamic> d) {
+    final app = context.read<AppState>();
+    final type = '${d['type'] ?? ''}';
+    if (type == 'chat' && app.openThread != null && '${app.openThread}' == '${d['thread']}') return;
+    IconData icon = Icons.notifications_active;
+    Color? color;
+    switch (type) {
+      case 'chat':
+        icon = Icons.chat_bubble;
+      case 'complaint':
+        icon = Icons.report;
+        color = const Color(0xFFDC2626);
+      case 'missed_call':
+        icon = Icons.phone_missed;
+        color = const Color(0xFFDC2626);
+      case 'vouchers':
+        icon = Icons.confirmation_number;
+        color = const Color(0xFF16A34A);
+      case 'test':
+        icon = Icons.check_circle;
+        color = const Color(0xFF16A34A);
+    }
+    PushBanner.show(title: title, body: body, icon: icon, color: color, onTap: type == 'test' ? null : () => _openFromPush(d));
   }
 
   List<AppTab> _tabs(AppState app) => [
         AppTab.today,
+        if (app.canDo('vouchers')) AppTab.vouchers,
         if (app.canDo('complaints')) AppTab.complaints,
         AppTab.chat,
         if (app.canDo('fit')) AppTab.fit,
@@ -85,6 +152,8 @@ class _ShellState extends State<Shell> {
     switch (t) {
       case AppTab.today:
         return TodayScreen(goTab: (i) => goTab(const [AppTab.today, AppTab.complaints, AppTab.chat, AppTab.fit, AppTab.more][i]), askFit: askFit);
+      case AppTab.vouchers:
+        return const VouchersScreen();
       case AppTab.complaints:
         return ComplaintsScreen(askFit: askFit);
       case AppTab.chat:
@@ -107,11 +176,15 @@ class _ShellState extends State<Shell> {
       body: IndexedStack(index: idx, children: [for (final t in tabs) _page(t)]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: idx,
+        // six tabs (owner / admin) do not fit with every label on a small phone: show the open tab's label only
+        labelBehavior: tabs.length > 5 ? NavigationDestinationLabelBehavior.onlyShowSelected : null,
         onDestinationSelected: (i) => setState(() => _tab = tabs[i]),
         destinations: [
           for (final t in tabs)
             switch (t) {
               AppTab.today => const NavigationDestination(icon: Icon(Icons.insights_outlined), selectedIcon: Icon(Icons.insights), label: 'Today'),
+              AppTab.vouchers => const NavigationDestination(
+                  icon: Icon(Icons.confirmation_number_outlined), selectedIcon: Icon(Icons.confirmation_number), label: 'Vouchers'),
               AppTab.complaints => const NavigationDestination(
                   icon: Icon(Icons.report_gmailerrorred_outlined), selectedIcon: Icon(Icons.report), label: 'Complaints'),
               AppTab.chat => NavigationDestination(

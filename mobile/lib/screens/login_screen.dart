@@ -24,7 +24,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Map<String, dynamic> get _device => {
         'device': Platform.isAndroid ? 'Android phone' : (Platform.isIOS ? 'iPhone' : 'Phone'),
         'platform': Platform.isAndroid ? 'android' : (Platform.isIOS ? 'ios' : 'other'),
-        'app_version': '1.0.0',
+        'app_version': '1.1.0',
       };
 
   Future<void> _run(Future<void> Function() f) async {

@@ -199,47 +199,26 @@ def generate_vouchers(request):
             return render(request,'core/generate_vouchers.html',ctx)
         router_id=(request.POST.get('router') or '').strip()
         router=routers.filter(pk=int(router_id)).first() if router_id.isdigit() else None
-        batch_name=request.POST.get('batch_name','').strip() or f'{plan.name} {timezone.localtime():%Y-%m-%d %H:%M}'
         agent=business.agents.filter(pk=request.POST.get('owner') or 0).first()
+        P=request.POST
+        # The batch itself is made by core/voucher_make.py — the same code the mobile app uses.
+        from .voucher_make import make_batch
         try:
-            fmt=code_format_from_post(request.POST,business)
-            codes=generate_codes(qty,fmt['length'],fmt['charset'],fmt['prefix'],fmt['suffix'],business,fmt['case'])
-            P=request.POST
-            sfmt,sdig,sreset=serials.clean(P.get('serial_format',business.serial_format),P.get('serial_digits',business.serial_digits),P.get('serial_reset',business.serial_reset))
+            fmt=code_format_from_post(P,business)
             sstart=int(P['serial_start']) if (P.get('serial_start') or '').strip().isdigit() and int(P['serial_start'])>0 else None
+            batch,notes=make_batch(business,plan,qty,fmt,router=router,name=P.get('batch_name',''),note=P.get('note',''),agent=agent,
+                                   settlement=P.get('settlement'),pay_method=P.get('pay_method','cash'),reference=P.get('reference',''),user=request.user,
+                                   serial={'format':P.get('serial_format',business.serial_format),'digits':P.get('serial_digits',business.serial_digits),
+                                           'reset':P.get('serial_reset',business.serial_reset),'start':sstart},
+                                   save_serial=bool(P.get('serial_save')))
         except (CodeFormatError,serials.SerialError) as e:
             messages.error(request,str(e)); ctx['cf']=code_format_ctx(business,request.POST); ctx['sn']=serials.settings_ctx(business,request.POST)
             return render(request,'core/generate_vouchers.html',ctx,status=400)
-        with transaction.atomic():
-            if P.get('serial_save'):
-                business.serial_format,business.serial_digits,business.serial_reset=sfmt,sdig,sreset
-                business.save(update_fields=['serial_format','serial_digits','serial_reset'])
-            batch=VoucherBatch.objects.create(business=business,name=batch_name,plan=plan,quantity=qty,note=request.POST.get('note','')[:255])
-            sns=serials.allocate(business,qty,fmt=sfmt,digits=sdig,reset=sreset,start=sstart,batch=batch,plan=plan.name)
-            for c,sn in zip(codes,sns):
-                Voucher.objects.create(business=business,batch=batch,router=router,code=c,serial=sn,plan_name=plan.name,price=plan.price,duration_minutes=plan.duration_minutes,max_devices=plan.max_devices,source='taptap')
-            log(business,'Voucher Generated',f'Batch {batch.name}: {qty} voucher(s), {describe_format(fmt)}, serials {sns[0]}–{sns[-1]}'+(f' for {agent.name}' if agent else ''))
-            if agent:
-                from .finance import assign_batch
-                settlement=request.POST.get('settlement') if request.POST.get('settlement') in {'credit','prepaid'} else 'credit'
-                _,sales=assign_batch(batch,agent,settlement,request.POST.get('pay_method','cash'),request.user,request.POST.get('reference','')[:120])
-                messages.info(request,f'Batch issued to {agent.name}'+(f' — bought upfront for {business.currency}{sum(x.amount for x in sales):,.2f}.' if sales else ' on credit: each voucher is credited to them as it sells.'))
-        if router:
-            # Send just this batch to the router — not a full router sync.
-            try:
-                from .voucher_push import push_vouchers
-                for msg in push_vouchers(list(batch.vouchers.all()),request.user).values():
-                    messages.info(request,msg+'.')
-            except Exception as e:
-                messages.warning(request,f'Vouchers were created in TapTap; sending them to {router.name} failed for now ({e}). They go with the next sync.')
+        for level,text in notes:
+            (messages.warning if level=='warning' else messages.info)(request,text)
         messages.success(request,f'{qty} voucher(s) created successfully.')
         case_msg=apply_portal_case(request,business,fmt)
         if case_msg: (messages.info if request.POST.get('portal_case_sensitive') else messages.warning)(request,case_msg)
-        try:
-            from .tracking import notify as _track
-            _track(business,'vouchers_added',f'{qty} new voucher(s) of {plan.name} in batch {batch.name}'+(f' by {request.user.get_full_name() or request.user.username}' if request.user.is_authenticated else ''),
-                   batch=batch,plan=plan,actor=request.user,count=qty)
-        except Exception: pass
         oid=request.POST.get('order','')
         if oid.isdigit():
             # an agent's order from the voucher checker: done — and the agent sees "Ready" on their phone

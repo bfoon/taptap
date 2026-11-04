@@ -5,13 +5,14 @@ For the business owner and the team. Signs in with the same email and password a
 | Tab | What it does |
 |---|---|
 | **Today** (first page) | Live daily sales: the day's total, pace against your usual day, hour by hour, last 7 days, plans, sellers, payment methods, latest sales. Swipe for other days. A new sale pops up with a buzz. Cards for open complaints, unread messages and missed customer calls (call back in one tap). |
+| **Vouchers** | Every voucher, like the website's Vouchers page: tabs (In stock · Sold · Used · Frozen · Disabled / expired), search by code, serial, customer or batch (`C*` wildcards work), plan filter. Open one to see its time left, devices, sale, router and full history, send the code by **WhatsApp / SMS**, and — as your role allows — **add time, enable, disable, reset devices** or **delete** it (to the bin, with a reason). **Batches** shows how many are left in each. **New** makes a batch (plan, how many, router, agent on credit or paid upfront, code format) or one voucher for a customer (optional own code, paid now). |
 | **Complaints** | Vouchers customers sent from the Wi-Fi page, one case per voucher, hottest first: what TapTap found, **Fix it**, close with a note, reopen, call / WhatsApp the customer, or let Fit sort them. |
 | **Chat** | Team room, direct messages and TapTap support — photos, typing, who is online, and calls. |
 | **Calls** | Voice (and camera) calls with the team — the same call system as the website, so phone ↔ web ↔ Wi-Fi-page customers all work. Speaker, mute, camera, flip, reconnect on a dropped line. If the owner picked you to answer **customer calls** (Portal Studio → Calls from your Wi-Fi pages), they ring this phone too. |
 | **Fit** | Your AI — the very same Fit as on the web, so it can do exactly what it may do for you there (same tools, permissions, “Allowed” groups and confirmations). Voice input, charts, action cards with Run / Dismiss, “Brief me”. |
-| **More** | Customer-call log, switch business, phones signed in (sign one out), sign out. |
+| **More** | Customer-call log, **Notifications** (what pops up on this phone, a test, what is still missing), switch business, phones signed in (sign one out), sign out. |
 
-What a person sees follows their TapTap role: a *View only* person gets Today, Chat and More; Complaints and Fit appear when the role and the subscription include them.
+What a person sees follows their TapTap role: a *View only* person gets Today, Chat and More; Vouchers, Complaints and Fit appear when the role and the subscription include them. Inside Vouchers the buttons follow the same four rights as the website: *See vouchers* (list, details), *Generate* (New), *Voucher support* (add time, enable, disable, reset devices) and *Manage vouchers* (delete).
 
 ---
 
@@ -58,8 +59,25 @@ even when the build continues.
 ## 2. Ringing when the app is closed (optional — Firebase)
 
 Without this the app works fully while it is open (it checks every few seconds, like the website). With it, calls
-show the phone's own incoming-call screen even when TapTap is closed, and chat messages, new complaints and missed
-customer calls arrive as notifications.
+show the phone's own incoming-call screen even when TapTap is closed, and these arrive as notifications that **pop up
+on the screen**:
+
+| Kind | Who gets it | Android channel |
+|---|---|---|
+| Chat messages | everyone in the conversation (not the sender, not if muted) | Chat messages |
+| Customer complaints | people who can see customer reports | Customer complaints |
+| Missed customer calls | the people picked to answer calls from the Wi-Fi pages | Missed customer calls |
+| Business alerts | every bell alert that asks for a pop-up — your rules on the website's Alerts page (*Stock below 20 vouchers*, *Router offline*, agents…) to the people whose role covers it, and **Track** alerts to the person tracking | Business alerts |
+| Vouchers made by the team | the owner and people who manage vouchers, when someone else makes vouchers (website or app) | Vouchers made by the team |
+
+Each phone chooses its own kinds under **More → Notifications**, which also shows what is still missing (the phone's
+permission, this app build's Firebase file, the server's key) and sends a test. While TapTap is open, notifications
+pop up inside the app instead (tap to open, swipe up to dismiss). Quiet hours on an alert rule keep the phone quiet too.
+
+**Why they pop up:** Android only shows a notification on top of the screen when its channel has *high* importance.
+`tool/configure_platforms.py` writes the five channels above into `MainActivity.kt` at high importance (and makes
+*Business alerts* the default for anything else). People can still tune each one in the phone's settings —
+More → Notifications → *Pop-up, sound and lock screen* opens them.
 
 1. Create a Firebase project (free) at console.firebase.google.com and add an Android app with package
    `gm.easysolutions.taptap_app` and an iOS app with the same bundle id.
@@ -83,7 +101,11 @@ screen.
 * Sign-in: `POST /api/mobile/v1/auth/login/` (+ `/auth/verify/` when the email code is on) → a token kept in the
   phone's secure storage. TapTap stores only its hash; signing out, a password change or "Sign out" on another phone
   ends it.
-* App data: `/api/mobile/v1/` — `me`, `home`, `sales`, `complaints`, `customer-calls`, `devices`, `push`, `business`.
+* App data: `/api/mobile/v1/` — `me`, `home`, `sales`, `complaints`, `customer-calls`, `devices`, `push`, `business`,
+  `notifications` (this phone's kinds + test).
+* Vouchers: `/api/mobile/v1/vouchers/` (list), `vouchers/<id>/` (detail; POST disable · enable · add_time · reset_devices ·
+  delete), `vouchers/new/` (form data; POST a batch or a single voucher), `batches/` — server: `core/views_mobile_vouchers.py`.
+  A batch is made by `core/voucher_make.py`, the same code as the website's Generate page.
 * Chat, calls and Fit: the website's own `/chat/…`, `/chat/call/…` and `/fit/…` endpoints, with the token.
 
 ## Files
@@ -95,6 +117,12 @@ lib/app/state.dart            who is signed in, chat + ring polling
 lib/screens/today_screen.dart daily sales (first page)
 lib/screens/sales_detail_screen.dart   one plan / one seller
 lib/screens/complaints_screen.dart
+lib/screens/vouchers_screen.dart      vouchers + batches lists
+lib/screens/voucher_detail_screen.dart one voucher: time, devices, sale, history, actions, WhatsApp / SMS
+lib/screens/new_vouchers_screen.dart  make a batch or one voucher; the codes afterwards
+lib/screens/notifications_screen.dart what this phone gets, what is missing, test
+lib/widgets/voucher_widgets.dart      voucher row, batch card, state colours
+lib/widgets/push_banner.dart          the pop-up while the app is open
 lib/screens/chat_screens.dart
 lib/screens/fit_screen.dart
 lib/screens/more_screen.dart
@@ -102,5 +130,5 @@ lib/screens/shell.dart        tabs, incoming calls, notification taps
 lib/calls/call_engine.dart    WebRTC — same protocol as static/js/chat-call.js
 lib/calls/call_screen.dart    in-call + incoming-call screens
 lib/push/push.dart            Firebase + native call screen (flutter_callkit_incoming)
-tool/configure_platforms.py   Android / iOS permissions after `flutter create`
+tool/configure_platforms.py   Android / iOS permissions and Android notification channels after `flutter create`
 ```

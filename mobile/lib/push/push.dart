@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_callkit_incoming/entities/entities.dart';
 import 'package:flutter_callkit_incoming/flutter_callkit_incoming.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
 import '../app/api.dart';
@@ -17,12 +18,21 @@ import '../app/api.dart';
 /// for calls and messages while it is open, like the website. With them:
 ///   * a ringing call wakes the phone with the native call screen (also customer calls from the Wi-Fi pages)
 ///   * it stops ringing when someone else answers or the caller hangs up
-///   * chat messages, customer complaints and missed customer calls arrive as notifications
+///   * chat messages, customer complaints, missed customer calls, business alerts (stock low, router offline,
+///     tracked vouchers…) and vouchers made by the team arrive as notifications that pop up on the screen
+///   * while TapTap is open they pop up inside the app instead (widgets/push_banner.dart, set up by the shell)
+///
+/// On Android every kind has its own notification channel at high importance (made in MainActivity by
+/// tool/configure_platforms.py), so the phone shows it as a pop-up and people can tune each kind in Settings.
+/// Which kinds this phone gets is chosen on the Notifications screen (stored on the server, per phone).
 class Push {
   static bool ready = false;
   static void Function(String cid, String from, bool video)? onAccept;     // set by the shell: open the call
-  static void Function(Map<String, dynamic> data)? onOpen;                // set by the shell: chat / complaint tapped
+  static void Function(Map<String, dynamic> data)? onOpen;                // set by the shell: notification tapped
+  static void Function(String title, String body, Map<String, dynamic> data)? onBanner;   // set by the shell: arrived while open
   static Timer? _buzz;
+  static bool _refreshing = false;
+  static const _native = MethodChannel('taptap/notifications');           // android/…/MainActivity.kt
 
   static Future<void> init() async {
     try {
@@ -33,7 +43,7 @@ class Push {
     }
     ready = true;
     FirebaseMessaging.onBackgroundMessage(firebaseBackground);
-    FirebaseMessaging.onMessage.listen((m) => handle(m.data, foreground: true));
+    FirebaseMessaging.onMessage.listen(_foreground);
     FirebaseMessaging.onMessageOpenedApp.listen((m) => onOpen?.call(m.data));
     final first = await FirebaseMessaging.instance.getInitialMessage();
     if (first != null) Timer(const Duration(seconds: 1), () => onOpen?.call(first.data));
@@ -52,7 +62,10 @@ class Push {
       }
       final tok = await fm.getToken();
       if (tok != null) await Api.I.post('/api/mobile/v1/push/', {'token': tok});
-      fm.onTokenRefresh.listen((t) => Api.I.post('/api/mobile/v1/push/', {'token': t}).catchError((_) => <String, dynamic>{}));
+      if (!_refreshing) {
+        _refreshing = true;
+        fm.onTokenRefresh.listen((t) => Api.I.post('/api/mobile/v1/push/', {'token': t}).catchError((_) => <String, dynamic>{}));
+      }
     } catch (e) {
       debugPrint('Push register failed: $e');
     }
@@ -63,6 +76,42 @@ class Push {
     try {
       await FirebaseMessaging.instance.deleteToken();
     } catch (_) {}
+  }
+
+  /// Notifications permission on this phone: 'allowed', 'denied', 'ask' (not decided yet) or 'off' (this build of
+  /// the app has no Firebase config, so nothing can be pushed to it).
+  static Future<String> permission() async {
+    if (!ready) return 'off';
+    try {
+      final s = await FirebaseMessaging.instance.getNotificationSettings();
+      return switch (s.authorizationStatus) {
+        AuthorizationStatus.authorized || AuthorizationStatus.provisional => 'allowed',
+        AuthorizationStatus.denied => 'denied',
+        _ => 'ask',
+      };
+    } catch (_) {
+      return 'ask';
+    }
+  }
+
+  /// The phone's own notification settings for TapTap (pop-up, sound and lock screen per kind on Android).
+  static Future<bool> openPhoneSettings() async {
+    try {
+      if (Platform.isAndroid) return await _native.invokeMethod<bool>('openSettings') ?? false;
+      return await launchUrl(Uri.parse('app-settings:'));
+    } catch (e) {
+      debugPrint('Could not open notification settings: $e');
+      return false;
+    }
+  }
+
+  /// A push while the app is on screen: calls ring in the app; everything else pops up as a banner.
+  static Future<void> _foreground(RemoteMessage m) async {
+    final d = m.data;
+    if (d['type'] == 'call' || d['type'] == 'call_end') return handle(d, foreground: true);
+    final title = m.notification?.title ?? '';
+    if (title.isEmpty) return;
+    onBanner?.call(title, m.notification?.body ?? '', d);
   }
 
   static String uuidFor(String cid) => const Uuid().v5(Namespace.url.value, 'taptap-call:$cid');

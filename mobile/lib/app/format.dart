@@ -52,3 +52,30 @@ Color hexColor(String? hex, [Color fallback = const Color(0xFF1769E0)]) {
   final v = int.tryParse(h, radix: 16);
   return (h.length == 6 && v != null) ? Color(0xFF000000 | v) : fallback;
 }
+
+/// A JSON list of objects as string-keyed maps (anything else in the list is skipped).
+List<Map<String, dynamic>> asMaps(dynamic v) =>
+    ((v is List) ? v : const []).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+
+/// A moment near now, past or coming: "today 14:30", "tomorrow 09:00", "Fri 12 Jun 09:00".
+String whenText(dynamic s) {
+  final t = parseTime(s);
+  if (t == null) return '';
+  final today = DateUtils.dateOnly(DateTime.now());
+  final d = DateUtils.dateOnly(t);
+  final hm = DateFormat.Hm().format(t);
+  if (d == today) return 'today $hm';
+  if (d == today.add(const Duration(days: 1))) return 'tomorrow $hm';
+  if (d == today.subtract(const Duration(days: 1))) return 'yesterday $hm';
+  return '${DateFormat('EEE d MMM').format(t)} $hm';
+}
+
+/// A length of time from seconds: "45 min", "2 h 15 min", "3 days 4 h".
+String spanText(int seconds) {
+  if (seconds <= 0) return '0 min';
+  final m = (seconds / 60).ceil();
+  final d = m ~/ 1440, h = (m % 1440) ~/ 60, mm = m % 60;
+  if (d > 0) return '$d day${d == 1 ? '' : 's'}${h > 0 ? ' $h h' : ''}';
+  if (h > 0) return '$h h${mm > 0 ? ' $mm min' : ''}';
+  return '$mm min';
+}

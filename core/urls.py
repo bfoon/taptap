@@ -12,6 +12,7 @@ from . import views_fup as vfup
 from . import views_bonanza as vbz
 from . import views_portal_call as vpcall
 from . import views_mobile as vmob
+from . import views_mobile_vouchers as vmobv
 from . import views_netdev as vnd
 from . import views_sharing as vshare
 from . import views_tracking as vtrack
@@ -102,6 +103,9 @@ urlpatterns = [
     path('api/mobile/v1/sales/',vmob.sales,name='mobile_sales'), path('api/mobile/v1/complaints/',vmob.complaints,name='mobile_complaints'),
     path('api/mobile/v1/complaints/<int:pk>/',vmob.complaint_act,name='mobile_complaint_act'),
     path('api/mobile/v1/customer-calls/',vmob.customer_calls,name='mobile_customer_calls'), path('api/mobile/v1/devices/',vmob.devices,name='mobile_devices'),
+    path('api/mobile/v1/notifications/',vmob.notifications,name='mobile_notifications'),
+    path('api/mobile/v1/vouchers/',vmobv.vouchers,name='mobile_vouchers'), path('api/mobile/v1/vouchers/new/',vmobv.new,name='mobile_vouchers_new'),
+    path('api/mobile/v1/vouchers/<int:pk>/',vmobv.voucher,name='mobile_voucher'), path('api/mobile/v1/batches/',vmobv.batches,name='mobile_batches'),
     path('studio/portal/calls/',vpcall.portal_call_settings,name='portal_call_settings'), path('p/<slug:slug>/call/',vpcall.portal_call_page,name='portal_call_page'), path('p/<slug:slug>/call/api/',vpcall.portal_call_api,name='portal_call_api'),
     path('studio/portal/',vs.portal_studio,name='portal_studio'), path('studio/portal/<int:pk>/',vs.portal_editor,name='portal_editor'),
     path('studio/portal/<int:pk>/action/',vs.portal_action,name='portal_action'), path('studio/portal/<int:pk>/export/',vs.portal_export,name='portal_export'),

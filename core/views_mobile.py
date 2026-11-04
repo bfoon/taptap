@@ -2,7 +2,8 @@
 
 Sign-in hands the phone a token (core/mobile_auth.py). After that the app uses:
 
-    these endpoints      me · business · push · home · sales · complaints · customer calls · devices
+    these endpoints      me · business · push · notifications · home · sales · complaints · customer calls · devices
+                         vouchers · batches (core/views_mobile_vouchers.py)
     the website's own    /chat/*  (conversations, photos, calls: /chat/call/poll/ + /chat/call/act/)
                          /fit/*   (Fit, the AI: state · ask · action · new)
 
@@ -231,6 +232,11 @@ def me(request):
         'chat': True,
         'customer_calls': answers,                   # the owner picked this person to answer calls from the Wi-Fi pages
         'money': bool({'finance.view', 'finance.agents', 'agents.view'} & perms),
+        # vouchers (core/views_mobile_vouchers.py): the same four rights as on the website
+        'vouchers': 'vouchers.view' in perms,
+        'vouchers_create': 'vouchers.create' in perms,
+        'vouchers_support': 'vouchers.support' in perms,
+        'vouchers_manage': 'vouchers.manage' in perms,
     }
     from .mobile_push import configured
     out['push'] = configured()
@@ -262,6 +268,49 @@ def push(request):
         MobileDevice.objects.filter(push_token=tok).exclude(pk=dev.pk).update(push_token='')   # one phone, one owner
     MobileDevice.objects.filter(pk=dev.pk).update(push_token=tok)
     return JsonResponse({'ok': True})
+
+
+def _kinds_for(request):
+    """The notification kinds that can reach this person (complaints only for people who see them, and so on)."""
+    from .mobile_push import KINDS
+    b, perms = _business(request), _perms(request)
+    show = {'calls', 'chat', 'alerts'}
+    if b is not None:
+        from . import portal_call
+        if {'vouchers.view', 'vouchers.support'} & perms and _feature(b, 'customer_reports'):
+            show.add('complaints')
+        if any(u.pk == request.user.pk for u in portal_call.handlers(b)):
+            show.add('missed_calls')
+        if 'vouchers.manage' in perms:
+            show.add('vouchers')
+    return [(k, v) for k, v in KINDS.items() if k in show]
+
+
+@_signed_in
+def notifications(request):
+    """This phone's notification settings: which kinds it gets, whether TapTap can send at all, and a test."""
+    from . import mobile_push
+    from .models_mobile import MobileDevice
+    dev = getattr(request, 'tt_mobile', None)
+    if dev is None:
+        return _err('Only the mobile app has notification settings.', 400)
+    dev = MobileDevice.objects.get(pk=dev.pk)
+    if request.method == 'POST':
+        d = _body(request)
+        if d.get('test'):
+            if not mobile_push.configured():
+                return _err('TapTap cannot send notifications yet: the server has no Firebase key (FCM_SERVICE_ACCOUNT).')
+            if not dev.push_token:
+                return _err('This phone has not given TapTap a notification address yet. Allow notifications, then open the app again.')
+            mobile_push.test(dev)
+            return JsonResponse({'ok': True, 'message': 'Sent — it should arrive within a few seconds.'})
+        prefs = d.get('prefs')
+        if isinstance(prefs, dict):
+            allowed = dict(_kinds_for(request))
+            dev.notify = {**(dev.notify or {}), **{k: bool(v) for k, v in prefs.items() if k in allowed}}
+            dev.save(update_fields=['notify'])
+    return JsonResponse({'ok': True, 'server': mobile_push.configured(), 'registered': bool(dev.push_token),
+                         'kinds': [{'key': k, 'label': label, 'text': text, 'on': dev.wants(k)} for k, (label, text, _ch) in _kinds_for(request)]})
 
 
 # ─────────────────────────────── home: the day at a glance ───────────────────────────────

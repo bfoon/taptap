@@ -7,6 +7,7 @@ import '../app/format.dart';
 import '../app/state.dart';
 import '../push/push.dart';
 import '../widgets/common.dart';
+import 'notifications_screen.dart';
 
 class MoreScreen extends StatefulWidget {
   const MoreScreen({super.key});
@@ -134,11 +135,13 @@ class _MoreScreenState extends State<MoreScreen> {
                 onTap: () => launchUrl(Uri.parse(Api.I.server), mode: LaunchMode.externalApplication),
               ),
               ListTile(
-                leading: Icon(Push.ready ? Icons.notifications_active : Icons.notifications_off),
-                title: Text(Push.ready ? 'Notifications on' : 'Notifications not set up'),
-                subtitle: Text(Push.ready
-                    ? 'Calls ring this phone even when TapTap is closed.'
-                    : 'Calls and messages arrive while the app is open.'),
+                leading: Icon(Push.ready && app.me?['push'] == true ? Icons.notifications_active : Icons.notifications_off),
+                title: const Text('Notifications'),
+                subtitle: Text(Push.ready && app.me?['push'] == true
+                    ? 'Choose what pops up on this phone, and send a test.'
+                    : 'Not fully set up yet — see what is missing.'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NotificationsScreen())),
               ),
               ListTile(
                 leading: Icon(Icons.logout, color: cs.error),
@@ -151,7 +154,7 @@ class _MoreScreenState extends State<MoreScreen> {
             ]),
           ),
           const SizedBox(height: 16),
-          Center(child: Text('TapTap app 1.0 · ${Api.I.server}', style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant))),
+          Center(child: Text('TapTap app 1.1 · ${Api.I.server}', style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant))),
         ]),
       ),
     );

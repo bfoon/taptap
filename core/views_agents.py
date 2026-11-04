@@ -359,6 +359,11 @@ def single_voucher(request):
             record_sale(business, v, method=method, agent=agent, customer_name=name, customer_phone=phone,
                         reference=(f.get('reference') or '')[:120], user=request.user, notes='Single voucher')
     log(business, 'Voucher Created', f'{v.code} for {name or phone or "a customer"} ({plan_name})')
+    try:   # the owner's phone (core/mobile_push.py) when someone else on the team made it
+        from . import mobile_push
+        mobile_push.vouchers_made(business, request.user, f'a voucher of {plan_name}', v.code + (f' · for {name or phone}' if (name or phone) else ''), voucher=v)
+    except Exception:
+        pass
     if fmt:
         from .utils import apply_portal_case
         case_msg = apply_portal_case(request, business, fmt)

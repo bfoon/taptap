@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Run once after `flutter create` (see README): adds what calls, the camera, voice input and push need.
+"""Run once after `flutter create` (see README): adds what calls, the camera, voice input and push need —
+including Android's notification channels, so pushes pop up on the screen (see CHANNELS below).
 
     cd mobile
     flutter create --org gm.easysolutions --project-name taptap_app --platforms android,ios .
@@ -46,9 +47,107 @@ if man.exists():
     if 'android:showWhenLocked' not in s:
         s = s.replace('android:name=".MainActivity"', 'android:name=".MainActivity"\n            android:showWhenLocked="true"\n            android:turnScreenOn="true"', 1)
         say('Android: incoming calls can show over the lock screen')
+    if 'default_notification_channel_id' not in s:
+        # a push that names no channel (or one this phone does not have yet) still pops up
+        s = s.replace('</application>', '    <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id"\n'
+                                        '            android:value="tt_alerts"/>\n    </application>', 1)
+        say('Android: pushes without a channel use "Business alerts"')
     man.write_text(s)
 else:
     say('Android: no android/ folder — skipped')
+
+# ── Android notification channels ──
+# One channel per kind of push (core/mobile_push.py KINDS), all at HIGH importance: that is what makes Android
+# show a notification as a pop-up (heads-up) instead of only an icon in the status bar. Made when the app starts,
+# in MainActivity, which also lets the app open the phone's notification settings for TapTap.
+CHANNELS = [
+    ('tt_chat', 'Chat messages', 'New messages from your team and TapTap support'),
+    ('tt_complaints', 'Customer complaints', 'A customer reported a voucher from your Wi-Fi page'),
+    ('tt_calls_missed', 'Missed customer calls', 'Nobody answered a customer who called from the Wi-Fi page'),
+    ('tt_alerts', 'Business alerts', 'Stock low, router offline, agents and the vouchers you track'),
+    ('tt_vouchers', 'Vouchers made by the team', 'Someone else on the team generated vouchers'),
+]
+MARK = '// TapTap notification channels — written by tool/configure_platforms.py'
+PLAIN = re.compile(r'^\s*package\s+([\w.]+)\s*import\s+io\.flutter\.embedding\.android\.FlutterActivity\s*'
+                   r'class\s+MainActivity\s*:\s*FlutterActivity\(\)\s*(\{\s*\})?\s*$')
+acts = sorted((ROOT / 'android/app/src/main').glob('**/MainActivity.kt')) if man.exists() else []
+if man.exists() and not acts:
+    ok = False
+    say('Android: MainActivity.kt not found — notification channels not made')
+for act in acts[:1]:
+    src = act.read_text()
+    pkg = re.search(r'^\s*package\s+([\w.]+)', src, re.M)
+    if MARK not in src and not PLAIN.match(src):
+        ok = False
+        say(f'Android: {act.name} was changed by hand — add the notification channels yourself (see CHANNELS in this script)')
+    elif pkg:
+        rows = ',\n'.join(f'            Triple("{i}", "{n}", "{d}")' for i, n, d in CHANNELS)
+        act.write_text(f'''package {pkg.group(1)}
+
+{MARK} (safe to re-run).
+// Every kind of TapTap push has its own channel at high importance, so Android pops it up on the screen;
+// people can still change each one under Settings → Apps → TapTap → Notifications.
+
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.provider.Settings
+import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
+
+class MainActivity : FlutterActivity() {{
+    override fun onCreate(savedInstanceState: Bundle?) {{
+        super.onCreate(savedInstanceState)
+        createChannels()
+    }}
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {{
+        super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "taptap/notifications").setMethodCallHandler {{ call, result ->
+            when (call.method) {{
+                "openSettings" -> {{
+                    val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {{
+                        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                    }} else {{
+                        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
+                    }}
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    try {{
+                        startActivity(intent)
+                        result.success(true)
+                    }} catch (e: Exception) {{
+                        result.success(false)
+                    }}
+                }}
+                "createChannels" -> {{
+                    createChannels()
+                    result.success(true)
+                }}
+                else -> result.notImplemented()
+            }}
+        }}
+    }}
+
+    private fun createChannels() {{
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        val channels = listOf(
+{rows}
+        )
+        for ((id, name, text) in channels) {{
+            val channel = NotificationChannel(id, name, NotificationManager.IMPORTANCE_HIGH)
+            channel.description = text
+            channel.enableVibration(true)
+            manager.createNotificationChannel(channel)
+        }}
+    }}
+}}
+''')
+        say(f'Android: {len(CHANNELS)} notification channels (pop up on screen) in {act.name}')
 
 for g in (ROOT / 'android/app/build.gradle.kts', ROOT / 'android/app/build.gradle'):
     if g.exists():

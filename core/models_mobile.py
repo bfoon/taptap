@@ -15,6 +15,8 @@ class MobileDevice(models.Model):
     platform = models.CharField(max_length=10, choices=PLATFORMS, default='other')
     app_version = models.CharField(max_length=20, blank=True)
     push_token = models.CharField(max_length=300, blank=True, db_index=True)
+    # What this phone wants to be told (core/mobile_push.py KINDS): {"chat": false, ...}. A missing key means on.
+    notify = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     last_seen_at = models.DateTimeField(null=True, blank=True)
     last_ip = models.CharField(max_length=64, blank=True)
@@ -26,3 +28,7 @@ class MobileDevice(models.Model):
 
     def __str__(self):
         return f'{self.name or self.get_platform_display()} · {self.user}'
+
+    def wants(self, kind):
+        """True unless this phone switched that kind of notification off."""
+        return kind is None or (self.notify or {}).get(kind, True) is not False
