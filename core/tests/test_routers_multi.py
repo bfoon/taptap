@@ -283,3 +283,50 @@ class MoveRouter(Base):
         TeamMember.objects.create(business=self.target, user=viewer, role='admin', is_active=True)
         with self.assertRaises(rm.MoveRefused):
             rm.find_target(viewer, self.biz, self.target.pk)
+
+
+# ─────────────────────────── a sync stuck in "running" (the Hap Ax3 case) ───────────────────────────
+class StuckLinkSync(Base):
+    def setUp(self):
+        super().setUp()
+        from core.models import RouterSyncJob
+        self.a.connection_mode = 'agent'
+        self.a.save(update_fields=['connection_mode'])
+        RouterAgent.objects.create(router=self.a, token_hash='9' * 64, enrolled_at=timezone.now(), last_seen_at=timezone.now())
+        self.job = RouterSyncJob.objects.create(business=self.biz, router=self.a, status='running', progress=5,
+                                                phase='Waiting for TapTap Link — collecting RouterOS inventory')
+        old = timezone.now() - timedelta(hours=8)
+        RouterSyncJob.objects.filter(pk=self.job.pk).update(created_at=old, updated_at=timezone.now())   # touched recently
+
+    def test_overlong_sync_is_stopped_even_if_recently_touched(self):
+        from core.agent_inventory import settle_stalled_jobs
+        settle_stalled_jobs()
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.status, 'failed')
+
+    def test_a_sync_that_cannot_be_settled_is_stopped_and_the_router_syncs_again(self):
+        from core.agent_inventory import settle_router
+        from core.tasks import enqueue_router_sync
+        with mock.patch('core.agent_inventory.job_pieces', side_effect=RuntimeError('bad piece')):
+            settle_router(self.a)
+        self.job.refresh_from_db()
+        self.assertEqual(self.job.status, 'failed')
+        self.assertIn('could not be finished', self.job.phase)
+        with mock.patch('core.tasks.sync_router_task.delay', return_value=mock.Mock(id='task-1')):
+            new, created = enqueue_router_sync(self.a)
+        self.assertTrue(created)
+        self.assertNotEqual(new.pk, self.job.pk)
+
+    def test_one_bad_job_does_not_block_other_routers(self):
+        from core.agent_inventory import settle_stalled_jobs
+        from core.models import RouterSyncJob
+        self.b.connection_mode = 'agent'
+        self.b.save(update_fields=['connection_mode'])
+        other = RouterSyncJob.objects.create(business=self.biz, router=self.b, status='running')
+        RouterSyncJob.objects.filter(pk=other.pk).update(created_at=timezone.now() - timedelta(hours=3))
+        real = __import__('core.agent_inventory', fromlist=['job_pieces']).job_pieces
+        with mock.patch('core.agent_inventory.job_pieces', side_effect=lambda r, j: (_ for _ in ()).throw(RuntimeError('x'))
+                        if j == self.job.pk else real(r, j)):
+            settle_stalled_jobs()
+        other.refresh_from_db()
+        self.assertEqual(other.status, 'failed')

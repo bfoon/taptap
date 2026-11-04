@@ -929,59 +929,96 @@ def _heal_unprocessed(router, pieces, now):
     return healed
 
 
+def _give_up(job, now, exc):
+    """Last resort when settling a sync raised: stop the job anyway so the router can sync again.
+
+    A sync left 'running' blocks every new sync of that router (enqueue_router_sync keeps one job per router), so
+    one bad job used to mean "this MikroTik never syncs again" while its check-ins and live sessions kept
+    arriving."""
+    logger.exception('settling Link sync job %s of %s failed; stopping it', job.pk, job.router_id)
+    try:
+        AgentCommand.objects.filter(router_id=job.router_id, kind='inventory_piece', status__in=('queued', 'sent'),
+                                    params__job_id=job.pk).update(status='cancelled', done_at=now,
+                                                                  result='Sync stopped (could not be finished)')
+    except Exception:
+        logger.debug('cancel pieces of job %s', job.pk, exc_info=True)
+    RouterSyncJob.objects.filter(pk=job.pk, status__in=['queued', 'running']).update(
+        status='failed', finished_at=now,
+        phase=f'Sync could not be finished ({type(exc).__name__}) — will retry automatically'[:255])
+
+
 def settle_stalled_jobs(router=None):
-    """Finish Link syncs that stopped making progress."""
+    """Finish Link syncs that stopped making progress, or that ran longer than MAX_SYNC_MINUTES.
+
+    Runs every minute in the live loop for every router, so a sync can never stay 'running' for days even when the
+    worker never gets to settle_link_router. Each job is settled on its own: one that cannot be settled is stopped
+    (_give_up) instead of aborting the pass for every other router."""
+    from django.db.models import Q
     now = timezone.now()
     cutoff = now - timedelta(minutes=STALL_MINUTES)
     jobs = RouterSyncJob.objects.filter(
+        Q(updated_at__lt=cutoff) | Q(created_at__lt=now - timedelta(minutes=MAX_SYNC_MINUTES)),
         status__in=['queued', 'running'],
-        updated_at__lt=cutoff,
         router__connection_mode='agent',
-    ).select_related('router')
+    ).select_related('router').order_by('created_at')
     if router is not None:
         jobs = jobs.filter(router=router)
     settled = 0
     for job in jobs[:50]:
-        pieces = job_pieces(job.router, job.pk)
-        if not pieces:
-            RouterSyncJob.objects.filter(pk=job.pk, status__in=['queued', 'running']).update(
-                status='failed',
-                phase='Sync stopped responding — will retry automatically',
-                finished_at=now,
-            )
+        try:
+            settled += _settle_one(job, now)
+        except Exception as exc:
+            _give_up(job, now, exc)
             settled += 1
-            continue
-        _heal_unprocessed(job.router, pieces, now)
-        pending = [c for c in pieces if c.status in ('queued', 'sent') and not (c.params or {}).get('received')]
-        if pending:
-            AgentCommand.objects.filter(pk__in=[c.pk for c in pending]).update(
-                status='cancelled',
-                done_at=now,
-                result='No answer from the router in time',
-            )
-        _record_piece(
-            job.router,
-            job.pk,
-            {'errors': [f'{len(pending)} section(s) did not arrive in time.'] if pending else []},
-        )
+    return settled
+
+
+def _settle_one(job, now):
+    """Settle one stalled or overlong sync the normal way (the sections that arrived are kept)."""
+    pieces = job_pieces(job.router, job.pk)
+    if not pieces:
         RouterSyncJob.objects.filter(pk=job.pk, status__in=['queued', 'running']).update(
             status='failed',
-            phase='No answer from the router — will retry automatically',
+            phase='Sync stopped responding — will retry automatically',
             finished_at=now,
         )
-        settled += 1
-    return settled
+        return 1
+    _heal_unprocessed(job.router, pieces, now)
+    pending = [c for c in pieces if c.status in ('queued', 'sent') and not (c.params or {}).get('received')]
+    if pending:
+        AgentCommand.objects.filter(pk__in=[c.pk for c in pending]).update(
+            status='cancelled',
+            done_at=now,
+            result='No answer from the router in time',
+        )
+    _record_piece(
+        job.router,
+        job.pk,
+        {'errors': [f'{len(pending)} section(s) did not arrive in time.'] if pending else []},
+    )
+    RouterSyncJob.objects.filter(pk=job.pk, status__in=['queued', 'running']).update(
+        status='failed',
+        phase='No answer from the router — will retry automatically',
+        finished_at=now,
+    )
+    return 1
 
 
 def settle_router(router):
     """Housekeeping for one Link router, run in the worker (never inside its check-in)."""
     now = timezone.now()
-    settle_stalled_jobs(router)
+    try:
+        settle_stalled_jobs(router)
+    except Exception:
+        logger.exception('settle stalled syncs of %s', router)
     old = router.sync_jobs.filter(status__in=['queued', 'running'], created_at__lt=now - timedelta(minutes=MAX_SYNC_MINUTES))
     for job in old:
-        _record_piece(router, job.pk, {'errors': [f'The sync ran longer than {MAX_SYNC_MINUTES} minutes and was stopped.']})
-        RouterSyncJob.objects.filter(pk=job.pk, status__in=['queued', 'running']).update(
-            status='failed', phase='Timed out waiting for the router — will retry automatically', finished_at=now)
+        try:
+            _record_piece(router, job.pk, {'errors': [f'The sync ran longer than {MAX_SYNC_MINUTES} minutes and was stopped.']})
+            RouterSyncJob.objects.filter(pk=job.pk, status__in=['queued', 'running']).update(
+                status='failed', phase='Timed out waiting for the router — will retry automatically', finished_at=now)
+        except Exception as exc:
+            _give_up(job, now, exc)
 
 
 def prune_commands(batch=5000, max_rows=200_000):
