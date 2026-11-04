@@ -67,6 +67,7 @@
           <form method="post" action="{% url 'router_sync' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary router-sync-button" data-router-id="{{ r.id }}" {% if not sync_schema_ready or r.latest_sync_job.is_active %}disabled{% endif %}><i class="bi bi-arrow-repeat"></i> <span>{% if r.latest_sync_job.is_active %}Syncing…{% else %}Sync{% endif %}</span></button></form>
           <a class="btn btn-sm btn-outline-primary" href="{% url 'router_test' r.id %}"><i class="bi bi-activity"></i> Test</a>
           <a class="btn btn-sm btn-outline-primary" href="{% url 'network_tools' %}?router={{ r.id }}" title="Ping, traceroute, DNS, speed test and Internet check from this router"><i class="bi bi-speedometer2"></i> Tools</a>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-move-router="{{ r.id }}" data-move-name="{{ r.name }}" data-preview-url="{% url 'router_move_preview' r.id %}" data-move-url="{% url 'router_move' r.id %}" title="Move this router to another business"><i class="bi bi-box-arrow-right"></i> Move</button>
           <a class="btn btn-sm btn-outline-danger" href="{% url 'router_delete' r.id %}" onclick="return confirm('Delete this router from TapTap?')"><i class="bi bi-trash3"></i></a>
         </div>
       </div>
@@ -97,9 +98,96 @@
     </div>
   </div>
 </div>
+
+<div class="modal fade" id="moveRouterModal" tabindex="-1" aria-labelledby="moveRouterTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+    <form class="modal-content" method="post" id="moveRouterForm">{% csrf_token %}
+      <div class="modal-header">
+        <div><h5 class="modal-title" id="moveRouterTitle">Move <span data-mv="name">router</span> to another business</h5>
+          <small class="text-secondary">This business is <b>#{{ current_business.pk }}</b> · {{ current_business.business_name }}</small></div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mv-step"><span class="mv-num">1</span><div class="flex-grow-1">
+          <label class="form-label fw-semibold mb-1" for="mvBusinessId">Which business?</label>
+          <div class="mv-targets" data-mv="targets"></div>
+          <div class="input-group mt-2" style="max-width:340px"><span class="input-group-text">Business ID #</span>
+            <input class="form-control" id="mvBusinessId" name="business_id" inputmode="numeric" autocomplete="off" required placeholder="e.g. 42"></div>
+          <div class="small mt-1" data-mv="target" aria-live="polite"></div>
+          <div class="form-text">You must be the owner or an Admin of that business. Its ID is in that business’s Settings.</div>
+        </div></div>
+        <div class="mv-step"><span class="mv-num">2</span><div class="flex-grow-1">
+          <div class="form-check form-switch"><input class="form-check-input" type="checkbox" role="switch" id="mvVouchers" name="with_vouchers" checked>
+            <label class="form-check-label fw-semibold" for="mvVouchers">Bring its vouchers and members</label></div>
+          <div class="form-text mb-2">Recommended. Customers online on this router keep working and the new business sees them. Off: the vouchers stay here and stop being tracked once the router leaves.</div>
+          <div class="mv-preview" data-mv="preview"><div class="text-secondary small">Counting…</div></div>
+        </div></div>
+        <div class="mv-step"><span class="mv-num">3</span><div class="flex-grow-1">
+          <label class="form-label fw-semibold mb-1" for="mvConfirm">Type <code data-mv="name2"></code> to confirm</label>
+          <input class="form-control" id="mvConfirm" name="confirm_name" autocomplete="off" required>
+        </div></div>
+      </div>
+      <div class="modal-footer">
+        <span class="small text-secondary me-auto"><i class="bi bi-link-45deg"></i> TapTap Link and Tunnel keep working — nothing to change on the MikroTik.</span>
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-danger" id="mvSubmit" disabled><i class="bi bi-box-arrow-right"></i> Move router</button>
+      </div>
+    </form>
+  </div>
+</div>
+<style>
+.mv-step{display:flex;gap:.85rem;padding:.75rem 0;border-bottom:1px solid #eef2f6}.mv-step:last-child{border-bottom:0}
+.mv-num{flex:0 0 1.7rem;height:1.7rem;border-radius:50%;background:#eef2f6;color:#1769e0;font-weight:800;display:grid;place-items:center;font-size:.85rem}
+.mv-targets{display:flex;flex-wrap:wrap;gap:.5rem}
+.mv-target{border:1px solid #dbe3ec;background:#fff;border-radius:12px;padding:.45rem .75rem;text-align:left;line-height:1.2}
+.mv-target small{display:block;color:#6b7f94}.mv-target.on{border-color:#1769e0;box-shadow:0 0 0 3px #1769e022}
+.mv-preview{display:grid;grid-template-columns:1fr 1fr;gap:.75rem}.mv-box{background:#f6f8fb;border-radius:12px;padding:.7rem .85rem;font-size:.82rem}
+.mv-box h6{font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;color:#6b7f94;margin-bottom:.35rem}
+.mv-box li{display:flex;justify-content:space-between;gap:.5rem}.mv-box ul{list-style:none;padding:0;margin:0}
+html[data-theme="dark"] .mv-target{background:#1b2a3a;border-color:#2a3d52}html[data-theme="dark"] .mv-box{background:#1b2a3a}
+html[data-theme="dark"] .mv-num{background:#2a3d52;color:#7fb0ff}html[data-theme="dark"] .mv-step{border-color:#22344a}
+@media(max-width:576px){.mv-preview{grid-template-columns:1fr}}
+</style>
 {% endblock %}
 
 {% block scripts %}
+<script>
+(function(){
+  const modalEl=document.getElementById('moveRouterModal'); if(!modalEl||!window.bootstrap)return;
+  const modal=new bootstrap.Modal(modalEl), form=document.getElementById('moveRouterForm');
+  const $=k=>modalEl.querySelector(`[data-mv="${k}"]`), idIn=document.getElementById('mvBusinessId'),
+        vIn=document.getElementById('mvVouchers'), cIn=document.getElementById('mvConfirm'), go=document.getElementById('mvSubmit');
+  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let cur=null, okTarget=false, timer=null;
+  const list=o=>Object.entries(o||{}).map(([k,v])=>`<li><span>${esc(k)}</span><b>${v}</b></li>`).join('');
+  function check(){go.disabled=!(okTarget&&cur&&cIn.value.trim().toLowerCase()===cur.name.trim().toLowerCase());}
+  async function load(){
+    if(!cur)return;
+    const q=new URLSearchParams({vouchers:vIn.checked?'1':'0',business_id:idIn.value.trim()});
+    try{
+      const d=await (await fetch(cur.preview+'?'+q,{credentials:'same-origin',cache:'no-store'})).json();
+      const t=$('targets');
+      if(!t.dataset.filled){t.dataset.filled='1';t.innerHTML=(d.targets||[]).map(b=>`<button type="button" class="mv-target" data-id="${b.id}"><b>${esc(b.name)}</b><small>#${b.id} · you are ${esc(b.role)}</small></button>`).join('')||'<span class="small text-secondary">You do not run another business yet — type the ID of one you are Admin of.</span>';
+        t.querySelectorAll('.mv-target').forEach(btn=>btn.addEventListener('click',()=>{idIn.value=btn.dataset.id;t.querySelectorAll('.mv-target').forEach(x=>x.classList.toggle('on',x===btn));load();}));}
+      const p=d.preview, v=p.vouchers, tgt=$('target');
+      okTarget=!!d.target;
+      tgt.className='small mt-1 '+(d.target?'text-success':(d.target_error?'text-danger':''));
+      tgt.innerHTML=d.target?`<i class="bi bi-check-circle"></i> ${esc(d.target.name)} — has ${d.target.routers} router(s) now.`:(d.target_error?`<i class="bi bi-x-circle"></i> ${esc(d.target_error)}`:'');
+      const goes=Object.assign(vIn.checked?{'Vouchers & members':v.total}:{},p.moved);
+      $('preview').innerHTML=`<div class="mv-box"><h6>Goes with the router</h6><ul>${list(goes)||'<li>Only the router</li>'}</ul>${vIn.checked&&v.total?`<div class="mt-2 text-secondary">${v.in_use} in use now · ${v.unsold} not sold yet${v.members?` · ${v.members} members`:''}</div>`:''}</div>
+        <div class="mv-box"><h6>Stays in this business</h6><ul>${p.sales_stay?`<li><span>Sales</span><b>${p.sales_stay}</b></li>`:''}${list(p.stays)}${v.left_behind?`<li><span>Vouchers (not tracked after the move)</span><b>${v.left_behind}</b></li>`:''}</ul><div class="mt-2 text-secondary">Money stays where it was earned: agent balances and past reports do not change.</div>${p.roaming_mirrors?`<div class="mt-2 text-warning">${p.roaming_mirrors} roaming customer(s) of partner businesses use this router.</div>`:''}</div>`;
+    }catch(e){$('preview').innerHTML='<div class="text-danger small">Could not count what moves. Check your connection.</div>';}
+    check();
+  }
+  document.querySelectorAll('[data-move-router]').forEach(b=>b.addEventListener('click',()=>{
+    cur={name:b.dataset.moveName,preview:b.dataset.previewUrl}; form.action=b.dataset.moveUrl;
+    $('name').textContent=cur.name; $('name2').textContent=cur.name; idIn.value=''; cIn.value=''; okTarget=false;
+    $('targets').dataset.filled=''; $('target').textContent=''; check(); modal.show(); load();
+  }));
+  idIn.addEventListener('input',()=>{clearTimeout(timer);modalEl.querySelectorAll('.mv-target').forEach(x=>x.classList.toggle('on',x.dataset.id===idIn.value.trim()));timer=setTimeout(load,350);});
+  vIn.addEventListener('change',load); cIn.addEventListener('input',check);
+})();
+</script>
 <script>
 (function(){
   const monitor=document.getElementById('syncMonitor');

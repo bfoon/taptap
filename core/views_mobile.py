@@ -237,6 +237,9 @@ def me(request):
         'vouchers_create': 'vouchers.create' in perms,
         'vouchers_support': 'vouchers.support' in perms,
         'vouchers_manage': 'vouchers.manage' in perms,
+        # routers (core/views_mobile_routers.py): each MikroTik on its own card; sync, test, kick, reboot, move
+        'routers': bool({'network.manage', 'vouchers.support'} & perms),
+        'routers_manage': 'network.manage' in perms,
     }
     from .mobile_push import configured
     out['push'] = configured()

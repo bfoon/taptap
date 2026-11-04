@@ -1,0 +1,13 @@
+{% if router_tabs.show %}
+<nav class="router-tabs" aria-label="Show one router">
+  <a class="rt-tab rt-all{% if router_tabs.all_on %} is-on{% endif %}" href="{{ router_tabs.all_href }}"{% if router_tabs.all_on %} aria-current="page"{% endif %}>
+    <span class="rt-name">All routers</span><span class="rt-sub">{{ router_tabs.online }} of {{ router_tabs.count }} online</span>
+  </a>
+  {% for t in router_tabs.items %}
+  <a class="rt-tab{% if t.on %} is-on{% endif %}" href="{{ t.href }}" data-router-tab="{{ t.id }}"{% if t.on %} aria-current="page"{% endif %}>
+    <span class="rt-name"><i class="rt-dot {{ t.status }}" aria-hidden="true"></i>{{ t.name }}</span>
+    <span class="rt-sub">{% if t.status == 'online' %}Online{% elif t.status == 'offline' %}Offline{% else %}Not connected yet{% endif %} · {{ t.via }}</span>
+  </a>
+  {% endfor %}
+</nav>
+{% endif %}

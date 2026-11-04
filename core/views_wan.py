@@ -236,7 +236,7 @@ def wan_apply(request, pk):
     setup.last_result = {**result, 'reachable_after': reach, 'health': lines, 'warnings': warnings}
     setup.save()
     _audit(request, router, 'apply', {'strategy': cfg['strategy'], 'lines': [l['interface'] for l in cfg['links']], 'run': plan['run'], 'undo_minutes': minutes})
-    log(router.business, 'Internet Lines Applied', f'{router.name}: {wan.STRATEGIES[cfg["strategy"]]} on ' + ', '.join(l['label'] for l in cfg['links']))
+    log(router.business, 'Internet Lines Applied', f'{router.name}: {wan.STRATEGIES[cfg["strategy"]]} on ' + ', '.join(l['label'] for l in cfg['links']), router=router)
     return JsonResponse({'success': True, 'status': setup.status, 'confirm_by': setup.confirm_by.isoformat() if setup.confirm_by else None,
                          'reachable_after': reach, 'health': lines, 'counts': result['counts'], 'notes': result['notes']})
 
@@ -288,7 +288,7 @@ def wan_confirm(request, pk):
     setup.status = 'active'; setup.confirmed_at = timezone.now(); setup.confirm_by = None
     setup.save(update_fields=['status', 'confirmed_at', 'confirm_by', 'updated_at'])
     _audit(request, router, 'confirm', {'run': setup.run_id})
-    log(router.business, 'Internet Lines Confirmed', router.name)
+    log(router.business, 'Internet Lines Confirmed', router.name, router=router)
     return JsonResponse({'success': True, 'status': 'active'})
 
 
@@ -303,7 +303,7 @@ def wan_undo(request, pk):
         except ValueError as exc:
             return JsonResponse({'success': False, 'message': str(exc)}, status=409)
         _audit(request, router, 'undo', {'via': 'link'})
-        log(router.business, 'Internet Lines Undone', f'{router.name}: undo sent through TapTap Link')
+        log(router.business, 'Internet Lines Undone', f'{router.name}: undo sent through TapTap Link', router=router)
         return JsonResponse({'success': True, 'removed': 0, 'via_link': True})
     try:
         svc = MikroTikService(router).connect()
@@ -317,7 +317,7 @@ def wan_undo(request, pk):
     setup.status = 'undone'; setup.confirm_by = None; setup.original = {}
     setup.save(update_fields=['status', 'confirm_by', 'original', 'updated_at'])
     _audit(request, router, 'undo', {'removed': removed})
-    log(router.business, 'Internet Lines Undone', f'{router.name}: removed {removed} TapTap items and restored the original settings')
+    log(router.business, 'Internet Lines Undone', f'{router.name}: removed {removed} TapTap items and restored the original settings', router=router)
     return JsonResponse({'success': True, 'removed': removed})
 
 

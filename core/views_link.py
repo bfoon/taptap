@@ -98,7 +98,7 @@ def agent_poll(request):
     started = time.monotonic()
     try:
         script = link.handle_poll(agent, data, ip, link.base_url(request))
-    except Exception:
+    except Exception as exc:
         # A TapTap-side error must never look like "the router cannot reach TapTap": an HTTP 500 is counted as a
         # missed check-in by the router, and a few in a row were reported to the owner as an internet outage.
         # The router reached TapTap: record the check-in (the watchdog must not call it silent) and answer normally,
@@ -107,6 +107,11 @@ def agent_poll(request):
         try:
             from django.utils import timezone as _tz
             RouterAgent.objects.filter(pk=agent.pk).update(last_seen_at=_tz.now(), last_ip=ip)
+            # A heartbeat arriving is not proof that command delivery or traffic
+            # ingestion succeeded. Keep the failure visible beside 'Online'.
+            Router.objects.filter(pk=agent.router_id).update(
+                last_error=f'TapTap Link server processing failed ({type(exc).__name__}); check web logs'
+            )
         except Exception:
             pass
         script = ''
@@ -303,7 +308,7 @@ def router_agent_register(request):
         enqueue_router_sync(router, request.user)
     except Exception as exc:
         messages.warning(request, f'Router created, but initial inventory sync could not be queued yet: {exc}')
-    log(router.business, 'TapTap Link', f'{router.name}: registered as an agent-only router')
+    log(router.business, 'TapTap Link', f'{router.name}: registered as an agent-only router', router=router)
     messages.success(request, 'Router created without an IP address. Copy the TapTap Link script into WinBox/New Terminal.')
     return redirect('router_link', pk=router.pk)
 
@@ -334,6 +339,8 @@ def router_link(request, pk):
         'fixes': troubleshooting_steps(link.base_url(request)),
         'last_outage': cache.get(f'tt:link:outage:{router.pk}'),
         'last_refusal': refusal_for(agent),
+        'shared_token': cache.get(f'tt:link:shared:{agent.pk}') if agent else None,
+        'shared_text': link.SHARED_TEXT,
         'last_hello': cache.get(f'tt:link:hello:{agent.pk}') if agent else None,
         'pin_refused': bool(agent and agent.last_ip and not agent.ip_allowed(agent.last_ip)),
         'commands': cmds,
@@ -385,7 +392,7 @@ def router_link_action(request, pk):
                 enqueue_router_sync(router, request.user)
             except Exception as exc:
                 messages.warning(request, f'Link created, but the initial full sync could not be queued yet: {exc}')
-        log(router.business, 'TapTap Link', f'{router.name}: token {"created" if action == "enroll" else "rotated"}')
+        log(router.business, 'TapTap Link', f'{router.name}: token {"created" if action == "enroll" else "rotated"}', router=router)
         messages.success(request, 'New setup script ready — paste the whole block into the router terminal. The token is shown only now.')
 
     elif action == 'revoke' and agent:
@@ -393,7 +400,7 @@ def router_link_action(request, pk):
         agent.save(update_fields=['revoked'])
         router.agent_commands.filter(status__in=['queued', 'sent']).update(status='cancelled', done_at=timezone.now())
         Router.objects.filter(pk=router.pk).update(status='Not connected', last_error='TapTap Link revoked')
-        log(router.business, 'TapTap Link', f'{router.name}: token revoked')
+        log(router.business, 'TapTap Link', f'{router.name}: token revoked', router=router)
         messages.success(request, 'TapTap Link revoked. The router can no longer connect. Remove the taptap-link script/scheduler or rotate the token to reconnect.')
 
     elif action == 'settings' and agent:
@@ -517,6 +524,9 @@ def router_link_status(request, pk):
         'ip': a.last_ip, 'identity': a.identity, 'version': a.ros_version, 'board': a.board,
         'uptime': a.uptime, 'cpu': a.cpu_load, 'mem_free': a.memory_free, 'mem_total': a.memory_total,
         'sessions': a.active_sessions, 'polls': a.polls, 'commands': cmds,
+        'last_error': router.last_error,
+        'traffic_seen_at': (cache.get(f'tt:tr:now:{router.pk}') or {}).get('at'),
+        'interface_rates_at': (cache.get(f'tt:linkrates:{router.pk}') or {}).get('at'),
         'tunnel': _tunnel_info(router),
     })
 

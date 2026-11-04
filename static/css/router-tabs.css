@@ -1,0 +1,25 @@
+/* One business, several MikroTiks: the router tabs on network pages (core/router_scope.py). */
+.router-tabs{display:flex;gap:4px;padding:4px;margin:0 0 1rem;background:#eef2f6;border-radius:14px;overflow-x:auto;scrollbar-width:thin;
+  scroll-snap-type:x proximity;max-width:100%}
+.rt-tab{flex:0 0 auto;display:flex;flex-direction:column;gap:.1rem;min-width:9.5rem;padding:.5rem .85rem;border-radius:10px;
+  color:#4e6479;text-decoration:none;scroll-snap-align:start;line-height:1.2}
+.rt-tab:hover{background:#ffffff99;color:#102033}
+.rt-tab.is-on{background:#fff;color:#102033;box-shadow:0 1px 4px #0002}
+.rt-tab:focus-visible{outline:3px solid #1769e066;outline-offset:2px}
+.rt-name{font-weight:700;font-size:.9rem;display:flex;align-items:center;gap:.45rem;white-space:nowrap}
+.rt-sub{font-size:.72rem;color:#6b7f94;white-space:nowrap}
+.rt-tab.is-on .rt-sub{color:#4e6479}
+.rt-dot{width:8px;height:8px;border-radius:50%;background:#9aa8b8;flex:0 0 8px}
+.rt-dot.online{background:#18a66a}.rt-dot.offline{background:#d64545}.rt-dot.waiting{background:#f59e0b}
+.rt-all .rt-name{color:#1769e0}.rt-all.is-on .rt-name{color:#102033}
+/* "Showing one router" note above filtered content */
+.rt-note{display:flex;align-items:center;gap:.5rem;font-size:.82rem;color:#4e6479;margin:-.4rem 0 1rem}
+.rt-note a{font-weight:700}
+html[data-theme="dark"] .router-tabs{background:#1b2a3a}
+html[data-theme="dark"] .rt-tab{color:#a9bccf}
+html[data-theme="dark"] .rt-tab:hover{background:#22344799;color:#fff}
+html[data-theme="dark"] .rt-tab.is-on{background:#2a3d52;color:#fff}
+html[data-theme="dark"] .rt-sub,html[data-theme="dark"] .rt-note{color:#8fa4b9}
+html[data-theme="dark"] .rt-all .rt-name{color:#7fb0ff}
+@media (max-width:576px){.rt-tab{min-width:8rem;padding:.45rem .7rem}}
+.nm-node.outside{opacity:.55;filter:saturate(.4)}.nm-node.outside:hover{opacity:.85}

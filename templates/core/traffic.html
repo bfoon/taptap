@@ -7,7 +7,7 @@
 
 {% endblock %}
 {% block content %}
-
+{% include 'core/partials/router_tabs.html' %}
 <div class="tr-bar">
   <div class="tr-pills" role="group" aria-label="Period">
     {% for key,label in presets.items %}

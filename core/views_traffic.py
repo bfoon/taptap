@@ -30,9 +30,9 @@ def _b(request):
 def _traffic_args(request):
     business = _b(request)
     period = resolve_period(request.GET, '7d')
-    router = request.GET.get('router') or None
-    if router and not business.routers.filter(pk=router).exists():
-        router = None
+    from .router_scope import scope          # ?router=<id> / ?router=all, else the router tab remembered for this business
+    selected, _routers = scope(request, business)
+    router = str(selected.pk) if selected else None
     return business, period, router
 
 
@@ -64,8 +64,10 @@ def traffic(request):
     if exp:
         return _export(business, period, router, exp)
     data = _payload(business, period, router)
+    from .router_scope import tabs
     return render(request, 'core/traffic.html', {'period': period, 'presets': PRESETS, 'data': data, 'routers': business.routers.all().order_by('name'),
-                                                 'sel_router': router, 'now': right_now(business, router), 'query': request.GET.urlencode()})
+                                                 'sel_router': router, 'now': right_now(business, router), 'query': request.GET.urlencode(),
+                                                 'router_tabs': tabs(request, business, label='Traffic')})
 
 
 @login_required
@@ -95,7 +97,8 @@ def traffic_cdn(request):
 
 @login_required
 def traffic_now(request):
-    return JsonResponse(right_now(_b(request), request.GET.get('router')))
+    business, _period, router = _traffic_args(request)
+    return JsonResponse(right_now(business, router))
 
 
 def _export(business, period, router, kind):

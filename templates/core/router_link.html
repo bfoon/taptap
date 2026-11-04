@@ -41,6 +41,10 @@
         If the router has two internet links, it gets a different public IP when it switches to the other one — and is refused.
         List the public IP of <b>every</b> link below, separated by commas, or clear the field.</div>
     {% endif %}
+    {% if shared_token %}
+      <div class="alert alert-danger py-2 small mb-2" role="alert"><i class="bi bi-exclamation-octagon"></i> <b>Two routers share this token</b> (since {{ shared_token.at }}, {{ shared_token.flips }} switches in 15 minutes). {{ shared_text }}
+        <div class="mt-1">Devices seen: {{ shared_token.devices|join:" · " }}</div></div>
+    {% endif %}
     {% if last_refusal %}
       <div class="alert alert-danger py-2 small mb-2"><i class="bi bi-shield-x"></i> <b>Last refused check-in</b> ({{ last_refusal.at }}, from {{ last_refusal.ip }}): {{ last_refusal.why }}.
         {% if 'unknown token' in last_refusal.why %}The router is still using an old token — paste the newest install block (or press Rotate token and paste that one).{% endif %}</div>

@@ -185,7 +185,7 @@ def _audit(router, user, op, feature, ok=True, error=''):
                                       resource_path='/ip/firewall/filter', operation=op, target_id=feature,
                                       fields={'feature': FEATURES[feature]['label']}, status='success' if ok else 'failed', error=error[:500])
     if ok:
-        log(router.business, 'Security Protection', f'{router.name}: {FEATURES[feature]["label"]} {op}')
+        log(router.business, 'Security Protection', f'{router.name}: {FEATURES[feature]["label"]} {op}', router=router)
 
 
 def _refresh_snapshot(svc, router):

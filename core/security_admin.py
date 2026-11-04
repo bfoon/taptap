@@ -86,7 +86,7 @@ def _audit(router, user, operation, fields, ok=True, error=''):
                                       resource_path='/user', operation=operation, target_id='admin', fields=fields,
                                       status='success' if ok else 'failed', error=error[:500])
     if ok:
-        log(router.business, 'Security Fix', f'{router.name}: {fields.get("what", operation)}')
+        log(router.business, 'Security Fix', f'{router.name}: {fields.get("what", operation)}', router=router)
 
 
 def set_password(router, password, again, user=None):

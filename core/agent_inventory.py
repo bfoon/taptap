@@ -354,7 +354,7 @@ def _users(router, rows, now):
             duration_minutes = plan.duration_minutes      # "0s" / no limit on the user: the profile's length counts
         disabled = ros_bool(row.get('disabled', False))
         existing_voucher = Voucher.all_objects.filter(code__iexact=username).first()
-        source = 'taptap' if existing_voucher and existing_voucher.business_id == router.business_id and existing_voucher.source == 'taptap' else 'mikrotik'
+        source = 'taptap' if existing_voucher and existing_voucher.business_id == router.business_id and existing_voucher.source == 'taptap' and existing_voucher.router_id in (None, router.pk) else 'mikrotik'
         RouterHotspotUser.objects.update_or_create(
             router=router,
             username=username,
@@ -380,6 +380,17 @@ def _users(router, rows, now):
         if existing_voucher:
             if existing_voucher.business_id != router.business_id:
                 summary['errors'].append(f'Voucher name {username} belongs to another TapTap business; import skipped.')
+                continue
+            # The code is globally unique, but two physical sites may both have a
+            # RouterOS user with that name. Mirror this site's user above without
+            # claiming the voucher assigned to the other MikroTik is synchronized.
+            if existing_voucher.router_id not in (None, router.pk):
+                summary['duplicate_vouchers_skipped'] += 1
+                summary['errors'].append(
+                    f'Voucher {username} is assigned to router #{existing_voucher.router_id} '
+                    f'but also exists on {router.name}. This site was mirrored, not imported: '
+                    'use different voucher codes per site or explicitly reassign the voucher.'
+                )
                 continue
             summary['duplicate_vouchers_skipped'] += 1
             fields = ['mikrotik_sync_status', 'mikrotik_sync_error']
@@ -858,7 +869,7 @@ def _record_piece(router, job_id, piece_summary):
     )
     if not router.sales_baseline_at:
         Router.objects.filter(pk=router.pk, sales_baseline_at__isnull=True).update(sales_baseline_at=now)
-    log(router.business, 'Router Sync', f'{router.name}: full inventory synchronized through TapTap Link')
+    log(router.business, 'Router Sync', f'{router.name}: full inventory synchronized through TapTap Link', router=router)
 
 
 def record_job(router_id, job_id, errors=None):

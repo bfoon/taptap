@@ -521,9 +521,9 @@ def _bypass_caps(router, bypass, pols, now):
         if tier != st.tier:
             if tier > st.tier:
                 t = pol.tiers[tier - 1]
-                log(router.business, 'Fair Usage', f'Bypass device {who} ({mac}) used {used / GB:.2f} GB — slowed to {speed_text(t["down"])} ({pol.name})')
+                log(router.business, 'Fair Usage', f'Bypass device {who} ({mac}) used {used / GB:.2f} GB — slowed to {speed_text(t["down"])} ({pol.name})', router=router)
             else:
-                log(router.business, 'Fair Usage', f'Bypass device {who} ({mac}) back to ' + ('full speed' if not tier else f'step {tier}'))
+                log(router.business, 'Fair Usage', f'Bypass device {who} ({mac}) back to ' + ('full speed' if not tier else f'step {tier}'), router=router)
             st.tier, st.changed_at = tier, now
         st.used_bytes, st.device_label = used, who[:120]
         st.save()

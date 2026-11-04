@@ -281,7 +281,7 @@ def port_action(request, pk):
                     if row:
                         router.interfaces.filter(name=name).update(disabled=str(row[0].get('disabled', '')).lower() == 'true',
                                                                    running=str(row[0].get('running', '')).lower() == 'true')
-        log(router.business, 'Port Control', f'{router.name} {name}: {action} — {msg}')
+        log(router.business, 'Port Control', f'{router.name} {name}: {action} — {msg}', router=router)
         return JsonResponse({'ok': True, 'message': msg, 'control': _control_state(router, name)})
     except Exception as exc:
         return JsonResponse({'ok': False, 'message': str(exc)[:300]}, status=502)
@@ -349,7 +349,7 @@ def router_reboot(request, pk):
         if 'closed' not in str(exc).lower():
             return JsonResponse({'ok': False, 'message': str(exc)[:300]}, status=502)
     type(router).objects.filter(pk=router.pk).update(status='Rebooting', last_tested_at=timezone.now())
-    log(router.business, 'Router Reboot', f'{router.name} rebooted by {request.user.email}')
+    log(router.business, 'Router Reboot', f'{router.name} rebooted by {request.user.email}', router=router)
     return JsonResponse({'ok': True, 'message': f'{router.name} is rebooting. It is usually back within 1–2 minutes; live sync will mark it online again.'})
 
 
@@ -370,7 +370,7 @@ def router_backups(request, pk):
                 rec = do_backup(svc, router, user=request.user)
         except Exception as exc:
             return JsonResponse({'ok': False, 'message': str(exc)[:300]}, status=502)
-        log(router.business, 'Router Backup', f'{router.name}: {rec.name}')
+        log(router.business, 'Router Backup', f'{router.name}: {rec.name}', router=router)
         parts = []
         if rec.backup_file: parts.append(f'{rec.backup_file} saved on the router')
         if rec.content: parts.append('export downloaded into TapTap')

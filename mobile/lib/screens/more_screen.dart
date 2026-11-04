@@ -8,6 +8,8 @@ import '../app/state.dart';
 import '../push/push.dart';
 import '../widgets/common.dart';
 import 'notifications_screen.dart';
+import 'quick_sell.dart';
+import 'routers_screen.dart';
 
 class MoreScreen extends StatefulWidget {
   const MoreScreen({super.key});
@@ -54,6 +56,29 @@ class _MoreScreenState extends State<MoreScreen> {
               subtitle: Text('${b['role']} · ${b['name']}'),
             ),
           ),
+          if (app.canDo('routers') || app.canDo('vouchers_create')) ...[
+            const SizedBox(height: 12),
+            Card(
+              child: Column(children: [
+                if (app.canDo('routers'))
+                  ListTile(
+                    leading: const Icon(Icons.router_outlined),
+                    title: const Text('Routers', style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: const Text('Each MikroTik on its own tab: who is online, sync, reboot, move'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RoutersScreen())),
+                  ),
+                if (app.canDo('vouchers_create'))
+                  ListTile(
+                    leading: const Icon(Icons.bolt, color: Color(0xFFF59E0B)),
+                    title: const Text('Quick sell', style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: const Text('One paid voucher for the customer in front of you'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => showQuickSell(context),
+                  ),
+              ]),
+            ),
+          ],
           const SizedBox(height: 12),
           if (app.canDo('customer_calls'))
             const InfoCard(
@@ -154,7 +179,7 @@ class _MoreScreenState extends State<MoreScreen> {
             ]),
           ),
           const SizedBox(height: 16),
-          Center(child: Text('TapTap app 1.1 · ${Api.I.server}', style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant))),
+          Center(child: Text('TapTap app 1.2 · ${Api.I.server}', style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant))),
         ]),
       ),
     );

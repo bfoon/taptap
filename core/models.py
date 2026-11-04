@@ -443,7 +443,12 @@ class Activity(models.Model):
     details=models.CharField(max_length=255)
     status=models.CharField(max_length=40,default='Success')
     actor=models.CharField(max_length=150,blank=True,help_text='Who did it (owner, team member or TapTap support)')
+    # Which MikroTik it happened on (empty = the business as a whole). core/utils.log() fills it in.
+    router=models.ForeignKey('Router',on_delete=models.SET_NULL,null=True,blank=True,related_name='activities')
     created_at=models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes=[models.Index(fields=['business','router','-created_at'],name='core_activity_router_idx')]
 
 
 class RouterHotspotProfile(models.Model):

@@ -150,8 +150,10 @@ def _binding_dict(b, expiries):
             'until': exp.expires_at.isoformat() if exp else None}
 
 
-def _bindings_payload(business):
+def _bindings_payload(business, router=None):
     qs = business.synced_ip_bindings.select_related('router').filter(is_present=True).order_by('router__name', 'comment', 'mac_address')
+    if router is not None:
+        qs = qs.filter(router=router)
     expiries = {(e.router_id, e.binding_id): e for e in IPBindingAccessExpiry.objects.filter(business=business)}
     rows = [_binding_dict(b, expiries) for b in qs]
     from .bypass_pay import last_payments
@@ -223,16 +225,22 @@ def ip_bindings(request):
             binding.sync_status = 'Error'; binding.sync_error = str(e); binding.save(update_fields=['sync_status', 'sync_error', 'updated_at'])
             messages.warning(request, f'Saved in TapTap but the router did not accept it: {e}')
         return redirect('ip_bindings')
-    payload = _bindings_payload(business)
+    from .router_scope import page_context, scope
+    selected, _all, scope_ctx = page_context(request, business, 'IP bindings')
+    payload = _bindings_payload(business, selected)
     from .models import PAYMENT_METHODS
     return render(request, 'core/ip_bindings.html', {'payload': payload, 'routers': business.routers.all().order_by('name'),
                                                      'pay_methods': [m for m in PAYMENT_METHODS if m[0] != 'auto'],
-                                                     'never_synced': not business.synced_ip_bindings.exists()})
+                                                     'never_synced': not business.synced_ip_bindings.exists(),
+                                                     'selected_router': selected, **scope_ctx})
 
 
 @login_required
 def ip_bindings_data(request):
-    return JsonResponse(_bindings_payload(_b(request)))
+    from .router_scope import scope
+    business = _b(request)
+    selected, _routers = scope(request, business)      # the tab picked on the page (remembered in the session)
+    return JsonResponse(_bindings_payload(business, selected))
 
 
 def _apply(svc, b, action, value=None):

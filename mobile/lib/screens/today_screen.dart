@@ -10,6 +10,7 @@ import '../app/format.dart';
 import '../app/state.dart';
 import '../widgets/charts.dart';
 import '../widgets/common.dart';
+import '../widgets/quick_actions.dart';
 import 'sales_detail_screen.dart';
 
 /// The first page: today's sales, live — plus what needs you right now (complaints, missed customer calls, messages).
@@ -142,6 +143,10 @@ class _TodayScreenState extends State<TodayScreen> {
                     },
                     child: s == null ? const SkeletonCard(height: 200) : _Hero(s: s, cur: cur, isToday: _isToday, brand: app.brand),
                   ),
+                ],
+                if (_isToday) ...[
+                  const SizedBox(height: 14),
+                  const QuickActions(),
                 ],
                 if (_isToday && _home != null) ...[
                   const SizedBox(height: 14),

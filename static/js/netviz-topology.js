@@ -274,7 +274,8 @@
           this.nodeLayer.appendChild(div);
         }
         div.dataset.id = n.id;
-        div.className = `nm-node t-${n.type} s-${n.status || 'online'}${n.state ? ' st-' + n.state : ''}${n.suggested ? ' suggested' : ''}`;
+        div.className = `nm-node t-${n.type} s-${n.status || 'online'}${n.state ? ' st-' + n.state : ''}${n.suggested ? ' suggested' : ''}${n.outside ? ' outside' : ''}`;
+        if (n.outside) div.title = `${n.label} — another of your routers, cabled to this one. Pick its tab to see its own map.`;
         div.style.width = p.w + 'px'; div.style.height = p.h + 'px';
         div.style.transform = `translate(${p.x}px,${p.y}px)`;
         div.setAttribute('aria-label', `${TYPE_LABEL[n.type] || n.type}: ${n.label}`);

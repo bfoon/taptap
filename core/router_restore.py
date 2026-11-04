@@ -484,7 +484,7 @@ def restore_start(request, pk, rid):
         event(r, r.error, 'bad')
         r.save()
     from .utils import log
-    log(router.business, 'Router Restore', f'{router.name}: restore of {r.file_name} from {r.get_source_display()} started')
+    log(router.business, 'Router Restore', f'{router.name}: restore of {r.file_name} from {r.get_source_display()} started', router=router)
     return JsonResponse({'ok': True, 'restore': as_json(r)})
 
 

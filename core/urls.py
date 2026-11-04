@@ -5,6 +5,7 @@ from . import views_wan_doctor as vdoc
 
 from . import views_help as vhelp
 from . import views_ads, views_ports, views_live, views_traffic, views_missing, views_link
+from . import views_router_move as vmove
 from . import views_team as vteam, views_platform as vp, views_detail as vdetail, views_bin as vbin, views_freeze as vfz
 from . import views_rollback as vrb
 from . import views_payroll as vpay
@@ -13,6 +14,7 @@ from . import views_bonanza as vbz
 from . import views_portal_call as vpcall
 from . import views_mobile as vmob
 from . import views_mobile_vouchers as vmobv
+from . import views_mobile_routers as vmobr
 from . import views_netdev as vnd
 from . import views_sharing as vshare
 from . import views_tracking as vtrack
@@ -66,6 +68,7 @@ urlpatterns = [
     path('vouchers/<int:pk>/delete/',vbin.voucher_delete,name='voucher_delete'), path('vouchers/<int:pk>/profile/',vbin.voucher_set_profile,name='voucher_set_profile'), path('vouchers/<int:pk>/archive/',vbin.voucher_archive_now,name='voucher_archive_now'), path('vouchers/<int:pk>/change-code/',views.change_voucher_code,name='change_voucher_code'), path('vouchers/<int:pk>/warn/',vfz.voucher_warn,name='voucher_warn'), path('vouchers/<int:pk>/rollback/',vrb.voucher_rollback,name='voucher_rollback'), path('active-users/warn/',vfz.session_warn,name='session_warn'), path('vouchers/<int:pk>/freeze/',vfz.voucher_freeze,name='voucher_freeze'), path('vouchers/<int:pk>/time-point/',vfz.voucher_time_point,name='voucher_time_point'), path('vouchers/freeze/',vfz.vouchers_freeze,name='vouchers_freeze'), path('batches/<int:pk>/freeze/',vfz.batch_freeze,name='batch_freeze'), path('vouchers/delete/',vbin.vouchers_delete,name='vouchers_delete'),
     path('batches/<int:pk>/delete/',vbin.batch_delete,name='batch_delete'), path('bin/',vbin.voucher_bin,name='voucher_bin'),
     path('batches/',views.batches,name='batches'), path('plans/',views.plans,name='plans'), path('plans/<int:pk>/update/',views.plan_update,name='plan_update'), path('plans/<int:pk>/delete/',vbin.plan_delete,name='plan_delete'), path('plans/<int:pk>/move/',vbin.plan_move,name='plan_move'),
+    path('routers/<int:pk>/move/',vmove.router_move,name='router_move'), path('routers/<int:pk>/move/preview/',vmove.router_move_preview,name='router_move_preview'),
     path('routers/',views.routers,name='routers'), path('routers/agent/register/',views_link.router_agent_register,name='router_agent_register'), path('routers/inventory/',views.router_inventory,name='router_inventory'), path('routers/sync-all/',views.routers_sync_all,name='routers_sync_all'), path('routers/sync-status/',views.router_sync_status,name='router_sync_status'),
     path('routers/<int:pk>/sync/',views.router_sync,name='router_sync'), path('routers/<int:pk>/test/',views_link.router_test,name='router_test'), path('routers/<int:pk>/delete/',views.router_delete,name='router_delete'),
     path('routers/<int:pk>/control/',views.router_control,name='router_control'), path('routers/<int:pk>/cleanup/scan/',vrc.router_cleanup_scan,name='router_cleanup_scan'), path('routers/<int:pk>/cleanup/clean/',vrc.router_cleanup_clean,name='router_cleanup_clean'), path('routers/<int:pk>/cleanup/<int:job_id>/',vrc.router_cleanup_job,name='router_cleanup_job'), path('routers/<int:pk>/cleanup/copy/',vrc.router_cleanup_copy,name='router_cleanup_copy'), path('routers/<int:pk>/cleanup/<int:job_id>/download/',vrc.router_cleanup_download,name='router_cleanup_download'), path('api/router-files/<int:job_id>/upload/',rfcopy.upload,name='router_file_upload'), path('api/router-restore/<int:pk>/file/',rrest.router_file,name='router_restore_file'), path('api/router-restore/<int:pk>/report/',rrest.router_report,name='router_restore_report'), path('routers/<int:pk>/restore/upload/',rrest.restore_upload,name='router_restore_upload'), path('routers/<int:pk>/restore/prepare/',rrest.restore_prepare,name='router_restore_prepare'), path('routers/<int:pk>/restore/<int:rid>/start/',rrest.restore_start,name='router_restore_start'), path('routers/<int:pk>/restore/<int:rid>/',rrest.restore_status,name='router_restore_status'), path('routers/<int:pk>/restore/helper/',rrest.restore_helper,name='router_restore_helper'), path('routers/<int:pk>/control/refresh/',views.router_config_refresh,name='router_config_refresh'),
@@ -104,6 +107,8 @@ urlpatterns = [
     path('api/mobile/v1/complaints/<int:pk>/',vmob.complaint_act,name='mobile_complaint_act'),
     path('api/mobile/v1/customer-calls/',vmob.customer_calls,name='mobile_customer_calls'), path('api/mobile/v1/devices/',vmob.devices,name='mobile_devices'),
     path('api/mobile/v1/notifications/',vmob.notifications,name='mobile_notifications'),
+    path('api/mobile/v1/routers/',vmobr.routers,name='mobile_routers'), path('api/mobile/v1/routers/<int:pk>/',vmobr.router,name='mobile_router'),
+    path('api/mobile/v1/routers/<int:pk>/move/',vmobr.router_move,name='mobile_router_move'),
     path('api/mobile/v1/vouchers/',vmobv.vouchers,name='mobile_vouchers'), path('api/mobile/v1/vouchers/new/',vmobv.new,name='mobile_vouchers_new'),
     path('api/mobile/v1/vouchers/<int:pk>/',vmobv.voucher,name='mobile_voucher'), path('api/mobile/v1/batches/',vmobv.batches,name='mobile_batches'),
     path('studio/portal/calls/',vpcall.portal_call_settings,name='portal_call_settings'), path('p/<slug:slug>/call/',vpcall.portal_call_page,name='portal_call_page'), path('p/<slug:slug>/call/api/',vpcall.portal_call_api,name='portal_call_api'),

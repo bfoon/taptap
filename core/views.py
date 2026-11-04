@@ -93,10 +93,17 @@ def b(request): return request.user.business
 @login_required
 def dashboard(request):
     business=b(request); vouchers=business.vouchers.all(); routers=business.routers.all()
+    from .router_scope import page_context
+    selected,_all,scope_ctx=page_context(request,business,'Overview')
+    sales=business.sales.all(); activities=business.activities.select_related('router')
+    if selected:   # one router's tab: its own vouchers, sales, activity and status
+        vouchers=vouchers.filter(router=selected); routers=routers.filter(pk=selected.pk)
+        sales=sales.filter(router=selected); activities=activities.filter(router=selected)
     month_start=timezone.localtime().replace(day=1,hour=0,minute=0,second=0,microsecond=0)
-    revenue=business.sales.filter(sold_at__gte=month_start).aggregate(v=Sum('amount'))['v'] or 0
+    revenue=sales.filter(sold_at__gte=month_start).aggregate(v=Sum('amount'))['v'] or 0
     stats={'vouchers':vouchers.count(),'available':vouchers.filter(status='active',used_at__isnull=True,sold_at__isnull=True).count(),'active':vouchers.filter(status='active',used_at__isnull=False).count(),'routers':routers.count(),'online':routers.filter(status='Online').count(),'revenue':revenue}
-    return render(request,'core/dashboard.html',{'stats':stats,'activities':business.activities.order_by('-created_at')[:8],'routers':routers[:5],'top_plans':vouchers.values('plan_name').annotate(total=Count('id')).order_by('-total')[:5]})
+    return render(request,'core/dashboard.html',{'stats':stats,'activities':activities.order_by('-created_at')[:8],'routers':routers[:5],'top_plans':vouchers.values('plan_name').annotate(total=Count('id')).order_by('-total')[:5],
+                                                 'selected_router':selected,**scope_ctx})
 
 
 @login_required
@@ -849,9 +856,9 @@ def router_telemetry(request,pk):
         return JsonResponse(payload)
 
 
-def _router_rows(business,method):
+def _router_rows(business,method,only=None):
     rows=[];errors=[]
-    for r in business.routers.all():
+    for r in ([only] if only else business.routers.all()):
         if _on_link(r):
             from .linklive import link_state, sessions
             online,why=link_state(r)
@@ -873,7 +880,9 @@ def _router_rows(business,method):
 @login_required
 def active_users(request):
     from .voucher_freeze import MANUAL_WARNING
-    rows,errors=_router_rows(b(request),'active_users')
+    from .router_scope import page_context
+    selected,_all,scope_ctx=page_context(request,b(request),'Active users')
+    rows,errors=_router_rows(b(request),'active_users',only=selected)
     try:
         from .models_fup import FairUsageState
         codes=[str(x.get('user','')) for x in rows if x.get('user')]
@@ -886,7 +895,7 @@ def active_users(request):
                 x['fup_speed']=s.policy.tiers[s.tier-1]['down']; x['fup_gb']=round(s.used_bytes/1024**3,2)
     except Exception:
         pass
-    return render(request,'core/active_users.html',{'rows':rows,'errors':errors,'manual_warning':MANUAL_WARNING})
+    return render(request,'core/active_users.html',{'rows':rows,'errors':errors,'manual_warning':MANUAL_WARNING,'selected_router':selected,**scope_ctx})
 
 
 @login_required
@@ -950,7 +959,10 @@ def ip_binding_action(request):
 @login_required
 def topology(request):
     """Renders instantly from the database; the browser runs live discovery per router."""
-    business=b(request);routers=list(business.routers.all().order_by('name'))
+    business=b(request)
+    from .router_scope import page_context
+    selected,all_routers,scope_ctx=page_context(request,business,'Topology')
+    routers=[selected] if selected else all_routers      # one router's tab: only its panels and its discovery
     snapshots=[snapshot_from_database(r) for r in routers]
     for snap in snapshots:
         snap['lb_config']=_lb_config(snap['router'],request=request)
@@ -960,17 +972,28 @@ def topology(request):
     auto=[r.id for r in routers if not r.last_tested_at or r.last_tested_at<stale_after]
     from django.urls import reverse
     graph=build_graph(business)
-    netmap_config={'graph':graph,'graphUrl':reverse('topology_graph'),'liveUrl':reverse('topology_live'),
+    graph_url=reverse('topology_graph')
+    if selected:
+        from .netgraph import focus_graph
+        graph=focus_graph(graph,selected.pk);graph_url+=f'?router={selected.pk}'
+    netmap_config={'graph':graph,'graphUrl':graph_url,'liveUrl':reverse('topology_live'),
         'refreshUrl':reverse('topology_refresh',args=[0]),'controlUrl':reverse('router_control',args=[0]),
         'routers':[{'id':r.id,'name':r.name} for r in routers],'autoRefreshIds':auto}
     from .views_topology import detail_payload
     detail={**detail_payload(business),'urls':{'list':reverse('topology_routers'),'find':reverse('topology_router_find'),'action':reverse('topology_router_action'),'probe':reverse('topology_router_probe')}}
-    return render(request,'core/topology.html',{'snapshots':snapshots,'routers':routers,'graph':graph,'netmap_config':netmap_config,'detail':detail})
+    return render(request,'core/topology.html',{'snapshots':snapshots,'routers':routers,'graph':graph,'netmap_config':netmap_config,'detail':detail,
+                                               'selected_router':selected,**scope_ctx})
 
 
 @login_required
 def topology_graph(request):
-    return JsonResponse(build_graph(b(request),include_clients=request.GET.get('clients','1')!='0'))
+    business=b(request)
+    graph=build_graph(business,include_clients=request.GET.get('clients','1')!='0')
+    rid=str(request.GET.get('router') or '')
+    if rid.isdigit() and business.routers.filter(pk=int(rid)).exists():
+        from .netgraph import focus_graph
+        graph=focus_graph(graph,int(rid))
+    return JsonResponse(graph)
 
 
 @login_required

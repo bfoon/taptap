@@ -214,9 +214,35 @@ def duration_to_routeros(hours):
     d, r = divmod(hours, 24); return (f'{d}d' if d else '') + (f'{r}h' if r else '') or '1h'
 
 
-def log(business, typ, details, status='Success'):
+def log(business, typ, details, status='Success', router=None):
+    """One line in the business's activity log. ``router``: the MikroTik it happened on. When it is not given and
+    the business has several routers, the one whose name the text mentions is used (most messages start with
+    "<router name>: …"), so each router keeps its own history without changing every caller."""
     from .team import current_actor
-    Activity.objects.create(business=business, type=typ, details=details[:255], status=status, actor=current_actor()[:150])
+    if router is None and business is not None:
+        try:
+            router = router_named_in(business, f'{typ} {details}')
+        except Exception:
+            router = None
+    Activity.objects.create(business=business, type=typ, details=details[:255], status=status, actor=current_actor()[:150],
+                            router_id=getattr(router, 'pk', router))
+
+
+def router_named_in(business, text):
+    """The id of the one router of ``business`` whose name appears in ``text`` (longest name first, so "Shop 2" wins over
+    "Shop"), or None when none or several equally fit. Cheap: one small query."""
+    from .models import Router
+    names = list(Router.objects.filter(business=business).values_list('pk', 'name'))
+    if not names or not text:
+        return None
+    low = text.lower()
+    hits = [(len(n), pk) for pk, n in names if n and n.strip() and n.strip().lower() in low]
+    if not hits:
+        return None
+    hits.sort(reverse=True)
+    if len(hits) > 1 and hits[0][0] == hits[1][0]:
+        return None
+    return hits[0][1]
 
 
 def unlimited_profile_name(devices, rate=''):

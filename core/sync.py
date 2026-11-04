@@ -989,6 +989,7 @@ def sync_router(
                     == router.business_id
                     and existing_voucher.source
                     == 'taptap'
+                    and existing_voucher.router_id in (None, router.pk)
                 )
                 else 'mikrotik'
             )
@@ -1075,6 +1076,18 @@ def sync_router(
                         f'Voucher name {username} already belongs to another TapTap business; import skipped.'
                     )
 
+                    continue
+
+                # A globally unique voucher code must never be marked Synced by
+                # the OTHER site's RouterOS inventory. The RouterHotspotUser
+                # mirror above remains available for troubleshooting.
+                if existing_voucher.router_id not in (None, router.pk):
+                    summary['duplicate_vouchers_skipped'] += 1
+                    summary['errors'].append(
+                        f'Voucher {username} is assigned to router #{existing_voucher.router_id} '
+                        f'but also exists on {router.name}. This site was mirrored, not imported: '
+                        'use different voucher codes per site or explicitly reassign the voucher.'
+                    )
                     continue
 
                 summary[

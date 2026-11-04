@@ -48,7 +48,11 @@ def _samples(business, start, end, router_id=None):
     qs = TrafficSample.objects.filter(router__business=business, bucket__gte=start, bucket__lt=end)
     if router_id:
         qs = qs.filter(router_id=router_id)
-    wan_routers = set(qs.exclude(interface='*users').values_list('router_id', flat=True).distinct())
+    # A zero-byte WAN row can mean the Link heartbeat returned empty interface
+    # counters; it must not hide non-zero HotSpot session usage on that site.
+    wan_routers = set(qs.exclude(interface='*users')
+                      .filter(Q(rx_bytes__gt=0) | Q(tx_bytes__gt=0))
+                      .values_list('router_id', flat=True).distinct())
     # Per router: the WAN counters when TapTap knows the WAN, otherwise the total of hotspot sessions.
     return qs.filter((Q(router_id__in=wan_routers) & ~Q(interface='*users')) | (~Q(router_id__in=wan_routers) & Q(interface='*users'))), wan_routers
 

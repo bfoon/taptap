@@ -182,6 +182,7 @@ def watch_router(router, force=False):
     try:
         users = svc.hotspot_users()
         active = svc.active_users()
+        cache.set(f'tt:watch:active:{router.pk}', len(active), 300)     # "people online" per router (mobile app)
         try:   # live session time is not in the user's uptime counter until logout (core/router_time.note_sessions)
             from .router_time import note_sessions
             note_sessions(router.pk, active)
@@ -199,6 +200,17 @@ def watch_router(router, force=False):
             variants = {x for n in missing for x in (n.upper(), n.lower())}
             for v in Voucher.objects.filter(business=business, code__in=variants):
                 vouchers.setdefault(v.code.upper(), v)
+        # Two sites, one code: a voucher that belongs to ANOTHER router of this business is mirrored here
+        # (RouterHotspotUser) but never imported, activated or changed by this router's state — otherwise a
+        # customer on site B used up site A's voucher and site B showed no activity of its own.
+        foreign = {k for k, v in vouchers.items() if v.router_id and v.router_id != router.pk}
+        for k in foreign:
+            vouchers.pop(k, None)
+        if foreign:
+            summary['foreign_codes'] = len(foreign)
+            if cache.add(f'tt:watch:foreign:{router.pk}', 1, 3600):
+                logger.warning('%s has %s hotspot user(s) whose code belongs to another router of %s (e.g. %s)',
+                               router.name, len(foreign), business, sorted(foreign)[0])
         plans = {}
         for p in business.plans.all():
             plans[(p.mikrotik_profile_name or p.name).lower()] = p
@@ -249,6 +261,8 @@ def watch_router(router, force=False):
                     if set(changed) - {'uptime', 'last_seen_at'}:
                         summary['users_changed'] += 1
 
+            if name.upper() in foreign:
+                continue                      # another site's voucher: mirrored above, nothing else
             v = vouchers.get(name.upper())
             if v is None:
                 plan = plans.get(profile.lower())

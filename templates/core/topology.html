@@ -13,6 +13,9 @@
   </div>
 </div>
 
+{% include 'core/partials/router_tabs.html' %}
+{% if selected_router %}<p class="rt-note"><i class="bi bi-funnel"></i> Showing {{ selected_router.name }} only: its ports, what it found and its Internet paths. <a href="?router=all">See the whole network</a></p>{% endif %}
+
 <div class="td-switch" role="tablist" aria-label="Topology view">
   <button type="button" role="tab" id="tabMap" aria-controls="paneMap" aria-selected="true" data-view="map"><i class="bi bi-diagram-3"></i> Map</button>
   <button type="button" role="tab" id="tabDetail" aria-controls="paneDetail" aria-selected="false" data-view="detail" tabindex="-1"><i class="bi bi-list-columns"></i> Detail <span class="td-count" id="tdCount">{{ graph.stats.site_routers }}</span></button>

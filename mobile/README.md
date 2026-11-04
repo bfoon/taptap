@@ -106,6 +106,11 @@ screen.
 * Vouchers: `/api/mobile/v1/vouchers/` (list), `vouchers/<id>/` (detail; POST disable · enable · add_time · reset_devices ·
   delete), `vouchers/new/` (form data; POST a batch or a single voucher), `batches/` — server: `core/views_mobile_vouchers.py`.
   A batch is made by `core/voucher_make.py`, the same code as the website's Generate page.
+* Routers: `/api/mobile/v1/routers/` (each MikroTik on its own card), `routers/<id>/` (who is online, its own activity;
+  POST sync · test · kick · reboot), `routers/<id>/move/` (preview; POST moves it to another business) — server:
+  `core/views_mobile_routers.py`, moving: `core/router_move.py`.
+* Quick sell: `vouchers/new/` with `kind=single`, `paid=true` — one paid voucher on one router, the code shown large
+  with WhatsApp / SMS.
 * Chat, calls and Fit: the website's own `/chat/…`, `/chat/call/…` and `/fit/…` endpoints, with the token.
 
 ## Files
@@ -121,6 +126,10 @@ lib/screens/vouchers_screen.dart      vouchers + batches lists
 lib/screens/voucher_detail_screen.dart one voucher: time, devices, sale, history, actions, WhatsApp / SMS
 lib/screens/new_vouchers_screen.dart  make a batch or one voucher; the codes afterwards
 lib/screens/notifications_screen.dart what this phone gets, what is missing, test
+lib/screens/routers_screen.dart       Routers: All + one tab per MikroTik; people online, kick, sync, test, reboot
+lib/screens/router_move_sheet.dart    move a router to another business (preview, confirm by name)
+lib/screens/quick_sell.dart           Quick sell: plan → Sell → big code, WhatsApp / SMS, next customer
+lib/widgets/quick_actions.dart        Quick sell · New batch · Routers on the Today page
 lib/widgets/voucher_widgets.dart      voucher row, batch card, state colours
 lib/widgets/push_banner.dart          the pop-up while the app is open
 lib/screens/chat_screens.dart

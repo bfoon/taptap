@@ -1232,7 +1232,7 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
         expires_at=timezone.now() + timedelta(minutes=mins),
     )
     if user:
-        log(router.business, 'TapTap Link', f'{router.name}: queued {cmd.label}')
+        log(router.business, 'TapTap Link', f'{router.name}: queued {cmd.label}', router=router)
     return cmd
 
 
@@ -1338,9 +1338,57 @@ def note_outage(router, data, ip, covered=False):
         notify(router.business, 'link_outage', f'{router.name} could not reach TapTap for {took}', detail,
                key=f'link:{router.pk}:outage:{timezone.now():%Y%m%d%H}')
     if long_enough:
-        log(router.business, 'TapTap Link', detail[:255], status='Failed')
+        log(router.business, 'TapTap Link', detail[:255], status='Failed', router=router)
     uptime_guard._remember(router.pk, event='blip' if not long_enough else 'outage', secs=missed * secs, why=why)
     return detail
+
+
+SHARED_WINDOW = 15 * 60      # seconds of check-ins looked at
+SHARED_FLIPS = 3             # this many "a different device answered" moments inside the window = two routers
+
+
+def note_device(agent, data, ip, now):
+    """Two MikroTiks using ONE Link token (the same setup script pasted into both, or a router restored from the
+    other's backup) look like one router to TapTap: its record flips between the two devices and the other
+    router's own record never checks in — "my second MikroTik does not sync and shows no activity".
+
+    A device is recognised by identity + board + RouterOS version, and by its uptime, which only goes up between
+    two check-ins of the same router. Several flips in 15 minutes = two devices. Returns the finding or None."""
+    from .sync import _routeros_seconds
+    fp = '|'.join(str(data.get(k, '')).strip()[:60] for k in ('id', 'board', 'ver'))
+    up = _routeros_seconds(data.get('up', ''))
+    key = f'tt:link:devices:{agent.pk}'
+    hist = [h for h in (cache.get(key) or []) if now.timestamp() - h[3] <= SHARED_WINDOW]
+    flips = 0
+    if hist:
+        last_fp, last_up, _last_ip, last_at = hist[-1]
+        expected = last_up + (now.timestamp() - last_at)
+        # uptime more than ~3 minutes behind where this device's clock should be = another device answered
+        if fp != last_fp or (up and last_up and up < expected - 210):
+            flips = 1
+    hist.append((fp, up, ip, now.timestamp()))
+    hist = hist[-60:]
+    flip_times = [x for x in (cache.get(key + ':flips') or []) if now.timestamp() - x <= SHARED_WINDOW]
+    if flips:
+        flip_times.append(now.timestamp())
+    cache.set(key, hist, SHARED_WINDOW * 2)
+    cache.set(key + ':flips', flip_times, SHARED_WINDOW * 2)
+    if len(flip_times) < SHARED_FLIPS:
+        if not flip_times:
+            cache.delete(f'tt:link:shared:{agent.pk}')
+        return cache.get(f'tt:link:shared:{agent.pk}')
+    seen = []
+    for h_fp, _u, h_ip, _a in hist:
+        label = (h_fp.split('|')[0] or 'unnamed') + (f' ({h_fp.split("|")[1]})' if h_fp.split('|')[1] else '') + f' from {h_ip}'
+        if label not in seen:
+            seen.append(label)
+    finding = {'at': timezone.localtime(now).strftime('%d %b %H:%M'), 'flips': len(flip_times), 'devices': seen[:6]}
+    cache.set(f'tt:link:shared:{agent.pk}', finding, 6 * 3600)
+    return finding
+
+
+SHARED_TEXT = ('Two routers are checking in with the same TapTap Link token, so TapTap sees them as one. Open the other '
+               'router in TapTap, press "Rotate token" on its TapTap Link page and paste ITS script into that router.')
 
 
 def handle_poll(agent, data, ip, url):
@@ -1348,6 +1396,11 @@ def handle_poll(agent, data, ip, url):
     from .notify import notify
     router = agent.router
     now = timezone.now()
+    try:
+        shared = note_device(agent, data, ip, now)
+    except Exception as exc:
+        shared = None
+        logger.info('link device check %s: %s', router, exc)
     first = agent.enrolled_at is None
     old_ip = agent.last_ip
     ip_changed = bool(old_ip) and old_ip != ip
@@ -1368,9 +1421,15 @@ def handle_poll(agent, data, ip, url):
 
     was_offline = router.status == 'Offline'
     Router.objects.filter(pk=router.pk).update(
-        status='Online', last_error='', last_tested_at=now, last_watch_at=now,
+        status='Online', last_error=(SHARED_TEXT + ' Seen: ' + '; '.join(shared['devices']))[:2000] if shared else '',
+        last_tested_at=now, last_watch_at=now,
         connection_mode='agent', ip_address='', username='', password='', use_ssl=False,
     )
+    if shared and cache.add(f'tt:link:shared:mail:{agent.pk}', 1, 86400):
+        notify(router.business, 'link_rejected', f'{router.name}: two routers share one TapTap Link token',
+               SHARED_TEXT + ' Seen: ' + '; '.join(shared['devices']), key=f'link:shared:{agent.pk}:{now:%Y%m%d}')
+        log(router.business, 'TapTap Link', f'{router.name}: two routers are using its token ({", ".join(shared["devices"][:3])})',
+            status='Failed', router=router)
     from .live import push_event
     if first:
         push_event(router.business_id, f'{router.name} connected through TapTap Link', 'good')
@@ -1690,7 +1749,10 @@ def handle_ack(cmd_id, given_nonce, status, result=''):
         from .expiry import link_ack as expiry_ack
         expiry_ack(cmd, ok)
     if cmd.kind == 'hotspot_users':
-        ids = cmd.params.get('ids', [])
+        # An old command may acknowledge after the voucher has moved to another router.
+        # Only this router's vouchers can be marked Synced by its acknowledgement.
+        ids = list(Voucher.objects.filter(pk__in=cmd.params.get('ids', []), router=r)
+                   .values_list('pk', flat=True))
         Voucher.objects.filter(pk__in=ids).update(mikrotik_sync_status='Synced' if ok else 'Error', mikrotik_sync_error='' if ok else 'Router rejected the batch')
         bad_ids = []
         if refused:
@@ -1741,7 +1803,7 @@ def ingest_sessions(router, rows, now):
     except Exception:
         logger.exception('fair usage (link) on %s', router)
     codes = [r['user'] for r in rows if r.get('user') and not r['user'].upper().startswith('T-')]
-    vouchers = {v.code.upper(): v for v in Voucher.objects.filter(business=router.business, code__in=codes)}
+    vouchers = {v.code.upper(): v for v in Voucher.objects.filter(business=router.business, router=router, code__in=codes)}
     bad = {}
     lock_rows = []
     for s in rows:

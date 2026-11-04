@@ -69,11 +69,15 @@ def chain_order(group):
     return sorted(group, key=lambda e: (_ip_key(e.get('ip')), str(e.get('name') or '').lower(), e.get('key', '')))
 
 
+GENERIC_IDENTITIES = {'', 'mikrotik', 'router', 'routeros', 'hap', 'hex'}
+
+
 def build_graph(business, include_clients=True, client_sample=40):
     routers = list(business.routers.all().order_by('name'))
     nodes, edges = {}, {}
     edge_seq = [0]  # monotonic: edges can be replaced, so len(edges) is not a safe id
     ip_index, mac_index, ident_index = {}, {}, {}
+    ident_seen = defaultdict(list)
     meta = {}
 
     for r in routers:
@@ -87,7 +91,7 @@ def build_graph(business, include_clients=True, client_sample=40):
             ip_index[ip] = r
         for mac in r.interfaces.exclude(mac_address='').values_list('mac_address', flat=True):
             mac_index[_mac(mac)] = r
-        ident_index[identity.lower()] = r
+        ident_seen[identity.strip().lower()].append(r)
         wan_ifaces = [l.get('interface') for l in lb.get('wan_links', []) if l.get('interface')]
         from .site_routers import wan_ports
         meta[r.id]['wan_ifaces'] = set(wan_ifaces) | wan_ports(r)     # an Internet port without a working route is still one
@@ -98,6 +102,19 @@ def build_graph(business, include_clients=True, client_sample=40):
             'last_seen': r.last_tested_at.isoformat() if r.last_tested_at else None,
             'ports': r.interfaces.filter(is_present=True).count(),
         }
+
+    # Identity is only a safe match when exactly one managed router has it and it is not RouterOS's default.
+    # Two MikroTiks both called "MikroTik" used to share one index entry: the last one won, so a neighbour
+    # (or an access point with the same default name) was drawn as linked to the wrong router.
+    for ident, group in ident_seen.items():
+        if len(group) == 1 and ident not in GENERIC_IDENTITIES:
+            ident_index[ident] = group[0]
+        if len(group) > 1:
+            for r in group:
+                node = nodes[f'router:{r.id}']
+                node['label'] = r.name
+                node['identity'] = meta[r.id]['identity']
+                node['duplicate_identity'] = True
 
     def add_edge(src, dst, kind, router_id=None, iface='', label='', online=True, direction='down'):
         key = tuple(sorted((src, dst))) if kind == 'peer' else (src, dst)
@@ -327,3 +344,32 @@ def build_graph(business, include_clients=True, client_sample=40):
         'live_interfaces': {str(k): sorted(v) for k, v in live_ifaces.items()},
         'generated_at': timezone.now().isoformat(),
     }
+
+
+def focus_graph(graph, router_id):
+    """The map of ONE router (Topology › router tab): that router, everything it discovered (ports, switches,
+    access points, other routers on its ports, its customers) and its Internet paths. Other managed routers
+    stay only where they are cabled to it, marked ``outside`` so the map can draw them quietly."""
+    rid = f'router:{router_id}'
+    edges = [e for e in graph['edges'] if e.get('router_id') == router_id or rid in (e['source'], e['target'])]
+    keep = {rid, 'internet'} | {e['source'] for e in edges} | {e['target'] for e in edges}
+    nodes = []
+    for n in graph['nodes']:
+        if n['id'] not in keep and n.get('router_id') != router_id:
+            continue
+        if n.get('type') == 'router' and n['id'] != rid:
+            n = {**n, 'outside': True}
+        nodes.append(n)
+    ids = {n['id'] for n in nodes}
+    edges = [e for e in edges if e['source'] in ids and e['target'] in ids]
+    mine = [n for n in nodes if n.get('type') == 'router' and not n.get('outside')]
+    stats = {
+        'routers': len(mine), 'routers_online': sum(1 for n in mine if n.get('status') == 'online'),
+        'network_devices': sum(1 for n in nodes if n['type'] in {'switch', 'wifi', 'network', 'router', 'isp'} and n['id'].startswith('nb:')),
+        'clients': sum(n.get('count', 0) for n in nodes if n['type'] == 'clients'),
+        'wan_links': sum(1 for n in nodes if n['type'] == 'wan'),
+        'site_routers': sum(1 for n in nodes if n['type'] == 'siterouter'),
+        'wan_down': sum(1 for n in nodes if n['type'] == 'wan' and n.get('status') == 'offline'),
+    }
+    live = {k: v for k, v in (graph.get('live_interfaces') or {}).items() if k == str(router_id)}
+    return {**graph, 'nodes': nodes, 'edges': edges, 'stats': stats, 'live_interfaces': live, 'focus': router_id}

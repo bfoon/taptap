@@ -133,7 +133,7 @@ def router_cleanup_clean(request, pk):
     job = _start(request, router, 'clean', {'scan': scan_id, 'files': first, 'clear_log': clear_log, 'left': rest,
                                             'free_before': free_before, 'total': len(names)})
     from .utils import log
-    log(router.business, 'Router Cleanup', f'{router.name}: removing {len(first)} file(s)' + (' and clearing the log' if clear_log else ''))
+    log(router.business, 'Router Cleanup', f'{router.name}: removing {len(first)} file(s)' + (' and clearing the log' if clear_log else ''), router=router)
     return JsonResponse({'ok': True, 'job': as_json(job), 'left': len(job.params.get('left') or [])})
 
 

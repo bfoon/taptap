@@ -125,7 +125,7 @@ def doctor_install(request, pk):
         except ValueError as exc:
             return JsonResponse({'success': False, 'via_link': True, 'message': str(exc)}, status=409)
         _audit(request, router, 'doctor_install', {'lines': watched, 'allow_mac': allow_mac, 'via': 'link', 'parts': parts})
-        log(router.business, 'Internet Doctor On', f'{router.name}: watching ' + ', '.join(watched) + ' (through TapTap Link)')
+        log(router.business, 'Internet Doctor On', f'{router.name}: watching ' + ', '.join(watched) + ' (through TapTap Link)', router=router)
         return JsonResponse({'success': True, 'installed': True, 'via_link': True, 'lines': watched, 'message': _LINK_SENT})
     svc, err = _connect(router)
     if err:
@@ -141,7 +141,7 @@ def doctor_install(request, pk):
     finally:
         svc.close()
     _audit(request, router, 'doctor_install', {'lines': watched, 'allow_mac': allow_mac})
-    log(router.business, 'Internet Doctor On', f'{router.name}: watching ' + ', '.join(watched))
+    log(router.business, 'Internet Doctor On', f'{router.name}: watching ' + ', '.join(watched), router=router)
     return JsonResponse({'success': True, 'installed': True, 'lines': watched})
 
 
@@ -155,7 +155,7 @@ def doctor_remove(request, pk):
         except ValueError as exc:
             return JsonResponse({'success': False, 'via_link': True, 'message': str(exc)}, status=409)
         _audit(request, router, 'doctor_remove', {'via': 'link'})
-        log(router.business, 'Internet Doctor Off', f'{router.name} (through TapTap Link)')
+        log(router.business, 'Internet Doctor Off', f'{router.name} (through TapTap Link)', router=router)
         return JsonResponse({'success': True, 'installed': False, 'via_link': True, 'message': _LINK_SENT})
     svc, err = _connect(router)
     if err:
@@ -165,7 +165,7 @@ def doctor_remove(request, pk):
     finally:
         svc.close()
     _audit(request, router, 'doctor_remove', {'removed': removed})
-    log(router.business, 'Internet Doctor Off', router.name)
+    log(router.business, 'Internet Doctor Off', router.name, router=router)
     return JsonResponse({'success': True, 'installed': False, 'removed': removed})
 
 
@@ -206,7 +206,7 @@ def doctor_fix(request, pk):
     finally:
         svc.close()
     _audit(request, router, f'doctor_{step}', {'interface': iface})
-    log(router.business, 'Internet Line Change' if step in {'turn_on', 'turn_off', 'use', 'unuse', 'rewire'} else 'Internet Doctor Fix', f'{router.name}: {message}')
+    log(router.business, 'Internet Line Change' if step in {'turn_on', 'turn_off', 'use', 'unuse', 'rewire'} else 'Internet Doctor Fix', f'{router.name}: {message}', router=router)
     return JsonResponse({'success': True, 'message': message})
 
 
