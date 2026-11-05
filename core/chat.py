@@ -4,10 +4,16 @@ Everyone in a business (the owner and active team members) shares one Team room,
 message each other directly, and has one Support conversation with TapTap. The support
 team (superusers + users a superuser marks as support agents) sees every business's
 Support conversation in one inbox.
+
+Messages can be answered (reply: quoted above the new message), edited by their sender (shown as "edited") and
+deleted by their sender within DELETE_MINUTES of sending (for everyone: the text and any photo are removed and
+"Message deleted" stays in its place). Edits and deletes reach every open chat through the poll's `changed` list.
 """
 from __future__ import annotations
 
+import os
 import re
+from datetime import timedelta
 
 from django.contrib.auth.models import User
 from django.core.cache import cache
@@ -18,6 +24,8 @@ from .models_chat import ChatMessage, ChatPrefs, ChatRead, ChatThread, SupportAg
 
 ONLINE_SECONDS = 70
 TYPING_SECONDS = 6
+DELETE_MINUTES = int(os.getenv('CHAT_DELETE_MINUTES', '60'))   # a sender may delete a message this long after sending
+EDIT_MINUTES = int(os.getenv('CHAT_EDIT_MINUTES', '0'))        # 0 = a sender may edit their message at any time
 
 
 class ChatError(ValueError):
@@ -211,12 +219,18 @@ def mentioned(thread, body):
     return out
 
 
-def post(thread, user, body, page_url='', page_title='', system=False, attachment=''):
+def post(thread, user, body, page_url='', page_title='', system=False, attachment='', reply_to=None):
     body = (body or '').strip()
     if not body and not page_url and not attachment:
         raise ChatError('Type a message first.')
     if len(body) > 4000:
         raise ChatError('Messages can be up to 4000 characters.')
+    if reply_to:                                  # an id from the app: must be a message in this same conversation
+        reply_to = ChatMessage.objects.filter(pk=int(reply_to), thread=thread, system=False).first()
+        if reply_to is None:
+            raise ChatError('The message you are replying to is no longer there.')
+    else:
+        reply_to = None
     key = f'chat:rate:{user.pk}'
     n = cache.get(key, 0)
     if n > 40:
@@ -224,7 +238,7 @@ def post(thread, user, body, page_url='', page_title='', system=False, attachmen
     cache.set(key, n + 1, 60)
     m = ChatMessage.objects.create(thread=thread, sender=user, body=body, page_url=(page_url or '')[:300],
                                    page_title=(page_title or '')[:120], mentions=mentioned(thread, body), system=system,
-                                   attachment=attachment)
+                                   attachment=attachment, reply_to=reply_to)
     thread.last_at = m.created_at
     fields = ['last_at']
     if thread.kind == 'support':
@@ -243,6 +257,59 @@ def post(thread, user, body, page_url='', page_title='', system=False, attachmen
                 mobile_push.chat_message(m)
         except Exception:
             pass
+    return m
+
+
+# ─────────────────────────────── edit / delete ───────────────────────────────
+
+def _own(m, user):
+    if m.system or not m.sender_id or m.sender_id != user.pk:
+        raise ChatError('You can only change your own messages.')
+    if m.deleted_at:
+        raise ChatError('This message was deleted.')
+
+
+def can_edit(m, user_id):
+    if m.system or m.deleted_at or m.sender_id != user_id or m.attachment == 'opened':
+        return False
+    return not EDIT_MINUTES or timezone.now() - m.created_at <= timedelta(minutes=EDIT_MINUTES)
+
+
+def can_delete(m, user_id):
+    return (not m.system and not m.deleted_at and m.sender_id == user_id
+            and timezone.now() - m.created_at <= timedelta(minutes=DELETE_MINUTES))
+
+
+def edit(m, user, body):
+    """The sender changes the text of their message (a photo's caption too)."""
+    _own(m, user)
+    if not can_edit(m, user.pk):
+        raise ChatError(f'Messages can only be edited within {EDIT_MINUTES} minutes of sending.')
+    body = (body or '').strip()
+    if not body and not m.attachment and not m.page_url:
+        raise ChatError('Type a message first — or delete it.')
+    if len(body) > 4000:
+        raise ChatError('Messages can be up to 4000 characters.')
+    if body == m.body:
+        return m
+    now = timezone.now()
+    m.body, m.mentions, m.edited_at, m.changed_at = body, mentioned(m.thread, body), now, now
+    m.save(update_fields=['body', 'mentions', 'edited_at', 'changed_at'])
+    return m
+
+
+def delete(m, user):
+    """The sender deletes their message for everyone, within DELETE_MINUTES of sending."""
+    _own(m, user)
+    if not can_delete(m, user.pk):
+        n = DELETE_MINUTES
+        raise ChatError('Messages can only be deleted within ' + ('1 hour' if n == 60 else f'{n} minutes') + ' of sending.')
+    from .models_chat import ChatImage
+    ChatImage.objects.filter(message=m).delete()          # the photo / clip is gone for good too
+    now = timezone.now()
+    m.body, m.page_url, m.page_title, m.mentions, m.attachment = '', '', '', [], ''
+    m.deleted_at = m.changed_at = now
+    m.save(update_fields=['body', 'page_url', 'page_title', 'mentions', 'attachment', 'deleted_at', 'changed_at'])
     return m
 
 
@@ -266,7 +333,22 @@ def message_json(m, me_id, agent_set=None):
             'sender': ('TapTap · ' + display_name(s)) if is_ag else (display_name(s) if s else 'TapTap'),
             'initials': initials(s) if s else 'TT', 'agent': is_ag,
             'at': timezone.localtime(m.created_at).isoformat(), 'page_url': m.page_url, 'page_title': m.page_title,
-            'mention_me': me_id in (m.mentions or []), 'system': m.system, 'image': _image_json(m)}
+            'mention_me': me_id in (m.mentions or []), 'system': m.system, 'image': _image_json(m),
+            'deleted': bool(m.deleted_at), 'edited': bool(m.edited_at and not m.deleted_at),
+            'reply': _reply_json(m), 'can_edit': can_edit(m, me_id),
+            'delete_until': (timezone.localtime(m.created_at + timedelta(minutes=DELETE_MINUTES)).isoformat()
+                             if can_delete(m, me_id) else None)}
+
+
+def _reply_json(m):
+    """The quoted message above a reply (who, and a one-line preview)."""
+    if not m.reply_to_id:
+        return None
+    r = m.reply_to
+    if r is None:
+        return {'id': m.reply_to_id, 'sender': '', 'text': 'Message no longer available', 'deleted': True}
+    return {'id': r.pk, 'sender': display_name(r.sender) if r.sender else 'TapTap',
+            'sender_id': r.sender_id, 'text': preview_text(r)[:140], 'deleted': bool(r.deleted_at)}
 
 
 def _image_json(m):
@@ -276,6 +358,8 @@ def _image_json(m):
 
 def preview_text(m):
     """One-line summary of a message for the conversation list and emails."""
+    if m.deleted_at:
+        return '🚫 Message deleted'
     if m.attachment in ('image', 'opened'):
         return '📷 Photo' + (' · ' + m.body if m.body else '')
     if m.attachment == 'video':

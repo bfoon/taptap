@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 
@@ -109,6 +110,9 @@ void openThread(BuildContext context, int id, String title) {
   Navigator.of(context).push(MaterialPageRoute(builder: (_) => ThreadScreen(id: id, title: title)));
 }
 
+/// One conversation. Long-press a message (or swipe it to the right) to reply; long-press your own message to
+/// edit it, or to delete it for everyone within 1 hour of sending. Edits and deletes by others arrive with the
+/// regular chat check (AppState.changedMessages).
 class ThreadScreen extends StatefulWidget {
   const ThreadScreen({super.key, required this.id, required this.title});
   final int id;
@@ -121,11 +125,16 @@ class _ThreadScreenState extends State<ThreadScreen> {
   final _msgs = <Map<String, dynamic>>[];
   final _text = TextEditingController();
   final _scroll = ScrollController();
+  final _focus = FocusNode();
+  final _keys = <int, GlobalKey>{};              // to scroll to a quoted message
   Map<String, dynamic> _thread = {};
-  StreamSubscription? _sub;
+  StreamSubscription? _sub, _subChanged;
   bool _more = false, _sending = false;
   late final AppState _app;
-  Timer? _typingOff;
+  Timer? _typingOff, _tick;
+  Map<String, dynamic>? _replyTo;                 // composing a reply to this message
+  Map<String, dynamic>? _editing;                 // editing this (own) message
+  int? _flash;                                    // message highlighted after a tap on its quote
 
   @override
   void initState() {
@@ -138,20 +147,33 @@ class _ThreadScreenState extends State<ThreadScreen> {
       _read();
       _toBottom();
     });
+    _subChanged = _app.changedMessages.listen((m) {
+      if (toI(m['thread']) != widget.id) return;
+      setState(() => _put(m));
+      final id = m['id'];
+      if (m['deleted'] == true && (_editing?['id'] == id || _replyTo?['id'] == id)) _cancelCompose();
+    });
     _load();
     _text.addListener(() {
       _app.typing = _text.text.isNotEmpty;
       _typingOff?.cancel();
       _typingOff = Timer(const Duration(seconds: 4), () => _app.typing = false);
     });
+    // the "Delete" choice ends 1 hour after sending: refresh now and then so it disappears on time
+    _tick = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
     _sub?.cancel();
+    _subChanged?.cancel();
     _app.openThread = null;
     _app.typing = false;
     _typingOff?.cancel();
+    _tick?.cancel();
+    _focus.dispose();
     super.dispose();
   }
 
@@ -174,7 +196,24 @@ class _ThreadScreenState extends State<ThreadScreen> {
       if (!older) _toBottom(jump: true);
       _app.pollChat();
     } on ApiError catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      if (mounted) _toast(e.message);
+    }
+  }
+
+  void _toast(String m) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(m), behavior: SnackBarBehavior.floating));
+
+  /// Swap in the new version of a message (edited / deleted), and update replies that quote it.
+  void _put(Map<String, dynamic> m) {
+    for (var i = 0; i < _msgs.length; i++) {
+      final x = _msgs[i];
+      if (x['id'] == m['id']) {
+        _msgs[i] = m;
+      } else if (x['reply'] is Map && (x['reply'] as Map)['id'] == m['id']) {
+        final r = Map<String, dynamic>.from(x['reply'] as Map);
+        r['deleted'] = m['deleted'] == true;
+        if (m['deleted'] != true) r['text'] = '${m['body'] ?? r['text']}';
+        _msgs[i] = {...x, 'reply': r};
+      }
     }
   }
 
@@ -191,21 +230,178 @@ class _ThreadScreenState extends State<ThreadScreen> {
     });
   }
 
+  // ───────── send · reply · edit · delete ─────────
   Future<void> _send() async {
     final body = _text.text.trim();
-    if (body.isEmpty || _sending) return;
+    if (_sending) return;
+    if (_editing != null) return _saveEdit(body);
+    if (body.isEmpty) return;
     setState(() => _sending = true);
+    final reply = _replyTo;
     try {
-      final d = await Api.I.post('/chat/send/', {'thread': widget.id, 'body': body});
+      final d = await Api.I.post('/chat/send/', {'thread': widget.id, 'body': body, if (reply != null) 'reply_to': reply['id']});
       _text.clear();
       final m = (d['message'] as Map).cast<String, dynamic>();
-      if (!_msgs.any((x) => x['id'] == m['id'])) setState(() => _msgs.add(m));
+      setState(() {
+        _replyTo = null;
+        if (!_msgs.any((x) => x['id'] == m['id'])) _msgs.add(m);
+      });
       _toBottom();
     } on ApiError catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      _toast(e.message);
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  Future<void> _saveEdit(String body) async {
+    final m = _editing!;
+    if (body == '${m['body'] ?? ''}') return _cancelCompose();
+    if (body.isEmpty && m['image'] == null && '${m['page_url'] ?? ''}'.isEmpty) {
+      return _toast('Type a message — or delete it.');
+    }
+    setState(() => _sending = true);
+    try {
+      final d = await Api.I.post('/chat/message/', {'id': m['id'], 'action': 'edit', 'body': body});
+      setState(() => _put((d['message'] as Map).cast<String, dynamic>()));
+      _cancelCompose();
+    } on ApiError catch (e) {
+      _toast(e.message);
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  void _startReply(Map<String, dynamic> m) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _editing = null;
+      _replyTo = m;
+    });
+    _focus.requestFocus();
+  }
+
+  void _startEdit(Map<String, dynamic> m) {
+    setState(() {
+      _replyTo = null;
+      _editing = m;
+    });
+    _text.text = '${m['body'] ?? ''}';
+    _text.selection = TextSelection.collapsed(offset: _text.text.length);
+    _focus.requestFocus();
+  }
+
+  void _cancelCompose() {
+    final wasEdit = _editing != null;
+    setState(() {
+      _editing = null;
+      _replyTo = null;
+    });
+    if (wasEdit) _text.clear();
+  }
+
+  static bool _canDelete(Map<String, dynamic> m) {
+    final until = parseTime(m['delete_until']);
+    return m['mine'] == true && until != null && until.isAfter(DateTime.now());
+  }
+
+  Future<void> _delete(Map<String, dynamic> m) async {
+    if (!_canDelete(m)) return _toast('Messages can only be deleted within 1 hour of sending.');
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Delete for everyone?'),
+        content: const Text('The message is removed for everyone in this chat. This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(c).colorScheme.error),
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final d = await Api.I.post('/chat/message/', {'id': m['id'], 'action': 'delete'});
+      setState(() => _put((d['message'] as Map).cast<String, dynamic>()));
+      if (_editing?['id'] == m['id'] || _replyTo?['id'] == m['id']) _cancelCompose();
+    } on ApiError catch (e) {
+      _toast(e.message);
+    }
+  }
+
+  /// Long-press a message: what you can do with it.
+  void _menu(Map<String, dynamic> m) {
+    if (m['system'] == true || m['deleted'] == true) return;
+    HapticFeedback.mediumImpact();
+    final mine = m['mine'] == true;
+    final text = '${m['body'] ?? ''}';
+    final until = parseTime(m['delete_until']);
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            leading: const Icon(Icons.reply),
+            title: const Text('Reply'),
+            onTap: () {
+              Navigator.pop(ctx);
+              _startReply(m);
+            },
+          ),
+          if (text.isNotEmpty)
+            ListTile(
+              leading: const Icon(Icons.copy),
+              title: const Text('Copy text'),
+              onTap: () {
+                Navigator.pop(ctx);
+                Clipboard.setData(ClipboardData(text: text));
+                _toast('Copied');
+              },
+            ),
+          if (mine && m['can_edit'] == true)
+            ListTile(
+              leading: const Icon(Icons.edit),
+              title: const Text('Edit'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _startEdit(m);
+              },
+            ),
+          if (_canDelete(m))
+            ListTile(
+              leading: Icon(Icons.delete_outline, color: Theme.of(ctx).colorScheme.error),
+              title: Text('Delete for everyone', style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+              subtitle: until == null ? null : Text('Possible until ${clock(m['delete_until'])}'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _delete(m);
+              },
+            )
+          else if (mine)
+            const ListTile(
+              enabled: false,
+              leading: Icon(Icons.delete_outline),
+              title: Text('Delete for everyone'),
+              subtitle: Text('Only within 1 hour of sending'),
+            ),
+        ]),
+      ),
+    );
+  }
+
+  /// Tap a quote: scroll to the message it quotes (when it is loaded).
+  void _jump(int id) {
+    final ctx = _keys[id]?.currentContext;
+    if (ctx == null) return _toast('That message is further up — load earlier messages.');
+    Scrollable.ensureVisible(ctx, alignment: .4, duration: const Duration(milliseconds: 300));
+    setState(() => _flash = id);
+    Timer(const Duration(milliseconds: 1500), () {
+      if (mounted) setState(() => _flash = null);
+    });
   }
 
   Future<void> _photo(ImageSource src) async {
@@ -218,7 +414,7 @@ class _ThreadScreenState extends State<ThreadScreen> {
       setState(() => _msgs.add((d['message'] as Map).cast<String, dynamic>()));
       _toBottom();
     } on ApiError catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      _toast(e.message);
     } finally {
       if (mounted) setState(() => _sending = false);
     }
@@ -233,6 +429,7 @@ class _ThreadScreenState extends State<ThreadScreen> {
     final cs = Theme.of(context).colorScheme;
     final app = context.watch<AppState>();
     final typing = app.openExtra['typing'];
+    final me = toI(app.user['id']);
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -254,56 +451,122 @@ class _ThreadScreenState extends State<ThreadScreen> {
             itemBuilder: (_, i) {
               if (_more && i == 0) return Center(child: TextButton(onPressed: () => _load(older: true), child: const Text('Earlier messages')));
               final m = _msgs[i - (_more ? 1 : 0)];
-              return _Bubble(m: m);
+              final id = toI(m['id']);
+              return _Bubble(
+                key: _keys.putIfAbsent(id, () => GlobalKey()),
+                m: m,
+                meId: me,
+                flash: _flash == id,
+                onLongPress: () => _menu(m),
+                onSwipeReply: () {
+                  if (m['system'] != true && m['deleted'] != true) _startReply(m);
+                },
+                onQuoteTap: (qid) => _jump(qid),
+              );
             },
           ),
         ),
+        if (_replyTo != null || _editing != null) _composeBar(cs),
         SafeArea(
           top: false,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
             child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              IconButton(
-                icon: const Icon(Icons.add_photo_alternate_outlined),
-                onPressed: _sending
-                    ? null
-                    : () => showModalBottomSheet(
-                          context: context,
-                          builder: (ctx) => SafeArea(
-                            child: Wrap(children: [
-                              ListTile(leading: const Icon(Icons.photo_camera), title: const Text('Take a photo'),
-                                  onTap: () { Navigator.pop(ctx); _photo(ImageSource.camera); }),
-                              ListTile(leading: const Icon(Icons.photo), title: const Text('From the gallery'),
-                                  onTap: () { Navigator.pop(ctx); _photo(ImageSource.gallery); }),
-                              const ListTile(dense: true, title: Text('Photos are deleted after 7 days.')),
-                            ]),
+              if (_editing == null)
+                IconButton(
+                  icon: const Icon(Icons.add_photo_alternate_outlined),
+                  onPressed: _sending
+                      ? null
+                      : () => showModalBottomSheet(
+                            context: context,
+                            builder: (ctx) => SafeArea(
+                              child: Wrap(children: [
+                                ListTile(leading: const Icon(Icons.photo_camera), title: const Text('Take a photo'),
+                                    onTap: () { Navigator.pop(ctx); _photo(ImageSource.camera); }),
+                                ListTile(leading: const Icon(Icons.photo), title: const Text('From the gallery'),
+                                    onTap: () { Navigator.pop(ctx); _photo(ImageSource.gallery); }),
+                                const ListTile(dense: true, title: Text('Photos are deleted after 7 days.')),
+                              ]),
+                            ),
                           ),
-                        ),
-              ),
+                ),
               Expanded(
                 child: TextField(
                   controller: _text,
+                  focusNode: _focus,
                   minLines: 1,
                   maxLines: 5,
                   textCapitalization: TextCapitalization.sentences,
-                  decoration: const InputDecoration(hintText: 'Message'),
+                  decoration: InputDecoration(hintText: _editing != null ? 'Edit your message' : (_replyTo != null ? 'Reply' : 'Message')),
                 ),
               ),
               const SizedBox(width: 6),
-              IconButton.filled(onPressed: _sending ? null : _send, icon: const Icon(Icons.send)),
+              IconButton.filled(onPressed: _sending ? null : _send, icon: Icon(_editing != null ? Icons.check : Icons.send)),
             ]),
           ),
         ),
       ]),
     );
   }
+
+  /// Above the text box: who you are replying to, or that you are editing.
+  Widget _composeBar(ColorScheme cs) {
+    final r = _replyTo;
+    final editing = _editing != null;
+    final who = r == null ? '' : (r['mine'] == true ? 'yourself' : '${r['sender']}');
+    final what = r == null ? '' : _preview(r);
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+        border: Border(left: BorderSide(color: cs.primary, width: 4)),
+      ),
+      child: Row(children: [
+        Icon(editing ? Icons.edit : Icons.reply, size: 18, color: cs.primary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Text(editing ? 'Editing your message' : 'Replying to $who',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13, color: cs.primary)),
+            if (!editing)
+              Text(what, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant)),
+          ]),
+        ),
+        IconButton(icon: const Icon(Icons.close), tooltip: 'Cancel', onPressed: _cancelCompose),
+      ]),
+    );
+  }
 }
 
-class _Bubble extends StatelessWidget {
-  const _Bubble({required this.m});
+/// One line about a message (for the reply bar).
+String _preview(Map<String, dynamic> m) {
+  final body = '${m['body'] ?? ''}';
+  if (body.isNotEmpty) return body;
+  final img = m['image'];
+  if (img is Map) return img['kind'] == 'video' ? '🎬 Video clip' : '📷 Photo';
+  return '${m['page_title'] ?? ''}'.isNotEmpty ? '🔗 ${m['page_title']}' : 'Message';
+}
+
+class _Bubble extends StatefulWidget {
+  const _Bubble({super.key, required this.m, required this.meId, required this.onLongPress, required this.onSwipeReply,
+      required this.onQuoteTap, this.flash = false});
   final Map<String, dynamic> m;
+  final int meId;
+  final bool flash;
+  final VoidCallback onLongPress, onSwipeReply;
+  final void Function(int id) onQuoteTap;
+  @override
+  State<_Bubble> createState() => _BubbleState();
+}
+
+class _BubbleState extends State<_Bubble> {
+  double _dx = 0;                                  // swipe-to-reply offset
+
   @override
   Widget build(BuildContext context) {
+    final m = widget.m;
     final cs = Theme.of(context).colorScheme;
     final mine = m['mine'] == true;
     if (m['system'] == true) {
@@ -318,24 +581,38 @@ class _Bubble extends StatelessWidget {
         ),
       );
     }
+    final deleted = m['deleted'] == true;
     final img = (m['image'] as Map?)?.cast<String, dynamic>();
-    return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * .78),
-        margin: const EdgeInsets.symmetric(vertical: 3),
-        padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
-        decoration: BoxDecoration(
-          color: mine ? cs.primary : (m['mention_me'] == true ? const Color(0xFFFFF3C4) : Theme.of(context).cardColor),
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(18),
-            topRight: const Radius.circular(18),
-            bottomLeft: Radius.circular(mine ? 18 : 4),
-            bottomRight: Radius.circular(mine ? 4 : 18),
-          ),
+    final reply = (m['reply'] as Map?)?.cast<String, dynamic>();
+    final ink = mine && !deleted ? cs.onPrimary : null;
+    final soft = mine && !deleted ? Colors.white70 : cs.onSurfaceVariant;
+    final bubble = AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * .78),
+      margin: const EdgeInsets.symmetric(vertical: 3),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+      decoration: BoxDecoration(
+        color: deleted
+            ? Colors.transparent
+            : mine
+                ? cs.primary
+                : (m['mention_me'] == true ? const Color(0xFFFFF3C4) : Theme.of(context).cardColor),
+        border: deleted ? Border.all(color: cs.outlineVariant) : null,
+        boxShadow: widget.flash ? [const BoxShadow(color: Color(0xFFF59E0B), spreadRadius: 3)] : null,
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(18),
+          topRight: const Radius.circular(18),
+          bottomLeft: Radius.circular(mine ? 18 : 4),
+          bottomRight: Radius.circular(mine ? 4 : 18),
         ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          if (!mine) Text('${m['sender']}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: cs.primary)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (!mine) Text('${m['sender']}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: cs.primary)),
+        if (deleted)
+          Text(mine ? '🚫 You deleted this message' : '🚫 This message was deleted',
+              style: TextStyle(fontStyle: FontStyle.italic, color: cs.onSurfaceVariant))
+        else ...[
+          if (reply != null) _quote(context, reply, mine),
           if (img != null && img['gone'] != true && img['kind'] != 'video')
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
@@ -348,12 +625,53 @@ class _Bubble extends StatelessWidget {
           else if (img != null)
             Text(img['gone'] == true ? '📷 Photo (expired)' : '🎬 Video clip — open TapTap on the web to play it',
                 style: TextStyle(fontStyle: FontStyle.italic, color: mine ? Colors.white70 : null)),
-          if ('${m['body']}'.isNotEmpty)
-            Text('${m['body']}', style: TextStyle(color: mine ? cs.onPrimary : null, fontSize: 15)),
+          if ('${m['body']}'.isNotEmpty) Text('${m['body']}', style: TextStyle(color: ink, fontSize: 15)),
           if ('${m['page_title'] ?? ''}'.isNotEmpty)
-            Text('🔗 ${m['page_title']}', style: TextStyle(fontSize: 12, color: mine ? Colors.white70 : cs.onSurfaceVariant)),
-          const SizedBox(height: 2),
-          Text(clock(m['at']), style: TextStyle(fontSize: 10.5, color: mine ? Colors.white70 : cs.onSurfaceVariant)),
+            Text('🔗 ${m['page_title']}', style: TextStyle(fontSize: 12, color: soft)),
+        ],
+        const SizedBox(height: 2),
+        Text('${m['edited'] == true ? 'edited · ' : ''}${clock(m['at'])}', style: TextStyle(fontSize: 10.5, color: soft)),
+      ]),
+    );
+    return GestureDetector(
+      onLongPress: widget.onLongPress,
+      onHorizontalDragUpdate: deleted ? null : (d) => setState(() => _dx = (_dx + d.delta.dx).clamp(0.0, 72.0).toDouble()),
+      onHorizontalDragEnd: deleted
+          ? null
+          : (_) {
+              if (_dx > 56) widget.onSwipeReply();
+              setState(() => _dx = 0);
+            },
+      child: Stack(alignment: Alignment.centerLeft, children: [
+        if (_dx > 8)
+          Opacity(opacity: (_dx / 56).clamp(0, 1).toDouble(), child: Icon(Icons.reply, color: cs.primary)),
+        Transform.translate(
+          offset: Offset(_dx, 0),
+          child: Align(alignment: mine ? Alignment.centerRight : Alignment.centerLeft, child: bubble),
+        ),
+      ]),
+    );
+  }
+
+  Widget _quote(BuildContext context, Map<String, dynamic> r, bool mine) {
+    final cs = Theme.of(context).colorScheme;
+    final who = toI(r['sender_id']) == widget.meId ? 'You' : '${r['sender'] ?? ''}';
+    final text = r['deleted'] == true ? '🚫 Message deleted' : '${r['text'] ?? ''}';
+    return GestureDetector(
+      onTap: () => widget.onQuoteTap(toI(r['id'])),
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(top: 2, bottom: 5),
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+        decoration: BoxDecoration(
+          color: mine ? Colors.white.withValues(alpha: .18) : cs.primary.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(8),
+          border: Border(left: BorderSide(color: mine ? Colors.white : cs.primary, width: 3)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(who, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: mine ? Colors.white : cs.primary)),
+          Text(text, maxLines: 2, overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 12.5, color: mine ? Colors.white70 : cs.onSurfaceVariant)),
         ]),
       ),
     );

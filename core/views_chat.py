@@ -1,5 +1,7 @@
 """Live chat endpoints (JSON, polled by static/js/chat.js) and the support-team admin page."""
 import json
+import time
+from datetime import datetime, timezone as dt_timezone
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -13,6 +15,9 @@ from django.views.decorators.http import require_POST
 
 from . import chat, chat_media
 from .models_chat import ChatMessage, ChatRead, ChatThread, SupportAgent
+
+# what message_json reads (sender, thread, the quoted message of a reply) — one query, not one per message
+MSG_RELATED = ('sender', 'thread', 'thread__business', 'reply_to', 'reply_to__sender')
 
 
 def _biz(request):
@@ -75,11 +80,23 @@ def chat_state(request):
     new = []
     if since >= 0:
         rows = chat_media.prime(list(ChatMessage.objects.filter(thread_id__in=ids, id__gt=since)
-                                     .select_related('sender', 'thread', 'thread__business').order_by('id')[:60]))
+                                     .select_related(*MSG_RELATED).order_by('id')[:60]))
         for m in rows:
             d = chat.message_json(m, user.pk, agent_set)
-            d['notify'] = not d['mine']
+            d['notify'] = not d['mine'] and not d['deleted']
             new.append(d)
+    # edited / deleted messages since the last poll (?chg= the "now" it got back), so every open chat updates them
+    now = time.time()
+    changed = []
+    try:
+        chg = float(request.GET.get('chg') or 0)
+    except ValueError:
+        chg = 0
+    if chg > 0:
+        after = datetime.fromtimestamp(max(chg, now - 3600) - 2, tz=dt_timezone.utc)   # 2 s overlap: never miss one
+        rows = chat_media.prime(list(ChatMessage.objects.filter(thread_id__in=ids, changed_at__gt=after)
+                                     .select_related(*MSG_RELATED).order_by('changed_at')[:100]))
+        changed = [chat.message_json(m, user.pk, agent_set) for m in rows]
     top = ChatMessage.objects.filter(thread_id__in=ids).order_by('-id').values_list('id', flat=True).first() or 0
     open_id = int(request.GET.get('open') or 0)
     extra = {}
@@ -97,6 +114,7 @@ def chat_state(request):
               for u in chat.colleagues(user, biz)]
     return JsonResponse({'ok': True, 'me': {'id': user.pk, 'name': chat.display_name(user), 'agent': chat.is_agent(user)},
                          'threads': _threads_json(request, threads), 'new': new, 'top': top, 'people': people,
+                         'changed': changed, 'now': now,
                          'typing_threads': chat.typing_map(ids, user.pk),
                          'prefs': {'sound': p.sound, 'popups': p.popups, 'email_missed': p.email_missed, 'email_after': p.email_after_minutes},
                          **extra})
@@ -109,7 +127,7 @@ def chat_history(request, pk):
     except chat.ChatError as e:
         return _err(e, 403)
     before = int(request.GET.get('before') or 0)
-    qs = t.messages.select_related('sender', 'thread', 'thread__business')
+    qs = t.messages.select_related(*MSG_RELATED)
     if before:
         qs = qs.filter(id__lt=before)
     rows = chat_media.prime(list(qs.order_by('-id')[:40])[::-1])
@@ -131,9 +149,33 @@ def chat_send(request):
     d = _body(request)
     try:
         t = _thread(request, int(d.get('thread') or 0))
-        m = chat.post(t, request.user, d.get('body', ''), d.get('page_url', ''), d.get('page_title', ''))
+        m = chat.post(t, request.user, d.get('body', ''), d.get('page_url', ''), d.get('page_title', ''),
+                      reply_to=d.get('reply_to') or None)
     except (chat.ChatError, ValueError) as e:
         return _err(e)
+    return JsonResponse({'ok': True, 'message': chat.message_json(m, request.user.pk)})
+
+
+@login_required
+@require_POST
+def chat_message(request):
+    """Edit or delete your own message: {id, action: 'edit', body} or {id, action: 'delete'}."""
+    d = _body(request)
+    try:
+        m = ChatMessage.objects.select_related(*MSG_RELATED).filter(pk=int(d.get('id') or 0)).first()
+        if m is None:
+            raise chat.ChatError('That message is no longer there.')
+        _thread(request, m.thread_id)                  # you must still be in that conversation
+        action = d.get('action')
+        if action == 'edit':
+            chat.edit(m, request.user, d.get('body', ''))
+        elif action == 'delete':
+            chat.delete(m, request.user)
+        else:
+            raise chat.ChatError('Unknown action.')
+    except (chat.ChatError, ValueError) as e:
+        return _err(e)
+    chat_media.prime([m])
     return JsonResponse({'ok': True, 'message': chat.message_json(m, request.user.pk)})
 
 

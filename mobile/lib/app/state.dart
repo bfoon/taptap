@@ -40,7 +40,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   List<Map<String, dynamic>> people = [];
   final _newMessages = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get newMessages => _newMessages.stream;
+  final _changedMessages = StreamController<Map<String, dynamic>>.broadcast();
+  /// Messages their sender edited or deleted (the open conversation swaps them in).
+  Stream<Map<String, dynamic>> get changedMessages => _changedMessages.stream;
   int _top = -1;
+  double _chg = 0;                              // TapTap's clock at the last check: edits / deletes after it
   int? openThread;
   bool typing = false;
   Map<String, dynamic> openExtra = {};
@@ -111,6 +115,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> switchBusiness(int id) async {
     await Api.I.post('/api/mobile/v1/business/', {'id': id});
     _top = -1;
+    _chg = 0;
     threads = [];
     await refreshMe();
     await pollChat();
@@ -125,6 +130,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _endedRings.clear();
     _chatPrimed = false;
     _top = -1;
+    _chg = 0;
     _chatTimer?.cancel();
     _ringTimer?.cancel();
   }
@@ -152,7 +158,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> pollChat() async {
     if (!signedIn) return;
     try {
-      final q = <String, String>{'since': '$_top'};
+      final q = <String, String>{'since': '$_top', if (_chg > 0) 'chg': '$_chg'};
       if (openThread != null) {
         q['open'] = '$openThread';
         if (typing) q['typing'] = '1';
@@ -166,6 +172,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         _newMessages.add(m.cast<String, dynamic>());
       }
       _top = toI(d['top']);
+      if (d['now'] != null) _chg = toD(d['now']);
+      for (final m in ((d['changed'] as List?) ?? []).cast<Map>()) {
+        _changedMessages.add(m.cast<String, dynamic>());
+      }
       // a new message while TapTap is open: the notification sound — unless a push already brings it (with sound)
       if (_chatPrimed && unread > before && !_pushCoversChat) Sounds.notify();
       _chatPrimed = true;

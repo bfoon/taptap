@@ -50,7 +50,7 @@ urlpatterns = [
     path('traffic/apps/do/',vapps.app_rule_action,name='app_rule_global'), path('traffic/apps/<int:pk>/',vapps.app_rule_action,name='app_rule_action'),
     path('routers/profiles/',vprof.router_profiles,name='router_profiles'), path('routers/profiles/check/',vprof.profile_check_fix,name='profile_check_fix'), path('routers/<int:pk>/profiles/import/',vprof.router_profile_import,name='router_profile_import'),
     path('chat/',vchat.chat_page,name='chat_page'), path('chat/state/',vchat.chat_state,name='chat_state'),
-    path('chat/t/<int:pk>/',vchat.chat_history,name='chat_history'), path('chat/send/',vchat.chat_send,name='chat_send'),
+    path('chat/t/<int:pk>/',vchat.chat_history,name='chat_history'), path('chat/send/',vchat.chat_send,name='chat_send'), path('chat/message/',vchat.chat_message,name='chat_message'),
     path('chat/read/',vchat.chat_read,name='chat_read'), path('chat/direct/',vchat.chat_direct,name='chat_direct'),
     path('chat/upload/',vchat.chat_upload,name='chat_upload'), path('chat/img/<int:pk>/',vchat.chat_image,name='chat_image'),
     path('chat/call/',vchat.chat_call_page,name='chat_call_page'), path('chat/call/poll/',vchat.chat_call_poll,name='chat_call_poll'),

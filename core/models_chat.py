@@ -45,6 +45,12 @@ class ChatMessage(models.Model):
     mentions = models.JSONField(default=list, blank=True)
     system = models.BooleanField(default=False)
     attachment = models.CharField(max_length=10, blank=True, default='', help_text='"image" when a photo was sent (it may have expired)')
+    reply_to = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+                                 help_text='The message this one answers (shown quoted above it)')
+    edited_at = models.DateTimeField(null=True, blank=True, help_text='Last time the sender edited the text')
+    deleted_at = models.DateTimeField(null=True, blank=True, help_text='Deleted by the sender: text and photo are gone')
+    changed_at = models.DateTimeField(null=True, blank=True, db_index=True,
+                                      help_text='Edited or deleted at — the chat poll sends changed messages to every open chat')
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:

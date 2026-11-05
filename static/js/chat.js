@@ -12,7 +12,8 @@
   var CSRF = root.dataset.csrf || '';
   var FULL = root.dataset.full === '1';
   var S = { open: false, view: 'list', thread: null, threads: [], people: [], me: {}, prefs: {}, top: 0, msgs: [], seen: 0,
-            attach: null, first: true, lastTyping: 0, timer: null, big: FULL, filter: '', typers: [], typingThreads: {} };
+            attach: null, first: true, lastTyping: 0, timer: null, big: FULL, filter: '', typers: [], typingThreads: {},
+            reply: null, editing: null, chg: 0 };      // reply / edit in the composer; chg = server time of the last poll (edits, deletes)
   var COLORS = ['#1769e0', '#7c3aed', '#18a66a', '#e5484d', '#f59e0b', '#0ea5a4', '#db2777', '#65a30d', '#2563eb', '#ea580c'];
   var EMOJI = ['👍', '🙏', '😀', '😂', '🎉', '✅', '❤️', '🔥', '👀', '💰', '📶', '⚠️'];
   var ICON = {
@@ -29,6 +30,9 @@
     phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>',
     video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="14" height="12" rx="2"/><path d="M16 10l6-3v10l-6-3z"/></svg>',
     image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>',
+    reply: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/></svg>',
+    edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
   };
 
@@ -178,10 +182,13 @@
       if (m.system) { h += '<div class="ttc-sys">' + linkify(m.body) + '</div>'; prev = null; return; }
       var cont = prev && prev.sender === m.sender && prev.mine === m.mine && (new Date(m.at) - new Date(prev.at)) < 5 * 60000;
       if (!m.mine && !cont && t.kind !== 'direct') h += '<div class="ttc-who">' + esc(m.sender) + '</div>';
-      h += '<div class="ttc-m' + (m.mine ? ' me' : '') + (m.agent ? ' agent' : '') + (m.mention_me ? ' hot' : '') + (cont ? ' cont' : '') + '" data-id="' + m.id + '">' +
-        (m.mine ? '' : av(m.initials, m.sender)) + '<div class="ttc-b' + (m.image ? ' has-img' : '') + '">' + imgHTML(m) + (m.body ? '<span class="ttc-txt">' + linkify(m.body) + '</span>' : '') +
-        (m.page_url ? '<a class="ttc-page" href="' + esc(m.page_url) + '">🔗 <span><b>' + esc(m.page_title || 'Shared page') + '</b><br><small>' + esc(m.page_url) + '</small></span></a>' : '') +
-        '</div></div>';
+      h += '<div class="ttc-m' + (m.mine ? ' me' : '') + (m.agent ? ' agent' : '') + (m.mention_me ? ' hot' : '') + (cont ? ' cont' : '') + (m.deleted ? ' del' : '') + '" data-id="' + m.id + '">' +
+        (m.mine ? '' : av(m.initials, m.sender)) + '<div class="ttc-b' + (m.image && !m.deleted ? ' has-img' : '') + '">' + quoteHTML(m) +
+        (m.deleted ? '<span class="ttc-txt ttc-deleted">🚫 ' + (m.mine ? 'You deleted this message' : 'This message was deleted') + '</span>'
+          : imgHTML(m) + (m.body ? '<span class="ttc-txt">' + linkify(m.body) + '</span>' : '') +
+            (m.page_url ? '<a class="ttc-page" href="' + esc(m.page_url) + '">🔗 <span><b>' + esc(m.page_title || 'Shared page') + '</b><br><small>' + esc(m.page_url) + '</small></span></a>' : '') +
+            (m.edited ? '<small class="ttc-edited">edited</small>' : '')) +
+        '</div>' + actsHTML(m) + '</div>';
       var next = S.msgs[S.msgs.indexOf(m) + 1];
       if (!next || next.sender !== m.sender || next.system || (new Date(next.at) - new Date(m.at)) >= 5 * 60000)
         h += '<div class="ttc-meta' + (m.mine ? ' me' : '') + '">' + when(m.at, true) + (m.mine && m.id === lastMine && t.kind === 'direct' ? (S.seen >= m.id ? ' · Seen' : ' · Sent') : '') + '</div>';
@@ -200,6 +207,60 @@
       wireComposer();
     }
     body.scrollTop = body.scrollHeight;
+  }
+
+  // ───────── reply · edit · delete ─────────
+  function quoteHTML(m) {
+    var r = m.reply; if (!r || m.deleted) return '';
+    return '<button type="button" class="ttc-q" data-a="jump" data-mid="' + r.id + '"><b>' + esc(r.sender_id === S.me.id ? 'You' : (r.sender || 'Message')) + '</b>' +
+      '<span>' + (r.deleted ? '🚫 Message deleted' : esc(r.text || '')) + '</span></button>';
+  }
+  function canDelete(m) { return m.mine && m.delete_until && new Date(m.delete_until) > new Date(); }
+  function actsHTML(m) {
+    if (m.deleted || m.id >= 1e15) return '';
+    return '<span class="ttc-acts">' +
+      '<button type="button" data-a="reply" data-mid="' + m.id + '" title="Reply">' + ICON.reply + '</button>' +
+      (m.mine && m.can_edit ? '<button type="button" data-a="edit" data-mid="' + m.id + '" title="Edit">' + ICON.edit + '</button>' : '') +
+      (canDelete(m) ? '<button type="button" data-a="del" data-mid="' + m.id + '" title="Delete for everyone (within 1 hour of sending)">' + ICON.trash + '</button>' : '') +
+      '</span>';
+  }
+  function msgById(id) { return S.msgs.filter(function (x) { return x.id === id; })[0]; }
+  function putMsg(m) {                                  // replace a message with its new version (edited / deleted)
+    var found = false;
+    for (var i = 0; i < S.msgs.length; i++) {
+      var x = S.msgs[i];
+      if (x.id === m.id) { S.msgs[i] = m; found = true; }
+      else if (x.reply && x.reply.id === m.id) {            // replies quoting it show the new text (or "deleted")
+        x.reply.deleted = !!m.deleted; x.reply.text = m.deleted ? '' : (m.body || x.reply.text); found = true;
+      }
+    }
+    return found;
+  }
+  function startReply(m) {
+    S.editing = null; S.reply = m; showAttach();
+    var ta = $('textarea', foot); if (ta) ta.focus();
+  }
+  function startEdit(m) {
+    S.reply = null; S.editing = m; clearPhoto(); S.attach = null; showAttach();
+    var ta = $('textarea', foot); if (!ta) return;
+    ta.value = m.body || ''; ta.focus(); ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px';
+  }
+  function cancelCompose() {
+    var wasEdit = !!S.editing; S.reply = null; S.editing = null; showAttach();
+    if (wasEdit) { var ta = $('textarea', foot); if (ta) { ta.value = ''; ta.style.height = 'auto'; } }
+  }
+  function deleteMsg(m) {
+    if (!canDelete(m)) return toast({ sender: 'Chat', body: 'Messages can only be deleted within 1 hour of sending.' });
+    if (!confirm('Delete this message for everyone?')) return;
+    api('/chat/message/', { id: m.id, action: 'delete' }).then(function (d) {
+      if (d.ok) { putMsg(d.message); if (S.editing && S.editing.id === m.id) cancelCompose(); renderThread(); }
+      else toast({ sender: 'Not deleted', body: d.message || 'Try again.' });
+    });
+  }
+  function jumpTo(id) {
+    var el = body.querySelector('.ttc-m[data-id="' + id + '"]');
+    if (!el) return toast({ sender: 'Chat', body: 'That message is further up — tap “Show older messages”.' });
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.classList.add('flash'); setTimeout(function () { el.classList.remove('flash'); }, 1600);
   }
 
   function renderSettings() {
@@ -244,12 +305,22 @@
     else if (a === 'once') { if (S.photo) { S.photo.once = !S.photo.once; showAttach(); } }
     else if (a === 'call' || a === 'vcall') startCall(a === 'vcall');
     else if (a === 'send') send();
+    else if (a === 'reply' || a === 'edit' || a === 'del') {
+      var m = msgById(+b.dataset.mid); if (!m) return;
+      if (a === 'reply') startReply(m); else if (a === 'edit') startEdit(m); else deleteMsg(m);
+    }
+    else if (a === 'uncompose') cancelCompose();
+    else if (a === 'jump') jumpTo(+b.dataset.mid);
   });
 
   function showAttach() {
     var el = $('.ttc-attach', foot); if (!el) return;
-    el.classList.toggle('ttc-hidden', !S.attach && !S.photo);
-    var h = S.attach ? '<div class="ttc-att-row"><span>🔗 Sharing: <b>' + esc(S.attach.title) + '</b></span><button class="btn btn-sm btn-link p-0" data-a="unattach">Remove</button></div>' : '';
+    el.classList.toggle('ttc-hidden', !S.attach && !S.photo && !S.reply && !S.editing);
+    var h = '';
+    if (S.editing) h += '<div class="ttc-att-row ttc-compose-q"><span>' + ICON.edit + ' <b>Editing your message</b> · Esc to cancel</span><button class="btn btn-sm btn-link p-0" data-a="uncompose">Cancel</button></div>';
+    else if (S.reply) h += '<div class="ttc-att-row ttc-compose-q"><span>' + ICON.reply + ' Replying to <b>' + esc(S.reply.mine ? 'yourself' : S.reply.sender) + '</b>: ' +
+      esc((S.reply.body || (S.reply.image ? '📷 Photo' : S.reply.page_title || '')).slice(0, 80)) + '</span><button class="btn btn-sm btn-link p-0" data-a="uncompose">Cancel</button></div>';
+    h += S.attach ? '<div class="ttc-att-row"><span>🔗 Sharing: <b>' + esc(S.attach.title) + '</b></span><button class="btn btn-sm btn-link p-0" data-a="unattach">Remove</button></div>' : '';
     if (S.photo && S.photo.video) {
       h += '<div class="ttc-att-photo"><video src="' + S.photo.url + '" muted playsinline preload="metadata"></video><div><b>Video · ' + (S.photo.blob.size / 1048576).toFixed(1) + ' MB</b>' +
         '<small>⏳ Deleted for everyone after ' + ((S.thread && S.thread.photo_days) || 7) + ' days</small></div><button class="btn btn-sm btn-link p-0" data-a="unphoto">Remove</button></div>';
@@ -287,6 +358,11 @@
       if (f) { e.preventDefault(); pickPhoto(f); }
     });
     ta.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && (S.reply || S.editing)) { e.preventDefault(); return cancelCompose(); }
+      if (e.key === 'ArrowUp' && !ta.value && !S.editing) {          // ↑ in an empty box edits your last message
+        var last = S.msgs.filter(function (x) { return x.mine && x.can_edit && !x.deleted; }).pop();
+        if (last) { e.preventDefault(); return startEdit(last); }
+      }
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); var pop = $('.ttc-pop.ment button', foot); if (pop) { pop.click(); return; } send(); }
     });
     ta.addEventListener('input', function () {
@@ -302,23 +378,35 @@
 
   function send() {
     var ta = $('textarea', foot), txt = ta.value.trim();
+    if (S.editing) return saveEdit(ta, txt);
     if (S.photo) return sendPhoto(ta, txt);
     if (!txt && !S.attach) return;
     var payload = { thread: S.thread.id, body: txt, page_url: S.attach ? S.attach.url : '', page_title: S.attach ? S.attach.title : '' };
-    ta.value = ''; ta.style.height = 'auto'; S.attach = null; showAttach();
-    var tmp = { id: 1e15, body: txt, mine: true, sender: S.me.name, at: new Date().toISOString(), page_url: payload.page_url, page_title: payload.page_title };
+    var rep = S.reply; if (rep) payload.reply_to = rep.id;
+    ta.value = ''; ta.style.height = 'auto'; S.attach = null; S.reply = null; showAttach();
+    var tmp = { id: 1e15, body: txt, mine: true, sender: S.me.name, at: new Date().toISOString(), page_url: payload.page_url, page_title: payload.page_title,
+                reply: rep ? { id: rep.id, sender: rep.sender, sender_id: rep.mine ? S.me.id : -1, text: rep.body || '' } : null };
     S.msgs.push(tmp); renderThread();
     api('/chat/send/', payload).then(function (d) {
       S.msgs = S.msgs.filter(function (m) { return m !== tmp; });
       if (d.ok) { if (!S.msgs.some(function (m) { return m.id === d.message.id; })) S.msgs.push(d.message); S.top = Math.max(S.top, d.message.id); }
-      else { ta.value = txt; toast({ sender: 'Not sent', body: d.message || 'Try again.' }); }
+      else { ta.value = txt; S.reply = rep; showAttach(); toast({ sender: 'Not sent', body: d.message || 'Try again.' }); }
       renderThread(); poll();
+    });
+  }
+  function saveEdit(ta, txt) {
+    var m = S.editing; if (!m) return;
+    if (txt === (m.body || '')) return cancelCompose();
+    if (!txt && !m.image && !m.page_url) return toast({ sender: 'Chat', body: 'Type a message — or delete it.' });
+    api('/chat/message/', { id: m.id, action: 'edit', body: txt }).then(function (d) {
+      if (d.ok) { putMsg(d.message); cancelCompose(); renderThread(); }
+      else toast({ sender: 'Not saved', body: d.message || 'Try again.' });
     });
   }
 
   function openThread(id, keep) {
     S.view = 'thread'; store('thread', id); S.more = false;
-    if (!keep || !S.thread || S.thread.id !== id) { S.msgs = []; foot.innerHTML = ''; }
+    if (!keep || !S.thread || S.thread.id !== id) { S.msgs = []; foot.innerHTML = ''; S.reply = null; S.editing = null; }
     return api('/chat/t/' + id + '/').then(function (d) {
       if (!d.ok) { S.view = 'list'; render(); return; }
       S.thread = d.thread; S.msgs = d.messages; S.more = d.more;
@@ -359,13 +447,18 @@
   var polling = false;
   function poll() {
     if (polling) return; polling = true;
-    var q = '/chat/state/?since=' + (S.first ? -1 : S.top) + (S.view === 'thread' && S.thread && S.open ? '&open=' + S.thread.id : '');
+    var q = '/chat/state/?since=' + (S.first ? -1 : S.top) + (S.chg ? '&chg=' + S.chg : '') + (S.view === 'thread' && S.thread && S.open ? '&open=' + S.thread.id : '');
     api(q).then(function (d) {
       polling = false; if (!d.ok) { schedule(60000); return; }
       S.me = d.me; S.prefs = d.prefs; S.people = d.people; S.threads = d.threads; S.typingThreads = d.typing_threads || {};
       var incoming = S.first ? [] : d.new;
-      S.first = false; S.top = Math.max(S.top, d.top);
+      S.first = false; S.top = Math.max(S.top, d.top); if (d.now) S.chg = d.now;
       var viewing = S.open && S.view === 'thread' && S.thread && !document.hidden ? S.thread.id : 0, changed = false, maxHere = 0;
+      (d.changed || []).forEach(function (m) {         // edited / deleted by their sender
+        if (S.thread && m.thread === S.thread.id && putMsg(m)) changed = true;
+        if (S.editing && S.editing.id === m.id && m.deleted) cancelCompose();
+        if (S.reply && S.reply.id === m.id && m.deleted) cancelCompose();
+      });
       incoming.forEach(function (m) {
         var t = S.threads.filter(function (x) { return x.id === m.thread; })[0] || {};
         if (m.thread === viewing) {
