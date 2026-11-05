@@ -1,0 +1,211 @@
+{% extends 'core/base.html' %}
+{% block title %}Router schedules{% endblock %}
+{% block heading %}Router schedules{% endblock %}
+{% block extra_head %}<style>
+.rs-hero{background:radial-gradient(circle at 15% 0,#16304c,#0e1a2a 70%);color:#e8f0f8;border-radius:22px;padding:1.2rem 1.4rem;margin-bottom:1rem;display:grid;grid-template-columns:1.1fr 1fr;gap:1.2rem}
+.rs-hero h2{font-size:1.2rem;font-weight:800;margin:0 0 .35rem}.rs-hero p{color:#a9bdd2;font-size:.86rem;margin:0}
+.rs-steps{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.9rem}.rs-steps span{background:#ffffff12;border:1px solid #ffffff22;border-radius:999px;padding:.25rem .7rem;font-size:.72rem;color:#d8e6f4}
+.rs-next{display:flex;flex-direction:column;gap:.5rem}
+.rs-up{display:flex;align-items:center;gap:.75rem;background:#ffffff0f;border:1px solid #ffffff1f;border-radius:16px;padding:.6rem .8rem}
+.rs-up .when{flex:none;text-align:center;min-width:64px}.rs-up .when b{display:block;font-size:1.15rem;font-weight:900;line-height:1}.rs-up .when small{font-size:.65rem;color:#9fb3c8}
+.rs-up .what{flex:1;min-width:0}.rs-up .what b{display:block;font-size:.86rem}.rs-up .what small{color:#9fb3c8;font-size:.72rem}
+.rs-up.skipped{opacity:.55}.rs-up.skipped .when b{text-decoration:line-through}
+.rs-ico{width:34px;height:34px;border-radius:12px;display:grid;place-items:center;flex:none}.rs-ico.restart{background:#1769e022;color:#7cc4ff}.rs-ico.shutdown{background:#d6454526;color:#ff9d9d}
+.rs-empty{color:#9fb3c8;font-size:.84rem;padding:.8rem;border:1px dashed #ffffff2a;border-radius:16px}
+.rs-kind{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}.rs-kind label{border:2px solid var(--border);border-radius:14px;padding:.65rem .75rem;cursor:pointer;display:flex;gap:.55rem;align-items:flex-start}
+.rs-kind input{display:none}.rs-kind label b{display:block;font-size:.86rem}.rs-kind label small{color:var(--muted);font-size:.72rem}
+.rs-kind input:checked+label{border-color:#1769e0;background:#1769e00d}.rs-kind input[value=shutdown]:checked+label{border-color:#d64545;background:#d645450d}
+.rs-repeat{display:flex;gap:.35rem;flex-wrap:wrap}.rs-repeat input{display:none}.rs-repeat label{border:1px solid var(--border);border-radius:999px;padding:.3rem .8rem;font-size:.8rem;cursor:pointer;font-weight:600}
+.rs-repeat input:checked+label{background:#1769e0;border-color:#1769e0;color:#fff}
+.rs-days{display:flex;gap:.3rem;flex-wrap:wrap}.rs-days input{display:none}.rs-days label{width:42px;text-align:center;border:1px solid var(--border);border-radius:10px;padding:.3rem 0;font-size:.78rem;cursor:pointer;font-weight:700}
+.rs-days input:checked+label{background:#18a66a;border-color:#18a66a;color:#fff}
+.rs-presets{display:flex;gap:.35rem;flex-wrap:wrap;margin-bottom:.8rem}.rs-presets button{font-size:.72rem}
+.rs-warn{border:1px solid #f0b4b4;background:#fdf1f1;border-radius:14px;padding:.7rem .8rem;font-size:.8rem;color:#8a1f1f}
+.rs-quiet{background:#f3f8fe;border-radius:14px;padding:.7rem .8rem;font-size:.78rem;color:#33506e}
+.rs-row td{vertical-align:middle;font-size:.82rem}.rs-pill{font-size:.68rem;font-weight:800;border-radius:999px;padding:.15rem .55rem;white-space:nowrap}
+.rs-pill.back,.rs-pill.on{background:#e4f7ee;color:#138453}.rs-pill.failed,.rs-pill.late,.rs-pill.missed{background:#fdeaea;color:#c02b2b}
+.rs-pill.sent,.rs-pill.waiting,.rs-pill.warned,.rs-pill.off{background:#fff4dc;color:#9a6200}.rs-pill.skipped,.rs-pill.paused{background:#eef2f6;color:#6c7c90}
+.rs-count{font-variant-numeric:tabular-nums}
+html[data-theme="dark"] .rs-warn{background:#3a1f22;border-color:#6b2c31;color:#ffc9c9}html[data-theme="dark"] .rs-quiet{background:#1d2a38;color:#b9cde2}
+html[data-theme="dark"] .rs-kind input:checked+label{background:#1769e022}html[data-theme="dark"] .rs-pill.skipped,html[data-theme="dark"] .rs-pill.paused{background:#2b3139;color:#a7b3c1}
+@media(max-width:1000px){.rs-hero{grid-template-columns:1fr}}
+</style>{% endblock %}
+{% block content %}
+<p class="mb-3"><a href="{% url 'routers' %}" class="text-decoration-none"><i class="bi bi-arrow-left"></i> Routers</a></p>
+
+<section class="rs-hero">
+  <div>
+    <h2><i class="bi bi-calendar2-check"></i> Restart or switch off routers on a timetable</h2>
+    <p>Once, every night, chosen weekdays or once a month. TapTap warns your team beforehand, waits for the quietest moment
+      (ideally nobody online), sends the command, and tells you when the router is back — on the website, on the phones and by email.</p>
+    <div class="rs-steps"><span><i class="bi bi-bell"></i> Heads-up</span><span><i class="bi bi-moon-stars"></i> Quiet moment</span><span><i class="bi bi-bootstrap-reboot"></i> Restart / shutdown</span><span><i class="bi bi-check2-circle"></i> Back online</span></div>
+  </div>
+  <div class="rs-next">
+    {% for s in upcoming %}
+      <div class="rs-up{% if s.skipped %} skipped{% endif %}">
+        <div class="when"><b>{{ s.next_at|date:"H:i" }}</b><small>{{ s.next_at|date:"D d M" }}</small></div>
+        <div class="rs-ico {{ s.action }}"><i class="bi {% if s.action == 'shutdown' %}bi-power{% else %}bi-bootstrap-reboot{% endif %}"></i></div>
+        <div class="what"><b>{{ s.router.name }} · {{ s.get_action_display }}</b><small>{% if s.skipped %}Skipped this time{% else %}<span class="rs-count" data-at="{{ s.next_at|date:'c' }}"></span>{% if s.window_minutes %} · waits up to {{ s.window_minutes }} min for a quiet moment{% endif %}{% endif %}</small></div>
+        <form method="post" action="{% url 'router_schedule_action' %}">{% csrf_token %}<input type="hidden" name="id" value="{{ s.id }}"><input type="hidden" name="router" value="{{ focus.id|default:'' }}">
+          {% if s.skipped %}<button class="btn btn-sm btn-light" name="action" value="unskip">Undo skip</button>{% else %}<button class="btn btn-sm btn-outline-light" name="action" value="skip" title="Skip only this time">Skip</button>{% endif %}
+        </form>
+      </div>
+    {% empty %}
+      <div class="rs-empty"><i class="bi bi-info-circle"></i> Nothing planned yet. Make your first schedule below — “Every night at 03:00” is a good start.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<div class="row g-4">
+  <div class="col-xl-5">
+    <div class="panel">
+      <div class="panel-head"><div><h3>{% if edit %}Change schedule{% else %}New schedule{% endif %}</h3><p>Times are local ({% now "T" %}).</p></div>{% if edit %}<a href="{% url 'router_schedules' %}" class="btn btn-sm btn-light">New instead</a>{% endif %}</div>
+      {% if not routers %}<p class="text-muted">Add a router first.</p>{% else %}
+      <div class="rs-presets">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-preset="daily,03:00">Every night 03:00</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-preset="weekly,04:00,6">Sundays 04:00</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-preset="weekly,03:00,0,1,2,3,4">Weekdays 03:00</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-preset="monthly,04:00">1st of the month</button>
+      </div>
+      <form method="post" action="{% url 'router_schedule_save' %}" id="rsForm">{% csrf_token %}
+        {% if edit %}<input type="hidden" name="id" value="{{ edit.id }}">{% endif %}
+        <label class="form-label small fw-bold">Router</label>
+        <select name="router" class="form-select mb-3" required>
+          {% for r in routers %}<option value="{{ r.id }}" {% if edit and edit.router_id == r.id or not edit and focus and focus.id == r.id %}selected{% endif %}>{{ r.name }}{% if not r.is_up %} (offline now){% elif r.people_online is not None %} · {{ r.people_online }} online now{% endif %}</option>{% endfor %}
+        </select>
+        <div class="rs-kind mb-3">
+          <input type="radio" name="what" value="restart" id="kRestart" {% if not edit or edit.action == 'restart' %}checked{% endif %}><label for="kRestart"><i class="bi bi-bootstrap-reboot fs-5 text-primary"></i><span><b>Restart</b><small>Back in 1–2 minutes by itself</small></span></label>
+          <input type="radio" name="what" value="shutdown" id="kShutdown" {% if edit.action == 'shutdown' %}checked{% endif %}><label for="kShutdown"><i class="bi bi-power fs-5 text-danger"></i><span><b>Shut down</b><small>Power off — stays off</small></span></label>
+        </div>
+        <div class="rs-warn mb-3" id="rsShutdownWarn" hidden>
+          <b><i class="bi bi-exclamation-octagon"></i> A shutdown switches the router OFF.</b> It stays off until someone unplugs it and plugs it back in —
+          TapTap cannot switch it on again. Everyone on it is offline until then, members too.
+          <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="understood" value="1" id="rsUnderstood" {% if edit.action == 'shutdown' %}checked{% endif %}><label class="form-check-label" for="rsUnderstood">I understand — someone will power it on.</label></div>
+        </div>
+        <label class="form-label small fw-bold">Repeat</label>
+        <div class="rs-repeat mb-3">
+          <input type="radio" name="repeat" value="once" id="rOnce" {% if edit.repeat == 'once' %}checked{% endif %}><label for="rOnce">Once</label>
+          <input type="radio" name="repeat" value="daily" id="rDaily" {% if not edit or edit.repeat == 'daily' %}checked{% endif %}><label for="rDaily">Every day</label>
+          <input type="radio" name="repeat" value="weekly" id="rWeekly" {% if edit.repeat == 'weekly' %}checked{% endif %}><label for="rWeekly">Chosen days</label>
+          <input type="radio" name="repeat" value="monthly" id="rMonthly" {% if edit.repeat == 'monthly' %}checked{% endif %}><label for="rMonthly">Every month</label>
+        </div>
+        <div class="row g-2 mb-3">
+          <div class="col-5"><label class="form-label small fw-bold">Time</label><input type="time" name="at_time" class="form-control" required value="{% if edit %}{{ edit.at_time|time:'H:i' }}{% else %}03:00{% endif %}"></div>
+          <div class="col-7" data-for="once"><label class="form-label small fw-bold">Day</label><input type="date" name="run_on" class="form-control" value="{% if edit.run_on %}{{ edit.run_on|date:'Y-m-d' }}{% else %}{{ now|date:'Y-m-d' }}{% endif %}"></div>
+          <div class="col-7" data-for="monthly"><label class="form-label small fw-bold">Day of the month</label><input type="number" name="month_day" min="1" max="31" class="form-control" value="{{ edit.month_day|default:1 }}"><small class="text-muted">A shorter month uses its last day.</small></div>
+        </div>
+        <div class="mb-3" data-for="weekly"><label class="form-label small fw-bold">Days</label>
+          <div class="rs-days">{% for i, d in weekdays %}<input type="checkbox" name="weekdays" value="{{ i }}" id="wd{{ i }}" {% if edit and i in edit.weekdays %}checked{% endif %}><label for="wd{{ i }}">{{ d }}</label>{% endfor %}</div>
+        </div>
+        <label class="form-label small fw-bold d-flex justify-content-between">Wait for a quiet moment <span id="rsWinOut"></span></label>
+        <input type="range" class="form-range" name="window_minutes" min="0" max="{{ max_window }}" step="5" value="{% if edit %}{{ edit.window_minutes }}{% else %}30{% endif %}" id="rsWin">
+        <div class="rs-quiet mb-3" id="rsQuietText"></div>
+        <div class="row g-2 mb-3">
+          <div class="col-6"><label class="form-label small fw-bold">Heads-up before</label>
+            <select name="warn_minutes" class="form-select">{% for m in warn_choices %}<option value="{{ m }}" {% if edit and edit.warn_minutes == m or not edit and m == 10 %}selected{% endif %}>{% if m == 0 %}No heads-up{% else %}{{ m }} min{% endif %}</option>{% endfor %}</select></div>
+          <div class="col-6 d-flex align-items-end"><div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="email" id="rsEmail" {% if not edit or edit.email %}checked{% endif %}><label class="form-check-label small" for="rsEmail">Email too</label></div></div>
+        </div>
+        <input type="text" name="note" class="form-control mb-3" maxlength="160" placeholder="Note (optional) — e.g. clears the memory leak on the hAP" value="{{ edit.note|default:'' }}">
+        <p class="small text-muted mb-2"><i class="bi bi-people"></i> The owner and everyone who manages routers get the heads-up and the result (bell, phones, and email when ticked).</p>
+        <button class="btn btn-primary w-100"><i class="bi bi-calendar-plus"></i> {% if edit %}Save changes{% else %}Save schedule{% endif %}</button>
+      </form>
+      {% endif %}
+    </div>
+
+    {% if routers %}
+    <div class="panel mt-4">
+      <div class="panel-head"><div><h3>Right now</h3><p>The same follow-up as a schedule: TapTap tells you when it is back.</p></div></div>
+      <form method="post" action="{% url 'router_schedule_action' %}" class="d-flex gap-2 flex-wrap" id="rsNow">{% csrf_token %}
+        <input type="hidden" name="action" value="run_now"><input type="hidden" name="confirm">
+        <select name="router" class="form-select form-select-sm" style="max-width:220px">{% for r in routers %}<option value="{{ r.id }}" data-name="{{ r.name }}" {% if focus and focus.id == r.id %}selected{% endif %}>{{ r.name }}</option>{% endfor %}</select>
+        <button class="btn btn-sm btn-outline-primary" name="what" value="restart"><i class="bi bi-bootstrap-reboot"></i> Restart now</button>
+        <button class="btn btn-sm btn-outline-danger" name="what" value="shutdown"><i class="bi bi-power"></i> Shut down now</button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="col-xl-7">
+    <div class="panel">
+      <div class="panel-head"><div><h3>Schedules</h3><p>{% if focus %}Showing every router — {{ focus.name }} is picked in the form.{% else %}Every router of this business.{% endif %}</p></div></div>
+      <div class="table-responsive"><table class="table align-middle mb-0">
+        <thead><tr><th>Router</th><th>What · when</th><th>Next</th><th></th></tr></thead>
+        <tbody>
+        {% for s in schedules %}
+          <tr class="rs-row">
+            <td><b>{{ s.router.name }}</b></td>
+            <td><span class="rs-pill {% if s.action == 'shutdown' %}failed{% else %}on{% endif %}">{{ s.get_action_display }}</span> {{ s.text }}
+              <div class="text-muted small">{% if s.window_minutes %}Quiet moment within {{ s.window_minutes }} min{% else %}Exactly on time{% endif %} · {% if s.warn_minutes %}heads-up {{ s.warn_minutes }} min before{% else %}no heads-up{% endif %}{% if s.email %} · email{% endif %}{% if s.note %} · {{ s.note }}{% endif %}</div></td>
+            <td>{% if not s.active %}<span class="rs-pill paused">{% if s.repeat == 'once' and s.last_run_at %}Done{% else %}Paused{% endif %}</span>
+                {% elif s.skipped %}<span class="rs-pill skipped">Skipping {{ s.next_at|date:"D H:i" }}</span>
+                {% else %}{{ s.next_at|date:"D d M · H:i" }}<div class="small text-muted rs-count" data-at="{{ s.next_at|date:'c' }}"></div>{% endif %}</td>
+            <td class="text-end"><form method="post" action="{% url 'router_schedule_action' %}" class="d-inline-flex gap-1">{% csrf_token %}<input type="hidden" name="id" value="{{ s.id }}">
+              {% if s.active %}
+                {% if s.skipped %}<button class="btn btn-sm btn-light" name="action" value="unskip" title="Run it as planned">Undo skip</button>{% else %}<button class="btn btn-sm btn-outline-secondary" name="action" value="skip" title="Skip only the next time">Skip next</button>{% endif %}
+                <button class="btn btn-sm btn-outline-secondary" name="action" value="pause" title="Pause"><i class="bi bi-pause"></i></button>
+              {% else %}<button class="btn btn-sm btn-outline-success" name="action" value="resume" title="Resume"><i class="bi bi-play"></i></button>{% endif %}
+              <a class="btn btn-sm btn-outline-primary" href="?edit={{ s.id }}" title="Change"><i class="bi bi-pencil"></i></a>
+              <button class="btn btn-sm btn-outline-danger" name="action" value="delete" onclick="return confirm('Delete this schedule?')" title="Delete"><i class="bi bi-trash3"></i></button>
+            </form></td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="4" class="text-muted">No schedules yet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="panel mt-4">
+      <div class="panel-head"><div><h3>What happened{% if focus %} · {{ focus.name }}{% endif %}</h3><p>The last runs: how long it waited, who was online, how fast it came back.</p></div>{% if focus %}<a class="btn btn-sm btn-light" href="{% url 'router_schedules' %}">All routers</a>{% endif %}</div>
+      <div class="table-responsive"><table class="table align-middle mb-0">
+        <thead><tr><th>When</th><th>Router</th><th>Result</th></tr></thead>
+        <tbody>
+        {% for run in runs %}
+          <tr class="rs-row">
+            <td>{{ run.planned_at|date:"D d M H:i" }}{% if run.ran_at and run.ran_at|date:"H:i" != run.planned_at|date:"H:i" %}<div class="small text-muted">ran {{ run.ran_at|date:"H:i" }}</div>{% endif %}</td>
+            <td><b>{{ run.router.name }}</b><div class="small text-muted">{% if run.action == 'shutdown' %}Shutdown{% else %}Restart{% endif %}{% if not run.schedule_id %} · by hand{% endif %}</div></td>
+            <td><span class="rs-pill {{ run.status }}">{{ run.get_status_display }}</span>
+              {% if run.down_seconds is not None %} <span class="small">back after {% widthratio run.down_seconds 60 1 %} min</span>{% endif %}
+              {% if run.online_at_run is not None %} <span class="small text-muted">· {{ run.online_at_run }} online when it went</span>{% endif %}
+              {% if run.result %}<div class="small text-muted">{{ run.result }}</div>{% endif %}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="3" class="text-muted">Nothing has run yet.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script>
+(function(){
+  var form=document.getElementById('rsForm');
+  function val(n){var x=form&&form.querySelector('input[name="'+n+'"]:checked');return x?x.value:'';}
+  function show(){
+    if(!form)return;var rep=val('repeat');
+    form.querySelectorAll('[data-for]').forEach(function(el){el.hidden=el.dataset.for!==rep;});
+    var off=val('what')==='shutdown';document.getElementById('rsShutdownWarn').hidden=!off;
+    var w=Number(document.getElementById('rsWin').value);document.getElementById('rsWinOut').textContent=w?('up to '+w+' min'):'exactly on time';
+    document.getElementById('rsQuietText').innerHTML=w?('<i class="bi bi-moon-stars"></i> From the set time TapTap watches who is online: it goes the moment nobody is online; after '+Math.round(w*2/3)+' min it takes the quietest moment so far; at '+w+' min it goes anyway.')
+      :'<i class="bi bi-clock"></i> It goes exactly at the set time, whoever is online.';
+  }
+  if(form){form.addEventListener('change',show);form.addEventListener('input',show);show();
+    form.addEventListener('submit',function(e){if(val('what')==='shutdown'&&!document.getElementById('rsUnderstood').checked){e.preventDefault();document.getElementById('rsUnderstood').focus();alert('Tick that you understand the router stays off until someone powers it on.');}});
+    document.querySelectorAll('[data-preset]').forEach(function(b){b.addEventListener('click',function(){
+      var p=b.dataset.preset.split(','),rep=p[0];form.querySelector('input[name=repeat][value='+rep+']').checked=true;form.querySelector('input[name=at_time]').value=p[1];
+      form.querySelectorAll('input[name=weekdays]').forEach(function(c){c.checked=p.slice(2).indexOf(c.value)>=0;});
+      if(rep==='monthly')form.querySelector('input[name=month_day]').value=1;show();});});
+  }
+  var now=document.getElementById('rsNow');
+  if(now){now.addEventListener('submit',function(e){
+    var btn=e.submitter,sel=now.querySelector('select[name=router]'),name=sel.options[sel.selectedIndex].dataset.name;
+    var off=btn&&btn.value==='shutdown';
+    var t=prompt((off?'SHUT DOWN '+name+'? It stays OFF until someone powers it on again.':'Restart '+name+' now? Everyone on it drops for a minute or two.')+'\n\nType the router name to confirm:','');
+    if(t===null){e.preventDefault();return;}now.querySelector('input[name=confirm]').value=t;});}
+  function tick(){document.querySelectorAll('.rs-count[data-at]').forEach(function(el){
+    var d=(new Date(el.dataset.at)-new Date())/60000;if(isNaN(d))return;
+    el.textContent=d<=0?'due now':d<60?('in '+Math.ceil(d)+' min'):d<1440?('in '+Math.floor(d/60)+' h '+Math.round(d%60)+' min'):('in '+Math.round(d/1440)+' days');});}
+  tick();setInterval(tick,30000);
+})();
+</script>{% endblock %}
