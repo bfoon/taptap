@@ -40,10 +40,33 @@ class _ShellState extends State<Shell> {
     };
     Push.onOpen = _openFromPush;
     Push.onBanner = _banner;
-    Push.register();
+    Push.onRing = app.ringFromPush;
+    Push.onRingEnded = app.ringEnded;
+    Push.register().then((_) => _askBackground());
     Push.acceptedAtLaunch().then((extra) {
       if (extra != null && extra['cid'] != null) Push.onAccept?.call('${extra['cid']}', '${extra['from'] ?? 'Call'}', extra['video'] == true);
     });
+  }
+
+  /// Once: phones that stop apps in the background to save battery also drop TapTap's calls and notifications.
+  Future<void> _askBackground() async {
+    if (!await Push.shouldAskBackground() || !mounted) return;
+    final ctx = navigatorKey.currentContext;
+    if (ctx == null) return;
+    final yes = await showDialog<bool>(
+      context: ctx,
+      builder: (c) => AlertDialog(
+        icon: const Icon(Icons.battery_alert),
+        title: const Text('Let TapTap ring when closed'),
+        content: const Text('Your phone’s battery saver can stop TapTap in the background — then calls do not ring and '
+            'notifications do not arrive until you open the app.\n\nAllow TapTap to run in the background?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Not now')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Allow')),
+        ],
+      ),
+    );
+    if (yes == true) await Push.allowBackground();
   }
 
   void _ring(Ring r) {

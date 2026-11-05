@@ -6,6 +6,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:provider/provider.dart';
 
 import '../app/api.dart';
+import '../app/sounds.dart';
 import '../app/state.dart';
 import '../push/push.dart';
 import 'call_engine.dart';
@@ -15,6 +16,7 @@ Future<void> openCall(BuildContext context, CallEngine engine) async {
   final app = context.read<AppState>();
   if (app.activeCall != null) return;
   app.activeCall = engine.callId ?? 'outgoing';
+  await Sounds.stopAll();
   await Navigator.of(context, rootNavigator: true).push(MaterialPageRoute(
     fullscreenDialog: true,
     builder: (_) => ChangeNotifierProvider.value(value: engine, child: const CallScreen()),
@@ -264,15 +266,27 @@ class IncomingCallScreen extends StatefulWidget {
 
 class _IncomingCallScreenState extends State<IncomingCallScreen> {
   Timer? _check;
+  bool _closed = false;
+
+  void _close() {
+    if (_closed || !mounted) return;
+    _closed = true;
+    _check?.cancel();
+    Push.ringtone(false);
+    Navigator.of(context).pop();
+  }
 
   @override
   void initState() {
     super.initState();
     HapticFeedback.heavyImpact();
     Push.ringtone(true);
+    final started = DateTime.now();
     _check = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!mounted || _closed) return;
       final app = context.read<AppState>();
-      if (!app.ringStillOn(widget.ring.id) && mounted) Navigator.of(context).pop();   // answered elsewhere / hung up
+      // answered elsewhere / hung up — or nothing heard for longer than any call rings (a line too slow to tell us)
+      if (!app.ringStillOn(widget.ring.id) || DateTime.now().difference(started).inSeconds > 50) _close();
     });
   }
 
@@ -284,16 +298,23 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   }
 
   Future<void> _decline() async {
-    try {
-      await Api.I.post('/chat/call/act/', {'action': 'decline', 'id': widget.ring.id});
-    } catch (_) {}
-    if (mounted) Navigator.of(context).pop();
+    final id = widget.ring.id;
+    _close();                                     // stop ringing at once; tell TapTap in the background
+    for (var i = 0; i < 3; i++) {
+      try {
+        await Api.I.post('/chat/call/act/', {'action': 'decline', 'id': id});
+        return;
+      } on ApiError catch (e) {
+        if (e.status != 0) return;                // TapTap answered (e.g. the call already ended)
+        await Future.delayed(Duration(seconds: 2 * (i + 1)));
+      }
+    }
   }
 
   void _answer() {
-    final nav = Navigator.of(context);
+    if (_closed) return;
     final ctx = navigatorKey.currentContext!;
-    nav.pop();
+    _close();
     openCall(ctx, CallEngine.incoming(id: widget.ring.id, from: widget.ring.from, video: widget.ring.video));
   }
 

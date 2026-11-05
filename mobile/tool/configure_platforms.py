@@ -30,7 +30,7 @@ if man.exists():
     s = man.read_text()
     perms = ['INTERNET', 'RECORD_AUDIO', 'CAMERA', 'MODIFY_AUDIO_SETTINGS', 'BLUETOOTH_CONNECT', 'ACCESS_NETWORK_STATE',
              'CHANGE_NETWORK_STATE', 'POST_NOTIFICATIONS', 'USE_FULL_SCREEN_INTENT', 'FOREGROUND_SERVICE', 'WAKE_LOCK', 'VIBRATE',
-             'FOREGROUND_SERVICE_PHONE_CALL', 'FOREGROUND_SERVICE_MICROPHONE']
+             'FOREGROUND_SERVICE_PHONE_CALL', 'FOREGROUND_SERVICE_MICROPHONE', 'REQUEST_IGNORE_BATTERY_OPTIMIZATIONS']
     add = ''.join(f'    <uses-permission android:name="android.permission.{p}"/>\n' for p in perms
                   if f'android.permission.{p}"' not in s)
     if add:
@@ -47,6 +47,10 @@ if man.exists():
     if 'android:showWhenLocked' not in s:
         s = s.replace('android:name=".MainActivity"', 'android:name=".MainActivity"\n            android:showWhenLocked="true"\n            android:turnScreenOn="true"', 1)
         say('Android: incoming calls can show over the lock screen')
+    # flutter_callkit_incoming: answering from the lock screen / notification must reuse the one app window
+    if 'android:launchMode="singleTop"' in s:
+        s = s.replace('android:launchMode="singleTop"', 'android:launchMode="singleInstance"', 1)
+        say('Android: one app window for answered calls (launchMode singleInstance)')
     if 'default_notification_channel_id' not in s:
         # a push that names no channel (or one this phone does not have yet) still pops up
         s = s.replace('</application>', '    <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id"\n'
@@ -88,12 +92,16 @@ for act in acts[:1]:
 // Every kind of TapTap push has its own channel at high importance, so Android pops it up on the screen;
 // people can still change each one under Settings → Apps → TapTap → Notifications.
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -127,6 +135,32 @@ class MainActivity : FlutterActivity() {{
                     createChannels()
                     result.success(true)
                 }}
+                // Battery saver: may Android stop TapTap in the background (then pushes and calls do not arrive)?
+                "batteryOptimized" -> {{
+                    val pm = getSystemService(PowerManager::class.java)
+                    result.success(Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && pm != null && !pm.isIgnoringBatteryOptimizations(packageName))
+                }}
+                // Ask to let TapTap run in the background: the phone's own "Allow" dialog, else its battery page
+                "allowBackground" -> {{
+                    var opened = false
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {{
+                        val intents = listOf(
+                            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + packageName)),
+                            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
+                        )
+                        for (intent in intents) {{
+                            if (opened) break
+                            try {{
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                startActivity(intent)
+                                opened = true
+                            }} catch (e: Exception) {{
+                            }}
+                        }}
+                    }}
+                    result.success(opened)
+                }}
                 else -> result.notImplemented()
             }}
         }}
@@ -138,10 +172,19 @@ class MainActivity : FlutterActivity() {{
         val channels = listOf(
 {rows}
         )
+        // the phone's notification sound, set explicitly (some phones make a silent channel without it)
+        val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+        val audio = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
         for ((id, name, text) in channels) {{
             val channel = NotificationChannel(id, name, NotificationManager.IMPORTANCE_HIGH)
             channel.description = text
             channel.enableVibration(true)
+            channel.enableLights(true)
+            channel.lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            if (sound != null) channel.setSound(sound, audio)
             manager.createNotificationChannel(channel)
         }}
     }}

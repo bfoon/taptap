@@ -20,6 +20,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> with WidgetsB
   Map<String, dynamic>? _d;
   String? _err;
   String _perm = '';
+  bool _bgBlocked = false;                         // Android battery saver may stop TapTap in the background
   bool _testing = false;
 
   @override
@@ -42,6 +43,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> with WidgetsB
 
   Future<void> _load() async {
     final perm = await Push.permission();
+    final bg = await Push.backgroundBlocked();
+    if (mounted) setState(() => _bgBlocked = bg);
     try {
       final d = await Api.I.get('/api/mobile/v1/notifications/');
       if (!mounted) return;
@@ -161,7 +164,31 @@ class _NotificationsScreenState extends State<NotificationsScreen> with WidgetsB
                   ok: registered,
                   title: 'TapTap knows this phone',
                   text: registered ? 'Registered.' : 'Not yet — allow notifications, then close and reopen the app.',
+                  action: registered || !Push.ready
+                      ? null
+                      : TextButton(
+                          onPressed: () async {
+                            await Push.register();
+                            await _load();
+                          },
+                          child: const Text('Try again')),
                 ),
+                if (Platform.isAndroid)
+                  _Check(
+                    ok: !_bgBlocked,
+                    title: 'TapTap may run in the background',
+                    text: _bgBlocked
+                        ? 'The battery saver can stop TapTap when it is closed — then calls do not ring and notifications '
+                            'do not arrive. Allow it (on some phones also turn on “Auto-start” for TapTap).'
+                        : 'Allowed — calls and notifications reach TapTap while it is closed.',
+                    action: _bgBlocked
+                        ? TextButton(
+                            onPressed: () async {
+                              if (!await Push.allowBackground()) _toast('Open Settings → Battery → TapTap and choose “Unrestricted”.');
+                            },
+                            child: const Text('Allow'))
+                        : null,
+                  ),
               ]),
             ),
             const SizedBox(height: 12),

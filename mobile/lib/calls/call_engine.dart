@@ -6,6 +6,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../app/api.dart';
+import '../app/sounds.dart';
 
 enum CallPhase { starting, ringing, connecting, live, reconnecting, ended }
 
@@ -16,6 +17,13 @@ enum CallPhase { starting, ringing, connecting, live, reconnecting, ended }
 /// small control messages (hello, mic/camera state, bye). The offer and answer travel through TapTap
 /// (/chat/call/act/ + /chat/call/poll/); the voice itself goes phone ↔ phone, encrypted (DTLS-SRTP).
 /// A dropped line reconnects with an ICE restart: the caller re-offers, the callee asks it to.
+///
+/// Slow lines (a weak Wi-Fi hop, 2G/3G, a busy hotspot) get extra patience everywhere:
+///   * every signalling step (accept, offer, answer, hang-up) is tried again when the request times out, instead
+///     of ending the call — only a real "no" from TapTap stops it
+///   * the connection details wait for the TURN relay path (which works through any network) up to [gatherMaxMs]
+///   * a first connection that is slow or fails is retried with an ICE restart for up to [connectGiveUpMs] before
+///     the call is given up — it used to hang up the moment the first attempt failed
 class CallEngine extends ChangeNotifier {
   CallEngine.outgoing({required this.thread, required this.title, this.video = false}) : callId = null, caller = true {
     peerName = title;
@@ -28,7 +36,10 @@ class CallEngine extends ChangeNotifier {
     peerName = from;
   }
 
-  static const gatherMs = 3500;
+  static const gatherMs = 4000;          // no TURN relay configured: wait this long for the network paths
+  static const gatherMaxMs = 10000;      // with a relay: up to this long for its path on a slow line
+  static const connectRescueMs = 12000;  // answered but not connected after this: try another path (ICE restart)
+  static const connectGiveUpMs = 55000;  // … and give up only after this
   static const giveUpMs = 60000;
 
   final bool caller;
@@ -60,7 +71,9 @@ class CallEngine extends ChangeNotifier {
   MediaStream? _micStream, _camStream;
   RTCRtpTransceiver? _tAudio, _tCam, _tScreen;
   Map<String, dynamic> _ice = {};
-  Timer? _poll, _lost, _retry, _clock;
+  Timer? _poll, _lost, _retry, _clock, _connectWatch;
+  DateTime? _answeredAt;                 // offer and answer exchanged: from here the line itself must connect
+  int _relayCands = 0;                  // relay (TURN) paths found in this round of gathering
   bool _ended = false;
   int _rgen = 0, _rgenApplied = 0, _rgenSeen = 0, _raskSeen = 0;
   DateTime? _restarting, _askAt;
@@ -117,6 +130,10 @@ class CallEngine extends ChangeNotifier {
       } catch (_) {}
     };
     pc.onTrack = _onTrack;
+    pc.onIceCandidate = (c) {
+      final line = c.candidate ?? '';
+      if (line.contains(' typ relay')) _relayCands++;
+    };
     pc.onConnectionState = (s) {
       if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         _connected();
@@ -125,7 +142,13 @@ class CallEngine extends ChangeNotifier {
         Timer(const Duration(milliseconds: 2500), _recover);
       } else if (s == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
         if (liveAt == null) {
-          hangup('failed');
+          // never connected yet: on a slow line the first try often fails — try another path before giving up
+          if (_answeredAt != null && DateTime.now().difference(_answeredAt!).inMilliseconds < connectGiveUpMs) {
+            _set(CallPhase.connecting, 'Weak connection — trying another way…');
+            _rescue(force: true);
+          } else {
+            hangup('failed');
+          }
         } else {
           _dropped();
           _recover();
@@ -155,14 +178,14 @@ class CallEngine extends ChangeNotifier {
     await pc.setLocalDescription(offer);
     await _gathered();
     final local = await pc.getLocalDescription();
-    await _act('offer', {'desc': {'type': 'offer', 'sdp': local!.sdp}});
+    await _actSure('offer', {'desc': {'type': 'offer', 'sdp': local!.sdp}});
     _set(CallPhase.ringing, 'Ringing $peerName…');
     _pollIn(1000);
   }
 
   Future<void> _startCallee() async {
     _set(CallPhase.connecting, 'Joining…');
-    final d = await _act('accept');
+    final d = await _actSure('accept');
     _ice = (d['ice'] as Map?)?.cast<String, dynamic>() ?? {};
     peerName = '${d['from'] ?? peerName}';
     var offer = (d['offer'] as Map?)?.cast<String, dynamic>();
@@ -182,34 +205,73 @@ class CallEngine extends ChangeNotifier {
     await pc.setLocalDescription(answer);
     await _gathered();
     final local = await pc.getLocalDescription();
-    await _act('answer', {'desc': {'type': 'answer', 'sdp': local!.sdp}});
+    await _actSure('answer', {'desc': {'type': 'answer', 'sdp': local!.sdp}});
     _set(CallPhase.connecting, 'Connecting…');
-    _pollIn(2500);
+    _watchConnect();
+    _pollIn(1500);
   }
 
+  /// The caller's offer, when it was not there yet at "accept". A slow poll is simply tried again.
   Future<Map<String, dynamic>> _waitOffer() async {
-    for (var i = 0; i < 20; i++) {
-      final d = await Api.I.get('/chat/call/poll/', query: {'id': callId!});
-      final c = (d['call'] as Map?)?.cast<String, dynamic>() ?? {};
-      if (c['offer'] is Map) return (c['offer'] as Map).cast<String, dynamic>();
-      if (c['state'] == 'ended') break;
+    final until = DateTime.now().add(const Duration(seconds: 30));
+    while (DateTime.now().isBefore(until) && !_ended) {
+      try {
+        final d = await Api.I.get('/chat/call/poll/', query: {'id': callId!}, timeout: const Duration(seconds: 10));
+        final c = (d['call'] as Map?)?.cast<String, dynamic>() ?? {};
+        if (c['offer'] is Map) return (c['offer'] as Map).cast<String, dynamic>();
+        if (c['state'] == 'ended') break;
+      } on ApiError catch (e) {
+        if (!_transient(e)) rethrow;
+      }
       await Future.delayed(const Duration(milliseconds: 700));
     }
     throw ApiError('The call ended before it connected.');
   }
 
+  bool get _hasTurn {
+    final servers = _ice['iceServers'];
+    if (servers is! List) return false;
+    return servers.any((x) => x is Map && '${x['urls']}'.contains('turn'));
+  }
+
+  /// Wait for this side's network paths (non-trickle: they all travel in the offer / answer). With a TURN relay,
+  /// wait for the relay path — the one that works through any NAT — which can take several seconds on a slow line.
   Future<void> _gathered() async {
     final pc = _pc!;
-    if (pc.iceGatheringState == RTCIceGatheringState.RTCIceGatheringStateComplete) return;
-    final done = Completer<void>();
-    pc.onIceGatheringState = (s) {
-      if (s == RTCIceGatheringState.RTCIceGatheringStateComplete && !done.isCompleted) done.complete();
-    };
-    await done.future.timeout(const Duration(milliseconds: gatherMs), onTimeout: () {});
+    _relayCands = 0;
+    final t0 = DateTime.now();
+    final turn = _hasTurn;
+    while (!_ended) {
+      if (pc.iceGatheringState == RTCIceGatheringState.RTCIceGatheringStateComplete) return;
+      final ms = DateTime.now().difference(t0).inMilliseconds;
+      if (turn && _relayCands > 0 && ms >= 1200) return;          // a relay path is in: enough to connect anywhere
+      if (ms >= (turn ? gatherMaxMs : gatherMs)) return;
+      await Future.delayed(const Duration(milliseconds: 150));
+    }
   }
 
   Future<Map<String, dynamic>> _act(String action, [Map<String, dynamic>? extra]) {
     return Api.I.post('/chat/call/act/', {'action': action, if (callId != null) 'id': callId, ...?extra});
+  }
+
+  /// No answer from TapTap in time / no internet for a moment — worth trying again (a refusal from TapTap is not).
+  static bool _transient(ApiError e) => e.status == 0 || e.status == 502 || e.status == 503 || e.status == 504;
+
+  /// A signalling step that must get through: tried again on a slow or dropped line instead of ending the call.
+  /// (Not used for "start": that would ring twice.)
+  Future<Map<String, dynamic>> _actSure(String action, [Map<String, dynamic>? extra, int tries = 5, bool evenIfEnded = false]) async {
+    for (var i = 0;; i++) {
+      try {
+        return await _act(action, extra);
+      } on ApiError catch (e) {
+        if (!_transient(e) || i >= tries - 1 || (_ended && !evenIfEnded)) rethrow;
+        if (!_ended) {
+          status = 'Weak connection — trying again…';
+          notifyListeners();
+        }
+        await Future.delayed(Duration(milliseconds: 1000 + 1500 * i));
+      }
+    }
   }
 
   // ───────── media in ─────────
@@ -291,6 +353,7 @@ class CallEngine extends ChangeNotifier {
       _set(CallPhase.connecting, 'Connecting…');
       try {
         await pc.setRemoteDescription(RTCSessionDescription(a['sdp'] as String, a['type'] as String));
+        _watchConnect();
       } catch (_) {
         return hangup('failed');
       }
@@ -314,6 +377,9 @@ class CallEngine extends ChangeNotifier {
         _restarting = null;
         _dropped();
         _restartIce();
+      } else if (_answeredAt != null) {           // the other side could not connect yet: offer another path
+        _restarting = null;
+        _restartIce();
       }
     }
     if (!caller && pc != null && c['reoffer'] is Map) {
@@ -328,8 +394,47 @@ class CallEngine extends ChangeNotifier {
     _pollIn(liveAt == null || phase == CallPhase.reconnecting ? 1000 : 3000);
   }
 
+  // ───────── first connection on a slow line ─────────
+  /// Offer and answer are exchanged: watch that the line itself connects, and help it along if it does not.
+  void _watchConnect() {
+    _answeredAt ??= DateTime.now();
+    _connectWatch?.cancel();
+    _connectWatch = Timer.periodic(const Duration(seconds: 3), (_) => _checkConnect());
+  }
+
+  void _checkConnect() {
+    if (_ended || liveAt != null || _answeredAt == null) {
+      _connectWatch?.cancel();
+      return;
+    }
+    final ms = DateTime.now().difference(_answeredAt!).inMilliseconds;
+    if (ms > connectGiveUpMs) {
+      _connectWatch?.cancel();
+      hangup('failed');
+      return;
+    }
+    if (ms > connectRescueMs) {
+      _set(CallPhase.connecting, 'Weak connection — still connecting…');
+      _rescue();
+    }
+  }
+
+  /// Not connected yet: the caller sends a fresh offer (new paths), the callee asks the caller for one.
+  void _rescue({bool force = false}) {
+    if (_ended) return;
+    _pollIn(500);
+    if (caller) {
+      if (force) _restarting = null;
+      _restartIce();
+    } else if (force || _askAt == null || DateTime.now().difference(_askAt!).inMilliseconds > 6000) {
+      _askAt = DateTime.now();
+      _actSure('reask', null, 2).catchError((_) => <String, dynamic>{});
+    }
+  }
+
   // ───────── live / reconnect ─────────
   void _connected() {
+    _connectWatch?.cancel();
     _lost?.cancel();
     _lost = null;
     _retry?.cancel();
@@ -478,15 +583,16 @@ class CallEngine extends ChangeNotifier {
     if (_ended) return;
     _ended = true;
     reason = why;
+    Sounds.ringback(false);
     if (!remote) {
       _send({'t': 'bye'});
       if (callId != null) {
-        try {
-          await _act('end', {'reason': why});
-        } catch (_) {}
+        // tell TapTap without holding the screen on a slow line; tried again if it does not get through
+        _actSure('end', {'reason': why}, 4, true).catchError((_) => <String, dynamic>{});
       }
     }
     _poll?.cancel();
+    _connectWatch?.cancel();
     _lost?.cancel();
     _retry?.cancel();
     _clock?.cancel();
@@ -544,6 +650,7 @@ class CallEngine extends ChangeNotifier {
   void _set(CallPhase p, String s) {
     phase = p;
     status = s;
+    if (caller) Sounds.ringback(p == CallPhase.ringing && callId != null);   // "tuu… tuu…" while it rings there
     notifyListeners();
   }
 
