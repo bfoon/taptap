@@ -19,6 +19,7 @@ class Pages {
   static const routers = '/api/mobile/v1/routers/';
   static const pulse = '/api/mobile/v1/sync/';
   static const fit = '/fit/state/';
+  static const schedules = '/api/mobile/v1/schedules/';   // router restart / shutdown schedules
   static String thread(int id) => '/chat/t/$id/';
   static const chatList = 'local:chat';             // the conversation list, as the last chat check saw it
 

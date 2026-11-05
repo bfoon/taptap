@@ -149,8 +149,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     await boot();
   }
 
-  Future<void> refreshMe() async {
-    final m = await Api.I.get('/api/mobile/v1/me/');
+  Future<void> refreshMe({Duration timeout = const Duration(seconds: 20)}) async {
+    final m = await Api.I.get('/api/mobile/v1/me/', timeout: timeout);
     if (!Api.I.signedIn) return;                       // signed out while it was on its way
     final scope = _scopeFor(m);
     var restart = false;
@@ -177,9 +177,17 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> signedInWith(String token) async {
-    await Store.I.close(wipe: true);                   // a fresh sign-in starts from a clean phone
+    try {
+      // a fresh sign-in starts from a clean phone (never waits long on the phone's database)
+      await Store.I.close(wipe: true).timeout(const Duration(seconds: 5));
+    } catch (_) {}
     await Api.I.save(token: token);
-    await refreshMe();
+    try {
+      await refreshMe(timeout: const Duration(seconds: 30));
+    } on ApiError catch (e) {
+      if (e.signedOut || e.status != 0) rethrow;
+      await refreshMe(timeout: const Duration(seconds: 45));   // a slow line: once more, on a fresh connection
+    }
     _startPolling();
   }
 

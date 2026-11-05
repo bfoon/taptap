@@ -38,7 +38,8 @@ class LocalDb {
 
   Future<Database?> _doOpen() async {
     try {
-      final dir = await getDatabasesPath();
+      // never let the phone's database hold up start-up or sign-in: if it does not open in time, work online
+      final dir = await getDatabasesPath().timeout(const Duration(seconds: 8));
       final db = await openDatabase(
         p.join(dir, _file),
         version: 1,
@@ -52,7 +53,7 @@ class LocalDb {
               'PRIMARY KEY (scope, k))');
           await db.execute('CREATE INDEX pages_by_age ON pages (scope, saved_at)');
         },
-      );
+      ).timeout(const Duration(seconds: 8));
       _db = db;
       return db;
     } catch (_) {

@@ -198,6 +198,7 @@ lib/screens/new_vouchers_screen.dart  make a batch or one voucher; the codes aft
 lib/screens/notifications_screen.dart what this phone gets, what is missing, test
 lib/screens/routers_screen.dart       Routers: All + one tab per MikroTik; people online, kick, sync, test, reboot
 lib/screens/router_move_sheet.dart    move a router to another business (preview, confirm by name)
+lib/screens/router_schedules_screen.dart restart / shut down on a timetable: next up, skip next, pause, history, run now
 lib/screens/quick_sell.dart           Quick sell: plan → Sell → big code, WhatsApp / SMS, next customer
 lib/widgets/quick_actions.dart        Quick sell · New batch · Routers on the Today page
 lib/widgets/voucher_widgets.dart      voucher row, batch card, state colours

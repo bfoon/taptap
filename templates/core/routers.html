@@ -40,7 +40,7 @@
 <div class="row g-4">
   <div class="col-xl-8">
     <div class="panel">
-      <div class="panel-head"><div><h3>Connected infrastructure</h3><p>Each router clearly shows whether it is managed through TapTap Link or Direct API.</p></div><div class="d-flex gap-2"><a href="{% url 'router_inventory' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-database-check"></i> Inventory</a><a href="{% url 'topology' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-diagram-3"></i> Topology</a></div></div>
+      <div class="panel-head"><div><h3>Connected infrastructure</h3><p>Each router clearly shows whether it is managed through TapTap Link or Direct API.</p></div><div class="d-flex gap-2"><a href="{% url 'router_schedules' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-calendar2-check"></i> Schedules</a><a href="{% url 'router_inventory' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-database-check"></i> Inventory</a><a href="{% url 'topology' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-diagram-3"></i> Topology</a></div></div>
       <div class="router-list-scroll scroll-list">
       {% for r in routers %}
       <div class="router-card router-card-rich" data-router-card="{{ r.id }}">
@@ -66,6 +66,7 @@
           {% endif %}
           <form method="post" action="{% url 'router_sync' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary router-sync-button" data-router-id="{{ r.id }}" {% if not sync_schema_ready or r.latest_sync_job.is_active %}disabled{% endif %}><i class="bi bi-arrow-repeat"></i> <span>{% if r.latest_sync_job.is_active %}Syncing…{% else %}Sync{% endif %}</span></button></form>
           <a class="btn btn-sm btn-outline-primary" href="{% url 'router_test' r.id %}"><i class="bi bi-activity"></i> Test</a>
+          <a class="btn btn-sm btn-outline-primary" href="{% url 'router_schedules' %}?router={{ r.id }}" title="Restart or shut down on a timetable"><i class="bi bi-calendar2-check"></i> Schedule</a>
           <a class="btn btn-sm btn-outline-primary" href="{% url 'network_tools' %}?router={{ r.id }}" title="Ping, traceroute, DNS, speed test and Internet check from this router"><i class="bi bi-speedometer2"></i> Tools</a>
           <button type="button" class="btn btn-sm btn-outline-secondary" data-move-router="{{ r.id }}" data-move-name="{{ r.name }}" data-preview-url="{% url 'router_move_preview' r.id %}" data-move-url="{% url 'router_move' r.id %}" title="Move this router to another business"><i class="bi bi-box-arrow-right"></i> Move</button>
           <a class="btn btn-sm btn-outline-danger" href="{% url 'router_delete' r.id %}" onclick="return confirm('Delete this router from TapTap?')"><i class="bi bi-trash3"></i></a>

@@ -13,6 +13,7 @@ import 'chat_screens.dart';
 import 'complaints_screen.dart';
 import 'fit_screen.dart';
 import 'more_screen.dart';
+import 'router_schedules_screen.dart';
 import 'today_screen.dart';
 import 'voucher_detail_screen.dart';
 import 'vouchers_screen.dart';
@@ -138,7 +139,11 @@ class _ShellState extends State<Shell> {
     final app = context.read<AppState>();
     final v = RegExp(r'^/vouchers/(\d+)/').firstMatch(link);
     final b = RegExp(r'^/batches/(\d+)/').firstMatch(link);
-    if (ctx != null && app.canDo('vouchers') && v != null) {
+    final sched = RegExp(r'^/routers/schedules/(?:\?router=(\d+))?').firstMatch(link);
+    if (ctx != null && app.canDo('routers') && sched != null) {
+      // a scheduled restart / shutdown: its heads-up (with Skip) or how it went
+      openRouterSchedules(ctx, routerId: int.tryParse(sched.group(1) ?? ''));
+    } else if (ctx != null && app.canDo('vouchers') && v != null) {
       openVoucher(ctx, int.parse(v.group(1)!));
     } else if (ctx != null && app.canDo('vouchers') && b != null) {
       openBatch(ctx, int.parse(b.group(1)!), 'Batch');

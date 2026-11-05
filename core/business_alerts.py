@@ -124,8 +124,9 @@ def _daily_revenue(business, rule, now):
 def _router_offline(business, rule, now):
     minutes = _int(rule.params.get('minutes'), 5, 0, 1440)
     down = []
+    from .router_schedules import expected_down
     for r in business.routers.all():
-        if r.status == 'Online':
+        if r.status == 'Online' or expected_down(r.pk):     # down for its own scheduled restart / shutdown
             continue
         seen = r.last_watch_at
         if not seen or now - seen >= timedelta(minutes=minutes):

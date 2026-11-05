@@ -1432,3 +1432,5 @@ class LoginAddress(models.Model):
             self.key=secrets.token_urlsafe(9)[:12]
         super().save(*args,**kwargs)
     def __str__(self): return self.name
+
+from .models_router_schedule import RouterSchedule, RouterScheduleRun  # noqa: E402,F401

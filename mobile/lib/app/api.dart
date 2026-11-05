@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 
 /// Thrown for any request TapTap refused, with the message to show the person.
 class ApiError implements Exception {
@@ -41,7 +42,26 @@ class Api {
   String? token;
   /// The HTTP client (tests put package:http's MockClient here).
   @visibleForTesting
-  http.Client client = http.Client();
+  late http.Client client = _fresh();
+  http.Client? _made;                // the client this class made itself (a test's client is never replaced)
+
+  /// A connection that cannot be opened in 15 s fails instead of hanging, and idle connections are dropped after
+  /// 10 s — a phone moving between Wi-Fi and mobile data otherwise keeps dead connections that only time out.
+  http.Client _fresh() {
+    final io = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 15)
+      ..idleTimeout = const Duration(seconds: 10);
+    return _made = IOClient(io);
+  }
+
+  /// After a timeout or a dropped connection: new requests start on fresh connections (the old client finishes
+  /// what it still carries and is closed a little later).
+  void _renew() {
+    final old = client;
+    if (!identical(old, _made)) return;
+    client = _fresh();
+    Timer(const Duration(minutes: 2), old.close);
+  }
 
   /// Called when TapTap says the token is no longer valid (signed out elsewhere, password changed).
   void Function()? onSignedOut;
@@ -135,13 +155,20 @@ class Api {
       r = await run();
     } on TimeoutException {
       _failed();
+      _renew();
       throw ApiError('TapTap is taking too long to answer. Check your internet.');
     } on SocketException {
       _failed();
+      _renew();
       throw ApiError('No internet connection.');
     } on http.ClientException {
       _failed();
+      _renew();
       throw ApiError('Could not reach TapTap.');
+    } on HandshakeException {
+      _failed();
+      _renew();
+      throw ApiError('Could not open a secure connection to TapTap. Check the phone’s date and time, and your internet.');
     }
     _fails = 0;
     online.value = true;

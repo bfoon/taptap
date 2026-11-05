@@ -191,6 +191,7 @@ CELERY_TASK_ROUTES['core.tasks.chat_purge_images'] = {'queue': 'live'}
 # Old finished TapTap Link commands are deleted hourly (a huge command table made Link check-ins time out).
 CELERY_BEAT_SCHEDULE['taptap-prune-link-commands'] = {'task': 'core.tasks.prune_agent_commands', 'schedule': 3600.0, 'options': {'expires': 1800}}
 # Investors: earnings are booked for every finished day and the daily summaries go out at each business's hour.
+CELERY_BEAT_SCHEDULE['taptap-router-schedules'] = {'task': 'core.tasks.router_schedules_task', 'schedule': 60.0, 'options': {'expires': 55}}
 CELERY_BEAT_SCHEDULE['taptap-investors'] = {'task': 'core.tasks.investor_tick', 'schedule': 900.0, 'options': {'expires': 800}}
 # Optional hosted checkout for investor payments (same contract as the member portal checkout; HMAC-SHA256 webhook).
 INVESTOR_PAYMENT_CHECKOUT_URL = os.getenv('INVESTOR_PAYMENT_CHECKOUT_URL', '')

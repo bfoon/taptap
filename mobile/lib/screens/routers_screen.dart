@@ -12,6 +12,7 @@ import '../data/sync_engine.dart';
 import '../widgets/common.dart';
 import 'quick_sell.dart';
 import 'router_move_sheet.dart';
+import 'router_schedules_screen.dart';
 
 const _green = Color(0xFF16A34A);
 const _amber = Color(0xFFF59E0B);
@@ -106,7 +107,10 @@ class _RoutersScreenState extends State<RoutersScreen> with TickerProviderStateM
     return Scaffold(
       appBar: AppBar(
         title: const Text('Routers'),
-        actions: [IconButton(tooltip: 'Refresh', onPressed: _load, icon: const Icon(Icons.refresh))],
+        actions: [
+          IconButton(tooltip: 'Schedules', onPressed: () => openRouterSchedules(context), icon: const Icon(Icons.event_repeat)),
+          IconButton(tooltip: 'Refresh', onPressed: _load, icon: const Icon(Icons.refresh)),
+        ],
         bottom: _tabs == null || _routers.length < 2
             ? null
             : TabBar(
@@ -542,6 +546,7 @@ class _RouterTabState extends State<RouterTab> {
             _ActionButton(icon: Icons.sync, label: 'Sync', busy: _busy.contains('sync'), onTap: () => _act('sync')),
             _ActionButton(icon: Icons.network_check, label: 'Test', busy: _busy.contains('test'), onTap: () => _act('test')),
             _ActionButton(icon: Icons.restart_alt, label: 'Reboot', busy: _busy.contains('reboot'), onTap: _reboot),
+            _ActionButton(icon: Icons.event_repeat, label: 'Schedule', busy: false, onTap: () => openRouterSchedules(context, routerId: _id)),
           ],
           if (widget.can['move'] == true)
             _ActionButton(icon: Icons.drive_file_move_outline, label: 'Move', busy: false, onTap: _move),

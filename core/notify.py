@@ -40,6 +40,7 @@ EVENTS = OrderedDict([
     ('fit_monitor', ('Monitors (Fit)', 'Standing watches set up with Fit: slots full and devices refused, idle slots freed, sharing, heavy users, drops…', 'instant', 'warning', 'Hotspot')),
     ('voucher_shared', ('Voucher used on too many devices', 'A voucher was seen on more devices than its plan allows (and warned, if automatic).', 'instant', 'warning', 'Hotspot')),
     ('session_enforced', ('Expired voucher disconnected', 'Automatic fixes of sessions whose voucher ran out or was disabled.', 'digest', 'info', 'Hotspot')),
+    ('router_schedule', ('Scheduled restart / shutdown', 'Heads-up before a scheduled router restart or shutdown, and whether it came back (Routers → Schedules).', 'instant', 'info', 'Routers')),
     ('sync_failed', ('Router sync fails', 'A full synchronisation could not finish.', 'instant', 'warning', 'Routers')),
     ('backup_done', ('Backup saved', 'Manual and nightly router backups.', 'digest', 'info', 'Routers')),
     ('backup_failed', ('Backup failed', 'A router backup could not be saved.', 'instant', 'warning', 'Routers')),

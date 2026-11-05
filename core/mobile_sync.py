@@ -28,7 +28,7 @@ PREFIXES = ('/api/mobile/v1/', '/chat/t/', '/fit/state/')
 SKIP = ('/api/mobile/v1/auth/',)
 VOLATILE = ('now',)              # top-level keys that change on every answer without meaning anything changed
 MAX_BYTES = 4 * 1024 * 1024
-PULSE_CACHE_SECONDS = 8          # several phones of one business asking at once share one set of queries
+PULSE_CACHE_SECONDS = 15         # several phones of one business asking at once share one set of queries
 SYNC_VERSION = 1
 
 

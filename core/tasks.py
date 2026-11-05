@@ -286,6 +286,13 @@ def forget_mac_task(voucher_id, mac):
 
 
 @shared_task(ignore_result=True)
+def router_schedules_task():
+    """Every minute: scheduled router restarts / shutdowns — heads-up, quiet moment, run, back online (core/router_schedules.py)."""
+    from .router_schedules import tick
+    return tick()
+
+
+@shared_task(ignore_result=True)
 def investor_tick():
     """Investors: book finished days of earnings, then send the daily summaries that are due (core/investors.py)."""
     from .investors import tick

@@ -98,6 +98,9 @@ def still_down(router, since=None, why='', via=''):
     start = _dt(d.get('since')) or timezone.now()
     if d.get('alerted') or timezone.now() - start < timedelta(minutes=alert_minutes()):
         return False
+    from .router_schedules import expected_down
+    if expected_down(router.pk):                  # its own scheduled restart / shutdown: the schedule reports on it
+        return False
     d['alerted'] = True
     cache.set(_k(router.pk, 'down'), d, 7 * 86400)
     if cache.get(_k(router.pk, 'quiet')):

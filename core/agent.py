@@ -35,12 +35,12 @@ from .utils import log
 
 logger = logging.getLogger('taptap.link')
 MAX_SCRIPT = 3600
-DEFAULT_EXPIRY = {'reboot': 5, 'port_restart': 5, 'interface_set': 15, 'port_off_for': 15, 'disconnect': 10}
+DEFAULT_EXPIRY = {'reboot': 5, 'shutdown': 5, 'port_restart': 5, 'interface_set': 15, 'port_off_for': 15, 'disconnect': 10}
 POLICY = 'ftp,read,write,test,reboot,sensitive'
 SAFE_KINDS = {
     'ping', 'interface_set', 'port_restart', 'port_off_for', 'hotspot_users',
     'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'remote_nat', 'remote_close', 'hotspot_kick_mac', 'share_rules', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
-    'binding_remove', 'limit', 'unlimit', 'reboot', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
+    'binding_remove', 'limit', 'unlimit', 'reboot', 'shutdown', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
     'hotspot_users_limit', 'speed_queues', 'admin_password', 'port_blink', 'protection', 'site_probe', 'nettest', 'cleanup', 'filecopy', 'restore', 'online_signin', 'clock', 'member_profiles', 'fit_router_op',
 }
@@ -184,7 +184,7 @@ def _wants_turbo(router):
         return cache.incr(key) <= TURBO_PER_MINUTE
     except Exception:
         return False
-TRAVEL_ALONE = {'reboot', 'self_update'}
+TRAVEL_ALONE = {'reboot', 'shutdown', 'self_update'}
 NEVER_RESEND = {'restore'}     # a restore reboots the router before it can confirm: sending it again would restore twice
 ACK_WAIT = {'restore': 3600, 'filecopy': 3600, 'cleanup': 300, 'nettest': 240, 'portal_install': 300, 'inventory_piece': 600, 'backup': 3600, 'hotspot_users': 300, 'self_update': 300, 'clock': 120}   # seconds before a resend
 NAME_RE = re.compile(r'^[\w.@:+/<>-]{1,64}$')
@@ -988,6 +988,8 @@ def wrap(cmd, url, check):
     """A command plus its acknowledgement, isolated so one failure never stops the rest."""
     if cmd.kind == 'reboot':
         return f':do {{ {_ack(url, cmd, "ok", check)}; :delay 2s; /system reboot }} on-error={{}}'
+    if cmd.kind == 'shutdown':       # power off (core/router_schedules.py): it stays off until someone powers it on
+        return f':do {{ {_ack(url, cmd, "ok", check)}; :delay 2s; /system shutdown }} on-error={{}}'
     if cmd.kind == 'inventory_piece':
         from .agent_inventory import inventory_piece_script
         body = inventory_piece_script(cmd, url, check, nonce(cmd))
@@ -1683,7 +1685,7 @@ def build_response(router, url):
     elif cache.get(turn_key) and pending.exclude(kind__in=VOUCHER_KINDS).filter(created_at__lte=now - timedelta(seconds=FAIR_WAIT)).exists():
         others_turn = True          # the last check-in carried vouchers and other work is waiting: its turn now
     for cmd in pending.annotate(prio=delivery_order(others_turn)).order_by('prio', 'created_at')[:40]:
-        if cmd.kind in ('reboot', 'self_update') and parts:
+        if cmd.kind in TRAVEL_ALONE and parts:
             break  # these always travel alone
         try:
             chunk = wrap(cmd, url, check)
@@ -1701,12 +1703,12 @@ def build_response(router, url):
         size += len(chunk) + 1
         voucher_work = voucher_work or cmd.kind in VOUCHER_KINDS
         AgentCommand.objects.filter(pk=cmd.pk).update(status='sent', sent_at=now, attempts=cmd.attempts + 1)
-        if cmd.kind in ('reboot', 'self_update'):
+        if cmd.kind in TRAVEL_ALONE:
             break
     script = '\n'.join(parts)
     if parts:
         cache.set(turn_key, 1 if voucher_work else 0, 600)
-    if voucher_work and parts[-1:] and 'system reboot' not in parts[-1]:
+    if voucher_work and parts[-1:] and 'system reboot' not in parts[-1] and 'system shutdown' not in parts[-1]:
         try:
             if _wants_turbo(router):
                 script += '\n' + TURBO_LINE      # check in again right after these voucher commands ran

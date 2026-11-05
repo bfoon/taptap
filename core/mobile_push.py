@@ -452,7 +452,7 @@ ALERT_PERMS = {
     'stock_low': {'vouchers.view', 'vouchers.create'}, 'stock_restocked': {'vouchers.view', 'vouchers.create'},
     'members_expiring': {'vouchers.view', 'vouchers.support'},
     'no_sales': {'sales.daily', 'reports.view'}, 'daily_revenue': {'sales.daily', 'reports.view'},
-    'router_offline': {'network.manage'}, 'online_high': {'network.manage'}, 'fup_slowed': {'network.manage', 'vouchers.support'},
+    'router_offline': {'network.manage'}, 'router_schedule': {'network.manage'}, 'online_high': {'network.manage'}, 'fup_slowed': {'network.manage', 'vouchers.support'},
     'agent_debt': {'finance.agents', 'agents.view', 'finance.collect'}, 'agent_stock_low': {'finance.agents', 'agents.view', 'vouchers.create'},
     'agent_collection_due': {'finance.agents', 'finance.collect'}, 'agent_collected': {'finance.agents', 'finance.collect'},
 }

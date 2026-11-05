@@ -110,11 +110,28 @@ def _issue(request, user, fields):
     from .auth_security import client_ip
     dev, token = mobile_auth.create_device(user, ip=client_ip(request), **fields)
     if user.email:                            # the same "new sign-in" security email the website sends
-        from types import SimpleNamespace
-        from .auth_security import notify_new_device
-        notify_new_device(user, SimpleNamespace(label=f'TapTap app · {dev.name or dev.get_platform_display()}',
-                                                ip_address=dev.last_ip, created_at=dev.created_at))
+        _new_device_email(user, dev)
     return JsonResponse({'ok': True, 'token': token, 'device': dev.pk})
+
+
+def _new_device_email(user, dev):
+    """Sent in the background: the phone gets its token at once instead of waiting for the mail server
+    (a slow mail server made sign-in in the app time out)."""
+    import threading
+    from types import SimpleNamespace
+    from .auth_security import notify_new_device
+    info = SimpleNamespace(label=f'TapTap app · {dev.name or dev.get_platform_display()}', ip_address=dev.last_ip,
+                           created_at=dev.created_at)
+
+    def run():
+        from django.db import close_old_connections
+        try:
+            notify_new_device(user, info)
+        except Exception:
+            pass
+        finally:
+            close_old_connections()
+    threading.Thread(target=run, daemon=True, name='tt-new-device-email').start()
 
 
 @csrf_exempt

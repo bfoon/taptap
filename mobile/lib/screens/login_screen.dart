@@ -42,11 +42,14 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  static const _authWait = Duration(seconds: 60);
+
   Future<void> _signIn() => _run(() async {
         var s = _server.text.trim();
         if (!s.startsWith('http')) s = 'https://$s';
         await Api.I.save(server: s, token: null);
-        final d = await Api.I.post('/api/mobile/v1/auth/login/', {'email': _email.text.trim(), 'password': _pw.text, ..._device});
+        // sign-in may send an email (the code, or "new sign-in") before it answers: give it time on a slow line
+        final d = await Api.I.post('/api/mobile/v1/auth/login/', {'email': _email.text.trim(), 'password': _pw.text, ..._device}, _authWait);
         if (d['otp'] == true) {
           setState(() {
             _ticket = '${d['ticket']}';
@@ -58,7 +61,7 @@ class _LoginScreenState extends State<LoginScreen> {
       });
 
   Future<void> _verify() => _run(() async {
-        final d = await Api.I.post('/api/mobile/v1/auth/verify/', {'ticket': _ticket, 'code': _code.text.trim()});
+        final d = await Api.I.post('/api/mobile/v1/auth/verify/', {'ticket': _ticket, 'code': _code.text.trim()}, _authWait);
         await _done('${d['token']}');
       });
 
@@ -171,7 +174,7 @@ class _LoginScreenState extends State<LoginScreen> {
             onPressed: _busy
                 ? null
                 : () => _run(() async {
-                      final d = await Api.I.post('/api/mobile/v1/auth/resend/', {'ticket': _ticket});
+                      final d = await Api.I.post('/api/mobile/v1/auth/resend/', {'ticket': _ticket}, _authWait);
                       setState(() => _err = '${d['message'] ?? 'Sent again.'}');
                     }),
             child: const Text('Send again'),

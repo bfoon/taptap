@@ -340,6 +340,15 @@ def reboot(svc):
             raise
 
 
+def shutdown(svc):
+    """Power the router off (core/router_schedules.py). It stays off until someone powers it on again."""
+    try:
+        svc.resource('/system').call('shutdown')
+    except Exception as exc:
+        if not re.search(r'closed|reset|timed out|broken|eof|connection', str(exc), re.I):
+            raise
+
+
 def _read_file(svc, fname, size):
     """Download a text file from the router: /file/read (RouterOS 7.13+), else the 'contents' field (small files)."""
     chunks, offset = [], 0

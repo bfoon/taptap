@@ -423,6 +423,9 @@ def check_router_offline(m, now):
     for r in m.business.routers.all():
         if not _routers_ok(m, r.pk) or r.status == 'Online':
             continue
+        from .router_schedules import expected_down
+        if expected_down(r.pk):                   # down for its own scheduled restart / shutdown
+            continue
         if not r.last_watch_at or now - r.last_watch_at >= timedelta(minutes=minutes):
             hits[f'r{r.pk}'] = (f'Router {r.name} offline', f'Not reachable for {minutes}+ minutes. Customers on it may be offline.',
                                 f'/routers/{r.pk}/', None, '')

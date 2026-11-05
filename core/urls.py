@@ -15,6 +15,7 @@ from . import views_portal_call as vpcall
 from . import views_mobile as vmob
 from . import views_mobile_vouchers as vmobv
 from . import views_mobile_routers as vmobr
+from . import views_router_schedules as vrsched
 from . import views_netdev as vnd
 from . import views_sharing as vshare
 from . import views_tracking as vtrack
@@ -110,6 +111,9 @@ urlpatterns = [
     path('api/mobile/v1/notifications/',vmob.notifications,name='mobile_notifications'),
     path('api/mobile/v1/routers/',vmobr.routers,name='mobile_routers'), path('api/mobile/v1/routers/<int:pk>/',vmobr.router,name='mobile_router'),
     path('api/mobile/v1/routers/<int:pk>/move/',vmobr.router_move,name='mobile_router_move'),
+    path('api/mobile/v1/schedules/',vrsched.mobile,name='mobile_router_schedules'),
+    path('routers/schedules/',vrsched.router_schedules,name='router_schedules'), path('routers/schedules/save/',vrsched.router_schedule_save,name='router_schedule_save'),
+    path('routers/schedules/action/',vrsched.router_schedule_action,name='router_schedule_action'),
     path('api/mobile/v1/vouchers/',vmobv.vouchers,name='mobile_vouchers'), path('api/mobile/v1/vouchers/new/',vmobv.new,name='mobile_vouchers_new'),
     path('api/mobile/v1/vouchers/<int:pk>/',vmobv.voucher,name='mobile_voucher'), path('api/mobile/v1/batches/',vmobv.batches,name='mobile_batches'),
     path('studio/portal/calls/',vpcall.portal_call_settings,name='portal_call_settings'), path('p/<slug:slug>/call/',vpcall.portal_call_page,name='portal_call_page'), path('p/<slug:slug>/call/api/',vpcall.portal_call_api,name='portal_call_api'),

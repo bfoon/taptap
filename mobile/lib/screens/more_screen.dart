@@ -13,6 +13,7 @@ import '../push/push.dart';
 import '../widgets/common.dart';
 import 'notifications_screen.dart';
 import 'quick_sell.dart';
+import 'router_schedules_screen.dart';
 import 'routers_screen.dart';
 
 class MoreScreen extends StatefulWidget {
@@ -95,6 +96,14 @@ class _MoreScreenState extends State<MoreScreen> {
                     subtitle: const Text('Each MikroTik on its own tab: who is online, sync, reboot, move'),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RoutersScreen())),
+                  ),
+                if (app.canDo('routers'))
+                  ListTile(
+                    leading: const Icon(Icons.event_repeat),
+                    title: const Text('Router schedules', style: TextStyle(fontWeight: FontWeight.w700)),
+                    subtitle: const Text('Restart or shut down on a timetable, with a heads-up and “back online”'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => openRouterSchedules(context),
                   ),
                 if (app.canDo('vouchers_create'))
                   ListTile(
