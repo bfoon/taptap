@@ -3,22 +3,24 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../app/sounds.dart';
 import '../app/state.dart';
 
 /// The pop-up at the top of the screen when a notification arrives while TapTap is open.
 ///
 /// Phones only draw notifications themselves while the app is in the background; in the foreground the app gets
-/// the message and shows it here instead — tap to open what it is about, swipe it up to dismiss.
+/// the message and shows it here instead, with the phone's notification sound — tap to open what it is about, swipe it up to dismiss.
 class PushBanner {
   static OverlayEntry? _entry;
   static Timer? _timer;
 
   static void show({required String title, String body = '', IconData icon = Icons.notifications_active, Color? color,
-      VoidCallback? onTap}) {
+      VoidCallback? onTap, bool sound = true}) {
     final overlay = navigatorKey.currentState?.overlay;
     if (overlay == null) return;
     hide();
     HapticFeedback.mediumImpact();
+    if (sound) Sounds.notify();                    // the phone's notification sound, like when TapTap is closed
     final entry = OverlayEntry(
       builder: (_) => _Banner(
         title: title,

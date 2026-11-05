@@ -96,6 +96,27 @@ More → Notifications → *Pop-up, sound and lock screen* opens them.
 Android 14+: the first time, allow *full-screen notifications* for TapTap when asked, so calls can show over the lock
 screen.
 
+**Battery saver (important on Tecno, Infinix, itel, Xiaomi, Oppo, Samsung…):** these phones stop apps in the background,
+and then no call rings and no notification arrives until TapTap is opened. After sign-in the app asks once to *run in
+the background*; More → Notifications shows it as a check with an **Allow** button. On some phones also turn on
+*Auto-start* for TapTap in the phone's settings.
+
+### Sounds
+
+* Incoming call while the app is open: the phone's own ringtone (looped) and a buzz, until you answer or decline.
+* Calling someone: a soft ringback tone (`assets/sounds/ringback.wav`) until they answer.
+* A notification while the app is open: the in-app pop-up plays the phone's notification sound; chat messages do too
+  when push is not set up.
+* When the app is closed the phone's own call screen and the notification channels make the sound.
+
+### Slow internet
+
+Calls are built to survive a weak line: every signalling step (accept, offer, answer, hang-up) is tried again instead of
+ending the call, the app waits for the TURN relay path, and a first connection that fails is retried with fresh paths
+for up to ~55 s before it gives up (the website and the Wi-Fi page call do the same). For calls that must work on any
+network — mobile data ↔ hotspot Wi-Fi especially — run the TURN relay (`docker compose --profile turn up -d turn`, see
+`docker-compose.yml`) and set `CHAT_TURN_URLS` / `CHAT_TURN_SECRET`.
+
 ## 3. How it talks to TapTap
 
 * Sign-in: `POST /api/mobile/v1/auth/login/` (+ `/auth/verify/` when the email code is on) → a token kept in the
@@ -138,6 +159,7 @@ lib/screens/more_screen.dart
 lib/screens/shell.dart        tabs, incoming calls, notification taps
 lib/calls/call_engine.dart    WebRTC — same protocol as static/js/chat-call.js
 lib/calls/call_screen.dart    in-call + incoming-call screens
-lib/push/push.dart            Firebase + native call screen (flutter_callkit_incoming)
+lib/push/push.dart            Firebase + native call screen (flutter_callkit_incoming), battery-saver check
+lib/app/sounds.dart           ringtone, ringback and notification sounds while the app is open
 tool/configure_platforms.py   Android / iOS permissions and Android notification channels after `flutter create`
 ```

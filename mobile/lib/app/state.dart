@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../push/push.dart';
 import 'api.dart';
 import 'format.dart';
+import 'sounds.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 
@@ -46,11 +48,14 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   // calls
   final List<Ring> rings = [];
   final Set<String> _seenRings = {};
+  final Map<String, DateTime> _pushRings = {};  // rang from a push, before the next check has seen it
+  final Set<String> _endedRings = {};           // a push said this call stopped ringing
   String? activeCall;                          // a call screen is open for this id
   void Function(Ring ring)? onRing;           // shows the incoming-call screen (set by the shell)
 
   Timer? _chatTimer, _ringTimer;
   bool _foreground = true;
+  bool _chatPrimed = false;                     // the first check only learns what is there: no sound for it
 
   // ── convenience ──
   bool get signedIn => Api.I.signedIn && me != null;
@@ -116,6 +121,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     threads = [];
     people = [];
     rings.clear();
+    _pushRings.clear();
+    _endedRings.clear();
+    _chatPrimed = false;
     _top = -1;
     _chatTimer?.cancel();
     _ringTimer?.cancel();
@@ -137,6 +145,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (_foreground && signedIn) {
       pollChat();
       pollRings();
+      if (!Push.registered) Push.register(ask: false);   // a token that did not reach TapTap on a slow line
     }
   }
 
@@ -149,6 +158,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         if (typing) q['typing'] = '1';
       }
       final d = await Api.I.get('/chat/state/', query: q);
+      final before = unread;
       threads = ((d['threads'] as List?) ?? []).cast<Map>().map((e) => e.cast<String, dynamic>()).toList();
       people = ((d['people'] as List?) ?? []).cast<Map>().map((e) => e.cast<String, dynamic>()).toList();
       openExtra = {'typing': d['typing'], 'seen_upto': d['seen_upto']};
@@ -156,6 +166,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
         _newMessages.add(m.cast<String, dynamic>());
       }
       _top = toI(d['top']);
+      // a new message while TapTap is open: the notification sound — unless a push already brings it (with sound)
+      if (_chatPrimed && unread > before && !_pushCoversChat) Sounds.notify();
+      _chatPrimed = true;
       notifyListeners();
     } catch (_) {}
   }
@@ -167,15 +180,45 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       final now = ((d['rings'] as List?) ?? []).cast<Map>().map((e) => Ring(e.cast<String, dynamic>())).toList();
       rings
         ..clear()
-        ..addAll(now);
-      for (final r in now) {
+        ..addAll(now.where((r) => !_endedRings.contains(r.id)));
+      for (final r in rings) {
+        _pushRings.remove(r.id);                // the check has it now
         if (_seenRings.add(r.id) && activeCall == null) onRing?.call(r);
       }
       notifyListeners();
     } catch (_) {}
   }
 
-  bool ringStillOn(String id) => rings.any((r) => r.id == id);
+  /// A call push arrived while TapTap is open: ring at once (the next check confirms or ends it).
+  void ringFromPush(Map<String, dynamic> data) {
+    if (!signedIn) return;
+    final r = Ring(data);
+    if (r.id.isEmpty || _endedRings.contains(r.id)) return;
+    _pushRings[r.id] = DateTime.now();
+    if (!rings.any((x) => x.id == r.id)) rings.add(r);
+    if (_seenRings.add(r.id) && activeCall == null) onRing?.call(r);
+    notifyListeners();
+    pollRings();
+  }
+
+  /// A push said this call stopped ringing (answered elsewhere, or the caller hung up).
+  void ringEnded(String id) {
+    _endedRings.add(id);
+    _pushRings.remove(id);
+    rings.removeWhere((r) => r.id == id);
+    notifyListeners();
+  }
+
+  /// Still ringing? Yes while TapTap's last check lists it — or, for a call that came by push, for a while even
+  /// when a check on a slow line has not seen it yet.
+  bool ringStillOn(String id) {
+    if (_endedRings.contains(id)) return false;
+    if (rings.any((r) => r.id == id)) return true;
+    final at = _pushRings[id];
+    return at != null && DateTime.now().difference(at).inSeconds < 12;
+  }
+
+  bool get _pushCoversChat => Push.ready && Push.registered && me?['push'] == true;
 
   @override
   void dispose() {

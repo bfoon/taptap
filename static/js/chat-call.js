@@ -45,6 +45,9 @@
   var LEASE_MS = 15 * 60 * 1000, WARN_MS = 60 * 1000, CTL_MS = 15 * 60 * 1000;
   // Reconnect: a dropped line gets an ICE restart (new network paths, same call) instead of a hang-up.
   var RECONNECT_GIVE_UP = 60 * 1000, RESTART_AFTER = 2500, RESTART_RETRY = 8000, GATHER_MS = 4000;
+  // Slow lines (weak Wi-Fi hop, 2G/3G phone on the other side): wait longer for the TURN relay path, and when the
+  // first connection is slow or fails, try another path (ICE restart) before giving up instead of hanging up at once.
+  var GATHER_RELAY_MS = 10000, CONNECT_RESCUE = 12000, CONNECT_GIVE_UP = 55000;
   var REC_MS = Math.max(5, +D.videoSecs || 30) * 1000, VIDEO_MAX = Math.max(1, +D.videoMb || 16) * 1024 * 1024;
   var MOBILE = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
   var bc = window.BroadcastChannel ? new BroadcastChannel('tt-call') : null;
@@ -64,9 +67,21 @@
   function api(url, body) {
     var o = body === undefined ? { credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } }
       : { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF, 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body: JSON.stringify(body) };
-    return fetch(url, o).then(function (r) { return r.json(); }).catch(function () { return { ok: false, message: 'No connection to TapTap.' }; });
+    return fetch(url, o).then(function (r) { return r.json(); }).catch(function () { return { ok: false, net: true, message: 'No connection to TapTap.' }; });
   }
   function act(action, extra) { var b = extra || {}; b.action = action; b.id = S.cid; return api('/chat/call/act/', b); }
+  // A step that must get through (offer, answer): tried again when the line is slow instead of ending the call.
+  function actSure(action, extra, tries) {
+    tries = tries || 5;
+    return new Promise(function (res) {
+      var n = 0; (function again() {
+        act(action, extra).then(function (r) {
+          if (r && r.net && ++n < tries && !S.ended) { status('Weak connection — trying again…'); return setTimeout(again, 1000 + 1500 * n); }
+          res(r);
+        });
+      })();
+    });
+  }
   function clock(ms) { var s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2); }
   function send(msg) { try { if (S.dc && S.dc.readyState === 'open') S.dc.send(JSON.stringify(msg)); } catch (e) {} }
   function bcast(msg) { try { bc && bc.postMessage(msg); } catch (e) {} }
@@ -343,7 +358,10 @@
         S.timers.rstart = setTimeout(recover, RESTART_AFTER);
       }
       else if (st === 'failed') {
-        if (!S.liveAt) return hangup('failed');   // never connected at all: networks block it (needs TURN)
+        if (!S.liveAt) {                          // never connected yet: try another path first (slow lines often fail once)
+          if (S.answeredAt && Date.now() - S.answeredAt < CONNECT_GIVE_UP) { status('Weak connection — trying another way…'); return rescue(true); }
+          return hangup('failed');                // networks block it (needs TURN)
+        }
         lineDropped(); recover();
       }
     };
@@ -365,6 +383,23 @@
     onLive();
   }
   function connected() { return S.pc && S.pc.connectionState === 'connected'; }
+  // ───────── first connection on a slow line ─────────
+  function watchConnect() {
+    if (!S.answeredAt) S.answeredAt = Date.now();
+    clearInterval(S.timers.cwatch);
+    S.timers.cwatch = setInterval(function () {
+      if (S.ended || S.liveAt) return clearInterval(S.timers.cwatch);
+      var ms = Date.now() - S.answeredAt;
+      if (ms > CONNECT_GIVE_UP) { clearInterval(S.timers.cwatch); return hangup('failed'); }
+      if (ms > CONNECT_RESCUE) { status('Weak connection — still connecting…'); rescue(false); }
+    }, 3000);
+  }
+  function rescue(force) {
+    if (S.ended || !S.pc) return;
+    pollCall(500);
+    if (S.role === 'caller') { if (force) S.restarting = 0; restartIce(); }
+    else if (force || Date.now() - S.askAt > 6000) { S.askAt = Date.now(); act('reask'); }
+  }
   function recover() {
     if (S.ended || !S.pc || !S.liveAt || connected()) return;
     lineDropped();
@@ -411,11 +446,24 @@
     if (S.role === 'caller') { S.restarting = 0; restartIce(); }   // new network: new paths, even if ICE has not noticed yet
     else { S.askAt = Date.now(); act('reask'); }
   });
+  function hasTurn() {
+    return !!(S.ice && (S.ice.iceServers || []).some(function (x) { return String(x.urls || '').indexOf('turn') >= 0; }));
+  }
+  // Non-trickle: every network path travels in the offer / answer. With a TURN relay, wait for the relay path (it
+  // works through any NAT) — on a slow line it can take several seconds — but not longer than needed.
   function gathered(pc, ms) {
     return new Promise(function (res) {
       if (pc.iceGatheringState === 'complete') return res();
-      var t = setTimeout(res, ms), done = function () { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } };
-      pc.addEventListener('icegatheringstatechange', done);
+      var turn = hasTurn(), t0 = Date.now(), relay = false, fin = false;
+      var finish = function () { if (fin) return; fin = true; clearTimeout(t); clearTimeout(g); pc.removeEventListener('icecandidate', cand); res(); };
+      var cand = function (e) {
+        if (e.candidate && / typ relay/.test(e.candidate.candidate || '') && !relay) {
+          relay = true; clearTimeout(g); g = setTimeout(finish, Math.max(0, 1200 - (Date.now() - t0)));
+        }
+      };
+      var t = setTimeout(finish, turn ? Math.max(ms, GATHER_RELAY_MS) : ms), g = 0;
+      pc.addEventListener('icecandidate', cand);
+      pc.addEventListener('icegatheringstatechange', function () { if (pc.iceGatheringState === 'complete') finish(); });
     });
   }
   function tuneSenders() {
@@ -449,7 +497,7 @@
         S.T.screen = pc.addTransceiver('video', { direction: 'sendrecv' });
         return pc.createOffer().then(function (o) { return pc.setLocalDescription(o); })
           .then(function () { return gathered(pc, GATHER_MS); })
-          .then(function () { return act('offer', { desc: { type: 'offer', sdp: pc.localDescription.sdp } }); })
+          .then(function () { return actSure('offer', { desc: { type: 'offer', sdp: pc.localDescription.sdp } }); })
           .then(function (r) { if (!r.ok) throw new Error(r.message); ringback(true); pollCall(1000); });
       })
       .catch(function (e) { fail(e && e.name ? mediaError(e) : (e && e.message) || 'Could not start the call.'); });
@@ -458,7 +506,7 @@
   // ───────── callee ─────────
   function startCallee() {
     S.cid = D.join; overlay(ringHTML('Joining…', 'Connecting securely'));
-    act('accept').then(function (d) {
+    actSure('accept').then(function (d) {
       if (!d.ok) throw new Error(d.message);
       S.ice = d.ice; S.peer.name = d.from; S.video = S.video || false; paintPeer();
       if (d.call && d.call.thread) S.thread = d.call.thread;       // so snapshots and clips land in the right chat
@@ -472,8 +520,8 @@
         return Promise.all([S.T.audio.sender.replaceTrack(S.mic), S.T.cam.sender.replaceTrack(camOut())]);
       }).then(function () { return pc.createAnswer(); }).then(function (a) { return pc.setLocalDescription(a); })
         .then(function () { return gathered(pc, GATHER_MS); })
-        .then(function () { return act('answer', { desc: { type: 'answer', sdp: pc.localDescription.sdp } }); })
-        .then(function (r) { if (!r.ok) throw new Error(r.message); status('Connecting…'); computeSafety(); pollCall(2500); });
+        .then(function () { return actSure('answer', { desc: { type: 'answer', sdp: pc.localDescription.sdp } }); })
+        .then(function (r) { if (!r.ok) throw new Error(r.message); status('Connecting…'); computeSafety(); watchConnect(); pollCall(1500); });
     }).catch(function (e) { fail(e && e.name ? mediaError(e) : (e && e.message) || 'Could not join the call.'); });
   }
   function waitOffer() {
@@ -481,7 +529,8 @@
       var n = 0; (function again() {
         api('/chat/call/poll/?id=' + encodeURIComponent(S.cid)).then(function (d) {
           if (d.call && d.call.offer) return res(d.call.offer);
-          if (!d.call || d.call.state === 'ended' || ++n > 20) return rej(new Error('The call ended before it connected.'));
+          if (d.net && ++n <= 40) return setTimeout(again, 1000);          // slow line: keep asking
+          if (!d.call || d.call.state === 'ended' || ++n > 40) return rej(new Error('The call ended before it connected.'));
           setTimeout(again, 700);
         });
       })();
@@ -503,7 +552,7 @@
         if (c.state === 'ended') return hangup(c.reason || 'ended', true);
         if (S.role === 'caller' && c.answer && S.pc && !S.pc.remoteDescription) {
           ringback(false); overlay(ringHTML('Connecting…', 'Setting up an encrypted line'));
-          S.pc.setRemoteDescription(c.answer).then(computeSafety).catch(function () { hangup('failed'); });
+          S.pc.setRemoteDescription(c.answer).then(function () { watchConnect(); computeSafety(); }).catch(function () { hangup('failed'); });
         }
         if (S.role === 'caller' && c.state === 'connecting' && !c.answer) status('Answering…');
         // reconnect signaling (ICE restart)
@@ -514,6 +563,7 @@
         if (S.role === 'caller' && c.rask && c.rask > S.raskSeen) {
           S.raskSeen = c.rask;
           if (S.liveAt) { S.restarting = 0; lineDropped(); restartIce(); }   // the callee lost the line
+          else if (S.answeredAt) { S.restarting = 0; restartIce(); }          // the callee could not connect yet
         }
         if (S.role === 'callee' && S.pc && S.pc.remoteDescription && c.reoffer && c.reoffer.gen > S.rgenSeen) {
           S.rgenSeen = c.reoffer.gen; answerRestart(c.reoffer);
@@ -526,7 +576,7 @@
   // ───────── live ─────────
   function onLive() {
     if (S.liveAt) return;
-    S.liveAt = Date.now(); ringback(false); overlay(''); tone([660, 880], 0.18, 0.12, 0.05); tuneSenders();
+    S.liveAt = Date.now(); clearInterval(S.timers.cwatch); ringback(false); overlay(''); tone([660, 880], 0.18, 0.12, 0.05); tuneSenders();
     S.timers.clock = setInterval(function () {
       var t = clock(Date.now() - S.liveAt); status(t + (S.reconnecting ? ' · reconnecting…' : S.share ? ' · sharing your screen' : S.remote.screen ? ' · viewing their screen' : ''));
       bcast({ t: 'call', state: 'live', peer: S.peer.name, since: S.liveAt, sharing: !!S.share, viewing: !!S.remote.screen });

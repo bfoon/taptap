@@ -14,6 +14,9 @@
   var $ = function (id) { return document.getElementById(id); };
   var root = $('pc'), panel = $('pcPanel'), sub = $('pcSub'), timer = $('pcTimer'), audio = $('pcAudio');
   var GATHER_MS = 3500, GIVE_UP = 60000, RESTART_AFTER = 2500;
+  // Slow Wi-Fi / a staff phone on mobile data: wait longer for the relay path, and when the first connection is
+  // slow or fails, try another path (ICE restart) before giving up — it used to hang up after 25 s.
+  var GATHER_RELAY_MS = 10000, CONNECT_RESCUE = 12000, CONNECT_GIVE_UP = 55000;
   var S = { id: '', secret: '', ice: null, pc: null, dc: null, mic: null, state: 'idle', liveAt: 0, ended: false, t: {}, rgen: 0, rgenApplied: 0, rask: 0, restarting: 0, status: null };
   var ICON = {
     phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3h4l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 5a2 2 0 0 1 2-2z"/></svg>',
@@ -25,7 +28,19 @@
   function api(action, extra) {
     var b = extra || {}; b.action = action; if (S.id) { b.id = S.id; b.secret = S.secret; }
     return fetch(C.api, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(b), cache: 'no-store' })
-      .then(function (r) { return r.json(); }).catch(function () { return { ok: false, message: 'No connection to TapTap. Check the Wi-Fi and try again.' }; });
+      .then(function (r) { return r.json(); }).catch(function () { return { ok: false, net: true, message: 'No connection to TapTap. Check the Wi-Fi and try again.' }; });
+  }
+  // A step that must get through (the offer): tried again on a slow line.
+  function apiSure(action, extra, tries) {
+    tries = tries || 5;
+    return new Promise(function (res) {
+      var n = 0; (function again() {
+        api(action, extra).then(function (r) {
+          if (r && r.net && ++n < tries && !S.ended) return setTimeout(again, 1000 + 1500 * n);
+          res(r);
+        });
+      })();
+    });
   }
   function setRoot(cls) { root.className = 'pc ' + cls; }
   function clock(ms) { var s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2); }
@@ -122,11 +137,30 @@
       .then(function () { poll(800); })
       .catch(function (e) { if (S.mic) S.mic.stop(); S.mic = null; intro(e && e.name ? micError(e) : (e && e.message) || 'Could not start the call.'); });
   }
+  // With a TURN relay, wait for its path (works through any NAT; slow to arrive on a weak line) — not longer.
   function gathered(pc, ms) {
     return new Promise(function (res) {
       if (pc.iceGatheringState === 'complete') return res();
-      var t = setTimeout(res, ms); pc.addEventListener('icegatheringstatechange', function () { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } });
+      var ice = S.ice || {}, turn = (ice.iceServers || []).some(function (x) { return String(x.urls || '').indexOf('turn') >= 0; });
+      var t0 = Date.now(), relay = false, fin = false, g = 0;
+      var finish = function () { if (fin) return; fin = true; clearTimeout(t); clearTimeout(g); pc.removeEventListener('icecandidate', cand); res(); };
+      var cand = function (e) {
+        if (e.candidate && / typ relay/.test(e.candidate.candidate || '') && !relay) { relay = true; g = setTimeout(finish, Math.max(0, 1200 - (Date.now() - t0))); }
+      };
+      var t = setTimeout(finish, turn ? Math.max(ms, GATHER_RELAY_MS) : ms);
+      pc.addEventListener('icecandidate', cand);
+      pc.addEventListener('icegatheringstatechange', function () { if (pc.iceGatheringState === 'complete') finish(); });
     });
+  }
+  function watchConnect() {
+    if (!S.answeredAt) S.answeredAt = Date.now();
+    clearInterval(S.t.cwatch);
+    S.t.cwatch = setInterval(function () {
+      if (S.ended || S.liveAt) return clearInterval(S.t.cwatch);
+      var ms = Date.now() - S.answeredAt;
+      if (ms > CONNECT_GIVE_UP) { clearInterval(S.t.cwatch); return hangup('failed'); }
+      if (ms > CONNECT_RESCUE) { sub.textContent = 'Weak connection — still connecting…'; restart(); }
+    }, 4000);
   }
   function offer() {
     var ice = S.ice || {};
@@ -151,11 +185,17 @@
       var st = pc.connectionState;
       if (st === 'connected') onConnected();
       else if (st === 'disconnected' && S.liveAt) { dropped(); clearTimeout(S.t.rs); S.t.rs = setTimeout(restart, RESTART_AFTER); }
-      else if (st === 'failed') { if (!S.liveAt) return hangup('failed'); dropped(); restart(); }
+      else if (st === 'failed') {
+        if (!S.liveAt) {                          // not connected yet: try another path before giving up
+          if (S.answeredAt && Date.now() - S.answeredAt < CONNECT_GIVE_UP) { sub.textContent = 'Weak connection — trying another way…'; S.restarting = 0; restart(); poll(500); return; }
+          return hangup('failed');
+        }
+        dropped(); restart();
+      }
     };
     return pc.createOffer().then(function (o) { return pc.setLocalDescription(o); })
       .then(function () { return gathered(pc, GATHER_MS); })
-      .then(function () { return api('offer', { desc: { type: 'offer', sdp: pc.localDescription.sdp } }); })
+      .then(function () { return apiSure('offer', { desc: { type: 'offer', sdp: pc.localDescription.sdp } }); })
       .then(function (r) { if (!r.ok) throw new Error(r.message); });
   }
   function send(m) { try { if (S.dc && S.dc.readyState === 'open') S.dc.send(JSON.stringify(m)); } catch (e) {} }
@@ -183,19 +223,22 @@
         if (c.state === 'ringing') sub.textContent = 'Ringing ' + C.business + '…';
         if (c.state === 'connecting' && !S.liveAt) { ringback(false); sub.textContent = (c.peer ? c.peer.name : 'Someone') + ' is answering…'; }
         if (c.answer && S.pc && !S.pc.remoteDescription) {
-          S.pc.setRemoteDescription(c.answer).catch(function () { hangup('failed'); });
-          S.t.connectWait = setTimeout(function () { if (!S.liveAt) hangup('failed'); }, 25000);
+          S.pc.setRemoteDescription(c.answer).then(watchConnect).catch(function () { hangup('failed'); });
         }
         if (S.pc && c.reanswer && c.reanswer.gen === S.rgen && S.rgenApplied !== S.rgen && S.pc.signalingState === 'have-local-offer') {
           S.rgenApplied = S.rgen; S.pc.setRemoteDescription(c.reanswer.desc).catch(function () { S.rgenApplied = 0; S.restarting = 0; });
         }
-        if (c.rask && c.rask > S.rask) { S.rask = c.rask; if (S.liveAt) { S.restarting = 0; dropped(); restart(); } }
+        if (c.rask && c.rask > S.rask) {
+          S.rask = c.rask;
+          if (S.liveAt) { S.restarting = 0; dropped(); restart(); }
+          else if (S.answeredAt) { S.restarting = 0; restart(); }      // staff could not connect yet: another path
+        }
         poll(!S.liveAt || S.reconnecting ? 1000 : 3000);
       });
     }, ms);
   }
   function onConnected() {
-    clearTimeout(S.t.lost); S.t.lost = 0; clearTimeout(S.t.connectWait); S.restarting = 0;
+    clearTimeout(S.t.lost); S.t.lost = 0; clearInterval(S.t.cwatch); S.restarting = 0;
     if (S.reconnecting) { S.reconnecting = false; banner('Reconnected'); setTimeout(function () { banner(''); }, 2000); }
     if (!S.liveAt) {
       S.liveAt = Date.now(); S.state = 'live'; setRoot('live'); ringback(false); tone([660, 880], 0, 0.18, 0.05);
