@@ -53,3 +53,5 @@
 
 .sidebar nav>a.nav-sub{padding:.5rem .8rem .5rem 2.15rem;font-size:.86rem;position:relative}.sidebar nav>a.nav-sub::before{content:"";position:absolute;left:1.25rem;top:0;bottom:50%;width:.55rem;border-left:1px solid #2b4560;border-bottom:1px solid #2b4560;border-bottom-left-radius:6px}.sidebar nav>a.nav-sub i{font-size:.95rem}
 .mobile-nav a.nav-sub{padding-left:1.8rem;font-size:.92rem}
+
+.brand-mark.tt-logo{background:#fff;box-shadow:0 8px 24px #1366e430}.brand-mark.tt-logo img{width:80%;height:80%;display:block}

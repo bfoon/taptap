@@ -10,8 +10,10 @@ Works with only one platform made too (GitHub's Android job makes only android/,
 a platform that is not there is skipped. It fails only when neither is there, or a change it must make
 could not be made. Safe to run again: nothing is added twice.
 """
+import json
 import pathlib
 import re
+import shutil
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -51,6 +53,20 @@ if man.exists():
     if 'android:launchMode="singleTop"' in s:
         s = s.replace('android:launchMode="singleTop"', 'android:launchMode="singleInstance"', 1)
         say('Android: one app window for answered calls (launchMode singleInstance)')
+    # the app's name under the icon (flutter create calls it "taptap_app")
+    s2 = re.sub(r'android:label="[^"]*"', 'android:label="TapTap"', s, count=1)
+    if s2 != s:
+        s = s2
+        say('Android: app name "TapTap"')
+    if 'android:roundIcon' not in s:
+        s = s.replace('android:icon="@mipmap/ic_launcher"', 'android:icon="@mipmap/ic_launcher"\n        android:roundIcon="@mipmap/ic_launcher_round"', 1)
+    if 'default_notification_icon' not in s:
+        # the TapTap mark in the status bar (Android shows a grey square for a full-colour icon)
+        s = s.replace('</application>', '    <meta-data android:name="com.google.firebase.messaging.default_notification_icon"\n'
+                                        '            android:resource="@drawable/ic_stat_taptap"/>\n'
+                                        '    <meta-data android:name="com.google.firebase.messaging.default_notification_color"\n'
+                                        '            android:resource="@color/taptap_brand"/>\n    </application>', 1)
+        say('Android: TapTap notification icon')
     if 'default_notification_channel_id' not in s:
         # a push that names no channel (or one this phone does not have yet) still pops up
         s = s.replace('</application>', '    <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id"\n'
@@ -59,6 +75,37 @@ if man.exists():
     man.write_text(s)
 else:
     say('Android: no android/ folder — skipped')
+
+# ── App icon (tool/brand/: made from the TapTap Network logo) ──
+BRAND = ROOT / 'tool/brand'
+res = ROOT / 'android/app/src/main/res'
+if man.exists() and (BRAND / 'android/res').exists():
+    n = 0
+    for f in (BRAND / 'android/res').glob('*/*.png'):
+        dst = res / f.parent.name / f.name
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(f, dst)
+        n += 1
+    # adaptive icon (Android 8+): the mark on white, the phone picks the shape (circle, squircle…)
+    (res / 'mipmap-anydpi-v26').mkdir(parents=True, exist_ok=True)
+    adaptive = ('<?xml version="1.0" encoding="utf-8"?>\n<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+                '    <background android:drawable="@color/ic_launcher_background"/>\n'
+                '    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>\n'
+                '    <monochrome android:drawable="@mipmap/ic_launcher_foreground"/>\n</adaptive-icon>\n')
+    for name in ('ic_launcher.xml', 'ic_launcher_round.xml'):
+        (res / 'mipmap-anydpi-v26' / name).write_text(adaptive)
+    (res / 'values').mkdir(parents=True, exist_ok=True)
+    (res / 'values/taptap_colors.xml').write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="ic_launcher_background">#FFFFFF</color>\n'
+        '    <color name="taptap_brand">#1366E4</color>\n</resources>\n')
+    # the moment before Flutter starts (older Android): white with the mark in the middle
+    launch = ('<?xml version="1.0" encoding="utf-8"?>\n<layer-list xmlns:android="http://schemas.android.com/apk/res/android">\n'
+              '    <item android:drawable="@android:color/white"/>\n'
+              '    <item><bitmap android:gravity="center" android:src="@mipmap/ic_launcher_foreground"/></item>\n</layer-list>\n')
+    for d in ('drawable', 'drawable-v21'):
+        if (res / d / 'launch_background.xml').exists():
+            (res / d / 'launch_background.xml').write_text(launch)
+    say(f'Android: TapTap app icon ({n} images, adaptive + round), launch screen')
 
 # ── Android notification channels ──
 # One channel per kind of push (core/mobile_push.py KINDS), all at HIGH importance: that is what makes Android
@@ -323,6 +370,23 @@ if plist.exists():
         say('iPhone: microphone, camera, photos, speech and background-call settings added')
 else:
     say('iPhone: no ios/ folder — skipped')
+
+# iPhone app icon: one 1024 image (Xcode makes the other sizes)
+icon_set = ROOT / 'ios/Runner/Assets.xcassets/AppIcon.appiconset'
+if icon_set.exists() and (BRAND / 'ios/AppIcon-1024.png').exists():
+    for old in icon_set.glob('*.png'):
+        old.unlink()
+    shutil.copyfile(BRAND / 'ios/AppIcon-1024.png', icon_set / 'AppIcon-1024.png')
+    (icon_set / 'Contents.json').write_text(json.dumps({
+        'images': [{'filename': 'AppIcon-1024.png', 'idiom': 'universal', 'platform': 'ios', 'size': '1024x1024'}],
+        'info': {'author': 'xcode', 'version': 1}}, indent=2))
+    say('iPhone: TapTap app icon')
+if plist.exists():
+    s = plist.read_text()
+    s2 = re.sub(r'(<key>CFBundleDisplayName</key>\s*<string>)[^<]*(</string>)', r'\1TapTap\2', s, count=1)
+    if s2 != s:
+        plist.write_text(s2)
+        say('iPhone: app name "TapTap"')
 
 pod = ROOT / 'ios/Podfile'
 if pod.exists():

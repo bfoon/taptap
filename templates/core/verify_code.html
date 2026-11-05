@@ -1,6 +1,6 @@
-{% extends 'core/base.html' %}{% block title %}{{ title }} — TapTap{% endblock %}{% block public_content %}
+{% extends 'core/base.html' %}{% load static %}{% block title %}{{ title }} — TapTap{% endblock %}{% block public_content %}
 <div class="auth-page"><div class="auth-card">
-  <a class="brand justify-content-center mb-4" href="/"><span class="brand-mark"><i class="bi bi-wifi"></i></span><span>TapTap</span></a>
+  <a class="brand justify-content-center mb-4" href="/"><span class="brand-mark tt-logo"><img src="{% static 'brand/mark.svg' %}" alt="TapTap"></span><span>TapTap</span></a>
   <div class="otp-icon"><i class="bi bi-envelope-check"></i></div>
   <h2>{{ title }}</h2>
   <p>{{ intro }} It went to <b>{{ masked }}</b> and works for 10 minutes.</p>

@@ -163,4 +163,7 @@ lib/calls/call_screen.dart    in-call + incoming-call screens
 lib/push/push.dart            Firebase + native call screen (flutter_callkit_incoming), battery-saver check
 lib/app/sounds.dart           ringtone, ringback and notification sounds while the app is open (native, MainActivity)
 tool/configure_platforms.py   Android / iOS permissions and Android notification channels after `flutter create`
+tool/brand/                   the TapTap app icon (Android launcher/adaptive/round, notification icon, iPhone 1024) —
+                              configure_platforms.py copies it in and names the app "TapTap"
+assets/brand/                 the mark for the splash and sign-in screens
 ```

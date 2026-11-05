@@ -82,7 +82,14 @@ class _LoginScreenState extends State<LoginScreen> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 420),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  const Icon(Icons.wifi_tethering, size: 56, color: Colors.white),
+                  Center(
+                    child: Container(
+                      decoration: BoxDecoration(borderRadius: BorderRadius.circular(22), boxShadow: const [
+                        BoxShadow(color: Colors.black26, blurRadius: 18, offset: Offset(0, 6)),
+                      ]),
+                      child: Image.asset('assets/brand/app-icon.png', width: 76, height: 76),
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   const Text('TapTap', textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.white, fontSize: 34, fontWeight: FontWeight.w900, letterSpacing: -.5)),

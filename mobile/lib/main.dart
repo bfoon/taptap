@@ -49,9 +49,9 @@ class TapTapApp extends StatelessWidget {
 class _Splash extends StatelessWidget {
   const _Splash();
   @override
-  Widget build(BuildContext context) => const Scaffold(
-        backgroundColor: Color(0xFF1769E0),
-        body: Center(child: Icon(Icons.wifi_tethering, size: 72, color: Colors.white)),
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(child: Image.asset('assets/brand/mark.png', width: 132, height: 132)),   // the TapTap mark
       );
 }
 

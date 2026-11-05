@@ -3,7 +3,7 @@
 <meta name="referrer" content="no-referrer"><meta name="theme-color" content="#0b1220">
 <title>Call — TapTap</title>
 <link href="{% static 'css/chat-call.css' %}?v=call5" rel="stylesheet">
-</head>
+{% include "core/_brand_icons.html" %}</head>
 <body>
 <div id="ttCall" data-csrf="{{ csrf_token }}" data-thread="{{ thread }}" data-video="{{ video|yesno:'1,0' }}"
      data-join="{{ join }}" data-embedded="{{ embedded|yesno:'1,0' }}" data-me="{{ me }}" data-me-initials="{{ me_initials }}"
