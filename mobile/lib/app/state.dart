@@ -94,6 +94,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> refreshMe() async {
     me = await Api.I.get('/api/mobile/v1/me/');
+    // TapTap lost this phone's push address (cleared after an error, another sign-in…): send it again, quietly
+    if (me?['push_registered'] == false && Push.registered) Push.serverForgot();
     notifyListeners();
   }
 
@@ -151,7 +153,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (_foreground && signedIn) {
       pollChat();
       pollRings();
-      if (!Push.registered) Push.register(ask: false);   // a token that did not reach TapTap on a slow line
+      // quietly: a token that did not reach TapTap on a slow line, a changed permission (back from the phone's
+      // settings), or every 30 minutes — push.dart decides whether anything needs sending
+      Push.register(ask: false);
     }
   }
 

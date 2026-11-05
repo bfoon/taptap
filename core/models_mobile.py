@@ -17,6 +17,12 @@ class MobileDevice(models.Model):
     push_token = models.CharField(max_length=300, blank=True, db_index=True)
     # What this phone wants to be told (core/mobile_push.py KINDS): {"chat": false, ...}. A missing key means on.
     notify = models.JSONField(default=dict, blank=True)
+    # Which Firebase project the app on this phone belongs to (the app says so when it registers its push token).
+    # The server's key must come from the same project, or Google refuses every push (SENDER_ID_MISMATCH).
+    push_project = models.CharField(max_length=100, blank=True)
+    # The last word on pushes to this phone (core/mobile_push.py): {"at", "ok", "code", "reason", "fix", "last_ok",
+    # "perm"} — "perm" is the phone's own notification permission as the app last saw it ('allowed', 'denied'…).
+    push_health = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     last_seen_at = models.DateTimeField(null=True, blank=True)
     last_ip = models.CharField(max_length=64, blank=True)

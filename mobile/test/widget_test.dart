@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:taptap_app/app/format.dart';
 import 'package:taptap_app/app/state.dart';
+import 'package:taptap_app/screens/notifications_screen.dart';
 import 'package:taptap_app/widgets/common.dart';
 import 'package:taptap_app/widgets/push_banner.dart';
 import 'package:taptap_app/widgets/voucher_widgets.dart';
@@ -99,5 +100,34 @@ void main() {
     await tester.pump();
     expect(opened, isTrue);
     expect(find.text('It says wrong code'), findsNothing);
+  });
+
+  testWidgets('check delivery: each stop shows what was found, and the fix where it stops', (tester) async {
+    var fixed = false;
+    final road = [
+      DeliveryStop('Google accepted a test push')
+        ..state = StopState.ok
+        ..text = 'Google took it for delivery.',
+      DeliveryStop('This phone shows TapTap notifications')
+        ..state = StopState.fail
+        ..text = 'Pushes arrive, but the phone hides them.'
+        ..fixLabel = 'Turn on'
+        ..fix = () async => fixed = true,
+      DeliveryStop('It also arrives while TapTap is closed')..state = StopState.skipped,
+    ];
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Column(children: [
+          for (var i = 0; i < road.length; i++)
+            DeliveryStopRow(stop: road[i], last: i == road.length - 1, passed: road[i].state == StopState.ok),
+        ]),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Google took it for delivery.'), findsOneWidget);
+    expect(find.byIcon(Icons.check), findsOneWidget);
+    expect(find.byIcon(Icons.close), findsOneWidget);
+    await tester.tap(find.text('Turn on'));
+    expect(fixed, isTrue);
   });
 }

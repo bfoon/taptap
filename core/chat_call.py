@@ -143,7 +143,8 @@ def _push(fn):
         if mobile_push.configured():
             fn(mobile_push)
     except Exception:
-        pass
+        import logging
+        logging.getLogger(__name__).exception('call push')
 
 
 def _drop_ring(uid, cid):

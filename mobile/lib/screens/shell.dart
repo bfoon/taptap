@@ -42,10 +42,34 @@ class _ShellState extends State<Shell> {
     Push.onBanner = _banner;
     Push.onRing = app.ringFromPush;
     Push.onRingEnded = app.ringEnded;
-    Push.register().then((_) => _askBackground());
+    Push.register().then((_) => _afterRegister());
     Push.acceptedAtLaunch().then((extra) {
       if (extra != null && extra['cid'] != null) Push.onAccept?.call('${extra['cid']}', '${extra['from'] ?? 'Call'}', extra['video'] == true);
     });
+  }
+
+  /// After start: notifications switched off on the phone come first (they silently hide every push — a phone can
+  /// be stuck that way from an older build that could not show the prompt); then the battery saver.
+  Future<void> _afterRegister() async {
+    if (!mounted || !Push.ready) return;
+    if (await Push.permission() == 'allowed') return _askBackground();
+    if (Push.justAsked || !await Push.nudgeDue() || !mounted) return;   // they just answered the prompt themselves
+    final ctx = navigatorKey.currentContext;
+    if (ctx == null) return;
+    final yes = await showDialog<bool>(
+      context: ctx,
+      builder: (c) => AlertDialog(
+        icon: const Icon(Icons.notifications_off_outlined),
+        title: const Text('Notifications are off for TapTap'),
+        content: const Text('While TapTap is closed, this phone stays silent for calls, customer complaints and '
+            'messages.\n\nTurn notifications on?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Not now')),
+          FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Turn on')),
+        ],
+      ),
+    );
+    if (yes == true) await Push.turnOn();
   }
 
   /// Once: phones that stop apps in the background to save battery also drop TapTap's calls and notifications.

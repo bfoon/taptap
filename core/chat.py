@@ -256,7 +256,8 @@ def post(thread, user, body, page_url='', page_title='', system=False, attachmen
             if mobile_push.configured():
                 mobile_push.chat_message(m)
         except Exception:
-            pass
+            import logging
+            logging.getLogger(__name__).exception('chat push for message %s', m.pk)
     return m
 
 

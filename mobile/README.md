@@ -96,6 +96,30 @@ More → Notifications → *Pop-up, sound and lock screen* opens them.
 Android 14+: the first time, allow *full-screen notifications* for TapTap when asked, so calls can show over the lock
 screen.
 
+### When notifications do not arrive: Check delivery
+
+**More → Notifications → Check delivery** sends one real test from your server through Google back to the phone and
+lights up each stop on the way, with the fix where it stops:
+
+| Stop | When it stops there |
+|---|---|
+| Your TapTap server can send | `FCM_SERVICE_ACCOUNT` missing on the server |
+| This copy of the app can receive | the APK was built without the `GOOGLE_SERVICES_JSON` secret |
+| TapTap has this phone's push address | Google gave no address: no Google Play services (newer Huawei), Google blocked on that internet, or a wrong `google-services.json` |
+| Same Firebase project on both ends | the app and the server key come from different Firebase projects — Google refuses every push |
+| Google accepted a test push | Google's own answer, in plain words (revoked key, wrong server clock, FCM API switched off…) |
+| It arrived on this phone | timed round trip; nothing within 25 s usually means Google's push port (5228) is blocked or data saver is on |
+| This phone shows TapTap notifications | notifications off for TapTap, or single kinds switched off in the phone's settings |
+| It also arrives while TapTap is closed | the battery saver (and *Auto-start* on Tecno, Infinix, itel, Xiaomi) |
+
+On the server, `python manage.py push_doctor` walks the same road for every signed-in phone (`--check` asks Google about
+each phone's address without showing anything, `--send email` sends a real test). Each phone's last push result is kept
+and shown on its Notifications screen.
+
+**One app window, done right:** MainActivity uses `launchMode="singleTask"`. Do not change it to `singleInstance`:
+Android then cancels every screen the app opens for an answer — the *Allow notifications?* prompt could never be
+answered, so fresh installs on Android 13+ never showed a single push, and the chat photo picker came back empty.
+
 **Battery saver (important on Tecno, Infinix, itel, Xiaomi, Oppo, Samsung…):** these phones stop apps in the background,
 and then no call rings and no notification arrives until TapTap is opened. After sign-in the app asks once to *run in
 the background*; More → Notifications shows it as a check with an **Allow** button. On some phones also turn on
@@ -162,7 +186,8 @@ lib/calls/call_engine.dart    WebRTC — same protocol as static/js/chat-call.js
 lib/calls/call_screen.dart    in-call + incoming-call screens
 lib/push/push.dart            Firebase + native call screen (flutter_callkit_incoming), battery-saver check
 lib/app/sounds.dart           ringtone, ringback and notification sounds while the app is open (native, MainActivity)
-tool/configure_platforms.py   Android / iOS permissions and Android notification channels after `flutter create`
+tool/configure_platforms.py   Android / iOS permissions, Android notification channels, launch mode and release-build
+                              keep rules after `flutter create`
 tool/brand/                   the TapTap app icon (Android launcher/adaptive/round, notification icon, iPhone 1024) —
                               configure_platforms.py copies it in and names the app "TapTap"
 assets/brand/                 the mark for the splash and sign-in screens

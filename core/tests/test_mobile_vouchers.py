@@ -213,11 +213,13 @@ class MobileNotificationTests(Base):
     def test_test_push(self):
         self.device()
         self.assertEqual(self.post('notifications/', {'test': True})[0], 400)           # no Firebase key on the server
-        with mock.patch('core.mobile_push._service_account', return_value=SA), mock.patch('core.mobile_push._dispatch') as go:
+        ok = {'ok': True, 'code': 'OK', 'reason': 'Google accepted it.', 'fix': '', 'drop': False}
+        with mock.patch('core.mobile_push._service_account', return_value=SA), \
+                mock.patch('core.mobile_push.deliver', return_value=ok) as go:      # sent now, not in the background
             st, d = self.post('notifications/', {'test': True})
-        self.assertEqual(st, 200)
-        toks, msg = go.call_args[0][1], go.call_args[0][2]
-        self.assertEqual(toks, ['fcm-owner'])
+        self.assertEqual(st, 200); self.assertTrue(d['delivery']['ok'])
+        tok, msg = go.call_args[0][1], go.call_args[0][2]
+        self.assertEqual(tok, 'fcm-owner')
         self.assertEqual(msg['android']['notification']['channel_id'], 'tt_alerts')
         self.assertEqual(msg['android']['notification']['notification_priority'], 'PRIORITY_HIGH')
 

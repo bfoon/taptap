@@ -243,6 +243,9 @@ def me(request):
     }
     from .mobile_push import configured
     out['push'] = configured()
+    dev = getattr(request, 'tt_mobile', None)
+    if dev is not None:              # the app re-sends its push address when TapTap has lost it (self-healing)
+        out['push_registered'] = bool(dev.push_token)
     return JsonResponse(out)
 
 
@@ -261,16 +264,32 @@ def business(request):
 
 @_signed_in
 def push(request):
-    """Register this phone's push token (Firebase Cloud Messaging) for calls, messages and customer reports."""
+    """Register this phone's push token (Firebase Cloud Messaging) for calls, messages and customer reports.
+
+    The app also says which Firebase project it belongs to (`project`) and whether the phone lets it show
+    notifications (`perm`): TapTap answers whether that project matches the server's key, so a mismatch shows up
+    on the phone at once instead of every push silently failing."""
+    from . import mobile_push
     from .models_mobile import MobileDevice
     dev = getattr(request, 'tt_mobile', None)
     if dev is None:
         return _err('Only the mobile app can register for notifications.', 400)
-    tok = str(_body(request).get('token') or '').strip()[:300]
+    d = _body(request)
+    tok = str(d.get('token') or '').strip()[:300]
     if tok:
         MobileDevice.objects.filter(push_token=tok).exclude(pk=dev.pk).update(push_token='')   # one phone, one owner
-    MobileDevice.objects.filter(pk=dev.pk).update(push_token=tok)
-    return JsonResponse({'ok': True})
+    dev = MobileDevice.objects.get(pk=dev.pk)
+    fields = {'push_token': tok}
+    project = str(d.get('project') or '').strip()[:100]
+    if project:
+        fields['push_project'] = project
+    perm = str(d.get('perm') or '').strip()[:12]
+    if perm:
+        fields['push_health'] = {**(dev.push_health or {}), 'perm': perm, 'perm_at': timezone.now().isoformat()}
+    MobileDevice.objects.filter(pk=dev.pk).update(**fields)
+    dev.push_project = fields.get('push_project', dev.push_project)
+    return JsonResponse({'ok': True, 'server': mobile_push.configured(), 'server_project': mobile_push.server_project(),
+                         'project_match': mobile_push.project_check(dev)})
 
 
 def _kinds_for(request):
@@ -302,17 +321,29 @@ def notifications(request):
         d = _body(request)
         if d.get('test'):
             if not mobile_push.configured():
-                return _err('TapTap cannot send notifications yet: the server has no Firebase key (FCM_SERVICE_ACCOUNT).')
+                return _err('TapTap cannot send notifications yet: the server has no Firebase key (FCM_SERVICE_ACCOUNT).',
+                            delivery={'ok': False, 'code': 'NO_KEY'})
             if not dev.push_token:
-                return _err('This phone has not given TapTap a notification address yet. Allow notifications, then open the app again.')
-            mobile_push.test(dev)
-            return JsonResponse({'ok': True, 'message': 'Sent — it should arrive within a few seconds.'})
+                return _err('This phone has not given TapTap a notification address yet. Allow notifications, then open the app again.',
+                            delivery={'ok': False, 'code': 'NO_TOKEN'})
+            v = mobile_push.test(dev, nonce=str(d.get('nonce') or '')[:40])     # sent now: Google's own answer
+            delivery = {k: v.get(k) for k in ('ok', 'code', 'reason', 'fix')}
+            if not v['ok']:
+                return _err(f"{v['reason']} {v['fix']}".strip(), delivery=delivery)
+            return JsonResponse({'ok': True, 'message': 'Google accepted it — it should pop up within a few seconds.',
+                                 'delivery': delivery})
         prefs = d.get('prefs')
         if isinstance(prefs, dict):
             allowed = dict(_kinds_for(request))
             dev.notify = {**(dev.notify or {}), **{k: bool(v) for k, v in prefs.items() if k in allowed}}
             dev.save(update_fields=['notify'])
+    dev.refresh_from_db(fields=['push_token', 'push_project', 'push_health'])
+    h = dev.push_health or {}
     return JsonResponse({'ok': True, 'server': mobile_push.configured(), 'registered': bool(dev.push_token),
+                         'server_project': mobile_push.server_project(), 'app_project': dev.push_project,
+                         'project_match': mobile_push.project_check(dev),
+                         # Google's last word on a push to this phone (None before the first one)
+                         'last': {k: h.get(k) for k in ('at', 'ok', 'code', 'reason', 'fix', 'last_ok')} if h.get('at') else None,
                          'kinds': [{'key': k, 'label': label, 'text': text, 'on': dev.wants(k)} for k, (label, text, _ch) in _kinds_for(request)]})
 
 

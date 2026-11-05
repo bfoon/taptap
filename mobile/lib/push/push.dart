@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:ui' show DartPluginRegistrant;
 
 import 'package:firebase_core/firebase_core.dart';
@@ -33,6 +34,17 @@ import '../app/sounds.dart';
 /// Many Android phones (Tecno, Infinix, itel, Xiaomi, Oppo, Samsung…) stop apps in the background to save battery,
 /// and then no push reaches TapTap until it is opened again. [backgroundBlocked] / [allowBackground] ask the phone
 /// to let TapTap run (Notifications screen, and once after sign-in).
+///
+/// Asking for permission: ONE prompt, then the phone's real answer is read back ([permission]). Android 13+ shows
+/// nothing at all once someone said "Don't allow" twice — [turnOn] notices that (the prompt "answers" instantly) and
+/// opens the phone's settings instead. TapTap is told what the phone allows each time the address is sent, so the
+/// server (and `manage.py push_doctor`) can see a phone that receives pushes but hides them.
+///
+/// Self-healing: the push address is sent again when it changes, when the permission changes, every 30 minutes the
+/// app is used, and whenever TapTap says it lost it (me → push_registered: false).
+///
+/// Check delivery (Notifications screen): [echo] waits for one test push carrying a nonce, so the app can time the
+/// whole road — TapTap → Google → this phone — and say where it stops.
 class Push {
   static bool ready = false;
   static void Function(String cid, String from, bool video)? onAccept;     // set by the shell: open the call
@@ -42,8 +54,21 @@ class Push {
   static void Function(String cid)? onRingEnded;                         // set by the shell: that call stopped ringing
   static bool _refreshing = false;
   static String? _sentToken;                                              // the token TapTap has for this phone
+  static String _sentPerm = '';                                           // …and the permission it was told
+  static DateTime? _sentAt;
+  static Future<void>? _registering;                                      // one registration at a time
+  static bool _registeringAsks = false;                                   // …and whether it shows the prompt
   static Timer? _retry;
   static int _tries = 0;
+  static final Map<String, Completer<Duration?>> _echo = {};             // Check delivery: nonce → round trip
+  static final Map<String, DateTime> _echoFrom = {};
+
+  /// What TapTap said when this phone last registered: does the app's Firebase project match the server key's?
+  static bool? projectMatch;
+  static String serverProject = '';
+
+  /// The phone showed its "Allow notifications?" prompt during the last registration (so no reminder right now).
+  static bool justAsked = false;
   static const _native = MethodChannel('taptap/notifications');           // android/…/MainActivity.kt
   static const _store = FlutterSecureStorage(aOptions: AndroidOptions(encryptedSharedPreferences: true));
 
@@ -66,31 +91,56 @@ class Push {
     FlutterCallkitIncoming.onEvent.listen(_callkitEvent);
   }
 
-  /// Ask for permission and send this phone's push token to TapTap (after sign-in, and again when the app comes
-  /// back to the screen). On a slow line the first try can fail: it tries again by itself until TapTap has it.
-  static Future<void> register({bool ask = true}) async {
-    if (!ready || !Api.I.signedIn) return;
+  /// The Firebase project this copy of the app was built with ('' without Firebase).
+  static String get projectId {
+    if (!ready) return '';
+    try {
+      return Firebase.app().options.projectId;
+    } catch (_) {
+      return '';
+    }
+  }
+
+  /// Ask for permission (once, and only if needed) and send this phone's push address to TapTap — after sign-in, and
+  /// again when the app comes back to the screen (then only when something changed or 30 minutes passed). On a slow
+  /// line the first try can fail: it tries again by itself until TapTap has it. Callers that arrive while a
+  /// registration is running wait for that one.
+  static Future<void> register({bool ask = true, bool force = false}) {
+    if (!ready || !Api.I.signedIn) return Future<void>.value();
+    final running = _registering;
+    if (running != null) {
+      // a quiet re-send is running and this caller wants the prompt: ask right after it, never skip the prompt
+      return ask && !_registeringAsks ? running.then((_) => register(ask: true, force: force)) : running;
+    }
+    _registeringAsks = ask;
+    final f = _register(ask: ask, force: force).whenComplete(() => _registering = null);
+    _registering = f;
+    return f;
+  }
+
+  static Future<void> _register({required bool ask, required bool force}) async {
     try {
       final fm = FirebaseMessaging.instance;
-      if (ask) {
+      var perm = await permission();
+      if (ask && perm != 'allowed') {
+        // One prompt, and its real answer. (The old second prompt from the call plugin raced this one.)
+        final sw = Stopwatch()..start();
         await fm.requestPermission(alert: true, badge: true, sound: true);
-        if (Platform.isAndroid) {
-          await FlutterCallkitIncoming.requestNotificationPermission({
-            'title': 'Notifications',
-            'rationaleMessagePermission': 'TapTap needs notifications to ring you for calls.',
-            'postNotificationMessageRequired': 'Allow notifications for TapTap.',
-          });
-          await _fullScreenOnce();
-        }
+        justAsked = sw.elapsedMilliseconds > 700;    // a prompt was on screen (instant = the phone no longer asks)
+        perm = await permission();
+      }
+      if (perm == 'allowed') {
         try {
           await _native.invokeMethod('createChannels');
         } catch (_) {}
+        if (ask && Platform.isAndroid) await _fullScreenOnce();          // calls over the lock screen — after, not during
       }
       final tok = await fm.getToken();
-      if (tok != null && tok != _sentToken) await _sendToken(tok);
+      final stale = _sentAt == null || DateTime.now().difference(_sentAt!) > const Duration(minutes: 30);
+      if (tok != null && (force || stale || tok != _sentToken || perm != _sentPerm)) await _sendToken(tok, perm);
       if (!_refreshing) {
         _refreshing = true;
-        fm.onTokenRefresh.listen(_sendToken);
+        fm.onTokenRefresh.listen((t) async => _sendToken(t, await permission()));
       }
     } catch (e) {
       debugPrint('Push register failed: $e');
@@ -98,10 +148,22 @@ class Push {
     }
   }
 
-  static Future<void> _sendToken(String tok) async {
+  static Future<Map<String, dynamic>> _post(String tok, String perm) => Api.I.post('/api/mobile/v1/push/', {
+        'token': tok,
+        'perm': perm,
+        'project': projectId,
+        'platform': Platform.isIOS ? 'ios' : 'android',
+      });
+
+  static Future<void> _sendToken(String tok, String perm) async {
     try {
-      await Api.I.post('/api/mobile/v1/push/', {'token': tok});
+      final d = await _post(tok, perm);
       _sentToken = tok;
+      _sentPerm = perm;
+      _sentAt = DateTime.now();
+      final m = d['project_match'];
+      projectMatch = m is bool ? m : null;
+      serverProject = '${d['server_project'] ?? ''}';
       _tries = 0;
       _retry?.cancel();
     } catch (e) {
@@ -110,17 +172,121 @@ class Push {
     }
   }
 
+  /// TapTap says it does not have this phone's address (me → push_registered: false): send it again.
+  static void serverForgot() {
+    if (!ready) return;
+    _sentToken = null;
+    register(ask: false, force: true);
+  }
+
+  /// Check delivery: send this phone's address now and return TapTap's answer (server key's project, match…).
+  /// Throws with a plain message when Google gives no address (no internet to Google, no Google Play services…).
+  static Future<Map<String, dynamic>> registerNow() async {
+    if (!ready) throw ApiError('This copy of the app was built without Firebase.');
+    String? tok;
+    try {
+      tok = await FirebaseMessaging.instance.getToken();
+    } catch (e) {
+      throw ApiError(explainTokenError(e));
+    }
+    if (tok == null || tok.isEmpty) throw ApiError('Google did not give this phone a push address. Check the internet, then try again.');
+    final perm = await permission();
+    final d = await _post(tok, perm);
+    _sentToken = tok;
+    _sentPerm = perm;
+    _sentAt = DateTime.now();
+    final m = d['project_match'];
+    projectMatch = m is bool ? m : null;
+    serverProject = '${d['server_project'] ?? ''}';
+    return d;
+  }
+
+  /// Why Google gave no push address, in plain words.
+  static String explainTokenError(Object e) {
+    final t = '$e';
+    if (t.contains('SERVICE_NOT_AVAILABLE') || t.contains('MISSING_INSTANCEID_SERVICE')) {
+      return 'Google Play services cannot be reached on this phone (no internet to Google, or a phone without Google '
+          'Play services, like newer Huawei). Pushes cannot reach it; TapTap still works while open.';
+    }
+    if (t.contains('FIS_AUTH_ERROR') || t.contains('AUTHENTICATION_FAILED') || t.contains('API key')) {
+      return 'Google refused this app’s Firebase key (google-services.json is from another project, or its API key '
+          'is restricted). Rebuild the app with the right google-services.json.';
+    }
+    if (t.contains('TOO_MANY_REGISTRATIONS')) return 'This phone has too many apps using Google push. Remove some unused apps.';
+    return 'Google did not give this phone a push address: $t';
+  }
+
+  /// Turn notifications on: the phone's prompt, or — when it no longer shows one ("Don't allow" twice) — its
+  /// settings page. Returns the permission afterwards ('allowed', 'denied', 'ask', 'off').
+  static Future<String> turnOn() async {
+    if (!ready) return 'off';
+    final sw = Stopwatch()..start();
+    try {
+      await FirebaseMessaging.instance.requestPermission(alert: true, badge: true, sound: true);
+    } catch (_) {}
+    final p = await permission();
+    if (p == 'allowed') {
+      await register(ask: false, force: true);
+    } else if (sw.elapsedMilliseconds < 700) {
+      await openPhoneSettings();                       // no prompt appeared: only the phone's settings can do it
+    }
+    return p;
+  }
+
+  /// Notification kinds switched off in the phone's settings (Android: channel names), or [] when all are on.
+  static Future<List<String>> blockedKinds() async {
+    if (!Platform.isAndroid) return const [];
+    try {
+      final r = await _native.invokeMethod<Map<Object?, Object?>>('notificationState');
+      final off = r?['off'];
+      return off is List ? off.map((e) => '$e').toList() : const [];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// The "notifications are off" reminder after start: at most once a day.
+  static Future<bool> nudgeDue() async {
+    try {
+      final today = DateTime.now().toIso8601String().substring(0, 10);
+      if (await _store.read(key: 'notify_nudge_day') == today) return false;
+      await _store.write(key: 'notify_nudge_day', value: today);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// A fresh nonce for Check delivery.
+  static String newNonce() => '${DateTime.now().microsecondsSinceEpoch}-${Random().nextInt(1 << 30)}';
+
+  /// Wait for the test push carrying [nonce] (call before asking TapTap to send it): the time it took, or null
+  /// when it did not arrive within [wait].
+  static Future<Duration?> echo(String nonce, Duration wait) {
+    final c = Completer<Duration?>();
+    _echo[nonce] = c;
+    _echoFrom[nonce] = DateTime.now();
+    Timer(wait, () {
+      _echoFrom.remove(nonce);
+      final w = _echo.remove(nonce);
+      if (w != null && !w.isCompleted) w.complete(null);
+    });
+    return c.future;
+  }
+
   /// Try again later (no internet, or TapTap too slow to answer): 5 s, 15 s, 30 s, then every minute.
   static void _again() {
     _retry?.cancel();
     final s = const [5, 15, 30, 60][_tries.clamp(0, 3)];
     _tries++;
-    _retry = Timer(Duration(seconds: s), () => register(ask: false));
+    _retry = Timer(Duration(seconds: s), () => register(ask: false, force: true));
   }
 
   static Future<void> unregister() async {
     _retry?.cancel();
     _sentToken = null;
+    _sentPerm = '';
+    _sentAt = null;
     if (!ready) return;
     try {
       await FirebaseMessaging.instance.deleteToken();
@@ -197,6 +363,15 @@ class Push {
   /// A push while the app is on screen: calls ring in the app at once; everything else pops up as a banner.
   static Future<void> _foreground(RemoteMessage m) async {
     final d = m.data;
+    final nonce = '${d['nonce'] ?? ''}';
+    if (d['type'] == 'test' && nonce.isNotEmpty) {
+      final from = _echoFrom.remove(nonce);
+      final w = _echo.remove(nonce);
+      if (w != null && !w.isCompleted) {
+        w.complete(from == null ? Duration.zero : DateTime.now().difference(from));
+        return;                                      // Check delivery shows it on its own screen
+      }
+    }
     if (d['type'] == 'call' || d['type'] == 'call_end') return handle(d, foreground: true);
     final title = m.notification?.title ?? '${d['title'] ?? ''}';
     if (title.isEmpty) return;
@@ -213,14 +388,14 @@ class Push {
           // ring now — on a slow line the app's own check can take several seconds to see it
           onRing?.call({
             'id': '${d['id']}',
-            'from': '${d['from'] ?? 'Call'}',
+            'from': '${d['caller'] ?? d['from'] ?? 'Call'}',
             'initials': '${d['initials'] ?? ''}',
             'kind': '${d['kind'] ?? 'direct'}',
             'video': d['video'] == '1',
           });
           return;
         }
-        await showIncoming('${d['id']}', '${d['from'] ?? 'Call'}', d['kind'] == 'portal', d['video'] == '1');
+        await showIncoming('${d['id']}', '${d['caller'] ?? d['from'] ?? 'Call'}', d['kind'] == 'portal', d['video'] == '1');
         break;
       case 'call_end':
         if (foreground) onRingEnded?.call('${d['id']}');

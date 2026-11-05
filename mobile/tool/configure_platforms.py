@@ -49,10 +49,14 @@ if man.exists():
     if 'android:showWhenLocked' not in s:
         s = s.replace('android:name=".MainActivity"', 'android:name=".MainActivity"\n            android:showWhenLocked="true"\n            android:turnScreenOn="true"', 1)
         say('Android: incoming calls can show over the lock screen')
-    # flutter_callkit_incoming: answering from the lock screen / notification must reuse the one app window
-    if 'android:launchMode="singleTop"' in s:
-        s = s.replace('android:launchMode="singleTop"', 'android:launchMode="singleInstance"', 1)
-        say('Android: one app window for answered calls (launchMode singleInstance)')
+    # One app window for answered calls (flutter_callkit_incoming), WITHOUT singleInstance. singleInstance puts every
+    # screen the app opens for an answer in another task, and Android cancels that answer at once: the
+    # "Allow notifications?" prompt (Android 13+) could never be answered, so fresh installs stayed silent — no push
+    # was ever shown — and the photo picker in chat came back empty. singleTask keeps one window and lets them work.
+    for mode in ('singleTop', 'singleInstance'):
+        if f'android:launchMode="{mode}"' in s:
+            s = s.replace(f'android:launchMode="{mode}"', 'android:launchMode="singleTask"', 1)
+            say(f'Android: one app window for answered calls (launchMode {mode} → singleTask)')
     # the app's name under the icon (flutter create calls it "taptap_app")
     s2 = re.sub(r'android:label="[^"]*"', 'android:label="TapTap"', s, count=1)
     if s2 != s:
@@ -195,6 +199,17 @@ class MainActivity : FlutterActivity() {{
                     createChannels()
                     result.success(true)
                 }}
+                // Check delivery: are notifications on for TapTap, and which kinds were switched off in the phone's settings
+                "notificationState" -> {{
+                    val manager = getSystemService(NotificationManager::class.java)
+                    val off = ArrayList<String>()
+                    if (manager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {{
+                        for (ch in manager.notificationChannels) {{
+                            if (ch.importance == NotificationManager.IMPORTANCE_NONE) off.add(ch.name.toString())
+                        }}
+                    }}
+                    result.success(mapOf("enabled" to (manager?.areNotificationsEnabled() ?: true), "off" to off))
+                }}
                 "sound" -> result.success(playSound(call.argument<String>("kind") ?: ""))
                 "soundStop" -> {{
                     stopSounds()
@@ -302,6 +317,21 @@ class MainActivity : FlutterActivity() {{
 }}
 ''')
         say(f'Android: {len(CHANNELS)} notification channels (pop up on screen) in {act.name}')
+
+# ── Release builds shrink the code (R8). Without these rules the incoming-call screen's own classes are renamed and
+# ringing a closed phone breaks in the APK only (flutter_callkit_incoming's README asks for the first rule).
+# Flutter's Gradle plugin reads android/app/proguard-rules.pro by itself.
+KEEP = ['-keep class com.hiennv.flutter_callkit_incoming.** { *; }',
+        '-keep class io.flutter.plugins.firebase.messaging.** { *; }',
+        '-dontwarn com.hiennv.flutter_callkit_incoming.**']
+if man.exists():
+    pro = ROOT / 'android/app/proguard-rules.pro'
+    have = pro.read_text() if pro.exists() else ''
+    missing = [k for k in KEEP if k not in have]
+    if missing:
+        pro.write_text(have + ('' if not have or have.endswith('\n') else '\n')
+                       + '# TapTap — tool/configure_platforms.py\n' + '\n'.join(missing) + '\n')
+        say(f'Android: {len(missing)} keep rules for release builds (incoming calls, push) in proguard-rules.pro')
 
 for g in (ROOT / 'android/app/build.gradle.kts', ROOT / 'android/app/build.gradle'):
     if g.exists():
