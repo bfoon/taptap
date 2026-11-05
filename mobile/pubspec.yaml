@@ -24,7 +24,6 @@ dependencies:
   firebase_messaging: ^16.0.0
   flutter_callkit_incoming: ^3.0.0
   uuid: ^4.5.1
-  flutter_ringtone_player: ^4.0.0+4
 
 dev_dependencies:
   flutter_test:
@@ -33,5 +32,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  assets:
-    - assets/sounds/ringback.wav

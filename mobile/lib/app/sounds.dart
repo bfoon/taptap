@@ -1,21 +1,23 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 /// Every sound the app makes while it is open (when it is closed, the phone's own call screen and notification
 /// channels make the sound — push.dart and tool/configure_platforms.py).
 ///
 ///   ringing   an incoming call: the phone's own ringtone, looped, with a buzz — until answered or declined
-///   ringback  you are calling someone: the soft "tuu… tuu…" tone, until they answer
+///   ringback  you are calling someone: the phone's "tuu… tuu…" call-progress tone, until they answer
 ///   notify    a message, complaint or alert arrived while TapTap is on screen (the phone's notification sound)
 ///
-/// One player at a time: an incoming ring always wins over the ringback.
+/// Played natively by MainActivity (android/…/MainActivity.kt, written by tool/configure_platforms.py) — no extra
+/// package, so nothing pins the Android SDK version. On iPhone only the buzz plays (the call screen rings there).
+/// One sound at a time: an incoming ring always wins over the ringback.
 class Sounds {
   Sounds._();
 
-  static final _player = FlutterRingtonePlayer();
+  static const _native = MethodChannel('taptap/notifications');
   static Timer? _buzz;
   static String _playing = '';                    // '' · 'ring' · 'ringback'
   static DateTime _lastNotify = DateTime.fromMillisecondsSinceEpoch(0);
@@ -30,11 +32,7 @@ class Sounds {
     }
     await _stop();
     _playing = 'ring';
-    try {
-      await _player.play(android: AndroidSounds.ringtone, ios: IosSounds.electronic, looping: true, volume: 1.0, asAlarm: false);
-    } catch (e) {
-      debugPrint('Ringtone failed: $e');
-    }
+    await _play('ring');
     HapticFeedback.heavyImpact();
     _buzz = Timer.periodic(const Duration(milliseconds: 1100), (_) => HapticFeedback.heavyImpact());
   }
@@ -47,11 +45,7 @@ class Sounds {
     }
     if (_playing.isNotEmpty) return;              // already ringing back (or an incoming ring is playing)
     _playing = 'ringback';
-    try {
-      await _player.play(fromAsset: 'assets/sounds/ringback.wav', looping: true, volume: 0.6, asAlarm: false);
-    } catch (e) {
-      debugPrint('Ringback failed: $e');
-    }
+    await _play('ringback');
   }
 
   /// A short notification sound (at most one every 2 seconds, never over a ringing call).
@@ -60,11 +54,7 @@ class Sounds {
     final now = DateTime.now();
     if (now.difference(_lastNotify).inMilliseconds < 2000) return;
     _lastNotify = now;
-    try {
-      await _player.play(android: AndroidSounds.notification, ios: IosSounds.glass, looping: false, volume: 1.0, asAlarm: false);
-    } catch (e) {
-      debugPrint('Notification sound failed: $e');
-    }
+    await _play('notify');
   }
 
   /// Stop everything (a call screen opened or closed).
@@ -74,10 +64,20 @@ class Sounds {
     await _stop();
   }
 
+  static Future<void> _play(String kind) async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _native.invokeMethod('sound', {'kind': kind});
+    } catch (e) {
+      debugPrint('Sound "$kind" failed: $e');
+    }
+  }
+
   static Future<void> _stop() async {
     _playing = '';
+    if (kIsWeb || !Platform.isAndroid) return;
     try {
-      await _player.stop();
+      await _native.invokeMethod('soundStop');
     } catch (_) {}
   }
 }

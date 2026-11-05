@@ -104,7 +104,8 @@ the background*; More → Notifications shows it as a check with an **Allow** bu
 ### Sounds
 
 * Incoming call while the app is open: the phone's own ringtone (looped) and a buzz, until you answer or decline.
-* Calling someone: a soft ringback tone (`assets/sounds/ringback.wav`) until they answer.
+* Calling someone: the phone's ringback ("tuu… tuu…") tone until they answer.
+* Played natively by `MainActivity` (no extra package). On iPhone the in-app ring only buzzes; the call screen rings.
 * A notification while the app is open: the in-app pop-up plays the phone's notification sound; chat messages do too
   when push is not set up.
 * When the app is closed the phone's own call screen and the notification channels make the sound.
@@ -160,6 +161,6 @@ lib/screens/shell.dart        tabs, incoming calls, notification taps
 lib/calls/call_engine.dart    WebRTC — same protocol as static/js/chat-call.js
 lib/calls/call_screen.dart    in-call + incoming-call screens
 lib/push/push.dart            Firebase + native call screen (flutter_callkit_incoming), battery-saver check
-lib/app/sounds.dart           ringtone, ringback and notification sounds while the app is open
+lib/app/sounds.dart           ringtone, ringback and notification sounds while the app is open (native, MainActivity)
 tool/configure_platforms.py   Android / iOS permissions and Android notification channels after `flutter create`
 ```

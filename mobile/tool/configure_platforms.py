@@ -97,7 +97,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.Ringtone
 import android.media.RingtoneManager
+import android.media.ToneGenerator
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -108,9 +111,19 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {{
+    // sounds while the app is open (lib/app/sounds.dart): ringtone for an incoming call, ringback while calling
+    private var ringtone: Ringtone? = null
+    private var note: Ringtone? = null
+    private var tone: ToneGenerator? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {{
         super.onCreate(savedInstanceState)
         createChannels()
+    }}
+
+    override fun onDestroy() {{
+        stopSounds()
+        super.onDestroy()
     }}
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {{
@@ -133,6 +146,11 @@ class MainActivity : FlutterActivity() {{
                 }}
                 "createChannels" -> {{
                     createChannels()
+                    result.success(true)
+                }}
+                "sound" -> result.success(playSound(call.argument<String>("kind") ?: ""))
+                "soundStop" -> {{
+                    stopSounds()
                     result.success(true)
                 }}
                 // Battery saver: may Android stop TapTap in the background (then pushes and calls do not arrive)?
@@ -164,6 +182,52 @@ class MainActivity : FlutterActivity() {{
                 else -> result.notImplemented()
             }}
         }}
+    }}
+
+    private fun playSound(kind: String): Boolean {{
+        try {{
+            when (kind) {{
+                "ring" -> {{
+                    stopSounds()
+                    val uri = RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_RINGTONE)
+                        ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE) ?: return false
+                    val r = RingtoneManager.getRingtone(this, uri) ?: return false
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) r.isLooping = true
+                    r.play()
+                    ringtone = r
+                }}
+                "ringback" -> {{
+                    stopSounds()
+                    val t = ToneGenerator(AudioManager.STREAM_VOICE_CALL, 70)
+                    t.startTone(ToneGenerator.TONE_SUP_RINGTONE)
+                    tone = t
+                }}
+                "notify" -> {{
+                    val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION) ?: return false
+                    val r = RingtoneManager.getRingtone(this, uri) ?: return false
+                    note = r
+                    r.play()
+                }}
+                else -> return false
+            }}
+            return true
+        }} catch (e: Exception) {{
+            return false
+        }}
+    }}
+
+    private fun stopSounds() {{
+        try {{
+            ringtone?.stop()
+        }} catch (e: Exception) {{
+        }}
+        ringtone = null
+        try {{
+            tone?.stopTone()
+            tone?.release()
+        }} catch (e: Exception) {{
+        }}
+        tone = null
     }}
 
     private fun createChannels() {{
