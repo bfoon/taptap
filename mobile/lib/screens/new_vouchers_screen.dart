@@ -8,6 +8,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../app/api.dart';
 import '../app/format.dart';
 import '../app/state.dart';
+import '../data/store.dart';
+import '../data/sync_engine.dart';
 import '../widgets/common.dart';
 import '../widgets/voucher_widgets.dart';
 import 'voucher_detail_screen.dart';
@@ -48,6 +50,8 @@ class _NewVouchersScreenState extends State<NewVouchersScreen> {
   @override
   void initState() {
     super.initState();
+    final saved = Store.I.peek(Pages.voucherForm);   // plans, routers, agents as saved on the phone: the form at once
+    if (saved != null) _apply(saved);
     _load();
   }
 
@@ -59,22 +63,40 @@ class _NewVouchersScreenState extends State<NewVouchersScreen> {
     super.dispose();
   }
 
+  /// Take the form's options (no setState: callers do that). The first time sets the defaults, as before; when
+  /// TapTap's fresh answer replaces the saved one, what the person already picked stays (if it still exists).
+  void _apply(Map<String, dynamic> d) {
+    final first = _o == null;
+    final plans = asMaps(d['plans']);
+    final routers = asMaps(d['routers']);
+    final agents = asMaps(d['agents']);
+    final code = (d['code'] as Map?)?.cast<String, dynamic>() ?? {};
+    bool has(List<Map<String, dynamic>> rows, int? id) => id != null && rows.any((r) => toI(r['id']) == id);
+    _o = d;
+    if (first) {
+      _plan = plans.length == 1 ? plans.first : null;
+      _singleRouter = routers.isEmpty ? null : toI(routers.first['id']);
+      _len = toI(code['length']) == 0 ? 8 : toI(code['length']);
+    } else {
+      final picked = _plan;
+      final same = picked == null ? null : plans.where((p) => p['id'] == picked['id']).toList();
+      _plan = (same != null && same.isNotEmpty) ? same.first : (plans.length == 1 ? plans.first : null);
+      if (!has(routers, _singleRouter)) _singleRouter = routers.isEmpty ? null : toI(routers.first['id']);
+      if (!has(routers, _batchRouter)) _batchRouter = null;
+      if (!has(agents, _agent)) _agent = null;
+    }
+    _err = null;
+  }
+
   Future<void> _load() async {
     try {
-      final d = await Api.I.get('/api/mobile/v1/vouchers/new/');
+      final d = await Store.I.fetch(Pages.voucherForm);
       if (!mounted) return;
-      final plans = asMaps(d['plans']);
-      final routers = asMaps(d['routers']);
-      final code = (d['code'] as Map?)?.cast<String, dynamic>() ?? {};
-      setState(() {
-        _o = d;
-        _plan = plans.length == 1 ? plans.first : null;
-        _singleRouter = routers.isEmpty ? null : toI(routers.first['id']);
-        _len = toI(code['length']) == 0 ? 8 : toI(code['length']);
-        _err = null;
-      });
+      setState(() => _apply(d));
     } on ApiError catch (e) {
-      if (mounted) setState(() => _err = e.message);
+      if (!mounted) return;
+      if (e.status == 0 && _o != null) return;      // offline with the saved form on screen: TapTap checks on Create
+      setState(() => _err = e.message);
     }
   }
 

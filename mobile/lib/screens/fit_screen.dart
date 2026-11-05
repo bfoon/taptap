@@ -6,6 +6,8 @@ import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
 import '../app/api.dart';
+import '../data/store.dart';
+import '../data/sync_engine.dart';
 import '../widgets/charts.dart';
 
 /// Fit, your AI technician — the same Fit as on the website (/fit/), so it can do exactly what it may do for you
@@ -28,10 +30,13 @@ class FitScreenState extends State<FitScreen> {
   String? _err;
   int _dots = 0;
   Timer? _dotTimer;
+  bool _asked = false;                        // a question was asked here: the conversation on screen is newer
 
   @override
   void initState() {
     super.initState();
+    final saved = Store.I.peek(Pages.fit);    // the last conversation as saved on the phone: on screen at once
+    if (saved != null) _take(saved);
     _load();
     widget.question?.addListener(_external);
   }
@@ -51,27 +56,39 @@ class FitScreenState extends State<FitScreen> {
     }
   }
 
+  void _take(Map<String, dynamic> d) {
+    _state = d;
+    _conv = d['conversation'] as int?;
+    _msgs
+      ..clear()
+      ..addAll((d['messages'] as List? ?? []).whereType<Map>().map((e) => e.cast<String, dynamic>()));
+    _err = null;
+  }
+
   Future<void> _load() async {
     try {
-      final d = await Api.I.get('/fit/state/');
+      final d = await Store.I.fetch(Pages.fit);
+      if (!mounted) return;
       setState(() {
-        _state = d;
-        _conv = d['conversation'] as int?;
-        _msgs
-          ..clear()
-          ..addAll((d['messages'] as List? ?? []).cast<Map>().map((e) => e.cast<String, dynamic>()));
-        _err = null;
+        if (_thinking || _asked) {
+          _state = d;                         // keep the conversation going on screen
+          _err = null;
+        } else {
+          _take(d);
+        }
       });
       _toBottom();
       _external();
     } on ApiError catch (e) {
-      setState(() => _err = e.message);
+      if (!mounted) return;
+      setState(() => _err = (e.status == 0 && _state != null) ? null : e.message);
     }
   }
 
   Future<void> ask(String q) async {
     q = q.trim();
     if (q.isEmpty || _thinking) return;
+    _asked = true;
     HapticFeedback.lightImpact();
     _text.clear();
     setState(() {
@@ -101,6 +118,7 @@ class FitScreenState extends State<FitScreen> {
   Future<void> _newChat() async {
     try {
       final d = await Api.I.post('/fit/new/');
+      Store.I.remove(Pages.fit);              // the saved conversation is the old one now
       setState(() {
         _conv = d['conversation'] as int?;
         _msgs.clear();

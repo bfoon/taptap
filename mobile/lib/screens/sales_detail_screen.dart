@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../app/api.dart';
 import '../app/format.dart';
 import '../app/state.dart';
+import '../data/store.dart';
+import '../data/sync_engine.dart';
 import '../widgets/charts.dart';
 import '../widgets/common.dart';
 
@@ -24,21 +26,34 @@ class _SalesDetailScreenState extends State<SalesDetailScreen> {
   Map<String, dynamic>? _d;
   String? _err;
 
+  Map<String, String> get _query => {
+        'date': ymd(widget.day),
+        if (widget.plan != null) 'plan': widget.plan!,
+        if (widget.seller != null) 'seller': widget.seller!,
+      };
+
+  Map<String, dynamic>? _detail(Map<String, dynamic> d) =>
+      ((widget.plan != null ? d['plan_detail'] : d['seller_detail']) as Map?)?.cast<String, dynamic>();
+
   @override
   void initState() {
     super.initState();
+    final saved = Store.I.peek(Pages.sales, _query);       // seen before: on screen at once
+    if (saved != null) _d = _detail(saved);
     _load();
   }
 
   Future<void> _load() async {
     try {
-      final d = await Api.I.get('/api/mobile/v1/sales/', query: {
-        'date': ymd(widget.day),
-        if (widget.plan != null) 'plan': widget.plan!,
-        if (widget.seller != null) 'seller': widget.seller!,
+      final d = await Store.I.fetch(Pages.sales, query: _query);
+      if (!mounted) return;
+      setState(() {
+        _d = _detail(d) ?? {};
+        _err = null;
       });
-      setState(() => _d = ((widget.plan != null ? d['plan_detail'] : d['seller_detail']) as Map?)?.cast<String, dynamic>() ?? {});
     } on ApiError catch (e) {
+      if (!mounted) return;
+      if (e.status == 0 && _d != null) return;              // offline with the saved one on screen
       setState(() => _err = e.message);
     }
   }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -5,6 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../app/api.dart';
 import '../app/format.dart';
 import '../app/state.dart';
+import '../data/store.dart';
+import '../data/sync_engine.dart';
 import '../push/push.dart';
 import '../widgets/common.dart';
 import 'notifications_screen.dart';
@@ -20,19 +24,43 @@ class MoreScreen extends StatefulWidget {
 class _MoreScreenState extends State<MoreScreen> {
   List<Map>? _calls;
   List<Map>? _devices;
+  StreamSubscription<String>? _saved;
 
   @override
   void initState() {
     super.initState();
+    _calls = _list(Store.I.peek(Pages.customerCalls), 'calls');     // saved on the phone: shown at once
+    _devices = _list(Store.I.peek(Pages.devices), 'devices');
+    _saved = Store.I.changes.listen((key) {
+      if (!mounted || (key != Pages.customerCalls && key != Pages.devices)) return;
+      final d = Store.I.peekKey(key);
+      if (d == null) return;
+      setState(() {
+        if (key == Pages.customerCalls) {
+          _calls = _list(d, 'calls') ?? _calls;
+        } else {
+          _devices = _list(d, 'devices') ?? _devices;
+        }
+      });
+    });
     _load();
   }
 
+  @override
+  void dispose() {
+    _saved?.cancel();
+    super.dispose();
+  }
+
+  static List<Map>? _list(Map<String, dynamic>? d, String name) => d?[name] is List ? (d![name] as List).whereType<Map>().toList() : null;
+
   Future<void> _load() async {
     try {
-      final r = await Future.wait([Api.I.get('/api/mobile/v1/customer-calls/'), Api.I.get('/api/mobile/v1/devices/')]);
+      final r = await Future.wait([Store.I.fetch(Pages.customerCalls), Store.I.fetch(Pages.devices)]);
+      if (!mounted) return;
       setState(() {
-        _calls = (r[0]['calls'] as List).cast<Map>();
-        _devices = (r[1]['devices'] as List).cast<Map>();
+        _calls = _list(r[0], 'calls') ?? _calls;
+        _devices = _list(r[1], 'devices') ?? _devices;
       });
     } catch (_) {}
   }
@@ -122,8 +150,10 @@ class _MoreScreenState extends State<MoreScreen> {
                     title: Text('${x['name']}'),
                     subtitle: Text('${x['role']}'),
                     onChanged: (v) async {
+                      // this screen is rebuilt for the new business, so keep the messenger (it stays) for the note
+                      final messenger = ScaffoldMessenger.of(context);
                       await app.switchBusiness(v!);
-                      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Now on ${x['name']}')));
+                      messenger.showSnackBar(SnackBar(content: Text('Now on ${x['name']}')));
                     },
                   ),
               ]),

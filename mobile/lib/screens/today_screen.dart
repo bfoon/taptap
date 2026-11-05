@@ -8,6 +8,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../app/api.dart';
 import '../app/format.dart';
 import '../app/state.dart';
+import '../data/store.dart';
+import '../data/sync_engine.dart';
 import '../widgets/charts.dart';
 import '../widgets/common.dart';
 import '../widgets/quick_actions.dart';
@@ -31,51 +33,106 @@ class _TodayScreenState extends State<TodayScreen> {
   Timer? _live;
   int _lastSaleId = 0;
   Map<String, dynamic>? _flash;      // "+D25 · 24 Hours" when a sale comes in
+  StreamSubscription<String>? _saved;
+  bool _primed = false;              // the first refresh is done: from now on a newer sale is celebrated
 
   bool get _isToday => _day == DateUtils.dateOnly(DateTime.now());
+  String get _salesKey => Store.keyOf(Pages.sales, Pages.day(_day));
 
   @override
   void initState() {
     super.initState();
-    _load();
+    _fromPhone();                    // what this phone saved: on screen at once, also with no internet
+    _saved = Store.I.changes.listen(_onSaved);
+    _refresh();
     _live = Timer.periodic(const Duration(seconds: 15), (_) => _refresh(quiet: true));
   }
 
   @override
   void dispose() {
     _live?.cancel();
+    _saved?.cancel();
     super.dispose();
+  }
+
+  /// The chosen day (and today's home) as saved on the phone — no setState: callers do that.
+  void _fromPhone() {
+    final s = Store.I.peek(Pages.sales, Pages.day(_day));
+    _s = s;
+    _fp = s == null ? '' : '${s['fp'] ?? ''}';
+    if (s != null) _lastSaleId = _newest(s);
+    if (_isToday) _home ??= Store.I.peek(Pages.home);
+  }
+
+  static int _newest(Map<String, dynamic> d) {
+    final sales = (d['sales'] as List? ?? []);
+    return sales.isEmpty || sales.first is! Map ? 0 : toI((sales.first as Map)['id']);
+  }
+
+  /// The background sync (or another screen) brought something new for this page: show it.
+  void _onSaved(String key) {
+    if (!mounted) return;
+    if (key == _salesKey) {
+      final d = Store.I.peekKey(key);
+      if (d != null && d['changed'] != false) {
+        _applySales(d, quiet: _primed);
+        setState(() {});
+      }
+    } else if (key == Pages.home && _isToday) {
+      final d = Store.I.peekKey(key);
+      if (d != null) setState(() => _home = d);
+    }
+  }
+
+  void _applySales(Map<String, dynamic> d, {required bool quiet}) {
+    _fp = '${d['fp']}';
+    final sales = (d['sales'] as List? ?? []);
+    final newest = _newest(d);
+    if (quiet && _isToday && _lastSaleId > 0 && newest > _lastSaleId) _celebrate(sales.first as Map);
+    _lastSaleId = newest;
+    _s = d;
   }
 
   Future<void> _load() async {
     setState(() {
-      _s = null;
       _err = null;
-      _fp = '';
+      _fromPhone();
     });
     await _refresh();
   }
 
   Future<void> _refresh({bool quiet = false}) async {
     final app = context.read<AppState>();
+    final day = _day;
     try {
       final futures = <Future>[];
       if (app.canDo('sales')) {
-        futures.add(Api.I.get('/api/mobile/v1/sales/', query: {'date': ymd(_day), if (quiet && _fp.isNotEmpty) 'fp': _fp}).then((d) {
-          if (d['changed'] == false) return;
-          _fp = '${d['fp']}';
-          final sales = (d['sales'] as List? ?? []);
-          final newest = sales.isEmpty ? 0 : toI((sales.first as Map)['id']);
-          if (quiet && _isToday && _lastSaleId > 0 && newest > _lastSaleId) _celebrate(sales.first as Map);
-          _lastSaleId = newest;
-          _s = d;
+        futures.add(Store.I
+            .fetch(Pages.sales,
+                query: Pages.day(day),
+                extra: {if (quiet && _fp.isNotEmpty) 'fp': _fp},
+                unchanged: (d) => d['changed'] == false)
+            .then((d) {
+          if (d['changed'] == false || day != _day || !mounted) return;
+          _applySales(d, quiet: quiet);
         }));
       }
-      if (_isToday) futures.add(Api.I.get('/api/mobile/v1/home/').then((d) => _home = d));
+      if (_isToday) {
+        futures.add(Store.I.fetch(Pages.home).then((d) {
+          if (day == _day) _home = d;
+        }));
+      }
       await Future.wait(futures);
+      _primed = true;
       if (mounted) setState(() => _err = null);
     } on ApiError catch (e) {
-      if (!quiet && mounted) setState(() => _err = e.message);
+      _primed = true;
+      if (!mounted) return;
+      if (!quiet && !(e.status == 0 && _s != null)) {
+        setState(() => _err = e.message);      // no internet but the saved day is on screen: the offline strip says it
+      } else {
+        setState(() {});                      // what did arrive (the other half) is shown
+      }
     }
   }
 

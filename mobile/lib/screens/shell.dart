@@ -7,6 +7,7 @@ import '../app/state.dart';
 import '../calls/call_engine.dart';
 import '../calls/call_screen.dart';
 import '../push/push.dart';
+import '../widgets/offline_strip.dart';
 import '../widgets/push_banner.dart';
 import 'chat_screens.dart';
 import 'complaints_screen.dart';
@@ -152,6 +153,7 @@ class _ShellState extends State<Shell> {
   void _banner(String title, String body, Map<String, dynamic> d) {
     final app = context.read<AppState>();
     final type = '${d['type'] ?? ''}';
+    app.sync.nudge(type);                             // pull what it is about now, so the screen already shows it
     if (type == 'chat' && app.openThread != null && '${app.openThread}' == '${d['thread']}') return;
     IconData icon = Icons.notifications_active;
     Color? color;
@@ -220,29 +222,36 @@ class _ShellState extends State<Shell> {
     final idx = tabs.indexOf(_tab);
     return Scaffold(
       extendBody: true,
-      body: IndexedStack(index: idx, children: [for (final t in tabs) _page(t)]),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: idx,
-        // six tabs (owner / admin) do not fit with every label on a small phone: show the open tab's label only
-        labelBehavior: tabs.length > 5 ? NavigationDestinationLabelBehavior.onlyShowSelected : null,
-        onDestinationSelected: (i) => setState(() => _tab = tabs[i]),
-        destinations: [
-          for (final t in tabs)
-            switch (t) {
-              AppTab.today => const NavigationDestination(icon: Icon(Icons.insights_outlined), selectedIcon: Icon(Icons.insights), label: 'Today'),
-              AppTab.vouchers => const NavigationDestination(
-                  icon: Icon(Icons.confirmation_number_outlined), selectedIcon: Icon(Icons.confirmation_number), label: 'Vouchers'),
-              AppTab.complaints => const NavigationDestination(
-                  icon: Icon(Icons.report_gmailerrorred_outlined), selectedIcon: Icon(Icons.report), label: 'Complaints'),
-              AppTab.chat => NavigationDestination(
-                  icon: Badge(isLabelVisible: app.unread > 0, label: Text('${app.unread}'), child: const Icon(Icons.chat_bubble_outline)),
-                  selectedIcon: const Icon(Icons.chat_bubble),
-                  label: 'Chat'),
-              AppTab.fit => const NavigationDestination(icon: Icon(Icons.auto_awesome_outlined), selectedIcon: Icon(Icons.auto_awesome), label: 'Fit'),
-              AppTab.more => const NavigationDestination(icon: Icon(Icons.menu), label: 'More'),
-            },
-        ],
+      // keyed by business: switching business starts every tab fresh, from that business's own saved pages
+      body: KeyedSubtree(
+        key: ValueKey('business-${app.business['id']}'),
+        child: IndexedStack(index: idx, children: [for (final t in tabs) _page(t)]),
       ),
+      bottomNavigationBar: Column(mainAxisSize: MainAxisSize.min, children: [
+        const OfflineStrip(),
+        NavigationBar(
+          selectedIndex: idx,
+          // six tabs (owner / admin) do not fit with every label on a small phone: show the open tab's label only
+          labelBehavior: tabs.length > 5 ? NavigationDestinationLabelBehavior.onlyShowSelected : null,
+          onDestinationSelected: (i) => setState(() => _tab = tabs[i]),
+          destinations: [
+            for (final t in tabs)
+              switch (t) {
+                AppTab.today => const NavigationDestination(icon: Icon(Icons.insights_outlined), selectedIcon: Icon(Icons.insights), label: 'Today'),
+                AppTab.vouchers => const NavigationDestination(
+                    icon: Icon(Icons.confirmation_number_outlined), selectedIcon: Icon(Icons.confirmation_number), label: 'Vouchers'),
+                AppTab.complaints => const NavigationDestination(
+                    icon: Icon(Icons.report_gmailerrorred_outlined), selectedIcon: Icon(Icons.report), label: 'Complaints'),
+                AppTab.chat => NavigationDestination(
+                    icon: Badge(isLabelVisible: app.unread > 0, label: Text('${app.unread}'), child: const Icon(Icons.chat_bubble_outline)),
+                    selectedIcon: const Icon(Icons.chat_bubble),
+                    label: 'Chat'),
+                AppTab.fit => const NavigationDestination(icon: Icon(Icons.auto_awesome_outlined), selectedIcon: Icon(Icons.auto_awesome), label: 'Fit'),
+                AppTab.more => const NavigationDestination(icon: Icon(Icons.menu), label: 'More'),
+              },
+          ],
+        ),
+      ]),
     );
   }
 }

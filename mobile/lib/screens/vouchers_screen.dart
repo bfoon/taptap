@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import '../app/api.dart';
 import '../app/format.dart';
 import '../app/state.dart';
+import '../data/store.dart';
+import '../data/sync_engine.dart';
 import '../widgets/common.dart';
 import '../widgets/voucher_widgets.dart';
 import 'new_vouchers_screen.dart';
@@ -105,50 +107,84 @@ class VoucherListState extends State<VoucherList> {
   bool _more = false, _loading = false, _loaded = false;
   String? _err;
   int _seq = 0;
+  StreamSubscription<String>? _saved;
+
+  /// The query for page [page] with the current search, tab and plan.
+  Map<String, String> _query(int page) => {
+        if (_state.isNotEmpty) 'state': _state,
+        if (_q.text.trim().isNotEmpty) 'q': _q.text.trim(),
+        if (_plan.isNotEmpty) 'plan': _plan,
+        if (widget.batchId != null) 'batch': '${widget.batchId}',
+        'page': '$page',
+      };
+
+  /// First pages without a search are kept on the phone (searches are not: every letter typed would be one).
+  bool get _keeps => _q.text.trim().isEmpty;
 
   @override
   void initState() {
     super.initState();
+    _fromPhone();
+    _saved = Store.I.changes.listen((key) {
+      // the background sync brought a newer first page: show it, unless more pages are open or one is loading
+      if (!mounted || !_keeps || _page != 1 || _loading || key != Store.keyOf(Pages.vouchers, _query(1))) return;
+      final d = Store.I.peekKey(key);
+      if (d != null) setState(() => _apply(d, 1));
+    });
     _load();
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _saved?.cancel();
     _q.dispose();
     super.dispose();
+  }
+
+  /// This search's first page as saved on the phone — on screen at once (no setState: callers do that).
+  bool _fromPhone() {
+    final d = _keeps ? Store.I.peek(Pages.vouchers, _query(1)) : null;
+    if (d == null) return false;
+    _apply(d, 1);
+    return true;
+  }
+
+  void _apply(Map<String, dynamic> d, int page) {
+    final rows = asMaps(d['vouchers']);
+    _rows = page == 1 ? rows : [..._rows, ...rows];
+    _tabs = asMaps(d['tabs']);
+    _plans = ((d['plans'] as List?) ?? const []).map((e) => '$e').toList();
+    _batch = (d['batch'] as Map?)?.cast<String, dynamic>();
+    _more = d['more'] == true;
+    _err = null;
+    _loaded = true;
   }
 
   Future<void> reload() => _load(reset: true);
 
   Future<void> _load({bool reset = true}) async {
-    if (reset) _page = 1;
+    var saved = false;
+    if (reset) {
+      _page = 1;
+      saved = _fromPhone();                          // a tab or plan seen before: its saved page at once
+    }
+    final page = _page;
     final seq = ++_seq;
     setState(() => _loading = true);
     try {
-      final d = await Api.I.get('/api/mobile/v1/vouchers/', query: {
-        if (_state.isNotEmpty) 'state': _state,
-        if (_q.text.trim().isNotEmpty) 'q': _q.text.trim(),
-        if (_plan.isNotEmpty) 'plan': _plan,
-        if (widget.batchId != null) 'batch': '${widget.batchId}',
-        'page': '$_page',
-      });
+      final q = _query(page);
+      final d = page == 1 && _keeps ? await Store.I.fetch(Pages.vouchers, query: q) : await Api.I.get(Pages.vouchers, query: q);
       if (!mounted || seq != _seq) return;
-      final rows = asMaps(d['vouchers']);
       setState(() {
-        _rows = _page == 1 ? rows : [..._rows, ...rows];
-        _tabs = asMaps(d['tabs']);
-        _plans = ((d['plans'] as List?) ?? const []).map((e) => '$e').toList();
-        _batch = (d['batch'] as Map?)?.cast<String, dynamic>();
-        _more = d['more'] == true;
-        _err = null;
+        _apply(d, page);
         _loading = false;
-        _loaded = true;
       });
     } on ApiError catch (e) {
       if (!mounted || seq != _seq) return;
       setState(() {
-        _err = e.message;
+        // no internet but this page is on screen from the phone: the offline strip says so
+        _err = (e.status == 0 && saved) ? null : e.message;
         _loading = false;
         _loaded = true;
       });
@@ -328,33 +364,54 @@ class BatchListState extends State<BatchList> {
   int _page = 1;
   bool _more = false, _loading = false, _loaded = false;
   String? _err;
+  StreamSubscription<String>? _saved;
 
   @override
   void initState() {
     super.initState();
+    final d = Store.I.peek(Pages.batches, Pages.firstPage);      // saved on the phone: shown at once
+    if (d != null) _apply(d, 1);
+    _saved = Store.I.changes.listen((key) {
+      if (!mounted || _page != 1 || _loading || key != Store.keyOf(Pages.batches, Pages.firstPage)) return;
+      final d = Store.I.peekKey(key);
+      if (d != null) setState(() => _apply(d, 1));
+    });
     _load();
+  }
+
+  @override
+  void dispose() {
+    _saved?.cancel();
+    super.dispose();
+  }
+
+  void _apply(Map<String, dynamic> d, int page) {
+    final rows = asMaps(d['batches']);
+    _rows = page == 1 ? rows : [..._rows, ...rows];
+    _more = d['more'] == true;
+    _err = null;
+    _loaded = true;
   }
 
   Future<void> reload() => _load();
 
   Future<void> _load({bool reset = true}) async {
     if (reset) _page = 1;
+    final page = _page;
     setState(() => _loading = true);
     try {
-      final d = await Api.I.get('/api/mobile/v1/batches/', query: {'page': '$_page'});
+      final d = page == 1
+          ? await Store.I.fetch(Pages.batches, query: Pages.firstPage)
+          : await Api.I.get(Pages.batches, query: {'page': '$page'});
       if (!mounted) return;
-      final rows = asMaps(d['batches']);
       setState(() {
-        _rows = _page == 1 ? rows : [..._rows, ...rows];
-        _more = d['more'] == true;
-        _err = null;
+        _apply(d, page);
         _loading = false;
-        _loaded = true;
       });
     } on ApiError catch (e) {
       if (!mounted) return;
       setState(() {
-        _err = e.message;
+        _err = (e.status == 0 && page == 1 && _rows.isNotEmpty) ? null : e.message;
         _loading = false;
         _loaded = true;
       });

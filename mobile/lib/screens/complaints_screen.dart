@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -6,6 +8,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../app/api.dart';
 import '../app/format.dart';
 import '../app/state.dart';
+import '../data/store.dart';
+import '../data/sync_engine.dart';
 import '../widgets/common.dart';
 
 /// Vouchers customers sent from the Wi-Fi page — one case per voucher, hottest first.
@@ -20,22 +24,44 @@ class _ComplaintsScreenState extends State<ComplaintsScreen> {
   List<Map<String, dynamic>>? _cases;
   bool _all = false;
   String? _err;
+  StreamSubscription<String>? _saved;
+
+  Map<String, String> get _query => {if (_all) 'show': 'all'};
 
   @override
   void initState() {
     super.initState();
+    _cases = _casesOf(Store.I.peek(Pages.complaints, _query));    // saved on the phone: shown at once
+    _saved = Store.I.changes.listen((key) {
+      if (!mounted || key != Store.keyOf(Pages.complaints, _query)) return;
+      final d = Store.I.peekKey(key);
+      if (d != null) setState(() => _cases = _casesOf(d));        // the background sync brought new reports
+    });
     _load();
   }
 
+  @override
+  void dispose() {
+    _saved?.cancel();
+    super.dispose();
+  }
+
+  static List<Map<String, dynamic>>? _casesOf(Map<String, dynamic>? d) =>
+      d == null || d['cases'] is! List ? null : (d['cases'] as List).whereType<Map>().map((e) => e.cast<String, dynamic>()).toList();
+
   Future<void> _load() async {
+    final all = _all;
     try {
-      final d = await Api.I.get('/api/mobile/v1/complaints/', query: {if (_all) 'show': 'all'});
+      final d = await Store.I.fetch(Pages.complaints, query: _query);
+      if (!mounted || all != _all) return;
       setState(() {
-        _cases = (d['cases'] as List).cast<Map>().map((e) => e.cast<String, dynamic>()).toList();
+        _cases = _casesOf(d) ?? [];
         _err = null;
       });
     } on ApiError catch (e) {
-      setState(() => _err = e.message);
+      if (!mounted || all != _all) return;
+      // no internet but the saved reports are on screen: the offline strip says so
+      setState(() => _err = (e.status == 0 && _cases != null) ? null : e.message);
     }
   }
 
@@ -107,7 +133,7 @@ class _ComplaintsScreenState extends State<ComplaintsScreen> {
             onSelectionChanged: (s) {
               setState(() {
                 _all = s.first;
-                _cases = null;
+                _cases = _casesOf(Store.I.peek(Pages.complaints, _query));
               });
               _load();
             },

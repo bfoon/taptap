@@ -11,6 +11,8 @@ import '../app/format.dart';
 import '../app/state.dart';
 import '../calls/call_engine.dart';
 import '../calls/call_screen.dart';
+import '../data/store.dart';
+import '../data/sync_engine.dart';
 import '../widgets/common.dart';
 
 /// The team room, direct messages and TapTap support — TapTap's own chat (/chat/).
@@ -153,6 +155,14 @@ class _ThreadScreenState extends State<ThreadScreen> {
       final id = m['id'];
       if (m['deleted'] == true && (_editing?['id'] == id || _replyTo?['id'] == id)) _cancelCompose();
     });
+    // the conversation as saved on the phone (the sync saves new messages ahead): on screen at once
+    final saved = Store.I.peek(Pages.thread(widget.id));
+    if (saved != null && saved['messages'] is List) {
+      _thread = (saved['thread'] as Map?)?.cast<String, dynamic>() ?? {};
+      _more = saved['more'] == true;
+      _msgs.addAll(asMaps(saved['messages']));
+      _toBottom(jump: true);
+    }
     _load();
     _text.addListener(() {
       _app.typing = _text.text.isNotEmpty;
@@ -180,7 +190,11 @@ class _ThreadScreenState extends State<ThreadScreen> {
   Future<void> _load({bool older = false}) async {
     try {
       final before = older && _msgs.isNotEmpty ? '${_msgs.first['id']}' : null;
-      final d = await Api.I.get('/chat/t/${widget.id}/', query: {if (before != null) 'before': before});
+      // the latest page is kept on the phone (opening it marks it read, as before); earlier pages are not
+      final d = before == null
+          ? await Store.I.fetch(Pages.thread(widget.id))
+          : await Api.I.get(Pages.thread(widget.id), query: {'before': before});
+      if (!mounted) return;
       final rows = (d['messages'] as List).cast<Map>().map((e) => e.cast<String, dynamic>()).toList();
       setState(() {
         _thread = (d['thread'] as Map).cast<String, dynamic>();
@@ -196,7 +210,8 @@ class _ThreadScreenState extends State<ThreadScreen> {
       if (!older) _toBottom(jump: true);
       _app.pollChat();
     } on ApiError catch (e) {
-      if (mounted) _toast(e.message);
+      // no internet with the saved conversation on screen: the offline strip says so
+      if (mounted && !(e.status == 0 && !older && _msgs.isNotEmpty)) _toast(e.message);
     }
   }
 

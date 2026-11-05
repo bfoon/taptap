@@ -132,7 +132,8 @@ def chat_history(request, pk):
         qs = qs.filter(id__lt=before)
     rows = chat_media.prime(list(qs.order_by('-id')[:40])[::-1])
     agent_set = chat.agent_ids()
-    if rows and not before:
+    # ?peek=1: the phone saving a conversation in the background — the person has not seen it yet, so it stays unread
+    if rows and not before and request.GET.get('peek') != '1':
         chat.mark_read(t, request.user, rows[-1].pk)
     title, sub = chat.title_for(t, request.user, _biz(request))
     return JsonResponse({'ok': True, 'thread': {'id': t.pk, 'kind': t.kind, 'title': title, 'sub': sub, 'status': t.support_status,

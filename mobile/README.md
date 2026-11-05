@@ -159,12 +159,36 @@ network — mobile data ↔ hotspot Wi-Fi especially — run the TURN relay (`do
   with WhatsApp / SMS.
 * Chat, calls and Fit: the website's own `/chat/…`, `/chat/call/…` and `/fit/…` endpoints, with the token.
 
+### Saved on the phone (offline-first)
+
+Every page TapTap sends is kept in the phone's own database (SQLite, `lib/data/`), per server · person · business.
+A screen draws what the phone has **at once** — no spinner, also with no internet — and then brings it up to date:
+
+* **ETag / 304** (`core/mobile_sync.py`): each GET carries the ETag of the saved copy; when nothing changed TapTap
+  answers an empty 304 and nothing is downloaded. Only requests from the app are touched — the website is unchanged.
+* **The pulse** `GET /api/mobile/v1/sync/`: while the app is open it asks every 20 s for a few tiny stamps (sales
+  today, customer reports, Wi-Fi page calls, vouchers & batches, who-am-I) and pulls only the pages whose stamp moved —
+  plus any page older than its own refresh time. Open screens update by themselves when something new lands.
+* **Pushes** that arrive while the app is open (a complaint, a missed call, vouchers) pull their page at once.
+* **Chat**: conversations with new messages are saved ahead with `?peek=1` (they stay unread until you open them),
+  and messages from the regular chat check are added to the saved conversations — a chat opens instantly.
+* **Start-up**: the app opens straight into the last business with its saved pages; TapTap confirms the sign-in right
+  after (a phone signed out elsewhere is signed out here too).
+* **Offline**: a thin strip above the tabs says the phone cannot reach TapTap; the screens keep showing what is saved.
+  Anything that changes something (sell, fix, send) still goes to TapTap — the platform stays the source of truth.
+* **Privacy**: signing out (or being signed out) wipes everything saved; a new sign-in starts from a clean phone.
+  At most 400 pages per business are kept, none older than 21 days.
+
 ## Files
 
 ```
 lib/main.dart                 app start, theme from the business brand colour
 lib/app/api.dart              HTTP + token
 lib/app/state.dart            who is signed in, chat + ring polling
+lib/data/local_db.dart        the phone's own database (SQLite): saved pages per account and business
+lib/data/store.dart           saved pages for the screens: peek (instant), fetch (ETag / 304), change events
+lib/data/sync_engine.dart     the background sync while the app is open: pulse, refresh times, pushes, chats ahead
+lib/widgets/offline_strip.dart the "Offline — showing what this phone saved" strip
 lib/screens/today_screen.dart daily sales (first page)
 lib/screens/sales_detail_screen.dart   one plan / one seller
 lib/screens/complaints_screen.dart

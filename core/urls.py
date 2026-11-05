@@ -103,6 +103,7 @@ urlpatterns = [
     path('api/mobile/v1/auth/resend/',vmob.auth_resend,name='mobile_auth_resend'), path('api/mobile/v1/auth/logout/',vmob.auth_logout,name='mobile_auth_logout'),
     path('api/mobile/v1/me/',vmob.me,name='mobile_me'), path('api/mobile/v1/business/',vmob.business,name='mobile_business'),
     path('api/mobile/v1/push/',vmob.push,name='mobile_push'), path('api/mobile/v1/home/',vmob.home,name='mobile_home'),
+    path('api/mobile/v1/sync/',vmob.sync,name='mobile_sync'),
     path('api/mobile/v1/sales/',vmob.sales,name='mobile_sales'), path('api/mobile/v1/complaints/',vmob.complaints,name='mobile_complaints'),
     path('api/mobile/v1/complaints/<int:pk>/',vmob.complaint_act,name='mobile_complaint_act'),
     path('api/mobile/v1/customer-calls/',vmob.customer_calls,name='mobile_customer_calls'), path('api/mobile/v1/devices/',vmob.devices,name='mobile_devices'),

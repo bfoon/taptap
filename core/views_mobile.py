@@ -26,6 +26,7 @@ from django.views.decorators.csrf import csrf_exempt
 from . import mobile_auth
 
 API_VERSION = 1
+SYNC_VERSION = 1                     # the phone keeps its own copy: ETags, the /sync/ pulse, chat ?peek=1 (core/mobile_sync.py)
 LOGIN_TRIES = 8                      # per IP + email, per 15 minutes
 TICKET_TTL = 900
 
@@ -209,7 +210,7 @@ def me(request):
     user, b = request.user, _business(request)
     perms = _perms(request)
     role = getattr(request, 'tt_role', None)
-    out = {'ok': True, 'api': API_VERSION,
+    out = {'ok': True, 'api': API_VERSION, 'sync': SYNC_VERSION,
            'user': {'id': user.pk, 'name': chat.display_name(user), 'first': user.first_name or chat.display_name(user).split(' ')[0],
                     'initials': chat.initials(user), 'email': user.email},
            'businesses': [{'id': x.pk, 'name': x.business_name, 'role': ROLES.get(m.role, ('Staff',))[0] if m else 'Owner'}
@@ -345,6 +346,13 @@ def notifications(request):
                          # Google's last word on a push to this phone (None before the first one)
                          'last': {k: h.get(k) for k in ('at', 'ok', 'code', 'reason', 'fix', 'last_ok')} if h.get('at') else None,
                          'kinds': [{'key': k, 'label': label, 'text': text, 'on': dev.wants(k)} for k, (label, text, _ch) in _kinds_for(request)]})
+
+
+@_signed_in
+def sync(request):
+    """The pulse: tiny stamps telling the phone which of its saved pages are out of date (core/mobile_sync.py)."""
+    from . import mobile_sync
+    return mobile_sync.pulse(request)
 
 
 # ─────────────────────────────── home: the day at a glance ───────────────────────────────

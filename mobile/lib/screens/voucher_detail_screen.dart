@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../app/api.dart';
 import '../app/format.dart';
 import '../app/state.dart';
+import '../data/store.dart';
 import '../widgets/common.dart';
 import '../widgets/voucher_widgets.dart';
 import 'vouchers_screen.dart';
@@ -37,21 +38,25 @@ class _VoucherDetailScreenState extends State<VoucherDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _v = widget.initial;
+    _v = widget.initial ?? (Store.I.peek(_path)?['voucher'] as Map?)?.cast<String, dynamic>();   // or as saved on the phone
     _banner = widget.banner;
     _load();
   }
 
+  String get _path => '/api/mobile/v1/vouchers/${widget.id}/';
+
   Future<void> _load() async {
     try {
-      final d = await Api.I.get('/api/mobile/v1/vouchers/${widget.id}/');
+      final d = await Store.I.fetch(_path);
       if (!mounted) return;
       setState(() {
         _v = (d['voucher'] as Map).cast<String, dynamic>();
         _err = null;
       });
     } on ApiError catch (e) {
-      if (mounted) setState(() => _err = e.message);
+      if (!mounted) return;
+      if (e.status == 0 && _v != null) return;              // offline with the saved one on screen
+      setState(() => _err = e.message);
     }
   }
 
@@ -75,6 +80,7 @@ class _VoucherDetailScreenState extends State<VoucherDetailScreen> {
       });
       if (!mounted) return;
       if (d['deleted'] == true) {
+        Store.I.remove(_path);
         _toast('${d['message'] ?? 'Moved to the bin.'}');
         Navigator.of(context).pop(<String, dynamic>{'deleted': true, 'id': widget.id});
         return;
@@ -83,6 +89,9 @@ class _VoucherDetailScreenState extends State<VoucherDetailScreen> {
         _v = (d['voucher'] as Map).cast<String, dynamic>();
         _banner = null;
       });
+      // the saved copy follows what TapTap just answered
+      final saved = Store.I.peek(_path);
+      if (saved != null) Store.I.put(_path, {...saved, 'voucher': d['voucher']}, announce: false);
       _toast('${d['message'] ?? 'Done.'}', warning: d['warning'] == true);
     } on ApiError catch (e) {
       if (mounted) _toast(e.message, error: true);

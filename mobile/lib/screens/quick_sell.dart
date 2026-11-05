@@ -6,6 +6,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../app/api.dart';
 import '../app/format.dart';
 import '../app/state.dart';
+import '../data/store.dart';
+import '../data/sync_engine.dart';
 
 /// Quick sell: a customer is standing in front of you. Pick the plan, tap Sell, read out (or send) the code.
 ///
@@ -42,6 +44,8 @@ class _QuickSellSheetState extends State<QuickSellSheet> {
   @override
   void initState() {
     super.initState();
+    final saved = Store.I.peek(Pages.voucherForm);   // plans and routers as saved on the phone: ready at once
+    if (saved != null) _apply(saved);
     _load();
   }
 
@@ -62,25 +66,36 @@ class _QuickSellSheetState extends State<QuickSellSheet> {
     return null;
   }
 
-  Future<void> _load() async {
-    try {
-      final d = await Api.I.get('/api/mobile/v1/vouchers/new/');
-      if (!mounted) return;
-      final routers = asMaps(d['routers']);
-      final plans = asMaps(d['plans']);
+  /// Take the plans and routers (no setState: callers do that). The first time picks the defaults, as before; when
+  /// TapTap's fresh answer replaces the saved one, what the person already picked stays (if it still exists).
+  void _apply(Map<String, dynamic> d) {
+    final first = _o == null;
+    final routers = asMaps(d['routers']);
+    final plans = asMaps(d['plans']);
+    _o = d;
+    if (first || !routers.any((r) => toI(r['id']) == _router)) {
       int? router = widget.routerId;
       if (router == null && routers.isNotEmpty) {
         final online = routers.where((r) => r['status'] == 'Online').toList();
         router = toI((online.isNotEmpty ? online.first : routers.first)['id']);
       }
-      setState(() {
-        _o = d;
-        _router = router;
-        _plan = plans.length == 1 ? toI(plans.first['id']) : null;
-        _err = null;
-      });
+      _router = router;
+    }
+    if (first || !plans.any((p) => toI(p['id']) == _plan)) {
+      _plan = plans.length == 1 ? toI(plans.first['id']) : null;
+    }
+    _err = null;
+  }
+
+  Future<void> _load() async {
+    try {
+      final d = await Store.I.fetch(Pages.voucherForm);
+      if (!mounted) return;
+      setState(() => _apply(d));
     } on ApiError catch (e) {
-      if (mounted) setState(() => _err = e.message);
+      if (!mounted) return;
+      if (e.status == 0 && _o != null) return;      // offline with the saved plans on screen: TapTap checks on Sell
+      setState(() => _err = e.message);
     }
   }
 

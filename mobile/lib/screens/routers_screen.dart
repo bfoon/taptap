@@ -7,6 +7,8 @@ import 'package:provider/provider.dart';
 import '../app/api.dart';
 import '../app/format.dart';
 import '../app/state.dart';
+import '../data/store.dart';
+import '../data/sync_engine.dart';
 import '../widgets/common.dart';
 import 'quick_sell.dart';
 import 'router_move_sheet.dart';
@@ -34,9 +36,18 @@ class _RoutersScreenState extends State<RoutersScreen> with TickerProviderStateM
   List<Map<String, dynamic>> get _routers => asMaps(_d?['routers']);
   Map<String, dynamic> get _can => (_d?['can'] as Map?)?.cast<String, dynamic>() ?? {};
 
+  StreamSubscription<String>? _saved;
+
   @override
   void initState() {
     super.initState();
+    final saved = Store.I.peek(Pages.routers);          // saved on the phone: the routers at once
+    if (saved != null) _apply(saved);
+    _saved = Store.I.changes.listen((key) {
+      if (!mounted || key != Pages.routers) return;
+      final d = Store.I.peekKey(key);
+      if (d != null) setState(() => _apply(d));
+    });
     _load();
     _timer = Timer.periodic(const Duration(seconds: 20), (_) => _load(quiet: true));
   }
@@ -44,36 +55,41 @@ class _RoutersScreenState extends State<RoutersScreen> with TickerProviderStateM
   @override
   void dispose() {
     _timer?.cancel();
+    _saved?.cancel();
     _tabs?.dispose();
     super.dispose();
   }
 
+  /// Take a routers answer (no setState: callers do that).
+  void _apply(Map<String, dynamic> d) {
+    final routers = asMaps(d['routers']);
+    final n = routers.length + 1;
+    if (_tabs == null || _tabs!.length != n) {
+      var start = (_tabs?.index ?? 0).clamp(0, n - 1);
+      if (_first && widget.initialRouter != null) {
+        final i = routers.indexWhere((r) => toI(r['id']) == widget.initialRouter);
+        if (i >= 0) start = i + 1;
+      }
+      final old = _tabs;
+      _tabs = TabController(length: n, vsync: this, initialIndex: start)
+        ..addListener(() {
+          if (mounted) setState(() {});
+        });
+      if (old != null) WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+    }
+    // the router asked for (from a push or a link) is only picked once it is in the list
+    if (widget.initialRouter == null || routers.any((r) => toI(r['id']) == widget.initialRouter)) _first = false;
+    _d = d;
+    _err = null;
+  }
+
   Future<void> _load({bool quiet = false}) async {
     try {
-      final d = await Api.I.get('/api/mobile/v1/routers/');
+      final d = await Store.I.fetch(Pages.routers);
       if (!mounted) return;
-      final routers = asMaps(d['routers']);
-      final n = routers.length + 1;
-      if (_tabs == null || _tabs!.length != n) {
-        var start = (_tabs?.index ?? 0).clamp(0, n - 1);
-        if (_first && widget.initialRouter != null) {
-          final i = routers.indexWhere((r) => toI(r['id']) == widget.initialRouter);
-          if (i >= 0) start = i + 1;
-        }
-        final old = _tabs;
-        _tabs = TabController(length: n, vsync: this, initialIndex: start)
-          ..addListener(() {
-            if (mounted) setState(() {});
-          });
-        if (old != null) WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
-      }
-      _first = false;
-      setState(() {
-        _d = d;
-        _err = null;
-      });
+      setState(() => _apply(d));
     } on ApiError catch (e) {
-      if (mounted && !quiet) setState(() => _err = e.message);
+      if (mounted && !quiet && !(e.status == 0 && _d != null)) setState(() => _err = e.message);
     }
   }
 
@@ -360,6 +376,7 @@ class _RouterTabState extends State<RouterTab> {
   @override
   void initState() {
     super.initState();
+    _d = Store.I.peek(_path);                          // saved on the phone: shown at once
     _load();
     _timer = Timer.periodic(const Duration(seconds: 15), (_) => _load(quiet: true));
   }
@@ -373,14 +390,14 @@ class _RouterTabState extends State<RouterTab> {
 
   Future<void> _load({bool quiet = false}) async {
     try {
-      final d = await Api.I.get(_path);
+      final d = await Store.I.fetch(_path);
       if (!mounted) return;
       setState(() {
         _d = d;
         _err = null;
       });
     } on ApiError catch (e) {
-      if (mounted && !quiet) setState(() => _err = e.message);
+      if (mounted && !quiet && !(e.status == 0 && _d != null)) setState(() => _err = e.message);
     }
   }
 

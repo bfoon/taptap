@@ -1,7 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 
+import '../data/local_db.dart';
+import '../data/store.dart';
+import '../data/sync_engine.dart';
 import '../push/push.dart';
 import 'api.dart';
 import 'format.dart';
@@ -26,10 +30,13 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   AppState() {
     WidgetsBinding.instance.addObserver(this);
     Api.I.onSignedOut = () {
-      _reset();
+      _reset(wipe: true);
       notifyListeners();
     };
   }
+
+  /// Keeps the phone's saved pages up to date while the app is open (data/sync_engine.dart).
+  late final SyncEngine sync = SyncEngine(this);
 
   bool booting = true;
   Map<String, dynamic>? me;
@@ -70,10 +77,60 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Color get brand => hexColor(business['brand'] as String?);
   int get unread => threads.where((t) => t['muted'] != true).fold(0, (a, t) => a + toI(t['unread']));
   bool canDo(String k) => can[k] == true;
+  bool get foreground => _foreground;
+
+  // ── what the phone keeps (data/store.dart): per server · person · business ──
+  String get _accountScope => 'account|${Api.I.server}';
+  static String _scopeFor(Map<String, dynamic> m) {
+    final u = (m['user'] as Map?) ?? const {};
+    final b = (m['business'] as Map?) ?? const {};
+    return '${Api.I.server}|u${toI(u['id'])}|b${toI(b['id'])}';
+  }
+
+  /// A fingerprint of the sign-in token (FNV-1a), kept with the saved "me": a saved profile is only used again
+  /// with the very token it came with.
+  static String _tokenMark(String? t) {
+    var h = 0x811c9dc5;
+    for (final c in (t ?? '').codeUnits) {
+      h ^= c;
+      h = (h * 0x01000193) & 0xffffffff;
+    }
+    return 'tok:${h.toRadixString(16)}';
+  }
+
+  Future<Map<String, dynamic>?> _savedMe() async {
+    final p = await LocalDb.I.one(_accountScope, 'me');
+    if (p == null || p.etag != _tokenMark(Api.I.token)) return null;
+    try {
+      final d = jsonDecode(p.body);
+      return d is Map<String, dynamic> && d['user'] is Map ? d : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _saveMe(Map<String, dynamic> m) async {
+    try {
+      await LocalDb.I.save(_accountScope,
+          SavedPage(key: 'me', body: jsonEncode(m), etag: _tokenMark(Api.I.token), savedAt: DateTime.now()));
+    } catch (_) {}
+  }
 
   Future<void> boot() async {
     await Api.I.load();
     if (Api.I.signedIn) {
+      // straight in with what this phone kept last time — TapTap confirms it right after (or signs the phone out)
+      final saved = await _savedMe();
+      if (saved != null) {
+        await Store.I.open(_scopeFor(saved));
+        me = saved;
+        _loadSavedChat();
+        booting = false;
+        notifyListeners();
+        _startPolling();
+        unawaited(refreshMe().catchError((_) {}));
+        return;
+      }
       try {
         await refreshMe();
       } on ApiError catch (e) {
@@ -93,13 +150,34 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> refreshMe() async {
-    me = await Api.I.get('/api/mobile/v1/me/');
+    final m = await Api.I.get('/api/mobile/v1/me/');
+    if (!Api.I.signedIn) return;                       // signed out while it was on its way
+    final scope = _scopeFor(m);
+    var restart = false;
+    if (scope != Store.I.scope) {
+      // another business (switched here or elsewhere): its own saved pages and conversations
+      final first = !Store.I.isOpen;
+      await Store.I.open(scope);
+      if (!first) {
+        threads = [];
+        people = [];
+        _top = -1;
+        _chg = 0;
+        _chatPrimed = false;
+      }
+      _loadSavedChat();
+      restart = !first && sync.running;
+    }
+    me = m;
+    unawaited(_saveMe(m));
+    if (restart) sync.start();                         // the new business's own stamps and pages
     // TapTap lost this phone's push address (cleared after an error, another sign-in…): send it again, quietly
     if (me?['push_registered'] == false && Push.registered) Push.serverForgot();
     notifyListeners();
   }
 
   Future<void> signedInWith(String token) async {
+    await Store.I.close(wipe: true);                   // a fresh sign-in starts from a clean phone
     await Api.I.save(token: token);
     await refreshMe();
     _startPolling();
@@ -110,7 +188,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       await Api.I.post('/api/mobile/v1/auth/logout/');
     } catch (_) {}
     await Api.I.save(token: null);
-    _reset();
+    _reset(wipe: true);
     notifyListeners();
   }
 
@@ -123,7 +201,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     await pollChat();
   }
 
-  void _reset() {
+  void _reset({bool wipe = false}) {
+    sync.stop();
+    if (wipe) unawaited(Store.I.close(wipe: true));     // nothing of this account stays on the phone
     me = null;
     threads = [];
     people = [];
@@ -145,6 +225,16 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     pollRings();
     _chatTimer = Timer.periodic(const Duration(seconds: 5), (_) => _foreground ? pollChat() : null);
     _ringTimer = Timer.periodic(const Duration(seconds: 3), (_) => _foreground ? pollRings() : null);
+    sync.start();
+  }
+
+  /// The conversation list as the phone last saw it, so Chat opens full (the next check corrects it).
+  void _loadSavedChat() {
+    if (threads.isNotEmpty) return;
+    final d = Store.I.peekKey(Pages.chatList);
+    if (d == null) return;
+    threads = asMaps(d['threads']);
+    people = asMaps(d['people']);
   }
 
   @override
@@ -153,6 +243,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (_foreground && signedIn) {
       pollChat();
       pollRings();
+      sync.run();                                       // back on screen: what moved while away
       // quietly: a token that did not reach TapTap on a slow line, a changed permission (back from the phone's
       // settings), or every 30 minutes — push.dart decides whether anything needs sending
       Push.register(ask: false);
@@ -162,12 +253,15 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> pollChat() async {
     if (!signedIn) return;
     try {
-      final q = <String, String>{'since': '$_top', if (_chg > 0) 'chg': '$_chg'};
+      final since = _top;
+      final scope = Store.I.scope;
+      final q = <String, String>{'since': '$since', if (_chg > 0) 'chg': '$_chg'};
       if (openThread != null) {
         q['open'] = '$openThread';
         if (typing) q['typing'] = '1';
       }
       final d = await Api.I.get('/chat/state/', query: q);
+      if (scope != Store.I.scope || !signedIn) return;  // switched business / signed out meanwhile
       final before = unread;
       threads = ((d['threads'] as List?) ?? []).cast<Map>().map((e) => e.cast<String, dynamic>()).toList();
       people = ((d['people'] as List?) ?? []).cast<Map>().map((e) => e.cast<String, dynamic>()).toList();
@@ -180,6 +274,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       for (final m in ((d['changed'] as List?) ?? []).cast<Map>()) {
         _changedMessages.add(m.cast<String, dynamic>());
       }
+      // keep it on the phone: the list for next start, the messages in the saved conversations
+      Store.I.putKey(Pages.chatList, {'threads': d['threads'] ?? const <dynamic>[], 'people': d['people'] ?? const <dynamic>[]}, announce: false);
+      sync.mergeChat(since: since, fresh: asMaps(d['new']), changed: asMaps(d['changed']));
       // a new message while TapTap is open: the notification sound — unless a push already brings it (with sound)
       if (_chatPrimed && unread > before && !_pushCoversChat) Sounds.notify();
       _chatPrimed = true;
@@ -237,7 +334,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _reset();
+    _reset();                                           // (no wipe: the app is only closing)
     super.dispose();
   }
 }
