@@ -521,6 +521,18 @@ def routers(request):
 
     for router in router_rows:
         router.latest_sync_job=latest_jobs.get(router.id)
+    # each card: people online now (from what TapTap already knows) and its next restart / shutdown schedule
+    from .router_schedules import online_count
+    next_sched={}
+    try:
+        from .models_router_schedule import RouterSchedule
+        for s in RouterSchedule.objects.filter(router_id__in=router_ids,active=True,next_at__isnull=False).order_by('next_at'):
+            next_sched.setdefault(s.router_id,s)
+    except DatabaseError:
+        pass
+    for router in router_rows:
+        router.next_schedule=next_sched.get(router.id)
+        router.people_online=online_count(router)
     return render(request,'core/routers.html',{
         'routers':router_rows,'form':form,'recent_sync_jobs':recent_jobs,
         'sync_schema_ready':sync_schema_ready,

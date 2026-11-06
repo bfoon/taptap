@@ -1,6 +1,58 @@
 {% extends 'core/base.html' %}
 {% block title %}Routers — TapTap{% endblock %}
 {% block heading %}MikroTik Routers{% endblock %}
+{% block extra_head %}<style>
+/* router cards: name and status always on one readable line; actions never squeeze the name */
+.rc{border:1px solid var(--border);border-radius:18px;padding:.9rem 1rem;margin-bottom:.75rem;background:var(--panel,#fff);transition:box-shadow .2s,border-color .2s}
+.rc:hover{box-shadow:0 8px 24px #10203314;border-color:#d4e1f0}
+.rc-top{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap}
+.rc-ico{position:relative;flex:none;width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:#fdeeee;color:#c43c3c;font-size:1.25rem}
+.rc.is-on .rc-ico{background:#e6f7ef;color:#138453}
+.rc-ring{position:absolute;right:-3px;top:-3px;width:12px;height:12px;border-radius:50%;background:#d64545;border:2px solid var(--panel,#fff)}
+.rc.is-on .rc-ring{background:#18a66a;animation:rcPulse 2s infinite}
+@keyframes rcPulse{0%{box-shadow:0 0 0 0 #18a66a66}70%{box-shadow:0 0 0 8px #18a66a00}100%{box-shadow:0 0 0 0 #18a66a00}}
+.rc-id{flex:1 1 220px;min-width:0}
+.rc-name-row{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap}
+.rc-name{font-size:1.02rem;font-weight:850;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.rc-state{display:inline-flex;align-items:center;gap:.3rem;font-size:.68rem;font-weight:800;border-radius:999px;padding:.18rem .55rem;background:#fdeaea;color:#c02b2b}
+.rc-state i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.rc.is-on .rc-state{background:#e4f7ee;color:#138453}
+.rc .router-sync-pill{margin-left:0;font-size:.62rem}
+.rc-sub{color:var(--muted);font-size:.8rem;margin-top:.15rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rc-dot{margin:0 .35rem;opacity:.5}
+.rc-act{display:flex;align-items:center;gap:.35rem;flex:none;margin-left:auto}
+.rc-act form{margin:0}
+.rc-more{border:1px solid var(--border)}
+.rc-menu{min-width:240px;border-radius:14px;padding:.4rem}
+.rc-menu .dropdown-item{border-radius:9px;font-size:.86rem;padding:.45rem .65rem;display:flex;gap:.55rem;align-items:center}
+.rc-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.45rem;margin-top:.8rem}
+.rc-stat{background:#f6f9fc;border-radius:12px;padding:.45rem .6rem;min-width:0}
+.rc-stat b{display:block;font-size:1.05rem;font-weight:850;line-height:1.15;font-variant-numeric:tabular-nums}
+.rc-stat span{display:block;font-size:.68rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rc-stat span i{color:var(--primary)}
+.rc-stat.hot{background:#e9f8f1}.rc-stat.hot b{color:#138453}
+.rc-foot{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.7rem}
+.rc-chip{display:inline-flex;align-items:center;gap:.35rem;font-size:.76rem;font-weight:700;border-radius:999px;padding:.28rem .7rem;border:1px solid var(--border);color:#40566d;background:transparent}
+.rc-chip:hover{border-color:#1769e0;color:#1769e0}
+.rc-chip.link{border-color:#bfe8d3;color:#138453;background:#effaf4}
+.rc-chip.sched{border-style:dashed}
+.rc-chip.sched.set{border-style:solid;border-color:#c9dcf7;color:#1769e0;background:#f1f6fe}
+.rc-chip.sched.set.off{border-color:#f3c4c4;color:#c02b2b;background:#fdf2f2}
+.rc-error{margin-top:.6rem;font-size:.76rem;color:#b45309;background:#fff7ec;border-radius:10px;padding:.4rem .6rem}
+html[data-theme="dark"] .rc{background:#1f242b;border-color:#343c47}
+html[data-theme="dark"] .rc:hover{border-color:#46505d;box-shadow:none}
+html[data-theme="dark"] .rc-stat{background:#262c34}html[data-theme="dark"] .rc-stat.hot{background:#20372c}
+html[data-theme="dark"] .rc-ico{background:#3a1f22;color:#ff9d9d}html[data-theme="dark"] .rc.is-on .rc-ico{background:#20372c;color:#79e1b4}
+html[data-theme="dark"] .rc-state{background:#3a1f22;color:#ffb3b3}html[data-theme="dark"] .rc.is-on .rc-state{background:#20372c;color:#79e1b4}
+html[data-theme="dark"] .rc-ring{border-color:#1f242b}
+html[data-theme="dark"] .rc-chip{border-color:#3a434f;color:#b9c4d0}
+html[data-theme="dark"] .rc-chip.link{background:#1d3328;border-color:#2f5a44;color:#79e1b4}
+html[data-theme="dark"] .rc-chip.sched.set{background:#1c2a3d;border-color:#2e4a70;color:#8fbaf5}
+html[data-theme="dark"] .rc-chip.sched.set.off{background:#3a1f22;border-color:#6b2c31;color:#ffb3b3}
+html[data-theme="dark"] .rc-error{background:#3a2a17;color:#f2b46f}
+@media(max-width:700px){.rc-stats{grid-template-columns:repeat(3,minmax(0,1fr))}.rc-act{width:100%;margin-left:0}.rc-lbl{display:inline}}
+@media(prefers-reduced-motion:reduce){.rc.is-on .rc-ring{animation:none}}
+</style>{% endblock %}
 {% block content %}
 <div class="page-actions">
   <div><h2 class="section-title">Router control & synchronization</h2><p>TapTap Link is recommended for cloud hosting: the MikroTik connects out over HTTPS, so no local IP or open API port is required.</p></div>
@@ -43,35 +95,66 @@
       <div class="panel-head"><div><h3>Connected infrastructure</h3><p>Each router clearly shows whether it is managed through TapTap Link or Direct API.</p></div><div class="d-flex gap-2"><a href="{% url 'router_schedules' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-calendar2-check"></i> Schedules</a><a href="{% url 'router_inventory' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-database-check"></i> Inventory</a><a href="{% url 'topology' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-diagram-3"></i> Topology</a></div></div>
       <div class="router-list-scroll scroll-list">
       {% for r in routers %}
-      <div class="router-card router-card-rich" data-router-card="{{ r.id }}">
-        <div class="router-symbol"><i class="bi bi-router"></i></div>
-        <div class="router-main">
-          <div class="router-title-line"><b>{{ r.name }}</b><span class="status-dot {% if r.status == 'Online' %}online{% endif %}">{{ r.status }}</span><span class="router-sync-pill {% if r.latest_sync_job.is_active %}active{% endif %}" id="routerSyncPill{{ r.id }}">{% if r.latest_sync_job %}{{ r.latest_sync_job.get_status_display }} {{ r.latest_sync_job.progress }}%{% else %}Ready{% endif %}</span></div>
-          {% if r.connection_mode == 'agent' %}
-            <span><i class="bi bi-link-45deg"></i> TapTap Link{% if r.agent.board %} • {{ r.agent.board }}{% endif %}{% if r.agent.ros_version %} • RouterOS {{ r.agent.ros_version }}{% endif %}</span>
-          {% else %}
-            <span><i class="bi bi-ethernet"></i> Direct API • {{ r.ip_address }}:{{ r.api_port }} • {{ r.username }}</span>
-          {% endif %}
-          <div class="router-mini-stats"><span><i class="bi bi-ticket-perforated"></i>{{ r.hotspot_user_count }} users</span><span><i class="bi bi-shield-lock"></i>{{ r.binding_count }} bindings</span><span><i class="bi bi-broadcast-pin"></i>{{ r.online_neighbor_count }} neighbors</span><span><i class="bi bi-laptop"></i>{{ r.device_count }} devices</span></div>
-          {% if r.last_error %}<small class="router-error">{{ r.last_error|truncatechars:100 }}</small>{% endif %}
+      <article class="rc{% if r.status == 'Online' %} is-on{% endif %}" data-router-card="{{ r.id }}">
+        <div class="rc-top">
+          <div class="rc-ico" aria-hidden="true"><i class="bi bi-router"></i><span class="rc-ring"></span></div>
+          <div class="rc-id">
+            <div class="rc-name-row">
+              <h4 class="rc-name" title="{{ r.name }}">{{ r.name }}</h4>
+              <span class="rc-state"><i></i>{{ r.status }}</span>
+              <span class="router-sync-pill {% if r.latest_sync_job.is_active %}active{% elif r.latest_sync_job.status == 'success' %}success{% elif r.latest_sync_job.status == 'failed' %}failed{% endif %}" id="routerSyncPill{{ r.id }}">{% if r.latest_sync_job %}{{ r.latest_sync_job.get_status_display }} {{ r.latest_sync_job.progress }}%{% else %}Ready{% endif %}</span>
+            </div>
+            <div class="rc-sub">
+              {% if r.connection_mode == 'agent' %}<i class="bi bi-link-45deg"></i> TapTap Link{% if r.agent.board %}<span class="rc-dot">•</span>{{ r.agent.board }}{% endif %}{% if r.agent.ros_version %}<span class="rc-dot">•</span>RouterOS {{ r.agent.ros_version }}{% endif %}
+              {% else %}<i class="bi bi-ethernet"></i> Direct API<span class="rc-dot">•</span>{{ r.ip_address }}:{{ r.api_port }}<span class="rc-dot">•</span>{{ r.username }}{% endif %}
+            </div>
+          </div>
+          <div class="rc-act">
+            <form method="post" action="{% url 'router_sync' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary router-sync-button" data-router-id="{{ r.id }}" {% if not sync_schema_ready or r.latest_sync_job.is_active %}disabled{% endif %}><i class="bi bi-arrow-repeat"></i> <span>{% if r.latest_sync_job.is_active %}Syncing…{% else %}Sync{% endif %}</span></button></form>
+            <a class="btn btn-sm btn-outline-primary" href="{% url 'router_test' r.id %}" title="Test the connection"><i class="bi bi-activity"></i><span class="rc-lbl"> Test</span></a>
+            <div class="dropdown">
+              <button class="btn btn-sm btn-light rc-more" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="More for {{ r.name }}"><i class="bi bi-three-dots"></i></button>
+              <ul class="dropdown-menu dropdown-menu-end shadow rc-menu">
+                {% if r.connection_mode == 'agent' %}
+                  <li><a class="dropdown-item" href="{% url 'router_link' r.id %}"><i class="bi bi-link-45deg text-success"></i> TapTap Link</a></li>
+                {% else %}
+                  <li><a class="dropdown-item" href="{% url 'router_control' r.id %}"><i class="bi bi-sliders"></i> Control</a></li>
+                  <li><a class="dropdown-item" href="{% url 'wan_designer' r.id %}"><i class="bi bi-diagram-3"></i> Internet lines</a></li>
+                  <li><a class="dropdown-item" href="{% url 'router_link' r.id %}"><i class="bi bi-link-45deg text-success"></i> Switch to TapTap Link</a></li>
+                {% endif %}
+                <li><a class="dropdown-item" href="{% url 'router_schedules' %}?router={{ r.id }}"><i class="bi bi-calendar2-check"></i> Restart / shutdown schedule</a></li>
+                <li><a class="dropdown-item" href="{% url 'network_tools' %}?router={{ r.id }}"><i class="bi bi-speedometer2"></i> Network tools</a></li>
+                <li><a class="dropdown-item" href="{% url 'router_inventory' %}"><i class="bi bi-database-check"></i> Inventory</a></li>
+                <li><button type="button" class="dropdown-item" data-move-router="{{ r.id }}" data-move-name="{{ r.name }}" data-preview-url="{% url 'router_move_preview' r.id %}" data-move-url="{% url 'router_move' r.id %}"><i class="bi bi-box-arrow-right"></i> Move to another business</button></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item text-danger" href="{% url 'router_delete' r.id %}" onclick="return confirm('Delete {{ r.name|escapejs }} from TapTap?')"><i class="bi bi-trash3"></i> Delete from TapTap</a></li>
+              </ul>
+            </div>
+          </div>
         </div>
-        <div class="router-actions">
-          {% if r.connection_mode == 'agent' %}
-            <a class="btn btn-sm btn-success" href="{% url 'router_link' r.id %}"><i class="bi bi-link-45deg"></i> TapTap Link</a>
-            <a class="btn btn-sm btn-outline-secondary" href="{% url 'router_inventory' %}"><i class="bi bi-database-check"></i> Inventory</a>
-          {% else %}
-            <a class="btn btn-sm btn-dark" href="{% url 'router_control' r.id %}"><i class="bi bi-sliders"></i> Control</a>
-            <a class="btn btn-sm btn-outline-dark" href="{% url 'wan_designer' r.id %}" title="Load balancing, failover and single line"><i class="bi bi-diagram-3"></i> Internet lines</a>
-            <a class="btn btn-sm btn-outline-success" href="{% url 'router_link' r.id %}" title="Switch this router to outbound TapTap Link"><i class="bi bi-link-45deg"></i> TapTap Link</a>
-          {% endif %}
-          <form method="post" action="{% url 'router_sync' r.id %}">{% csrf_token %}<button class="btn btn-sm btn-primary router-sync-button" data-router-id="{{ r.id }}" {% if not sync_schema_ready or r.latest_sync_job.is_active %}disabled{% endif %}><i class="bi bi-arrow-repeat"></i> <span>{% if r.latest_sync_job.is_active %}Syncing…{% else %}Sync{% endif %}</span></button></form>
-          <a class="btn btn-sm btn-outline-primary" href="{% url 'router_test' r.id %}"><i class="bi bi-activity"></i> Test</a>
-          <a class="btn btn-sm btn-outline-primary" href="{% url 'router_schedules' %}?router={{ r.id }}" title="Restart or shut down on a timetable"><i class="bi bi-calendar2-check"></i> Schedule</a>
-          <a class="btn btn-sm btn-outline-primary" href="{% url 'network_tools' %}?router={{ r.id }}" title="Ping, traceroute, DNS, speed test and Internet check from this router"><i class="bi bi-speedometer2"></i> Tools</a>
-          <button type="button" class="btn btn-sm btn-outline-secondary" data-move-router="{{ r.id }}" data-move-name="{{ r.name }}" data-preview-url="{% url 'router_move_preview' r.id %}" data-move-url="{% url 'router_move' r.id %}" title="Move this router to another business"><i class="bi bi-box-arrow-right"></i> Move</button>
-          <a class="btn btn-sm btn-outline-danger" href="{% url 'router_delete' r.id %}" onclick="return confirm('Delete this router from TapTap?')"><i class="bi bi-trash3"></i></a>
+        <div class="rc-stats">
+          <div class="rc-stat{% if r.people_online %} hot{% endif %}"><b>{% if r.people_online is None %}—{% else %}{{ r.people_online }}{% endif %}</b><span><i class="bi bi-wifi"></i> online now</span></div>
+          <div class="rc-stat"><b>{{ r.hotspot_user_count }}</b><span><i class="bi bi-ticket-perforated"></i> users</span></div>
+          <div class="rc-stat"><b>{{ r.device_count }}</b><span><i class="bi bi-laptop"></i> devices</span></div>
+          <div class="rc-stat"><b>{{ r.binding_count }}</b><span><i class="bi bi-shield-lock"></i> bindings</span></div>
+          <div class="rc-stat"><b>{{ r.online_neighbor_count }}</b><span><i class="bi bi-broadcast-pin"></i> neighbors</span></div>
         </div>
-      </div>
+        <div class="rc-foot">
+          {% if r.connection_mode == 'agent' %}
+            <a class="rc-chip link" href="{% url 'router_link' r.id %}"><i class="bi bi-link-45deg"></i> TapTap Link</a>
+          {% else %}
+            <a class="rc-chip" href="{% url 'router_control' r.id %}"><i class="bi bi-sliders"></i> Control</a>
+          {% endif %}
+          {% with s=r.next_schedule %}
+          <a class="rc-chip sched{% if s %} set{% if s.action == 'shutdown' %} off{% endif %}{% endif %}" href="{% url 'router_schedules' %}?router={{ r.id }}" title="Restart or shut down on a timetable">
+            {% if s %}<i class="bi {% if s.action == 'shutdown' %}bi-power{% else %}bi-bootstrap-reboot{% endif %}"></i> {{ s.get_action_display }} · {{ s.next_at|date:"D H:i" }}
+            {% else %}<i class="bi bi-calendar-plus"></i> Add a schedule{% endif %}
+          </a>
+          {% endwith %}
+          <a class="rc-chip" href="{% url 'network_tools' %}?router={{ r.id }}"><i class="bi bi-speedometer2"></i> Tools</a>
+        </div>
+        {% if r.last_error %}<div class="rc-error"><i class="bi bi-exclamation-triangle"></i> {{ r.last_error|truncatechars:140 }}</div>{% endif %}
+      </article>
       {% empty %}<div class="empty-mini">No routers connected yet.</div>{% endfor %}
       </div>
     </div>
