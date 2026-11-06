@@ -106,3 +106,36 @@ class PortalCallTests(TestCase):
         from core.views_studio import _export_html
         html = _export_html(self.page, base='https://taptapnetwork.com')
         self.assertIn('https://taptapnetwork.com/p/kunda-login/call/', html)
+
+
+@override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'pcall-cb'}})
+class CallMeBackTests(TestCase):
+    """No microphone on the customer's phone (the Wi-Fi sign-in window): they leave a number instead."""
+    def setUp(self):
+        cache.clear()
+        self.owner = User.objects.create_user('cb@x.gm', 'cb@x.gm', 'pw-123456', first_name='Awa')
+        self.biz = Business.objects.create(user=self.owner, business_name='Kunda Net', owner_name='O', phone='7771234',
+                                           trial_ends_at=timezone.now() + timedelta(days=30))
+        self.page = PortalPage.objects.create(business=self.biz, name='Login', slug='cb-login', kind='login', is_published=True,
+                                              config={'theme': {}, 'blocks': [{'id': 'c', 'type': 'call', 'hidden': False}]})
+
+    def post(self, body):
+        return json.loads(self.client.post(f'/p/{self.page.slug}/call/api/', json.dumps(body), content_type='text/plain').content)
+
+    def test_callback_lands_as_a_missed_call_with_the_number(self):
+        d = self.post({'action': 'callback', 'name': 'Fatou', 'phone': '300 1122', 'why': 'captive'})
+        self.assertTrue(d['ok'], d)
+        from core.models_chat import ChatMessage
+        m = ChatMessage.objects.filter(system=True).latest('id')
+        self.assertTrue(m.body.startswith('📶 Missed Wi-Fi call from Fatou · 300 1122'))
+        self.assertIn('call', m.body)
+        from core.views_mobile import _customer_calls
+        row = _customer_calls(self.biz)[0]
+        self.assertTrue(row['missed'])
+        self.assertEqual(row['phone'].replace(' ', ''), '3001122')
+
+    def test_callback_needs_a_number_and_is_limited(self):
+        self.assertFalse(self.post({'action': 'callback', 'name': 'x', 'phone': '12'})['ok'])
+        for _ in range(3):
+            self.assertTrue(self.post({'action': 'callback', 'phone': '3001122'})['ok'])
+        self.assertFalse(self.post({'action': 'callback', 'phone': '3001122'})['ok'])

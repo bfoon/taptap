@@ -171,6 +171,50 @@ def guest_state(call):
     return out
 
 
+# ─────────────────────────────── "call me back" (no microphone) ───────────────────────────────
+
+CALLBACKS_PER_IP = 3              # per 10 minutes
+
+
+def callback_request(page, *, name='', phone='', ip='', why=''):
+    """The customer's phone could not use the microphone (the small Wi-Fi sign-in window, a blocked permission):
+    they leave their number instead. It lands exactly like a missed call — a note in the team room with the number
+    (Customer calls in the app, with a call-back button) and a push to the people who answer."""
+    business = page.business
+    hs = handlers(business)
+    if not hs:
+        raise chat.ChatError('Nobody is set up to answer calls yet.')
+    name, phone = _clean(name, 60), _clean(phone, 30)
+    if sum(c.isdigit() for c in phone) < 6:
+        raise chat.ChatError('Type your phone number so we can call you back.')
+    rk = f'pcall:cb:{business.pk}:{ip}'
+    n = cache.get(rk, 0)
+    if n >= CALLBACKS_PER_IP:
+        raise chat.ChatError('We already have your number — someone will call you back soon.')
+    cache.set(rk, n + 1, IP_WINDOW)
+    who = name or 'a Wi-Fi customer'
+    reason = {'mic': 'their phone could not use the microphone', 'captive': 'the Wi-Fi sign-in window cannot make calls'}.get(why, '')
+    text = f'📶 Missed Wi-Fi call from {who} · {phone} — asked to be called back' + (f' ({reason})' if reason else '')
+    where = f' ({page.name[:80]})' if page.name else ''
+    from .models_chat import ChatMessage
+    thread = chat.team_thread(business)
+    m = ChatMessage.objects.create(thread=thread, sender=None, body=(text + where)[:4000], system=True)
+    thread.last_at = m.created_at
+    thread.save(update_fields=['last_at'])
+    try:
+        from . import mobile_push
+        if mobile_push.configured():
+            mobile_push.missed_call([u.pk for u in hs], text[2:].strip(), phone, name)
+    except Exception:
+        pass
+    try:
+        from .utils import log
+        log(business, 'Wi-Fi Call', text[:200])
+    except Exception:
+        pass
+    return text
+
+
 # ─────────────────────────────── the note in the team room ───────────────────────────────
 
 def note(call, reason, live_at):

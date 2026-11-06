@@ -97,7 +97,8 @@
     var text = msg || {
       ended: 'Thanks for calling.', missed: 'Nobody could answer just now.' + (S.phone ? ' We have your number and will call you back.' : ''),
       declined: 'Our team cannot take the call right now.' + (S.phone ? ' We will call you back.' : ''),
-      cancelled: 'Call cancelled.', lost: 'The line dropped.', failed: 'The call could not connect over this Wi-Fi.', gone: 'The call has ended.'
+      cancelled: 'Call cancelled.', lost: 'The line dropped.', failed: 'The call could not connect over this Wi-Fi.', gone: 'The call has ended.',
+      callback: 'Thank you — we will call you back.'
     }[reason] || 'The call has ended.';
     sub.textContent = talk || text;
     tone([480, 360], 0, 0.35, 0.05);
@@ -110,32 +111,138 @@
   }
   function clearAll() { Object.keys(S.t).forEach(function (k) { clearTimeout(S.t[k]); clearInterval(S.t[k]); }); }
 
-  // ───────── start ─────────
+  // ───────── the microphone: ask nicely, and when the phone refuses, show exactly where to fix it ─────────
+  // The usual trouble: the small "Sign in to Wi-Fi" window (Android / iPhone) and app browsers cannot use the
+  // microphone at all and never show a prompt; a browser where Microphone was blocked once refuses at once.
+  var UA = navigator.userAgent || '';
+  var IOS = /iPhone|iPad|iPod/.test(UA) || (/Macintosh/.test(UA) && 'ontouchend' in document);
+  var ANDROID = /Android/.test(UA);
+  function browser() {
+    if (/FBAN|FBAV|FB_IAB|Instagram|Line\/|Snapchat|TikTok|musical_ly|Twitter/.test(UA)) return 'inapp';
+    if (/CaptivePortalLogin|; wv\)/.test(UA)) return 'captive';             // Android "Sign in to network" window / a WebView
+    if (IOS && !/Safari\//.test(UA)) return 'captive';                      // the iPhone's Wi-Fi sign-in window
+    if (IOS) return /CriOS/.test(UA) ? 'chrome-ios' : /FxiOS/.test(UA) ? 'firefox' : /EdgiOS/.test(UA) ? 'edge-ios' : 'safari';
+    if (/SamsungBrowser/.test(UA)) return 'samsung';
+    if (/Firefox\//.test(UA)) return 'firefox';
+    if (/OPR\/|Opera/.test(UA)) return 'opera';
+    if (/Chrome\//.test(UA)) return ANDROID ? 'chrome' : 'desktop';
+    return ANDROID ? 'chrome' : 'desktop';
+  }
+  function callLink() { return location.origin + location.pathname; }
+  function micState() {                            // 'granted' · 'denied' · 'prompt' · '' (unknown)
+    try {
+      if (!navigator.permissions || !navigator.permissions.query) return Promise.resolve('');
+      return navigator.permissions.query({ name: 'microphone' }).then(function (p) { return p.state; }, function () { return ''; });
+    } catch (e) { return Promise.resolve(''); }
+  }
+  // a picture of the address bar, with the place to tap glowing
+  function bar(icon, label) {
+    return '<div class="pc-bar-mock" aria-hidden="true"><span class="pc-mock-ic">' + icon + '</span><span class="pc-mock-url">' +
+      esc(location.host) + '</span><span class="pc-mock-tip">' + esc(label) + '</span></div>';
+  }
+  function steps(list) { return '<ol class="pc-steps">' + list.map(function (x) { return '<li>' + x + '</li>'; }).join('') + '</ol>'; }
+  function helpFor(kind, why) {
+    var copy = '<b>Copy the call link</b> (button below)';
+    if (why === 'insecure') return { t: 'This page cannot use the microphone', b: steps([copy, 'Open <b>Chrome</b> or <b>Safari</b>, paste it and tap <b>Call</b>.']) };
+    if (kind === 'captive') {
+      return IOS
+        ? { t: 'The Wi-Fi sign-in window cannot make calls', b: '<p>This small window has no microphone. Open the call in Safari instead:</p>' +
+            steps([copy, 'Tap <b>Cancel</b> at the top, then <b>Use Without Internet</b>.', 'Open <b>Safari</b>, paste the link and tap <b>Call</b> — then tap <b>Allow</b>.']) }
+        : { t: 'The Wi-Fi sign-in window cannot make calls', b: '<p>This small window has no microphone. Open the call in Chrome instead:</p>' +
+            steps(['Tap <b>Open in Chrome</b> below. (Nothing happens? Tap <b>Copy</b> to copy the call link.)',
+                   'If this window is still open: tap <b>⋮</b> at the top right → <b>Use this network as is</b>.',
+                   'In <b>Chrome</b>, paste the link and tap <b>Call</b> — then tap <b>Allow</b>.']) };
+    }
+    if (kind === 'inapp') return { t: 'Open this in your browser', b: '<p>Apps like Facebook or Instagram cannot use the microphone for calls.</p>' +
+      steps(['Tap <b>⋯</b> or <b>⋮</b> at the top → <b>Open in ' + (IOS ? 'Safari' : 'Chrome') + '</b>.', 'Tap <b>Call</b> there — then tap <b>Allow</b>.']) };
+    if (why === 'nodevice') return { t: 'No microphone found', b: '<p>This device has no working microphone. Use the call-back or a normal phone call below.</p>' };
+    var fix = {
+      safari: [bar('aA', 'tap here'), steps(['Tap <b>aA</b> next to the address.', 'Tap <b>Website Settings</b> → <b>Microphone</b> → <b>Allow</b>.', 'Tap <b>Try again</b> below.']) +
+        '<p class="pc-note">Still nothing? iPhone <b>Settings → Apps → Safari → Microphone → Ask</b>.</p>'],
+      'chrome-ios': ['', steps(['Open the iPhone <b>Settings</b> → <b>Apps</b> → <b>Chrome</b>.', 'Switch <b>Microphone</b> on.', 'Come back and tap <b>Try again</b>.'])],
+      'edge-ios': ['', steps(['Open the iPhone <b>Settings</b> → <b>Apps</b> → <b>Edge</b>.', 'Switch <b>Microphone</b> on.', 'Come back and tap <b>Try again</b>.'])],
+      chrome: [bar('&#9881;', 'tap here'), steps(['Tap the <b>⚙</b> or <b>🔒</b> left of the address.', 'Tap <b>Permissions</b> → <b>Microphone</b> → <b>Allow</b>.', 'Tap <b>Try again</b> below.']) +
+        '<p class="pc-note">Still nothing? Phone <b>Settings → Apps → Chrome → Permissions → Microphone → Allow</b>.</p>'],
+      samsung: [bar('&#128274;', 'tap here'), steps(['Tap the <b>🔒</b> left of the address.', 'Tap <b>Permissions</b> → turn <b>Microphone</b> on.', 'Tap <b>Try again</b> below.']) +
+        '<p class="pc-note">Still nothing? Phone <b>Settings → Apps → Samsung Internet → Permissions → Microphone</b>.</p>'],
+      firefox: [bar('&#128274;', 'tap here'), steps(['Tap the <b>🔒</b> left of the address.', 'Remove <b>Blocked: Microphone</b>.', 'Tap <b>Try again</b>, then <b>Allow</b>.'])],
+      opera: [bar('&#128274;', 'tap here'), steps(['Tap the <b>🔒</b> left of the address → <b>Site settings</b>.', 'Set <b>Microphone</b> to <b>Allow</b>.', 'Tap <b>Try again</b> below.'])],
+      desktop: [bar('&#128274;', 'click here'), steps(['Click the <b>🔒</b> (or the crossed-out microphone) in the address bar.', 'Set <b>Microphone</b> to <b>Allow</b>.', 'Click <b>Try again</b> below.'])]
+    }[kind] || [bar('&#128274;', 'tap here'), steps(['Tap the icon left of the address.', 'Allow <b>Microphone</b>.', 'Tap <b>Try again</b> below.'])];
+    return { t: 'Allow the microphone', b: fix[0] + '<p>Your phone blocked the microphone for this page. Here is where to switch it on:</p>' + fix[1] };
+  }
+  function micHelp(why) {
+    S.state = 'help'; setRoot('idle help'); timer.hidden = true; ringback(false);
+    var kind = browser(), h = helpFor(kind, why), link = callLink();
+    var openChrome = ANDROID && (kind === 'captive' || kind === 'inapp' || why === 'insecure')
+      ? '<a class="pc-go" href="intent://' + esc(location.host + location.pathname) + '#Intent;scheme=https;package=com.android.chrome;end">' + ICON.phone + 'Open in Chrome</a>' : '';
+    var canRetry = kind !== 'captive' && kind !== 'inapp' && why !== 'insecure' && why !== 'nodevice';
+    sub.textContent = canRetry ? 'One small step, then we can talk.' : 'Your call works in the browser.';
+    panel.innerHTML = '<div class="pc-form pc-help"><h2>' + esc(h.t) + '</h2>' + h.b +
+      (canRetry ? '<button class="pc-go" type="button" data-a="retry">' + ICON.mic + 'Try again</button>' : openChrome) +
+      (kind === 'captive' || kind === 'inapp' || why === 'insecure'
+        ? '<div class="pc-copy"><input class="pc-in" id="pcLink" readonly value="' + esc(link) + '" aria-label="Call link"><button class="pc-mini" type="button" data-a="copy">Copy</button></div>' : '') +
+      '<details class="pc-cb"' + (canRetry ? '' : ' open') + '><summary>' + ICON.phone.replace('<svg', '<svg width="16" height="16"') + ' Or: we call you back</summary>' +
+        '<input class="pc-in" id="pcCbN" maxlength="60" autocomplete="name" placeholder="Your name" value="' + esc(S.name || store('name')) + '">' +
+        '<input class="pc-in" id="pcCbP" maxlength="30" inputmode="tel" autocomplete="tel" placeholder="Your phone number" value="' + esc(S.phone || store('phone')) + '">' +
+        '<button class="pc-go pc-go2" type="button" data-a="callback">Call me back</button><p class="pc-small" id="pcCbMsg"></p></details>' +
+      (C.phone ? '<a class="pc-alt" href="tel:' + esc(String(C.phone).replace(/[^\d+]/g, '')) + '">' + ICON.phone.replace('<svg', '<svg width="18" height="18"') + ' Normal phone call · ' + esc(C.phone) + '</a>' : '') +
+      '</div>';
+    S.helpWhy = why || (kind === 'captive' ? 'captive' : 'mic');
+  }
+  function copyLink() {
+    var el = $('pcLink'); if (!el) return;
+    var ok = function () { var b = document.querySelector('[data-a="copy"]'); if (b) { b.textContent = 'Copied ✓'; setTimeout(function () { b.textContent = 'Copy'; }, 2500); } };
+    try { if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(el.value).then(ok, function () { legacy(); }); } catch (e) {}
+    legacy();
+    function legacy() { try { el.focus(); el.select(); el.setSelectionRange(0, 9999); if (document.execCommand('copy')) ok(); } catch (e) {} }
+  }
+  function callback() {
+    var name = (($('pcCbN') || {}).value || '').trim(), phone = (($('pcCbP') || {}).value || '').trim(), msg = $('pcCbMsg');
+    store('name', name); store('phone', phone);
+    var b = document.querySelector('[data-a="callback"]'); if (b) b.disabled = true;
+    api('callback', { name: name, phone: phone, why: S.helpWhy === 'captive' ? 'captive' : 'mic' }).then(function (d) {
+      if (b) b.disabled = false;
+      if (d && d.ok) { tone([660, 880], 0, 0.25, 0.05); return done('callback', d.message); }
+      if (msg) msg.textContent = (d && d.message) || 'Could not send it. Try again.';
+    });
+  }
   function micError(e) {
     var n = e && e.name;
-    if (!window.isSecureContext || !navigator.mediaDevices) return 'This browser cannot use the microphone here. Open this page in Chrome or Safari, or use the normal phone call.';
-    return n === 'NotAllowedError' ? 'Please allow the microphone — tap the 🔒 or aA next to the address, allow Microphone, then try again.'
-      : n === 'NotFoundError' ? 'No microphone was found on this device.' : 'Could not start the microphone (' + (n || 'error') + ').';
+    if (!window.isSecureContext) return 'insecure';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return browser() === 'captive' || browser() === 'inapp' ? '' : 'insecure';
+    if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'nodevice';
+    return '';
   }
+  // ───────── start ─────────
   function start() {
     var name = ($('pcN') || {}).value || '', phone = ($('pcP') || {}).value || '';
     store('name', name.trim()); store('phone', phone.trim()); S.name = name.trim(); S.phone = phone.trim();
     ac();                                         // unlock sound on this tap (iOS)
-    var go = $('pcGo'); if (go) { go.disabled = true; go.textContent = 'Starting your microphone…'; }
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return intro(micError());
-    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false })
-      .then(function (stream) {
-        S.mic = stream.getAudioTracks()[0];
-        return api('start', { name: name, phone: phone });
-      })
-      .then(function (d) {
-        if (!d.ok) throw new Error(d.message || 'Could not start the call.');
-        S.id = d.id; S.secret = d.secret; S.ice = d.ice;
-        S.state = 'ringing'; setRoot('ringing'); sub.textContent = 'Ringing…'; inCall(); ringback(true);
-        return offer();
-      })
-      .then(function () { poll(800); })
-      .catch(function (e) { if (S.mic) S.mic.stop(); S.mic = null; intro(e && e.name ? micError(e) : (e && e.message) || 'Could not start the call.'); });
+    var go = $('pcGo'); if (go) { go.disabled = true; go.innerHTML = ICON.mic + 'Tap <b>Allow</b> when your phone asks'; }
+    sub.textContent = 'Your phone will ask to use the microphone — tap Allow.';
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return micHelp(micError());
+    micState().then(function (st) {
+      if (st === 'denied') return micHelp('');                // blocked before: no prompt will come, show where to fix it
+      var asked = Date.now();
+      navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false })
+        .then(function (stream) {
+          S.mic = stream.getAudioTracks()[0];
+          return api('start', { name: name, phone: phone });
+        }, function (e) { e = e || {}; e.mic = true; e.fast = Date.now() - asked < 600; throw e; })
+        .then(function (d) {
+          if (!d.ok) throw new Error(d.message || 'Could not start the call.');
+          S.id = d.id; S.secret = d.secret; S.ice = d.ice;
+          S.state = 'ringing'; setRoot('ringing'); sub.textContent = 'Ringing…'; inCall(); ringback(true);
+          return offer();
+        })
+        .then(function () { poll(800); })
+        .catch(function (e) {
+          if (S.mic) S.mic.stop(); S.mic = null;
+          if (e && e.mic) return micHelp(micError(e));
+          intro((e && e.message) || 'Could not start the call.');
+        });
+    });
   }
   // With a TURN relay, wait for its path (works through any NAT; slow to arrive on a weak line) — not longer.
   function gathered(pc, ms) {
@@ -295,6 +402,9 @@
         clearTimeout(S.t.spk); S.t.spk = setTimeout(function () { banner(''); }, r.mode === 'ios' || r.mode === 'none' ? 6000 : 2000);
       });
     }
+    else if (a === 'retry') { intro(); var g = $('pcGo'); if (g) g.click(); }
+    else if (a === 'copy') copyLink();
+    else if (a === 'callback') callback();
     else if (a === 'close') { if (S.id && !S.ended) hangup(); try { window.parent.postMessage({ tpCall: 'close' }, '*'); } catch (x) {} }
   });
   // Closing the page ends the call for staff straight away (instead of waiting for the heartbeat).

@@ -3,7 +3,7 @@
 Customer side (public, under /p/ — no TapTap account):
     /p/<slug>/call/       the call screen (HTTPS — browsers only allow the microphone on secure pages, so the
                           router's own http:// login page opens this page instead of calling inline)
-    /p/<slug>/call/api/   status · start · offer · poll · reoffer · end      (text/plain JSON: no CORS pre-check,
+    /p/<slug>/call/api/   status · start · offer · poll · reoffer · end · callback (no microphone: "call me back")      (text/plain JSON: no CORS pre-check,
                           so the router page can ask "is anybody there?" before the customer taps)
 Staff side:
     /studio/portal/calls/ who answers (the owner picks people; nobody picked = the owner)
@@ -73,6 +73,10 @@ def portal_call_api(request, slug):
     try:
         if act == 'status':
             return _cors(JsonResponse({'ok': True, **portal_call.status(page.business)}))
+        if act == 'callback':                   # no microphone on this phone: "call me back" instead
+            portal_call.callback_request(page, name=d.get('name'), phone=d.get('phone'), ip=_client_ip(request),
+                                         why=str(d.get('why') or '')[:20])
+            return _cors(JsonResponse({'ok': True, 'message': 'Thank you — we will call you back on that number.'}))
         if act == 'start':
             call, secret = portal_call.start(page, name=d.get('name'), phone=d.get('phone'), ip=_client_ip(request))
             return _cors(JsonResponse({'ok': True, 'id': call['id'], 'secret': secret,
