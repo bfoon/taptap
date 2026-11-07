@@ -75,3 +75,22 @@ def voucher_fix_find(request):
     if v is None:
         return JsonResponse({'ok': False, 'error': f'No voucher or member "{code}" in this business.'}, status=404)
     return JsonResponse(_answer(v))
+
+
+@login_required
+def voucher_first(request, pk):
+    """Voucher page / app: put this voucher on its router first and keep trying until the router confirms."""
+    from django.contrib import messages
+    from django.shortcuts import redirect
+    from .voucher_priority import prioritize
+    v = _b(request).vouchers.select_related('router', 'business').filter(pk=pk).first()
+    if v is None:
+        return JsonResponse({'ok': False, 'error': 'That voucher is gone.'}, status=404)
+    if request.method != 'POST':
+        return redirect('voucher_detail', pk=pk)
+    lines = prioritize([v], request.user, reason='Send first (voucher page)')
+    text = ' · '.join(lines) or 'Nothing to send.'
+    if request.headers.get('Accept', '').startswith('application/json'):
+        return JsonResponse({'ok': True, 'message': text})
+    messages.info(request, text)
+    return redirect('voucher_detail', pk=pk)

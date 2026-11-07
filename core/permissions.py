@@ -78,7 +78,7 @@ URL_PERMS = {
     'vouchers': 'vouchers.view', 'voucher_detail': 'vouchers.view', 'voucher_reports': ('vouchers.view', 'vouchers.support'), 'voucher_card': 'vouchers.view', 'batches': 'vouchers.view', 'batch_detail': 'vouchers.view', 'plan_detail': ('vouchers.view', 'plans.manage'),
     'generate_vouchers': 'vouchers.create', 'single_voucher': 'vouchers.create', 'batch_assign': 'vouchers.create',
     'voucher_print': 'vouchers.create',
-    'disable_voucher': 'vouchers.support', 'enable_voucher': 'vouchers.support', 'reset_mac': 'vouchers.support', 'voucher_fix': 'vouchers.support', 'voucher_fix_find': 'vouchers.support',
+    'disable_voucher': 'vouchers.support', 'enable_voucher': 'vouchers.support', 'reset_mac': 'vouchers.support', 'voucher_fix': 'vouchers.support', 'voucher_fix_find': 'vouchers.support', 'voucher_first': 'vouchers.support',
     'active_users': ('vouchers.support', 'network.manage'), 'disconnect_user': ('vouchers.support', 'network.manage'),
     'missing_vouchers': ('vouchers.support', 'vouchers.create'), 'report_missing_vouchers': ('vouchers.support', 'vouchers.create'),
     'report_missing_batch': ('vouchers.support', 'vouchers.create'), 'resolve_missing_report': 'vouchers.support',

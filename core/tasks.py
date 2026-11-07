@@ -258,6 +258,12 @@ def push_vouchers_task(router_id, voucher_ids, sweep=False):
 def sweep_vouchers_task():
     """Every few seconds: vouchers / members whose push failed are sent again (core/voucher_ready.sweep)."""
     from .voucher_ready import sweep
+    try:   # vouchers someone asked to go first on Direct API / Tunnel routers: retried until confirmed
+        from .voucher_priority import tick_api
+        tick_api()
+    except Exception:
+        import logging
+        logging.getLogger('taptap.vprio').exception('priority tick')
     return sweep()
 
 

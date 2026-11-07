@@ -26,7 +26,7 @@ from django.utils import timezone
 logger = logging.getLogger('taptap.fit.sync')
 
 SCOPES = {
-    'voucher': 'One or more vouchers/members by code (codes)',
+    'voucher': 'One or more vouchers/members by code (codes) — sent FIRST, ahead of everything, and retried until the router confirms',
     'batch': 'Every voucher of a batch (batch name)',
     'plan': 'Every active voucher of a plan (plan name)',
     'members': 'Every active member (or the member codes given)',
@@ -293,7 +293,20 @@ def run(business, scope, codes='', batch='', plan='', router='', user=None):
             return 'Nothing to send: no matching vouchers.'
         if len(vs) > MAX_VOUCHERS:
             raise SyncError(f'{len(vs)} vouchers is too many at once — sync a plan, a batch or one router at a time.')
-        lines += _push(vs, user)
+        if scope == 'voucher':
+            # Named vouchers go FIRST: their own command at the front of the router's line, and TapTap keeps
+            # trying until the router confirms each one (core/voucher_priority.py).
+            from .router_time import platform_owned
+            from .voucher_priority import MAX_VOUCHERS as FIRST, prioritize
+            first = [v for v in vs if v.router_id and platform_owned(v) and v.status not in ('expired', 'archived')][:FIRST]
+            ids = {v.pk for v in first}
+            if first:
+                lines += prioritize(first, user, reason='Fit: sync now')
+            rest = [v for v in vs if v.pk not in ids]
+            if rest:
+                lines += _push(rest, user)
+        else:
+            lines += _push(vs, user)
     else:
         rs = routers_of(business, router)
         if not rs:
@@ -331,7 +344,9 @@ def describe(business, scope, codes='', batch='', plan='', router=''):
                          f'{", ".join(routers) or "their routers"}: profile, password, time limit, on/off.'
                          + (f' {n_m} member(s) use the exact member alignment.' if n_m else '')
                          + (f' {n_r} router-made: their router is read again instead.' if n_r else '')
-                         + (f' {n_x} expired stay off.' if n_x else ''))
+                         + (f' {n_x} expired stay off.' if n_x else '')
+                         + (' They go first, ahead of everything else, and TapTap keeps trying until the router confirms.'
+                            if scope == 'voucher' else ''))
     rs = routers_of(business, router)
     names = ', '.join(r.name for r in rs)
     return (len(rs), {'router_time': f'Corrects every time limit that disagrees with TapTap on {names}.',

@@ -1297,6 +1297,22 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
     return cmd
 
 
+def _customer_first(router=None):
+    """Order of waiting vouchers: someone asked for it first (core/voucher_priority.py), then vouchers in use
+    (a customer is online or at the login page), then sold ones, then the newest stock."""
+    from django.db.models import Case, IntegerField, Value, When
+    first = []
+    if router is not None:
+        try:
+            from .voucher_priority import watching
+            first = [int(k) for k in watching(router.pk)]
+        except Exception:
+            first = []
+    whens = ([When(pk__in=first, then=Value(0))] if first else []) + [
+        When(used_at__isnull=False, then=Value(1)), When(sold_at__isnull=False, then=Value(2))]
+    return Case(*whens, default=Value(3), output_field=IntegerField())
+
+
 def push_pending_vouchers(router, limit=None):
     """Queue TapTap vouchers the router does not have yet (newest first: the voucher just sold is the one a
     customer is waiting for). ``limit`` defaults to the router's safe batch size (voucher_chunk)."""
@@ -1313,7 +1329,8 @@ def push_pending_vouchers(router, limit=None):
     todo = list(router.vouchers.filter(source='taptap').exclude(mikrotik_sync_status__in=['Synced', 'Queued'])
                 .exclude(status__in=['expired', 'archived'])                                  # vouchers that are over are never re-sent
                 .exclude(mikrotik_sync_status='Error', mikrotik_sync_error__startswith=REFUSED_MARK)   # refused 3×: not every check-in
-                .order_by('-pk')[:limit])
+                .annotate(tt_first=_customer_first(router))
+                .order_by('tt_first', '-pk')[:limit])
     if not todo:
         return 0
     plans = {p.name.lower(): p for p in router.business.plans.all()}
@@ -1568,6 +1585,11 @@ def handle_poll(agent, data, ip, url):
         ingest_sessions(router, rows + parse_bypass(data.get('bp', '')), now)   # bypass devices: usage + fair usage
     except Exception as exc:
         logger.info('session ingest %s: %s', router, exc)
+    try:   # vouchers someone asked to go first: confirmed → done, lost → sent again (core/voucher_priority.py)
+        from .voucher_priority import tick as priority_tick
+        priority_tick(router)
+    except Exception as exc:
+        logger.info('voucher priority %s: %s', router, exc)
     try:
         push_pending_vouchers(router)
     except Exception as exc:
@@ -1575,10 +1597,18 @@ def handle_poll(agent, data, ip, url):
     return build_response(router, url)
 
 
+BACKGROUND_PIECES = ('traffic_dns', 'traffic_conns', 'share_lists')   # samples: never ahead of a voucher change
+
+
 def link_traffic_samples(router):
-    """Apps & sites for Link-only routers: every 2 minutes upload the DNS cache and the busy connections."""
+    """Apps & sites for Link-only routers: every 2 minutes upload the DNS cache and the busy connections.
+    Not while voucher changes wait for this router: customers first, the samples follow at the next turn."""
     from .linkops import uses_link
-    if not uses_link(router) or not cache.add(f'tt:link:apps:{router.pk}', 1, 120):
+    if not uses_link(router):
+        return
+    if AgentCommand.objects.filter(router=router, status='queued', kind__in=VOUCHER_KINDS).exists():
+        return
+    if not cache.add(f'tt:link:apps:{router.pk}', 1, 120):
         return
     if AgentCommand.objects.filter(router=router, kind='inventory_piece', status__in=['queued', 'sent']).exists():
         return  # a full sync is running; it has priority
@@ -1729,7 +1759,14 @@ def build_response(router, url):
     voucher_only = False
     if in_flight.exists():
         if in_flight.filter(kind__in=VOUCHER_KINDS).exists():
-            return ''  # give the router a moment to finish the last batch (never longer than BATCH_GAP)
+            # give the router a moment to finish the last batch (never longer than BATCH_GAP) — but when more voucher
+            # work is waiting, ask it to check in again in 2 s instead of after its normal interval
+            try:
+                if AgentCommand.objects.filter(router=router, status='queued', kind__in=VOUCHER_KINDS).exists() and _wants_turbo(router):
+                    return TURBO_LINE
+            except Exception:
+                logger.debug('turbo while waiting on %s', router, exc_info=True)
+            return ''
         # Voucher fast lane: a sync piece or other slow job is still running on the router, but a customer is
         # waiting on a voucher change. Voucher commands are tiny and go now; the rest waits as before.
         # Voucher commands still travel one batch at a time, so their order on the router is kept.
@@ -1739,21 +1776,55 @@ def build_response(router, url):
     pending = AgentCommand.objects.filter(router=router, status='queued')
     turn_key = f'tt:link:lastv:{router.pk}'
     others_turn = False
+    vouchers_waiting = pending.filter(kind__in=VOUCHER_KINDS).exists()
+    if vouchers_waiting:
+        # Vouchers first (core/voucher_priority.py): background samples (apps & sites, sharing lists) never travel
+        # while a voucher change waits — they are taken again two minutes later anyway.
+        pending = pending.exclude(kind='inventory_piece', params__kind__in=list(BACKGROUND_PIECES))
     if voucher_only:
         pending = pending.filter(kind__in=VOUCHER_KINDS)
     elif cache.get(turn_key) and pending.exclude(kind__in=VOUCHER_KINDS).filter(created_at__lte=now - timedelta(seconds=FAIR_WAIT)).exists():
         others_turn = True          # the last check-in carried vouchers and other work is waiting: its turn now
-    for cmd in pending.annotate(prio=delivery_order(others_turn)).order_by('prio', 'created_at')[:40]:
+    # Vouchers ALWAYS ride first. On the other work's turn they keep at most half of the batch, so a sync or a
+    # router job still gets through during a long voucher backlog (it used to be the other way round: the other
+    # work went first and waiting vouchers — disconnects, switch-offs, customers at the login page — sat behind
+    # traffic samples). Vouchers someone asked to go first ("sync this voucher now") lead the batch.
+    # vouchers oldest first, then the rest (on the other work's turn: oldest first; otherwise sync tables last).
+    # Fetched apart so a long voucher backlog can never push the other work out of the list.
+    others = pending.exclude(kind__in=VOUCHER_KINDS)
+    others = others.order_by('created_at') if others_turn else others.annotate(prio=delivery_order(False)).order_by('prio', 'created_at')
+    rows = list(pending.filter(kind__in=VOUCHER_KINDS).order_by('created_at')[:40]) + list(others[:40])
+    try:
+        from .voucher_priority import command_ids
+        first = command_ids(router)
+    except Exception:
+        first = set()
+    if first:
+        have = {c.pk for c in rows}
+        extra_rows = [c for c in pending.filter(pk__in=list(first - have))] if first - have else []
+        rows = sorted(rows + extra_rows, key=lambda c: (0 if c.pk in first else 1))      # stable: order kept otherwise
+    voucher_budget = MAX_SCRIPT // 2 if others_turn else MAX_SCRIPT
+    voucher_size, vouchers_closed = 0, False
+    for cmd in rows:
         if cmd.kind in TRAVEL_ALONE and parts:
             break  # these always travel alone
+        is_voucher = cmd.kind in VOUCHER_KINDS
+        if is_voucher and vouchers_closed:
+            continue   # a voucher command left for the next check-in: the later ones wait too (their order matters)
         try:
             chunk = wrap(cmd, url, check)
         except Exception as exc:
             AgentCommand.objects.filter(pk=cmd.pk).update(status='failed', result=str(exc)[:500], done_at=now)
             continue
         extra = len(send_function()) + 1 if cmd.kind == 'inventory_piece' and not helper else 0
+        if is_voucher and (parts or others_turn) and voucher_size + len(chunk) > voucher_budget and cmd.pk not in first:
+            # over the vouchers' share: on the other work's turn even a first big batch waits for the next check-in
+            vouchers_closed = True
+            continue
         if parts and size + len(chunk) + extra > MAX_SCRIPT:
             break
+        if is_voucher:
+            voucher_size += len(chunk) + 1
         if extra:
             parts.insert(0, send_function())
             helper = True

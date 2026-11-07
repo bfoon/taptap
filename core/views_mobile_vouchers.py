@@ -168,6 +168,7 @@ def _detail(request, b, v):
             'add_time': support and still and not v.is_unlimited,
             'reset_devices': support and live and bool(bindings),
             'fix': support and bool(v.router_id) and v.deleted_at is None,
+            'first': support and live and bool(v.router_id) and v.status == 'active' and not expired,
             'delete': manage and v.deleted_at is None and not v.used_at,
         },
         'extend': [{'label': lb, 'minutes': m} for lb, m in EXTEND],
@@ -225,6 +226,14 @@ def _act(request, b, v):
             msg += f' Its sale ({b.currency}{s["sales_amount"]:,.2f}) was taken out of finance.'
         return JsonResponse({'ok': True, 'deleted': True, 'message': msg,
                              'notes': [text for _n, _ok, text in s['router']]})
+    if act == 'first':
+        # Send to the router first: ahead of everything, retried until the router confirms (core/voucher_priority.py)
+        if 'vouchers.support' not in perms:
+            return _err('Your role cannot sync vouchers (voucher support is needed).', 403)
+        from .voucher_priority import prioritize
+        msg = ' · '.join(prioritize([v], user, reason or 'Send first (app)')) or 'Nothing to send.'
+        v = _voucher(b, v.pk)
+        return JsonResponse(clean({'ok': True, 'message': msg, 'voucher': _detail(request, b, v)}))
     if act in ('check', 'fix'):
         # "Can't connect?" (core/voucher_unstick.py): what stops it, and the Fix it button
         if 'vouchers.support' not in perms:

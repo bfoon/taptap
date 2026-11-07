@@ -386,7 +386,9 @@ def system_prompt(ctx, page=None):
         'everything — offer ONE propose_action kind=sync with the matching scope (codes / batch / plan / router). Use '
         'sync_status first when it helps to show what is actually different, and prefer the smallest scope that fixes it '
         '(one voucher before a batch, a batch before a full router sync). Router-made vouchers are read from the router, never '
-        'overwritten.',
+        'overwritten. When the person says to prioritise a voucher, put it first, push it now or "keep trying", use '
+        'scope=voucher with its codes: those go to the router ahead of everything else and TapTap keeps re-sending them '
+        'until the router confirms (up to 15 minutes) — say so in your reply.',
         '12. The router itself: use router_query to look straight at a MikroTik (sessions, bindings, walled garden, address '
         'lists, queues, DNS, interfaces, Wi-Fi, logs, clock…) — live over the API / Tunnel, or the latest copy on TapTap Link. '
         'When the person asks you to change something ON the router, first query it, then offer ONE propose_action '

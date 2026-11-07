@@ -353,6 +353,12 @@ class _VoucherDetailScreenState extends State<VoucherDetailScreen> {
                   icon: const Icon(Icons.wifi_off, size: 18),
                   label: const Text("Can't connect?"),
                 ),
+              if (can['first'] == true)
+                OutlinedButton.icon(
+                  onPressed: _busy ? null : () => _act('first'),
+                  icon: const Icon(Icons.bolt, size: 18),
+                  label: const Text('Send to router first'),
+                ),
               if (can['reset_devices'] == true)
                 OutlinedButton.icon(
                     onPressed: _busy ? null : () => _reset(v), icon: const Icon(Icons.phonelink_erase, size: 18), label: const Text('Reset devices')),

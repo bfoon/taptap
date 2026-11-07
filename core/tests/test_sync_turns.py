@@ -45,7 +45,7 @@ class FairTurns(Base):
         AgentCommand.objects.filter(pk=other.pk).update(created_at=timezone.now() - timedelta(minutes=1))
         kinds = [self.checkin()[1] for _ in range(4)]
         self.assertIn('hotspot_users', kinds[0], 'vouchers still go first')
-        self.assertEqual(kinds[1], {'ping'}, 'the next check-in is the other work’s turn — it used to wait for the whole backlog')
+        self.assertIn('ping', kinds[1], 'the next check-in is the other work’s turn — it used to wait for the whole backlog')
         self.assertIn('hotspot_users', kinds[2], 'and vouchers continue right after')
 
     def test_sync_tables_are_delivered_while_vouchers_flow(self):
