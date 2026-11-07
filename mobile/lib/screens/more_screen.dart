@@ -66,6 +66,51 @@ class _MoreScreenState extends State<MoreScreen> {
     } catch (_) {}
   }
 
+  static String _norm(String s) => s.trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+
+  /// Leave the current business: what happens, then type its name.
+  Future<void> _leave(AppState app) async {
+    final name = '${app.business['name'] ?? ''}';
+    final ctl = TextEditingController();
+    final messenger = ScaffoldMessenger.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => StatefulBuilder(
+        builder: (c, set) => AlertDialog(
+          icon: const Icon(Icons.door_front_door_outlined),
+          title: Text('Leave $name?'),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('You lose access to this business straight away. Your login and your other businesses stay. '
+                'Nothing is deleted — the owner is told and can let you back in.'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctl,
+              onChanged: (_) => set(() {}),
+              decoration: InputDecoration(labelText: 'Type “$name” to confirm'),
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Stay')),
+            FilledButton(
+              style: FilledButton.styleFrom(backgroundColor: Theme.of(c).colorScheme.error),
+              onPressed: _norm(ctl.text) == _norm(name) ? () => Navigator.pop(c, true) : null,
+              child: const Text('Leave'),
+            ),
+          ],
+        ),
+      ),
+    );
+    final typed = ctl.text;
+    ctl.dispose();
+    if (ok != true) return;
+    try {
+      final msg = await app.leaveBusiness(typed);
+      messenger.showSnackBar(SnackBar(content: Text(msg)));
+    } on ApiError catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
@@ -207,6 +252,13 @@ class _MoreScreenState extends State<MoreScreen> {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NotificationsScreen())),
               ),
+              if ('${b['role_key'] ?? 'owner'}' != 'owner')
+                ListTile(
+                  leading: const Icon(Icons.door_front_door_outlined),
+                  title: Text('Leave ${b['name']}', style: const TextStyle(fontWeight: FontWeight.w700)),
+                  subtitle: const Text('Remove yourself from this team — your login and other businesses stay'),
+                  onTap: () => _leave(app),
+                ),
               ListTile(
                 leading: Icon(Icons.logout, color: cs.error),
                 title: Text('Sign out', style: TextStyle(color: cs.error, fontWeight: FontWeight.w700)),

@@ -164,3 +164,15 @@ html[data-theme="dark"] .nt-note{color:#c3cfdc}html[data-theme="dark"] .nt-speed
 html[data-theme="dark"] .mp-note,html[data-theme="dark"] .mp-tile,html[data-theme="dark"] .mp-findings li{background:#1d2229;color:#c3cfdc}
 html[data-theme="dark"] .mp-info code,html[data-theme="dark"] .mp-link span,html[data-theme="dark"] .mp-port{color:#a9b6c4}
 html[data-theme="dark"] .nt-modes button.on{background:#1769e0;border-color:#1769e0}
+/* Why people drop (core/nettools.drops_result) */
+.nt-drops-info{font-size:.84rem;color:var(--muted);background:#f3f8fe;border-radius:12px;padding:.6rem .75rem;margin-bottom:.6rem}
+.nt-drops{display:grid;gap:.7rem;margin:.6rem 0 1rem}
+.nt-drop-top{display:flex;justify-content:space-between;gap:.6rem;font-size:.88rem}.nt-drop-top span{font-family:var(--mono);color:var(--muted);white-space:nowrap}
+.nt-drop-bar{height:8px;border-radius:99px;background:#eef2f6;overflow:hidden;margin:.25rem 0}.nt-drop-bar i{display:block;height:100%;border-radius:99px;background:#f59e0b}
+.nt-drop-bar.user i,.nt-drop-bar.uptime i,.nt-drop-bar.traffic i{background:#18a66a}.nt-drop-bar.admin i{background:#d64545}.nt-drop-bar.dhcp i{background:#7c3aed}
+.nt-drop small{display:block;color:var(--muted);font-size:.76rem;line-height:1.35}
+.nt-sub{font-size:.82rem;font-weight:800;margin:.4rem 0 .4rem}
+.nt-people{list-style:none;padding:0;margin:0;display:grid;gap:.35rem}
+.nt-people li{display:grid;grid-template-columns:1fr auto;gap:.1rem .6rem;padding:.45rem .6rem;border:1px solid var(--border);border-radius:10px}
+.nt-people .u{font-family:var(--mono);font-weight:700}.nt-people .c{font-weight:800}.nt-people small{grid-column:1/-1;color:var(--muted);font-size:.74rem}
+html[data-theme="dark"] .nt-drops-info{background:#1d2a38;color:#b9cde2}html[data-theme="dark"] .nt-drop-bar{background:#2b3139}html[data-theme="dark"] .nt-people li{border-color:#343c47}

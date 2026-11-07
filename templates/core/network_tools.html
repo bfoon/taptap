@@ -1,7 +1,7 @@
 {% extends 'core/base.html' %}{% load static %}
 {% block title %}Network tools — TapTap{% endblock %}
 {% block heading %}Network tools{% endblock %}
-{% block extra_head %}<link href="{% static 'css/nettools.css' %}?v=2" rel="stylesheet">{% endblock %}
+{% block extra_head %}<link href="{% static 'css/nettools.css' %}?v=3" rel="stylesheet">{% endblock %}
 {% block content %}
 {% if not sel %}
 <div class="nt-empty"><i class="bi bi-router"></i><h2>Add a router first</h2><p>Network tools run on your MikroTik, so TapTap needs one to test from.</p>
@@ -78,6 +78,7 @@
     <button data-tool="dns" role="tab"><i class="bi bi-signpost-split"></i> DNS</button>
     <button data-tool="web" role="tab"><i class="bi bi-window"></i> Website</button>
     <button data-tool="speed" role="tab"><i class="bi bi-speedometer2"></i> Speed</button>
+    <button data-tool="drops" role="tab" title="Read the router’s log: why customers and members were signed out"><i class="bi bi-person-dash"></i> Why people drop</button>
   </div>
 
   <form class="nt-form" id="ntForm" autocomplete="off">
@@ -95,6 +96,7 @@
       <label>Size <select class="form-select form-select-sm" id="ntSize"><option value="56" selected>56 bytes (normal)</option><option value="512">512 bytes</option><option value="1400">1400 bytes (near full)</option></select></label>
       {% if sel_via != 'TapTap Link' %}<label class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="ntKeep"> <span class="form-check-label">Keep pinging</span></label>{% endif %}
     </div>
+    <div class="nt-drops-info" data-for="drops"><i class="bi bi-journal-text"></i> Reads the router’s own log: the last 60 hotspot sign-outs and the reason RouterOS gave for each — phones asleep, address leases, timeouts, sessions removed — with what to change.</div>
     <div class="nt-speed-warn" data-for="speed"><i class="bi bi-exclamation-triangle"></i> Downloads up to {% if sel_via == 'TapTap Link' %}3 MB{% else %}26 MB{% endif %} through your Internet line — it counts against your data bundle, and customers may feel it for a few seconds.</div>
     <button class="btn btn-primary" id="ntRun" type="submit"><i class="bi bi-play-fill"></i> <span>Run</span></button>
     <div class="nt-msg" id="ntMsg" role="status" aria-live="polite"></div>
@@ -114,4 +116,4 @@
 {{ history|json_script:"ntHistory" }}
 {% endif %}
 {% endblock %}
-{% block scripts %}{% if sel %}<script src="{% static 'js/nettools.js' %}?v=2"></script><script src="{% static 'js/mypath.js' %}?v=1"></script>{% endif %}{% endblock %}
+{% block scripts %}{% if sel %}<script src="{% static 'js/nettools.js' %}?v=4"></script><script src="{% static 'js/mypath.js' %}?v=1"></script>{% endif %}{% endblock %}

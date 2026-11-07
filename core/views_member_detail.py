@@ -118,7 +118,13 @@ def member_detail(request, pk):
     ledger, paid_total, charged_total = _ledger(v)
     left_frozen = v.frozen_left if v.frozen_at else None
     schedules = list(v.member_schedules.select_related('created_by').order_by('-created_at')[:12])
+    try:   # how often the member shield kept this member online this week (core/member_shield.py)
+        from .member_shield import shield_stats
+        shield = shield_stats(business, [v.pk]).get(v.pk)
+    except Exception:
+        shield = None
     return render(request, 'core/member_detail.html', {
+        'shield': shield,
         'v': v, 'plan': plan, 'pref': pref, 'email': (pref.email if pref else ''),
         'state_key': state_key, 'state_label': state_label, 'ends_at': end,
         'time_left': (end - now) if end and end > now else None, 'time_pct': _time_pct(v, end, now),

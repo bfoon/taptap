@@ -1,0 +1,46 @@
+{% extends 'core/base.html' %}
+{% block title %}Leave {{ b.business_name }}{% endblock %}
+{% block heading %}Leave a business{% endblock %}
+{% block extra_head %}<style>
+.lv{max-width:620px;margin:0 auto}
+.lv-card{background:var(--panel,#fff);border:1px solid var(--border);border-radius:22px;padding:1.4rem 1.5rem}
+.lv-door{width:64px;height:64px;border-radius:18px;display:grid;place-items:center;background:#fff4dc;color:#9a6200;font-size:1.8rem;margin-bottom:.8rem}
+.lv h2{font-size:1.3rem;font-weight:850;margin:0 0 .3rem}
+.lv-sub{color:var(--muted);margin:0 0 1rem}
+.lv-list{list-style:none;padding:0;margin:0 0 1.1rem;display:grid;gap:.5rem}
+.lv-list li{display:flex;gap:.6rem;align-items:flex-start;font-size:.92rem}
+.lv-list i{flex:none;margin-top:.15rem}
+.lv-go{color:#138453}.lv-stay{color:#1769e0}.lv-tell{color:#9a6200}
+html[data-theme="dark"] .lv-card{background:#1f242b;border-color:#343c47}
+html[data-theme="dark"] .lv-door{background:#3a2a17;color:#f2b46f}
+</style>{% endblock %}
+{% block content %}
+<div class="lv">
+  <p class="mb-3"><a href="{% url 'dashboard' %}" class="text-decoration-none"><i class="bi bi-arrow-left"></i> Back</a></p>
+  <div class="lv-card">
+    <div class="lv-door"><i class="bi bi-door-open"></i></div>
+    <h2>Leave {{ b.business_name }}?</h2>
+    <p class="lv-sub">You are on this team as <b>{{ m.role_label }}</b>. You can remove yourself — you do not need to ask the owner.</p>
+    <ul class="lv-list">
+      <li><i class="bi bi-box-arrow-right lv-go"></i><span>You lose access to <b>{{ b.business_name }}</b> straight away — its vouchers, routers, sales and chat.</span></li>
+      <li><i class="bi bi-person-check lv-stay"></i><span>Your TapTap login stays{% if others %}, and so do your other businesses: <b>{{ others|join:", " }}</b>{% endif %}.</span></li>
+      <li><i class="bi bi-archive lv-stay"></i><span>Nothing is deleted: the sales you made, your pay records and your messages stay with {{ b.business_name }}.</span></li>
+      <li><i class="bi bi-bell lv-tell"></i><span>The owner is told (team room, alert and Activity log) and can let you back in later from the Team page.</span></li>
+    </ul>
+    <form method="post" action="{% url 'team_leave' b.pk %}" id="lvForm">{% csrf_token %}
+      <label class="form-label small fw-bold" for="lvName">Type <span class="text-danger">{{ b.business_name }}</span> to confirm</label>
+      <input class="form-control mb-3" id="lvName" name="confirm_name" autocomplete="off" required data-want="{{ b.business_name }}">
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-danger" id="lvGo" disabled><i class="bi bi-door-open"></i> Leave {{ b.business_name }}</button>
+        <a class="btn btn-light" href="{% url 'dashboard' %}">Stay</a>
+      </div>
+      {% if not others %}<p class="small text-muted mt-3 mb-0"><i class="bi bi-info-circle"></i> This is your only business: you will be signed out afterwards. A business owner can add you to their team again.</p>{% endif %}
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script>
+(function(){var i=document.getElementById('lvName'),b=document.getElementById('lvGo');if(!i||!b)return;
+  var norm=function(s){return String(s||'').trim().replace(/\s+/g,' ').toLowerCase();};
+  i.addEventListener('input',function(){b.disabled=norm(i.value)!==norm(i.dataset.want);});})();
+</script>{% endblock %}

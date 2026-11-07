@@ -209,6 +209,29 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     await pollChat();
   }
 
+  /// Leave the current business (you were added to its team). Returns TapTap's message. When it was your only
+  /// business TapTap signs this phone out, and so does the app.
+  Future<String> leaveBusiness(String confirmName) async {
+    final id = business['id'];
+    final d = await Api.I.post('/api/mobile/v1/business/leave/', {'id': id, 'confirm': confirmName});
+    final msg = '${d['message'] ?? 'You left the business.'}';
+    if (d['signed_out'] == true) {
+      try {
+        await Push.unregister();
+      } catch (_) {}
+      await Api.I.save(token: null);
+      _reset(wipe: true);
+      notifyListeners();
+      return msg;
+    }
+    _top = -1;
+    _chg = 0;
+    threads = [];
+    await refreshMe();
+    await pollChat();
+    return msg;
+  }
+
   void _reset({bool wipe = false}) {
     sync.stop();
     if (wipe) unawaited(Store.I.close(wipe: true));     // nothing of this account stays on the phone

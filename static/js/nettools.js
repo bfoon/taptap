@@ -10,7 +10,7 @@
   var LABEL = { ping: 'Address to ping', trace: 'Trace the path to', dns: 'Name to look up', web: 'Website' };
   var CHIPS = { ping: ['8.8.8.8', '1.1.1.1', 'google.com'], trace: ['8.8.8.8', '1.1.1.1', 'facebook.com'],
                 dns: ['google.com', 'facebook.com', 'whatsapp.net', 'youtube.com'], web: ['google.com', 'facebook.com', 'youtube.com', 'web.whatsapp.com'] };
-  var ICON = { mypath: 'bi-bezier', whoami: 'bi-crosshair', hops: 'bi-diagram-2', doctor: 'bi-heart-pulse', ping: 'bi-broadcast', trace: 'bi-bezier2', dns: 'bi-signpost-split', web: 'bi-window', speed: 'bi-speedometer2' };
+  var ICON = { drops: 'bi-person-dash', mypath: 'bi-bezier', whoami: 'bi-crosshair', hops: 'bi-diagram-2', doctor: 'bi-heart-pulse', ping: 'bi-broadcast', trace: 'bi-bezier2', dns: 'bi-signpost-split', web: 'bi-window', speed: 'bi-speedometer2' };
   var devices = [].map.call(document.querySelectorAll('#ntSuggest option'), function (o) { return o.textContent && /^\d/.test(o.value) && !/^(8\.8\.8\.8|1\.1\.1\.1)$/.test(o.value) ? o.value : null; }).filter(Boolean).slice(0, 3);
   CHIPS.ping = CHIPS.ping.concat(devices);
 
@@ -24,7 +24,7 @@
     document.querySelectorAll('#ntForm [data-for]').forEach(function (el) { el.hidden = el.dataset.for.split(' ').indexOf(t) < 0; });
     if (LABEL[t]) { $('ntTargetLabel').textContent = LABEL[t]; target.value = remembered[t] || ''; target.placeholder = t === 'web' ? 'google.com or https://example.com/page' : '8.8.8.8 or google.com'; }
     $('ntChips').innerHTML = (CHIPS[t] || []).map(function (c) { return '<button type="button" data-v="' + esc(c) + '">' + esc(c) + '</button>'; }).join('');
-    runBtn.querySelector('span').textContent = t === 'speed' ? 'Start speed test' : 'Run';
+    runBtn.querySelector('span').textContent = t === 'speed' ? 'Start speed test' : t === 'drops' ? 'Read the log' : 'Run';
     msg.textContent = '';
   }
   document.querySelectorAll('.nt-tabs button').forEach(function (b) { b.addEventListener('click', function () { show(b.dataset.tool); }); });
@@ -94,7 +94,7 @@
   $('ntForm').addEventListener('submit', function (e) {
     e.preventDefault(); if (busy) return;
     var data = {};
-    if (tool !== 'speed') data.target = target.value.trim();
+    if (tool !== 'speed' && tool !== 'drops') data.target = target.value.trim();
     if (tool === 'ping') { data.count = +$('ntCount').value; data.size = +$('ntSize').value; }
     var k = $('ntKeep');
     if (tool === 'ping' && k && k.checked) { startKeep(data); return; }
@@ -104,7 +104,8 @@
     busy = true; runBtn.disabled = true; msg.textContent = '';
     out.innerHTML = '<div class="nt-wait"><span class="spinner-border spinner-border-sm"></span> ' + waitText(kind) + '</div>';
     return run(kind, data).then(function (t) {
-      return waitFor(t, function (s) { out.querySelector('.nt-wait').lastChild.textContent = ' Waiting for the router (TapTap Link)… ' + s + ' s'; });
+      var note = t && t.result && t.result.note ? ' ' + t.result.note : '';
+      return waitFor(t, function (s) { var w = out.querySelector('.nt-wait'); if (w) w.lastChild.textContent = ' Waiting for the router (TapTap Link)… ' + s + ' s.' + note; });
     }).then(function (t) { draw(t); updHist(t); return t; }).catch(function (e) {
       msg.textContent = e.message; out.innerHTML = '<div class="nt-hint">' + esc(e.message) + '</div>';
     }).then(function (t) { busy = false; runBtn.disabled = false; return t; });
@@ -155,7 +156,28 @@
   function draw(t) {
     if (t.kind === 'doctor') { drawDoctor(t); out.innerHTML = '<div class="nt-hint">Internet check result is shown at the top of the page.</div>'; return; }
     if (t.status === 'failed') { out.innerHTML = head(t, 'failed', 'bad') + '<p class="nt-note">' + esc((t.result || {}).error || 'The test failed.') + '</p>'; return; }
-    ({ ping: function () { drawPing(t.result, t); }, trace: drawTrace, dns: drawDns, web: drawWeb, speed: drawSpeed })[t.kind](t);
+    var fn = ({ ping: function () { drawPing(t.result, t); }, trace: drawTrace, dns: drawDns, web: drawWeb, speed: drawSpeed, drops: drawDrops })[t.kind];
+    if (fn) fn(t);
+  }
+  // Why people drop: the router's own reasons for the last hotspot sign-outs (core/nettools.drops_result)
+  function drawDrops(t) {
+    var r = t.result || {}, total = r.total || 0;
+    var bars = (r.reasons || []).map(function (x) {
+      var pct = total ? Math.round(x.count * 100 / total) : 0;
+      return '<div class="nt-drop"><div class="nt-drop-top"><b>' + esc(x.label) + '</b><span>' + x.count + ' · ' + pct + '%</span></div>'
+        + '<div class="nt-drop-bar ' + esc(x.key) + '"><i style="width:' + Math.max(3, pct) + '%"></i></div>'
+        + (x.hint ? '<small>' + esc(x.hint) + '</small>' : '') + '</div>';
+    }).join('');
+    var people = (r.people || []).slice(0, 10).map(function (p) {
+      return '<li><span class="u">' + esc(p.user) + (p.member ? ' <span class="nt-badge warn">member</span>' : '') + '</span><span class="c">' + p.count + '×</span>'
+        + '<small>' + esc((p.reasons || []).map(function (x) { return x.label + (x.count > 1 ? ' ×' + x.count : ''); }).join(' · ')) + '</small></li>';
+    }).join('');
+    out.innerHTML = head(t, total ? total + ' sign-outs' : 'none', r.level || 'ok')
+      + '<p class="nt-note"><b>' + esc(r.title || '') + '</b>' + (r.note ? ' — ' + esc(r.note) : '') + '</p>'
+      + (r.members_dropping ? '<p class="nt-note">' + r.members_dropping + ' member' + (r.members_dropping === 1 ? '' : 's') + ' among them. TapTap never signs out a member with time left (Member shield), so these come from the phone, the Wi-Fi or the router settings above.</p>' : '')
+      + (bars ? '<div class="nt-drops">' + bars + '</div>' : '')
+      + (people ? '<h6 class="nt-sub">Who dropped most</h6><ol class="nt-people">' + people + '</ol>' : '')
+      + (r.in_log > total ? '<p class="nt-note">The router’s log holds ' + r.in_log + ' sign-outs; the latest ' + total + ' were read.</p>' : '');
   }
   function drawPing(r, t, title) {
     var times = r.times || [], got = times.filter(function (x) { return typeof x === 'number'; }), peak = Math.max.apply(null, got.concat([20]));
@@ -227,7 +249,7 @@
     if (t.kind === 'doctor') { mode('router'); drawDoctor(t); return; }
     if (t.kind !== tool) show(t.kind);
     if (t.target && LABEL[t.kind]) { target.value = t.target; remembered[t.kind] = t.target; }
-    if (t.status === 'waiting') { out.innerHTML = head(t, 'waiting', 'warn') + '<p class="nt-note">Still waiting for the router.</p>'; return; }
+    if (t.status === 'waiting') { out.innerHTML = head(t, 'waiting', 'warn') + '<p class="nt-note">' + esc((t.result && t.result.note) || 'Still waiting for the router.') + '</p>'; return; }
     draw(t);
   });
 

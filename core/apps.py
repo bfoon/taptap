@@ -87,5 +87,6 @@ class CoreConfig(AppConfig):
         _install_optional("fit_monitors")   # last: wraps device_lock.claim() outside every other rule
         _install_optional("login_addresses")  # easy addresses customers type (taptap.wifi) → online sign-in
         _install_optional("mobile_push")    # every new bell alert (business alerts, tracking) also reaches the phones
+        _install_optional("member_shield")  # after every Link-queue wrapper: members with time left are never signed out automatically
         _install_optional("features")       # very last: hides menu links of switched-off modules after every add-on has added its own
         _install_optional("url_alignment")  # after everything: URLs use each add-on's view (the URLconf loads early at startup)

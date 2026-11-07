@@ -33,7 +33,9 @@ KINDS = {
     'whoami': 'Find my device',
     'hops': 'Path check',
     'mypath': 'My connection',
+    'drops': 'Why people drop',
 }
+DROPS_LINES = 60                 # the latest hotspot sign-outs read from the router's log
 PATH_KINDS = ('whoami', 'hops')       # core/pathtrace.py
 
 CHECK_IPS = ('1.1.1.1', '8.8.8.8')
@@ -125,6 +127,8 @@ def clean_params(kind, data):
         out['target'] = 'speed.cloudflare.com'
     if kind == 'doctor':
         out['target'] = 'Internet'
+    if kind == 'drops':
+        out['target'] = 'hotspot sign-outs'
     return out
 
 
@@ -513,7 +517,96 @@ def diagnose(facts):
     return {'level': level, 'title': title, 'detail': detail, 'fixes': fixes, 'chain': chain, 'facts': facts}
 
 
-RUNNERS = {'ping': run_ping, 'trace': run_trace, 'dns': run_dns, 'web': run_web, 'speed': run_speed}
+# ─────────────────────────────── why people drop (the router's own log) ───────────────────────────────
+# RouterOS writes every hotspot sign-out to its log with the reason: "CODE (10.5.50.12): logged out: keepalive timeout".
+# Reading the last ones tells the owner whether it is the phones (sleep, Wi-Fi range), the router's settings (DHCP
+# lease, timeouts) or someone removing sessions — instead of guessing.
+
+_DROP_RE = re.compile(r'^(?:->:\s*)?(?P<user>[^\s(][^()]*?)\s*\((?P<ip>[^)]*)\):\s*logged out:\s*(?P<why>.+)$', re.I)
+DROP_REASONS = (
+    ('keepalive', 'keepalive timeout', 'The phone stopped answering the router',
+     'A phone asleep in a pocket, out of Wi-Fi range or gone home. TapTap gives members a long keepalive (“stay signed in”); '
+     'if many members drop like this, check the Wi-Fi signal where they sit, and raise “Keep a dropped Wi-Fi session for” in Settings → Voucher behaviour.'),
+    ('dhcp', 'lost dhcp lease', 'Its address lease ended',
+     'The hotspot’s DHCP lease time is short, so a phone that sleeps loses its address and is signed out. '
+     'Under IP › DHCP Server set the hotspot network’s lease time to at least 1 hour (TapTap Control can do it).'),
+    ('idle', 'idle timeout', 'Idle timeout', 'A profile still has an idle timeout. TapTap sets idle-timeout=none — run a full sync to repair the profile.'),
+    ('session', 'session timeout', 'Session time limit', 'A profile has a session-timeout. Members should have none — run a full sync to repair the profile.'),
+    ('admin', 'admin', 'Removed from the router', 'A session was removed by hand or by TapTap. TapTap never removes members who still have time '
+     '(Member shield); check the Activity log for staff actions.'),
+    ('user', 'user request', 'They signed out themselves', 'The customer opened the logout page — nothing to fix.'),
+    ('uptime', 'uptime limit', 'Their time ran out', 'The voucher or member time ended — expected.'),
+    ('traffic', 'traffic limit', 'Data limit reached', 'The plan’s data limit was used up — expected.'),
+    ('radius', 'radius', 'RADIUS', 'The RADIUS server ended the session.'),
+)
+
+
+def _drop_reason(why):
+    w = str(why or '').strip().lower()
+    for key, needle, label, hint in DROP_REASONS:
+        if needle in w:
+            return key, label, hint
+    return 'other', (str(why or '').strip()[:60] or 'Other'), ''
+
+
+def drops_result(entries, total=None):
+    """entries: [(time, message)] from the log → counts by reason (with what to do) and by person."""
+    rows, by_reason, by_user = [], {}, {}
+    for when, msg in entries:
+        m = _DROP_RE.match(str(msg or '').strip())
+        if not m:
+            continue
+        user, why = m.group('user').strip(), m.group('why').strip()
+        key, label, hint = _drop_reason(why)
+        rows.append({'at': str(when or '')[:30], 'user': user[:64], 'ip': m.group('ip')[:40], 'why': why[:80], 'key': key})
+        r = by_reason.setdefault(key, {'key': key, 'label': label, 'hint': hint, 'count': 0})
+        r['count'] += 1
+        u = by_user.setdefault(user.upper(), {'user': user[:64], 'count': 0, 'reasons': {}})
+        u['count'] += 1
+        u['reasons'][label] = u['reasons'].get(label, 0) + 1
+    reasons = sorted(by_reason.values(), key=lambda x: -x['count'])
+    people = sorted(by_user.values(), key=lambda x: -x['count'])[:15]
+    for p in people:
+        p['reasons'] = [{'label': k, 'count': v} for k, v in sorted(p['reasons'].items(), key=lambda kv: -kv[1])]
+    n = len(rows)
+    top = reasons[0] if reasons else None
+    if not n:
+        title, level = 'No sign-outs in the router’s log', 'ok'
+        note = 'The router’s log has no recent hotspot sign-outs (the log keeps only the latest lines; busy routers roll over fast).'
+    else:
+        share = round(top['count'] * 100 / n)
+        title = f'Most sign-outs: {top["label"].lower()} ({share}%)'
+        level = 'ok' if top['key'] in ('user', 'uptime', 'traffic') else 'warn'
+        note = top['hint']
+    return {'total': n, 'in_log': total if total is not None else n, 'reasons': reasons, 'people': people,
+            'rows': rows[-30:][::-1], 'title': title, 'level': level, 'note': note}
+
+
+def run_drops(svc, params):
+    entries = []
+    for row in svc.resource('/log').get():
+        msg = str(row.get('message', ''))
+        if 'logged out' in msg and 'hotspot' in str(row.get('topics', '')):
+            entries.append((row.get('time', ''), msg))
+    return drops_result(entries[-DROPS_LINES:], total=len(entries))
+
+
+def drops_members(business, res):
+    """Mark which of the people who dropped are members (they type a password to come back)."""
+    try:
+        from .models import Voucher
+        codes = [p['user'] for p in res.get('people') or []]
+        members = {c.upper() for c in Voucher.objects.filter(business=business, login_type='member', code__in=codes)
+                   .values_list('code', flat=True)}
+        for p in res.get('people') or []:
+            p['member'] = p['user'].upper() in members
+        res['members_dropping'] = sum(1 for p in res.get('people') or [] if p.get('member'))
+    except Exception:
+        pass
+    return res
+
+
+RUNNERS = {'ping': run_ping, 'trace': run_trace, 'dns': run_dns, 'web': run_web, 'speed': run_speed, 'drops': run_drops}
 
 
 def run_api(test):
@@ -523,6 +616,8 @@ def run_api(test):
     try:
         if test.kind == 'doctor':
             return run_doctor(svc)
+        if test.kind == 'drops':
+            return drops_members(test.router.business, run_drops(svc, test.params))
         if test.kind in PATH_KINDS:
             from . import pathtrace
             return {'whoami': pathtrace.run_whoami, 'hops': pathtrace.run_hops}[test.kind](svc, test.params)
@@ -538,7 +633,7 @@ def summary(test):
         return 'Waiting for the router…'
     if test.status == 'failed':
         return r.get('error') or 'Failed'
-    if test.kind == 'doctor':
+    if test.kind in ('doctor', 'drops'):
         return r.get('title', '')
     if test.kind == 'ping':
         return f'{r.get("received", 0)}/{r.get("sent", 0)} replies' + (f' · {r["avg"]} ms' if r.get('avg') is not None else '')
@@ -609,6 +704,11 @@ def link_body(cmd, url, check, nonce_value):
         body = (f':do {{ :local r [/tool fetch url={rs(u)} output=none as-value duration={secs}s]; '
                 ':set out ("st=" . ($r->"status") . "\\n" . "dl=" . ($r->"downloaded") . "\\n" . "du=" . ($r->"duration") . "\\n") } '
                 'on-error={ :set out "err=fetch\\n" }; ')
+    elif kind == 'drops':
+        body = (':local ids [/log find where message~"logged out" and topics~"hotspot"]; :local n [:len $ids]; :local s 0; '
+                f':if ($n > {DROPS_LINES}) do={{ :set s ($n - {DROPS_LINES}) }}; :set out ("t=" . $n . "\\n"); '
+                ':if ($n > 0) do={ :for i from=$s to=($n - 1) do={ :do { :local e [/log get ($ids->$i)]; '
+                ':set out ($out . "l=" . ($e->"time") . "|" . ($e->"message") . "\\n") } on-error={} } }; ')
     elif kind == 'doctor':
         body = (':local g ""; :do { :set g [:tostr [/ip route get ([/ip route find where dst-address="0.0.0.0/0" active]->0) gateway]] } on-error={}; '
                 ':set out ("gw=" . $g . "\\n"); '
@@ -682,6 +782,13 @@ def parse_link(kind, params, body):
                 res['note'] = f'The website answered ({text}; this router reports whole seconds).' if text else 'The website answered.'
             return res
         return speed_result([f] if f.get('ok') else [], 'The test download did not finish.')
+    if kind == 'drops':
+        entries = []
+        for k, v in lines:
+            if k == 'l':
+                when, _, msg = v.partition('|')
+                entries.append((when, msg))
+        return drops_result(entries, total=_int(get('t')))
     if kind == 'doctor':
         g = get('gw')
         facts = {'gateway': g, 'has_route': bool(g), 'gw': None, 'wan': [], 'dns': {}, 'web': {}}
@@ -740,6 +847,8 @@ def receive_link(cmd, body):
     if not t:
         return None
     res = parse_link(t.kind, t.params, body)
+    if t.kind == 'drops':
+        res = drops_members(t.router.business, res)
     if t.kind == 'whoami':
         from .pathtrace import enrich_whoami
         res = enrich_whoami(t.router, res, t.params.get('hint', ''))

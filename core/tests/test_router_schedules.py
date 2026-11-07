@@ -159,7 +159,7 @@ class RouterScheduleTests(TestCase):
         self.assertIn('/system shutdown', wrap(cmd, 'https://x/ack', 'k'))
         run = RouterScheduleRun.objects.get(schedule=s)
         AgentCommand.objects.filter(pk=cmd.pk).update(status='done', done_at=run.ran_at)
-        self.seen(run.ran_at - timedelta(minutes=1))                          # gone quiet
+        self.seen(run.ran_at - timedelta(minutes=3))                          # gone quiet (past the Link grace)
         self.assertEqual(rs.follow(run, run.ran_at + timedelta(minutes=2)), 'off')
         self.assertTrue(rs.expected_down(self.r.pk))
 

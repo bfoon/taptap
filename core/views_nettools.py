@@ -55,6 +55,31 @@ def network_tools(request):
     })
 
 
+LATE_QUEUE_SECONDS = 15 * 60
+
+
+def _queue_late(router, t, kind, params, label, user):
+    """The router checked in a few minutes ago but not within its usual time (busy with thousands of users, a long
+    speed test, a slow line): send the test anyway — it runs at the next check-in, and if none comes within 6 minutes
+    the test says so. Refusing outright made Network tools say the router was offline while it was working."""
+    from . import agent as link
+    try:
+        a = router.agent
+    except Exception:
+        return None
+    if a.revoked or not a.last_seen_at:
+        return None
+    quiet = (timezone.now() - a.last_seen_at).total_seconds()
+    if quiet > LATE_QUEUE_SECONDS:
+        return None
+    try:
+        cmd = link.queue(router, 'nettest', {'test_id': t.pk, 'kind': kind, **params}, label=label, user=user, minutes=6)
+    except ValueError:
+        return None
+    t.result = {'note': f'{router.name} last checked in {int(quiet)} s ago (busy or a slow line) — the test runs at its next check-in.'}
+    return cmd
+
+
 @login_required
 @require_POST
 def network_tools_run(request):
@@ -85,14 +110,17 @@ def network_tools_run(request):
                                via=via, created_by=request.user, status='waiting' if via == 'TapTap Link' else 'running')
     if via == 'TapTap Link':
         from .linkops import send
+        label = f'{t.get_kind_display()} {params.get("target", "")}'.strip()
         try:
-            cmd = send(router, 'nettest', {'test_id': t.pk, 'kind': kind, **params},
-                       label=f'{t.get_kind_display()} {params.get("target", "")}'.strip(), user=request.user, minutes=6)
-            t.command_id = cmd.pk
-            t.save(update_fields=['command_id'])
+            cmd = send(router, 'nettest', {'test_id': t.pk, 'kind': kind, **params}, label=label, user=request.user, minutes=6)
         except ValueError as exc:
-            t.status, t.result, t.finished_at = 'failed', {'error': f'{router.name} cannot take commands right now: {exc}'}, timezone.now()
-            t.save(update_fields=['status', 'result', 'finished_at'])
+            cmd = _queue_late(router, t, kind, params, label, request.user)
+            if cmd is None:
+                t.status, t.result, t.finished_at = 'failed', {'error': f'{router.name} cannot take commands right now: {exc}'}, timezone.now()
+                t.save(update_fields=['status', 'result', 'finished_at'])
+        if cmd is not None:
+            t.command_id = cmd.pk
+            t.save(update_fields=['command_id', 'result'])
         return JsonResponse({'ok': True, 'test': as_json(t)})
     try:
         res = nt.run_api(t)

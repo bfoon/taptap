@@ -54,6 +54,7 @@
 {% endfor %}
 {% endif %}
 <div class="dropdown-divider"></div>
+{% for option in tt_businesses %}{% if option.role != 'owner' %}<a class="dropdown-item rounded text-secondary small" href="{% url 'team_leave' option.id %}"><i class="bi bi-door-open me-2"></i>Leave {{ option.name }}…</a>{% endif %}{% endfor %}
 {% if tt_member %}<a class="dropdown-item rounded" href="{% url 'my_pay' %}"><i class="bi bi-wallet2 me-2"></i>My pay</a>{% endif %}<a class="dropdown-item rounded" href="{% url 'account_password' %}"><i class="bi bi-key me-2"></i>My password</a>
 <a class="dropdown-item rounded text-danger" href="{% url 'logout' %}"><i class="bi bi-box-arrow-left me-2"></i>Sign out</a>
 </div>

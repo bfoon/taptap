@@ -60,11 +60,19 @@ def attach_business(user, business):
 
 
 def owned_business(user):
-    """Return the business this user owns, if any."""
+    """Return the business this user owns, if any.
+
+    ``user.business`` is also where the middleware puts the business a team member is working in for this
+    request (attach_business), so it is only "owned" when the business really belongs to this user — else the
+    avatar menu showed a staff member as Owner of the business they work in."""
     try:
-        return user.business
+        b = user.business
     except Exception:
         return None
+    if b is None or getattr(b, 'user_id', None) == user.pk:
+        return b
+    from .models import Business
+    return Business.objects.filter(user_id=user.pk).first()
 
 
 def business_for_user(user):
@@ -267,7 +275,7 @@ class TeamAccessMiddleware:
 
         # Every authenticated business user must be able to switch between
         # businesses they are authorised to access.
-        if name == 'business_switch' and role in ROLES:
+        if name in ('business_switch', 'team_leave') and role in ROLES:
             return None
 
         if role == 'owner':

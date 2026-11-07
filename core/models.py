@@ -1173,9 +1173,16 @@ class RouterAgent(models.Model):
     script_version=models.PositiveSmallIntegerField(default=1,help_text='Heartbeat version installed on the router')
     def __str__(self): return f'Link for {self.router}'
     @property
+    def grace_seconds(self):
+        """How long a Link may stay quiet and still count as online. One rule everywhere: the router card, the
+        offline alerts (core/agent.check_offline_agents) and the buttons that send commands. A busy router (thousands
+        of users, a long speed test) checks in later than its interval; with a stricter rule here than on the card,
+        Network tools and other buttons said "offline" while the router showed Online."""
+        return max(90,(self.poll_seconds or 10)*6)
+    @property
     def online(self):
         from datetime import timedelta
-        return bool(self.last_seen_at) and not self.revoked and timezone.now()-self.last_seen_at < timedelta(seconds=max(45,self.poll_seconds*4))
+        return bool(self.last_seen_at) and not self.revoked and timezone.now()-self.last_seen_at < timedelta(seconds=self.grace_seconds)
 
     def pinned_ips(self):
         """The public IPs this Link is pinned to ([] = not pinned)."""

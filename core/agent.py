@@ -1897,7 +1897,7 @@ def check_offline_agents():
     now = timezone.now()
     agents = list(RouterAgent.objects.select_related('router__business').filter(revoked=False, last_seen_at__isnull=False, router__connection_mode='agent'))
     def limit(a):
-        return max(90, (a.poll_seconds or 10) * 6)
+        return a.grace_seconds                  # the same rule as RouterAgent.online (core/models.py)
     recent = [a for a in agents if (now - a.last_seen_at).total_seconds() < 6 * 3600]      # long-dead routers do not count
     silent_now = [a for a in recent if (now - a.last_seen_at).total_seconds() > limit(a) and a.router.status == 'Online']
     if uptime_guard.taptap_side_incident(len(silent_now), len(recent)):

@@ -281,6 +281,31 @@ def business(request):
 
 
 @_signed_in
+def business_leave(request):
+    """Leave a business you were added to as team (core/team_leave.py): {id, confirm: <business name>}."""
+    from . import team_leave as tl
+    from .team import ACTIVE_BUSINESS_KEY
+    if request.method != 'POST':
+        return _err('POST only.', 405)
+    d = _body(request)
+    try:
+        left, remaining = tl.leave(request.user, d.get('id'), d.get('confirm', ''))
+    except tl.LeaveError as exc:
+        return _err(str(exc))
+    if not remaining:
+        dev = getattr(request, 'tt_mobile', None)
+        request.session.flush()
+        if dev is not None:
+            mobile_auth.revoke(dev)
+        return JsonResponse({'ok': True, 'signed_out': True,
+                             'message': f'You left {left.business_name}. Your login is not part of any business now.'})
+    request.session[ACTIVE_BUSINESS_KEY] = remaining[0].pk
+    request.session.modified = True
+    return JsonResponse({'ok': True, 'signed_out': False,
+                         'message': f'You left {left.business_name}. Now on {remaining[0].business_name}.'})
+
+
+@_signed_in
 def push(request):
     """Register this phone's push token (Firebase Cloud Messaging) for calls, messages and customer reports.
 

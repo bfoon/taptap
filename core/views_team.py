@@ -485,6 +485,38 @@ def business_switch(request, business_id):
     return redirect(landing_for(perms, role))
 
 
+@login_required
+def team_leave(request, business_id):
+    """Leave a business you were added to as team (core/team_leave.py): a page that says what happens, then confirm."""
+    from django.contrib.auth import logout
+    from . import team_leave as tl
+    m = tl.membership(request.user, business_id)
+    if m is None:
+        messages.error(request, 'You are not on the team of that business (or you already left).')
+        return redirect('dashboard')
+    if request.method == 'POST':
+        try:
+            left, remaining = tl.leave(request.user, business_id, request.POST.get('confirm_name', ''))
+        except tl.LeaveError as exc:
+            messages.error(request, str(exc))
+            return redirect('team_leave', business_id=m.business_id)
+        if request.session.get(ACTIVE_BUSINESS_KEY) == left.pk:
+            request.session.pop(ACTIVE_BUSINESS_KEY, None)
+        if not remaining:
+            logout(request)
+            messages.success(request, f'You left {left.business_name}. Your TapTap login is not part of any business now — '
+                                      'a business owner can add you to their team again.')
+            return redirect('login')
+        nxt = remaining[0]
+        request.session[ACTIVE_BUSINESS_KEY] = nxt.pk
+        request.session.modified = True
+        messages.success(request, f'You left {left.business_name}. You are now working in {nxt.business_name}.')
+        return redirect('dashboard')
+    from .team import accessible_businesses
+    others = [b.business_name for b, _mm in accessible_businesses(request.user) if b.pk != m.business_id]
+    return render(request, 'core/team_leave.html', {'m': m, 'b': m.business, 'others': others})
+
+
 # ─────────────────────────── daily sales ───────────────────────────
 @login_required
 def sales_daily(request):

@@ -103,7 +103,7 @@ urlpatterns = [
     path('api/mobile/v1/auth/login/',vmob.auth_login,name='mobile_auth_login'), path('api/mobile/v1/auth/verify/',vmob.auth_verify,name='mobile_auth_verify'),
     path('api/mobile/v1/auth/resend/',vmob.auth_resend,name='mobile_auth_resend'), path('api/mobile/v1/auth/logout/',vmob.auth_logout,name='mobile_auth_logout'),
     path('api/mobile/v1/me/',vmob.me,name='mobile_me'), path('api/mobile/v1/business/',vmob.business,name='mobile_business'),
-    path('api/mobile/v1/push/',vmob.push,name='mobile_push'), path('api/mobile/v1/home/',vmob.home,name='mobile_home'),
+    path('api/mobile/v1/push/',vmob.push,name='mobile_push'), path('api/mobile/v1/business/leave/',vmob.business_leave,name='mobile_business_leave'), path('api/mobile/v1/home/',vmob.home,name='mobile_home'),
     path('api/mobile/v1/sync/',vmob.sync,name='mobile_sync'),
     path('api/mobile/v1/sales/',vmob.sales,name='mobile_sales'), path('api/mobile/v1/complaints/',vmob.complaints,name='mobile_complaints'),
     path('api/mobile/v1/complaints/<int:pk>/',vmob.complaint_act,name='mobile_complaint_act'),
@@ -151,7 +151,7 @@ urlpatterns = [
     path('n/me/<str:token>/',views_link.notifications_me_off,name='notifications_me_off'),
     # Team accounts, daily sales and own password
     path('team/',vteam.team,name='team'), path('team/save/',vteam.team_member_save,name='team_member_save'),
-    path('team/<int:pk>/action/',vteam.team_member_action,name='team_member_action'),
+    path('team/<int:pk>/action/',vteam.team_member_action,name='team_member_action'), path('team/leave/<int:business_id>/',vteam.team_leave,name='team_leave'),
     # Staff pay: terms on the Team page, payments from Finance → Payroll, payslips and My pay
     path('team/pay/',vpay.team_pay_save,name='team_pay_save'),
     path('finance/payroll/pay/',vpay.payroll_pay,name='payroll_pay'), path('finance/payroll/pay-all/',vpay.payroll_pay_all,name='payroll_pay_all'),
