@@ -98,6 +98,13 @@ def user_row(voucher, plan=None):
            'c': f'TapTap member {voucher.code}' if voucher.is_member else f'TapTap voucher {voucher.code}'}
     if voucher.is_member:
         row['pw'] = voucher.login_password
+    try:   # used vouchers: the router adds the time left to its OWN counter (core/agent.rel_limit)
+        from .router_time import add_seconds
+        add = add_seconds(voucher, plan) if not row['dis'] else None
+        if add:
+            row['add'] = add
+    except Exception:
+        logger.debug('router time add for %s', voucher.code, exc_info=True)
     return row, {'name': prof, 'shared': shared, 'rate': rate}
 
 
@@ -114,6 +121,8 @@ def _intent(kind, params):
         return {str(p['name']).upper(): True}
     if kind == 'hotspot_users_heal':
         return {str(u.get('n')).upper(): True for u in p.get('users') or [] if u.get('n')}
+    if kind == 'voucher_unstick' and p.get('name'):
+        return {str(p['name']).upper(): True}
     if kind == 'hotspot_users':
         return {str(u.get('n')).upper(): not u.get('dis') for u in p.get('users') or [] if u.get('n')}
     return {}
@@ -131,7 +140,7 @@ def supersede(router, intents, exclude_pk=None, kicks=False):
     from .models import AgentCommand
     changed = 0
     kinds = ['hotspot_user_set', 'hotspot_users_disable', 'hotspot_user_extend', 'hotspot_users_heal',
-             'hotspot_users', 'disconnect'] + (['hotspot_kick'] if kicks else [])
+             'hotspot_users', 'disconnect', 'voucher_unstick'] + (['hotspot_kick'] if kicks else [])
     qs = AgentCommand.objects.filter(router=router, kind__in=kinds, status__in=['queued', 'sent'])
     if exclude_pk:
         qs = qs.exclude(pk=exclude_pk)
@@ -511,7 +520,8 @@ def _heal_link(voucher, online, user):
         Voucher.objects.filter(pk=voucher.pk).update(mikrotik_sync_status='Queued', mikrotik_sync_error='')
         claim(voucher)
         if online:
-            send(voucher.router, 'hotspot_users_heal', {'profiles': [prof], 'users': [{'n': row['n'], 'prof': row['prof'], 'lim': row['lim']}]},
+            send(voucher.router, 'hotspot_users_heal', {'profiles': [prof], 'users': [{'n': row['n'], 'prof': row['prof'], 'lim': row['lim'],
+                                                                                    **({'add': row['add']} if row.get('add') else {})}]},
                  label=f'Reset {voucher.code}: enable, any device, clear old sessions', user=user, minutes=60 * 24)
         else:
             send(voucher.router, 'hotspot_user_mac', {'name': voucher.code, 'mac': '00:00:00:00:00:00'},
@@ -532,7 +542,17 @@ def _heal_api(voucher, online, macs):
     try:
         svc.ensure_hotspot_profile(profile, shared, rate)
         kind = 'member' if voucher.is_member else 'voucher'
-        _, item_id = svc.upsert_voucher(voucher.code, profile, limit_uptime=router_limit(voucher, plan),
+        limit = router_limit(voucher, plan)
+        try:   # used vouchers: the router's own counter, read just now (sessions included), + time left
+            from . import router_time as rt
+            add = rt.add_seconds(voucher, plan) if online else None
+            mine = svc.resource('/ip/hotspot/user').get(name=voucher.code) if add else []
+            if mine:
+                active = svc.safe_get('/ip/hotspot/active', user=voucher.code) or []
+                limit = rt.routeros_text(rt.secs(mine[0].get('uptime', '')) + sum(rt.secs(a.get('uptime', '')) for a in active) + add)
+        except Exception:
+            logger.debug('router counter for %s', voucher.code, exc_info=True)
+        _, item_id = svc.upsert_voucher(voucher.code, profile, limit_uptime=limit,
                                         password=voucher.login_password, disabled=not online,
                                         comment=f'TapTap {kind} {voucher.code}' + (f' · {voucher.customer_name}' if voucher.customer_name else ''))
         users = svc.resource('/ip/hotspot/user')

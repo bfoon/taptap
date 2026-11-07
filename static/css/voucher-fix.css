@@ -1,0 +1,35 @@
+/* Voucher fix panel (static/js/voucher-fix.js) */
+.vfx-find{display:flex;gap:.5rem;margin-bottom:.8rem}
+.vfx-find .form-control{min-width:0}
+.vfx-busy{color:var(--muted,#6b7280);padding:.4rem 0}
+.vfx-who{margin-bottom:.6rem;display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
+.vfx-who a{text-decoration:none;font-size:1.05rem;letter-spacing:.02em}
+.vfx-list{list-style:none;padding:0;margin:0 0 .9rem;display:grid;gap:.45rem}
+.vfx-i{display:flex;gap:.65rem;align-items:flex-start;padding:.6rem .75rem;border-radius:14px;border:1px solid var(--border,#e5e7eb);background:var(--panel,#fff)}
+.vfx-i>i{flex:none;font-size:1.05rem;margin-top:.05rem}
+.vfx-i b{font-weight:750;margin-right:.35rem}
+.vfx-i small{display:block;color:var(--muted,#6b7280);margin-top:.15rem;line-height:1.35;overflow-wrap:anywhere}
+.vfx-bad{border-color:#f3c4c4;background:#fff6f6}.vfx-bad>i{color:#c62828}
+.vfx-warn{border-color:#f2dfae;background:#fffaf0}.vfx-warn>i{color:#b26a00}
+.vfx-ok{border-color:#bfe5cf;background:#f3fbf6}.vfx-ok>i{color:#138453}
+.vfx-tag{display:inline-block;font-size:.68rem;font-weight:700;border-radius:999px;padding:.08rem .5rem;vertical-align:.08rem}
+.vfx-auto{background:#e8f0ff;color:#1747a6}.vfx-you{background:#f1f1f4;color:#4b5563}
+.vfx-go{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.8rem}
+.vfx-go small{flex:1 1 220px;line-height:1.35}
+.vfx-res{border-radius:16px;padding:.8rem .95rem;border:1px solid var(--border,#e5e7eb)}
+.vfx-res.is-ok{background:#f0faf4;border-color:#bfe5cf}.vfx-res.is-bad{background:#fff6f6;border-color:#f3c4c4}.vfx-res.is-wait{background:#f4f7ff;border-color:#cdd9f6}
+.vfx-notes,.vfx-router ul{margin:.4rem 0 0;padding-left:1.1rem;font-size:.88rem}
+.vfx-rt{margin-top:.6rem;font-weight:750;font-size:.9rem}
+html[data-theme="dark"] .vfx-i{background:#1f242b;border-color:#343c47}
+html[data-theme="dark"] .vfx-bad{background:#2c1d1f;border-color:#5a2f33}
+html[data-theme="dark"] .vfx-warn{background:#2c2618;border-color:#5a4a26}
+html[data-theme="dark"] .vfx-ok{background:#17281f;border-color:#2c5a40}
+html[data-theme="dark"] .vfx-res.is-ok{background:#17281f;border-color:#2c5a40}
+html[data-theme="dark"] .vfx-res.is-bad{background:#2c1d1f;border-color:#5a2f33}
+html[data-theme="dark"] .vfx-res.is-wait{background:#1b2333;border-color:#33456b}
+html[data-theme="dark"] .vfx-auto{background:#1d2c4d;color:#a9c3ff}html[data-theme="dark"] .vfx-you{background:#2a2f37;color:#c7ccd4}
+@media (max-width:520px){.vfx-find{flex-direction:column}.vfx-go .btn{width:100%}}
+/* Network tools: the fix card sits above "Recent tests" in the side column */
+.nt-side{display:grid;gap:1rem;align-content:start;min-width:0}
+.nt-vfix .vfx-i{padding:.5rem .6rem}
+.nt-vfix .vfx-go small{flex-basis:100%}

@@ -1,7 +1,7 @@
-{% extends 'core/base.html' %}{% load taptap_extras %}
+{% extends 'core/base.html' %}{% load static %}{% load taptap_extras %}
 {% block title %}Voucher {{ v.code }} — TapTap{% endblock %}
 {% block heading %}Voucher details{% endblock %}{% block presence %}{% include "core/_presence.html" with pp_kind="voucher" pp_id=v.id %}{% endblock %}
-{% block extra_head %}<style>
+{% block extra_head %}<link href="{% static 'css/voucher-fix.css' %}?v=1" rel="stylesheet"><style>
 /* ── header ── */
 .vd-head{padding:1.1rem 1.2rem}
 .vd-top{display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start;justify-content:space-between}
@@ -115,6 +115,7 @@ html[data-theme="dark"] .tb-planned{background:#083344;border-color:#155e75;colo
           {% if v.status == 'active' and not time_is_up %}<button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#enableModal"><i class="bi bi-clock-history"></i> Add time</button>
           {% else %}<button class="btn btn-success" data-bs-toggle="modal" data-bs-target="#enableModal"><i class="bi bi-check-circle"></i> Enable{% if time_is_up %} &amp; add time{% endif %}</button>{% endif %}
         {% endif %}
+        {% if 'vouchers.support' in tt_perms and v.router %}<button class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#fixModal" title="Why can't it connect? Check and fix it on the router"><i class="bi bi-wifi-off"></i> Can't connect?</button>{% endif %}
         <a class="btn btn-outline-primary" href="{% url 'voucher_card' v.id %}"><i class="bi bi-card-text"></i> Card / share</a>
         {% if 'vouchers.support' in tt_perms or 'vouchers.manage' in tt_perms or 'vouchers.warn' in tt_perms or rollback %}
         <div class="dropdown">
@@ -546,6 +547,13 @@ document.querySelectorAll('[data-copy]').forEach(function (b) {
 </form></div></div>
 {% endif %}
 
+{% if 'vouchers.support' in tt_perms and v.router %}
+<div class="modal fade" id="fixModal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title"><i class="bi bi-wifi-off"></i> Why can't {{ v.code }} connect?</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body"><div data-vfix data-url="{% url 'voucher_fix' v.id %}"></div></div>
+</div></div></div>
+{% endif %}
+
 <div class="modal fade" id="resetModal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" method="post" action="{% url 'reset_mac' v.id %}">{% csrf_token %}
   <div class="modal-header"><h5 class="modal-title">Reset devices on {{ v.code }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
   <div class="modal-body"><p class="small">Frees every device slot of this voucher: the locked devices are disconnected and forgotten (also on the router), and the next device{{ v.max_devices|default:1|pluralize }} to log in {{ v.max_devices|default:1|pluralize:"is,are" }} locked instead. Its time is not changed.</p>
@@ -556,6 +564,7 @@ document.querySelectorAll('[data-copy]').forEach(function (b) {
 {% endwith %}
 {% endblock %}
 {% block scripts %}
+{% if 'vouchers.support' in tt_perms and v.router %}<script src="{% static 'js/voucher-fix.js' %}?v=1"></script>{% endif %}
 <script>
 (function(){
   // Add time: quick picks fill the days/hours/minutes boxes; the line below shows the total.

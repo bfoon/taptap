@@ -4,7 +4,8 @@ Same rules as the website, through the same code, so the phone can never do more
 
     GET  vouchers/                 list: state tabs, search (* wildcards), plan, batch      vouchers.view
     GET  vouchers/<id>/            one voucher: time, devices, sale, history, what you may do  vouchers.view
-    POST vouchers/<id>/            disable · enable · add_time · reset_devices                vouchers.support
+    POST vouchers/<id>/            disable · enable · add_time · reset_devices · check · fix  vouchers.support
+    GET  vouchers/<id>/?fix=<cmd>  the router's read-back of a running fix (TapTap Link)      vouchers.support
                                    delete (to the bin, with a reason)                         vouchers.manage
     GET  vouchers/new/             what the form needs: plans, routers, agents, code format   vouchers.create
     POST vouchers/new/             kind=batch  → core/voucher_make.make_batch (= website Generate)
@@ -166,6 +167,7 @@ def _detail(request, b, v):
             'enable': support and still and v.status != 'active' and not expired,
             'add_time': support and still and not v.is_unlimited,
             'reset_devices': support and live and bool(bindings),
+            'fix': support and bool(v.router_id) and v.deleted_at is None,
             'delete': manage and v.deleted_at is None and not v.used_at,
         },
         'extend': [{'label': lb, 'minutes': m} for lb, m in EXTEND],
@@ -188,6 +190,14 @@ def voucher(request, pk):
         return _err('That voucher is gone (deleted, or in another business).', 404)
     if request.method == 'POST':
         return _act(request, b, v)
+    if request.GET.get('fix'):          # the app polls a TapTap Link fix until the router has read it back
+        from . import voucher_unstick as vu
+        if 'vouchers.support' not in _perms(request):
+            return _err('Your role cannot fix vouchers (voucher support is needed).', 403)
+        try:
+            return JsonResponse(clean({'ok': True, **vu.status(v, int(request.GET['fix']))}))
+        except ValueError:
+            return _err('Bad fix id.')
     return JsonResponse(clean({'ok': True, 'voucher': _detail(request, b, v)}))
 
 
@@ -215,6 +225,19 @@ def _act(request, b, v):
             msg += f' Its sale ({b.currency}{s["sales_amount"]:,.2f}) was taken out of finance.'
         return JsonResponse({'ok': True, 'deleted': True, 'message': msg,
                              'notes': [text for _n, _ok, text in s['router']]})
+    if act in ('check', 'fix'):
+        # "Can't connect?" (core/voucher_unstick.py): what stops it, and the Fix it button
+        if 'vouchers.support' not in perms:
+            return _err('Your role cannot fix vouchers (voucher support is needed).', 403)
+        from . import voucher_unstick as vu
+        if act == 'check':
+            return JsonResponse(clean({'ok': True, 'findings': vu.findings(v), 'blocked': vu.blocking(v),
+                                       'fixable': not vu.blocking(v)}))
+        out = vu.unstick(v, user, reason or 'Customer could not connect')
+        v = _voucher(b, v.pk)
+        return JsonResponse(clean({'ok': True, 'fixed': bool(out.get('ok')), 'waiting': bool(out.get('waiting')),
+                                   'cmd': out.get('cmd'), 'message': out.get('message', ''), 'lines': out.get('lines') or [],
+                                   'notes': out.get('notes') or [], 'findings': vu.findings(v), 'voucher': _detail(request, b, v)}))
     if act not in ('disable', 'enable', 'add_time', 'reset_devices'):
         return _err('Choose disable, enable, add_time, reset_devices or delete.')
     if 'vouchers.support' not in perms:

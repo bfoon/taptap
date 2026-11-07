@@ -42,13 +42,14 @@ SAFE_KINDS = {
     'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'remote_nat', 'remote_close', 'hotspot_kick_mac', 'share_rules', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'shutdown', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
-    'hotspot_users_limit', 'speed_queues', 'admin_password', 'port_blink', 'protection', 'site_probe', 'nettest', 'cleanup', 'filecopy', 'restore', 'online_signin', 'clock', 'member_profiles', 'fit_router_op',
+    'hotspot_users_limit', 'speed_queues', 'admin_password', 'port_blink', 'protection', 'site_probe', 'nettest', 'cleanup', 'filecopy', 'restore', 'online_signin', 'clock', 'member_profiles', 'fit_router_op', 'voucher_unstick',
 }
 # Delivery order for queued commands: anything about vouchers first (a customer is waiting), then the rest,
 # and the pieces of a full inventory sync last — 61 of them must never hold up a voucher.
 VOUCHER_KINDS = ('hotspot_users', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename',
                  'hotspot_users_repass', 'hotspot_users_disable', 'hotspot_user_extend', 'hotspot_user_mac', 'hotspot_mac_unlock_all',
-                 'hotspot_kick', 'disconnect', 'hotspot_users_limit', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove')
+                 'hotspot_kick', 'disconnect', 'hotspot_users_limit', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
+                 'voucher_unstick')
 
 
 def delivery_order(others_first=False):
@@ -248,6 +249,44 @@ def free_login(user_expr):
             f':do {{ /ip hotspot active remove $a }} on-error={{}}; $drop m=$m }}; '
             f':foreach c in=[/ip hotspot cookie find user={user_expr}] do={{ :local m [/ip hotspot cookie get $c mac-address]; '
             f':do {{ /ip hotspot cookie remove $c }} on-error={{}}; $drop m=$m }}')
+
+
+REL_MAX_ADD = 400 * 86400
+
+
+def rel_add(u):
+    """The ``add`` seconds of a user row (core/router_time.add_seconds), or None."""
+    try:
+        add = int((u or {}).get('add') or 0)
+    except (TypeError, ValueError):
+        return None
+    return max(60, min(REL_MAX_ADD, add)) if add > 0 else None
+
+
+def rel_limit(name_lit, add):
+    """RouterOS: limit-uptime = what THIS router has counted for the user right now + ``add`` seconds.
+
+    "Counted" is the user's uptime counter plus its sessions still running (RouterOS adds a session to the
+    counter only when it ends). TapTap used to write an absolute limit worked out from ITS copy of that counter.
+    On a busy TapTap Link router that copy can be hours old (inventories of thousands of users come in pieces,
+    and a check-in lists at most 300 sessions), so the limit could land at or below the router's real counter:
+    the voucher was cut ("uptime limit reached"), refused at the next login, and every re-send, Reset devices
+    or priority sync wrote the same too-small value again. Now the router adds TapTap's time left to its own
+    live counter. Wrapped on its own: if anything fails here, the absolute limit written just before stays."""
+    return (f':do {{ :local ttLi [:pick [/ip hotspot user find name={name_lit}] 0]; :local ttLu [/ip hotspot user get $ttLi uptime]; '
+            f':foreach ttLa in=[/ip hotspot active find user={name_lit}] do={{ :set ttLu ($ttLu + [/ip hotspot active get $ttLa uptime]) }}; '
+            f'/ip hotspot user set $ttLi limit-uptime=($ttLu + {int(add)}s) }} on-error={{}}')
+
+
+# The same, for batches: defined once per command, then one short call per voucher (~40 bytes instead of ~330), so
+# a batch of used vouchers still fits the check-in size small RouterOS 6 routers can read.
+REL_FN = (':local ttRel do={ :do { :local i [:pick [/ip hotspot user find name=$n] 0]; :local u [/ip hotspot user get $i uptime]; '
+          ':foreach x in=[/ip hotspot active find user=$n] do={ :set u ($u + [/ip hotspot active get $x uptime]) }; '
+          '/ip hotspot user set $i limit-uptime=($u + [:totime $s]) } on-error={} }')
+
+
+def rel_call(name_lit, add):
+    return f'$ttRel n={name_lit} s="{int(add)}s"'
 
 
 SCRIPT_VERSION = 9   # v9: a check-in is "missed" only when TapTap cannot be reached — a customer logging out while sessions were listed, or TapTap answering slowly (10 s idle limit → 25 s), no longer counted as an internet outage; the internet-route watch needs a change to hold for two check-ins and moves the tunnel at most every ~2 min; v8: globals re-declared inside nested blocks (the missed-check-in counter stayed at 1 on RouterOS 7, so self-repair never ran); v7: resets the TapTap Tunnel when the router's internet line changes (multi-WAN failover), longer check-in timeout at busy hours; v6: self-healing check-in (DNS fallback, wrong-clock repair, dead-WAN diagnosis) and outage report; v5: reports IP-binding bypass devices (fair usage); v4: direct scheduler execution + single-instance guard
@@ -759,9 +798,13 @@ def _catalogue_body(cmd):
         for u in p.get('users', []):
             n = rs(u['n'])
             lim = f' limit-uptime={rs(u["lim"])}' if u.get('lim') else ''
+            add = rel_add(u)       # used vouchers: the router's own counter + time left (see rel_limit)
+            rel = f'; {rel_call(n, add)}' if add else ''
             lines.append(f':if ([:len [/ip hotspot user find name={n}]] > 0) do={{ /ip hotspot user set [find name={n}] profile={rs(u["prof"])} '
-                         f'disabled=no mac-address=00:00:00:00:00:00{lim}; :do {{ /ip hotspot active remove [find user={n}] }} on-error={{}}; '
+                         f'disabled=no mac-address=00:00:00:00:00:00{lim}{rel}; :do {{ /ip hotspot active remove [find user={n}] }} on-error={{}}; '
                          f':do {{ /ip hotspot cookie remove [find user={n}] }} on-error={{}} }}')
+        if any(rel_add(u) for u in p.get('users', [])):
+            lines.insert(0, REL_FN)
         return '; '.join(lines) or ':nothing'
     if k == 'hotspot_profile_remove':
         # Delete an unknown profile (*1, *C…) once no hotspot user uses it any more (core/orphan_profiles.py).
@@ -799,9 +842,15 @@ def _catalogue_body(cmd):
             # Each user on its own: one bad voucher (e.g. a profile the router does not have) must not stop the
             # rest of the batch. An existing user is updated in place ("set"), so its used time is kept.
             note_bad = f'; :set ttBad ($ttBad . "," . {rs(u["n"])})' if report else ''
+            # A user already on the router (a used voucher): its limit is the router's own live counter + TapTap's
+            # time left (rel_limit), not TapTap's possibly old copy of that counter.
+            add = rel_add(u) if not u.get('dis') else None
+            rel = f'; {rel_call(rs(u["n"]), add)}' if add else ''
             lines.append(f':do {{ :if ([:len [/ip hotspot user find name={rs(u["n"])}]] = 0) do={{ /ip hotspot user add name={rs(u["n"])} password={rs(u.get("pw") or u["n"])} '
                          f'profile={rs(u["prof"])} comment={rs(u.get("c", "TapTap voucher"))}{extra} }} else={{ /ip hotspot user set [find name={rs(u["n"])}] '
-                         f'profile={rs(u["prof"])}{pw_set}{extra} }} }} on-error={{ :log warning ("TapTap: could not save " . {rs(u["n"])} . " with profile " . {rs(u["prof"])}){note_bad} }}')
+                         f'profile={rs(u["prof"])}{pw_set}{extra}{rel} }} }} on-error={{ :log warning ("TapTap: could not save " . {rs(u["n"])} . " with profile " . {rs(u["prof"])}){note_bad} }}')
+        if any(rel_add(u) and not u.get('dis') for u in p.get('users', [])):
+            lines.insert(0, REL_FN)
         if report:
             prefix, check = report
             lines.append(f':if ([:len $ttBad] > 0) do={{ :do {{ /tool fetch url=({rs(prefix)} . $ttBad) output=none '
@@ -824,8 +873,12 @@ def _catalogue_body(cmd):
         for u in p.get('users', []):
             n = rs(u['n'])
             chk = '' if str(u['lim']) in ('0s', '0') else '; :if ([/ip hotspot user get $i limit-uptime] = 0s) do={ :error x }'
+            add = rel_add(u)       # router-time corrections: the router's own counter + time left (see rel_limit)
+            rel = f'; {rel_call(n, add)}' if add else ''
             lines.append(f':do {{ :local i [:pick [/ip hotspot user find name={n}] 0]; /ip hotspot user set $i limit-uptime={u["lim"]}'
-                         + (f' profile={rs(u["prof"])}' if u.get('prof') else '') + f'{chk} }} on-error={{ :set b ($b . " " . {n}) }}')
+                         + (f' profile={rs(u["prof"])}' if u.get('prof') else '') + f'{rel}{chk} }} on-error={{ :set b ($b . " " . {n}) }}')
+        if any(rel_add(u) for u in p.get('users', [])):
+            lines.insert(0, REL_FN)
         lines.append(':if ([:len $b] > 0) do={ :log warning ("TapTap: limit-uptime not applied for" . $b); :error ("not applied for" . $b) }')
         return '; '.join(lines)
     if k == 'admin_password':
@@ -1022,6 +1075,9 @@ def wrap(cmd, url, check):
     elif cmd.kind == 'clock':
         from .router_clock import link_body as clock_body
         body = clock_body(cmd, url, check, nonce(cmd))
+    elif cmd.kind == 'voucher_unstick':
+        from .voucher_unstick import link_body as unstick_body
+        body = unstick_body(cmd, url, check, nonce(cmd))
     else:
         if cmd.kind == 'hotspot_users':      # refused codes are reported back by name (see _catalogue_body)
             cmd._tt_report = (f'{url}/api/agent/v1/ack?c={cmd.pk}&n={nonce(cmd)}&s=part&r=', check)
@@ -1155,6 +1211,9 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
         from .orphan_profiles import is_orphan
         if not is_orphan((params or {}).get('name')):
             raise ValueError('Only unknown profiles (like *1) can be removed this way.')
+    if kind == 'voucher_unstick':
+        from .voucher_unstick import validate as unstick_validate
+        unstick_validate(params or {})
     if kind == 'hotspot_users_heal':
         from .plan_limits import LIM_RE
         pr, us = (params or {}).get('profiles') or [], (params or {}).get('users') or []

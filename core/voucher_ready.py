@@ -362,6 +362,12 @@ def heal(v, error, mac=''):
     if via != 'TapTap Link' and r['ready'] and 'not reachable' in r.get('why', ''):
         return {'retry': False, 'message': 'We could not reach the Wi-Fi router. Try again in a minute.'}
     did.append('sent the voucher to the router again')
+    try:   # refused again (or its router time is used up): the router part of "Fix it", by itself (core/voucher_unstick.py)
+        from .voucher_unstick import auto_from_portal
+        if auto_from_portal(v, error, mac, kind):
+            did.append("set its time from the router's own counter")
+    except Exception:
+        logger.exception('auto unstick for %s', v.code)
     _note(v, f'Router refused the login ("{str(error)[:80]}") — TapTap {", ".join(did)}; the page tried again', via)
     return {'retry': True, 'wait': max(int(wait or 0), int(r.get('wait') or 0), 1), 'ready': bool(r.get('ready')),
             'message': 'Fixing your connection…'}

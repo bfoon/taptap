@@ -49,7 +49,7 @@ logger = logging.getLogger('taptap.router_time')
 UNLIMITED_SHARED = 10      # shared-users=unlimited on the router: assume this many sessions at once
 SHARED_TTL = 300
 TOLERANCE_S = 120          # headroom may be this much short before it counts as drift
-LINK_CHUNK = 8             # vouchers per Link time correction (keeps each command under agent.MAX_SCRIPT)
+LINK_CHUNK = 4             # vouchers per Link time correction (keeps each command under agent.MAX_SCRIPT)
 REPAIR_EVERY_S = 600       # one repair per voucher per 10 minutes, at most
 UPTIME_TTL = 3 * 86400
 SESSION_TTL = 300          # live-session uptimes from the last Link check-in / API pass
@@ -249,6 +249,21 @@ def limit_for(v, plan=None, uptime=None, now=None):
     return routeros_text(limit_seconds(v, plan, uptime, now))
 
 
+def add_seconds(v, plan=None, now=None):
+    """What the router must still allow on top of what IT has counted: time left × device slots (seconds).
+
+    TapTap Link commands send this next to the absolute limit; the router then writes
+    ``limit-uptime = its own live counter + add`` (core/agent.rel_limit), so an old copy of the counter in TapTap
+    can never give a limit at or below the real one. None when the absolute limit is already exact or is the
+    point: router-made vouchers, no end (unlimited), time already up, or never used (the counter is 0)."""
+    if not platform_owned(v) or not (getattr(v, 'used_at', None) or getattr(v, 'expires_at', None)):
+        return None
+    rem = remaining_s(v, plan, now)
+    if not rem or rem <= 0:
+        return None
+    return int(rem * slots(v, plan))
+
+
 def acceptable(v, have_text, uptime_text=None, plan=None, now=None):
     """Does the router's limit-uptime agree with TapTap? (the drift test)"""
     rem = remaining_s(v, plan, now)
@@ -397,7 +412,11 @@ def repair_link(router, now=None):
         if acceptable(v, m.limit_uptime, m.uptime, plan, now) or not _once(router.pk, v.code):
             continue
         want = limit_for(v, plan, counted(v, m.uptime), now)
-        users.append({'n': m.username, 'lim': want})     # the router's own spelling: [find name=] is case-sensitive
+        row = {'n': m.username, 'lim': want}                # the router's own spelling: [find name=] is case-sensitive
+        add = add_seconds(v, plan, now)
+        if add:
+            row['add'] = add                                # the router adds it to its own live counter
+        users.append(row)
         notes.append((v, m.limit_uptime, want, why(v, m.limit_uptime, m.uptime, plan, now)))
     for i in range(0, len(users), LINK_CHUNK):            # small commands: a Link batch is at most MAX_SCRIPT bytes
         part = users[i:i + LINK_CHUNK]

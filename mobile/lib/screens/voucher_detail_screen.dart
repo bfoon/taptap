@@ -9,6 +9,7 @@ import '../app/state.dart';
 import '../data/store.dart';
 import '../widgets/common.dart';
 import '../widgets/voucher_widgets.dart';
+import 'voucher_fix_sheet.dart';
 import 'vouchers_screen.dart';
 
 /// Opens one voucher. Resolves to its latest state when the person goes back — or {'deleted': true} after a
@@ -340,6 +341,18 @@ class _VoucherDetailScreenState extends State<VoucherDetailScreen> {
                 ),
               if (can['disable'] == true)
                 OutlinedButton.icon(onPressed: _busy ? null : () => _disable(v), icon: const Icon(Icons.block, size: 18), label: const Text('Disable')),
+              if (can['fix'] == true)
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(foregroundColor: cs.error),
+                  onPressed: _busy
+                      ? null
+                      : () async {
+                          final ran = await showVoucherFix(context, widget.id, '${v['code'] ?? ''}');
+                          if (ran == true && mounted) _load();
+                        },
+                  icon: const Icon(Icons.wifi_off, size: 18),
+                  label: const Text("Can't connect?"),
+                ),
               if (can['reset_devices'] == true)
                 OutlinedButton.icon(
                     onPressed: _busy ? null : () => _reset(v), icon: const Icon(Icons.phonelink_erase, size: 18), label: const Text('Reset devices')),
