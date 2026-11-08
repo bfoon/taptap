@@ -128,7 +128,7 @@ MEMBER_ALLOWED = {
     # chat photos (7-day) and calls / screen sharing: the views check the conversation
     'chat_upload', 'chat_image', 'chat_call_page', 'chat_call_poll', 'chat_call_act',
     # Fit, the AI technician: every tool and action checks the person's own permissions (core/fit_tools.py, core/fit_actions.py)
-    'fit_state', 'fit_ask', 'fit_action', 'fit_new', 'fit_settings', 'fit_look', 'fit_monitors_page', 'fit_monitor_toggle',
+    'fit_state', 'fit_ask', 'fit_action', 'fit_new', 'fit_settings', 'fit_look', 'fit_tours', 'fit_monitors_page', 'fit_monitor_toggle',
 }
 
 # Landing pages tried in order when a member opens a page they can't use (e.g. the dashboard after login).

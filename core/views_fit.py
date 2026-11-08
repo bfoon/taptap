@@ -203,6 +203,17 @@ def fit_settings(request):
 
 
 @login_required
+@require_GET
+def fit_tours(request):
+    """How to: the guided tours this person may take (core/fit_tours.py), played by static/js/fit-tour.js."""
+    from . import fit_tours as ft
+    _biz(request)
+    tours = ft.for_person(_perms(request), getattr(request, 'tt_role', None))
+    return JsonResponse({'ok': True, 'tours': tours,
+                         'categories': [{'key': k, 'label': lbl, 'icon': i} for k, lbl, i in ft.CATEGORIES]})
+
+
+@login_required
 @require_POST
 def fit_look(request):
     """Fit's wardrobe: {skin: "<id>" | "auto" | "", team: false} — your own look, or (Settings) the whole team's."""

@@ -123,7 +123,7 @@ FEATURES = OrderedDict((f.key, f) for f in [
        'investors_admin investors_action investment_admin investment_admin_data', paths=('/investors/',), depends=('finance',)),
     # ── AI ──
     _f('fit', 'Fit (AI technician)', 'ai', 'bi-robot', 'Ask Fit questions, let it act on routers, build dashboards and monitors.',
-       'fit_state fit_ask fit_action fit_new fit_settings fit_dashboards_page fit_dashboard fit_dashboard_data fit_chart_data fit_monitors_page fit_monitor_toggle',
+       'fit_state fit_ask fit_action fit_new fit_settings fit_look fit_tours fit_dashboards_page fit_dashboard fit_dashboard_data fit_chart_data fit_monitors_page fit_monitor_toggle',
        paths=('/fit/',)),
 ])
 ALL = frozenset(FEATURES)

@@ -103,6 +103,7 @@
     gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>',
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
     lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+    compass: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>',
     hanger: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7.5a2 2 0 1 1 2-2"/><path d="M12 7.5v1.2L3 15.5a1.4 1.4 0 0 0 .9 2.5h16.2a1.4 1.4 0 0 0 .9-2.5L12 8.7"/></svg>',
     test: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7v5l3 2"/></svg>'
   };
@@ -331,6 +332,7 @@
       '<header class="fitp-head"><div class="fitp-ava">' + miniFace('h') + '</div>' +
         '<div class="fitp-ttl"><b>Fit</b><small>AI technician for ' + esc((S.state && S.state.business && S.state.business.name) || 'your business') + '</small></div>' +
         '<button class="fitp-ib" data-a="new" type="button" title="New conversation" aria-label="New conversation">' + ICON.plus + '</button>' +
+        '<button class="fitp-ib" data-a="howto" type="button" title="How to — Fit shows you, step by step" aria-label="How to">' + ICON.compass + '</button>' +
         '<button class="fitp-ib" data-a="look" type="button" title="Fit’s wardrobe — skins and masks" aria-label="Fit’s wardrobe">' + ICON.hanger + '</button>' +
         '<button class="fitp-ib" data-a="set" type="button" title="What Fit may do" aria-label="What Fit may do" hidden>' + ICON.gear + '</button>' +
         '<button class="fitp-ib" data-a="close" type="button" title="Close" aria-label="Close Fit">' + ICON.x + '</button></header>' +
@@ -382,6 +384,8 @@
     var d = S.state, b = body();
     P.querySelector('[data-a="set"]').classList.toggle('on', S.view === 'settings');
     P.querySelector('[data-a="look"]').classList.toggle('on', S.view === 'look');
+    P.querySelector('[data-a="howto"]').classList.toggle('on', S.view === 'howto');
+    if (S.view === 'howto') { renderHowto(); return; }
     if (S.view === 'settings') { renderSettings(); return; }
     if (S.view === 'look') { renderLook(); return; }
     b.innerHTML = '';
@@ -394,7 +398,8 @@
       b.innerHTML = '<div class="fit-hello"><h3>Hi ' + esc(d.me.name) + ', I’m Fit.</h3>' +
         (w ? '<p class="fit-hello-look">' + esc(w.emoji) + ' <i>' + esc(w.greeting) + '</i></p>' : '') +
         '<p>Ask me anything about your vouchers, agents, money or network. ' +
-        'I can look things up, run tests on your routers and get changes ready — you press the button.</p></div>';
+        'I can look things up, run tests on your routers and get changes ready — you press the button.</p>' +
+        '<button type="button" class="fit-tourcard" data-a="howto">🧭 How to… <small>— I’ll show you where to press, step by step</small></button></div>';
     }
     if (!d.messages.length || !d.ready) (d.insights || []).forEach(function (x) {
       var el = document.createElement('button');
@@ -424,6 +429,11 @@
       (c.actions || []).forEach(function (a) { tx.appendChild(actionCard(a)); });
       (c.charts || []).forEach(function (ch) { tx.appendChild(chartCard(ch)); });
       (c.dashboards || []).forEach(function (db) { tx.appendChild(dashCard(db)); });
+      (c.tours || []).forEach(function (t) {
+        var b = document.createElement('button'); b.type = 'button'; b.className = 'fit-tourcard'; b.dataset.tour = t.slug;
+        b.innerHTML = esc(t.icon || '🧭') + ' Show me: ' + esc(t.title) + ' <small>· ' + t.steps + ' steps</small>';
+        tx.appendChild(b);
+      });
       scroll();
     };
     if (!animate || REDUCED) { tx.innerHTML = md(text); after(); return el; }
@@ -603,6 +613,9 @@
     }
     if (a === 'set') { S.view = S.view === 'settings' ? 'chat' : 'settings'; render(); return; }
     if (a === 'look') { S.view = S.view === 'look' ? 'chat' : 'look'; render(); return; }
+    if (a === 'howto') { S.view = S.view === 'howto' ? 'chat' : 'howto'; render(); return; }
+    if (t.dataset.tour) return startTour(t.dataset.tour);
+    if (t.dataset.weapon) { if (window.FitTour) window.FitTour.weapon(t.dataset.weapon); renderHowto(); play('is-twirl', 1450); return; }
     if (t.dataset.scope) { S.lookScope = t.dataset.scope; renderLook(); return; }
     if (t.hasAttribute('data-skin')) return pickLook(t.getAttribute('data-skin'), t);
     if (t.hasAttribute('data-look-random')) {
@@ -660,6 +673,50 @@
         c.authorized = true; var fresh = actionCard(c); el.replaceWith(fresh); remember(c);
       });
       blink(); setMood('happy', 1500);
+    });
+  }
+
+  // ── How to: guided tours (core/fit_tours.py, static/js/fit-tour.js) ──
+  function loadTours() {
+    if (S.tours) return Promise.resolve(S.tours);
+    return api('/fit/tours/').then(function (d) { if (d && d.ok) S.tours = d; return S.tours; });
+  }
+  function renderHowto() {
+    var b = body();
+    P.querySelector('.fitp-chips').innerHTML = '';
+    if (!S.tours) { b.innerHTML = '<div class="fit-work"><i></i><i></i><i></i><span>Getting the tours…</span></div>'; loadTours().then(function () { if (P && S.view === 'howto') renderHowto(); }); return; }
+    var w = window.FitTour ? window.FitTour.weapon() : 'mix', q = S.tourQ || '';
+    var h = '<div class="fit-howto"><div class="fh-hero"><h3>🧭 How to…</h3><p>Pick a job. I’ll point at each thing to press — on every page — until it’s done.</p></div>' +
+      '<input class="fh-search" type="search" placeholder="Search: router, token, voucher, member, agent…" value="' + esc(q) + '" aria-label="Search the tours">' +
+      '<div class="fh-weap" aria-label="How Fit points">' + ((window.FitTour && window.FitTour.weapons) || []).map(function (x) {
+        return '<button type="button" data-weapon="' + x.id + '" class="' + (x.id === w ? 'on' : '') + '">' + x.emoji + ' ' + esc(x.label) + '</button>';
+      }).join('') + '</div><div class="fh-list"></div></div>';
+    b.innerHTML = h;
+    var inp = b.querySelector('.fh-search');
+    inp.addEventListener('input', function () { S.tourQ = inp.value; listTours(); });
+    listTours();
+  }
+  function listTours() {
+    var box = P && P.querySelector('.fh-list'); if (!box) return;
+    var words = String(S.tourQ || '').toLowerCase().split(/\s+/).filter(Boolean);
+    var hit = function (t) { var hay = (t.title + ' ' + t.summary + ' ' + t.keywords).toLowerCase(); return words.every(function (x) { return hay.indexOf(x) >= 0; }); };
+    var h = '';
+    (S.tours.categories || []).forEach(function (c) {
+      var ts = (S.tours.tours || []).filter(function (t) { return t.cat === c.key && hit(t); });
+      if (!ts.length) return;
+      h += '<h4 class="fh-h">' + esc(c.icon + ' ' + c.label) + '</h4>' + ts.map(function (t) {
+        return '<button type="button" class="fh-t" data-tour="' + esc(t.slug) + '"><span>' + esc(t.icon) + '</span><div><b>' + esc(t.title) + '</b><small>' + esc(t.summary) + '</small></div><em>' + t.steps.length + ' steps</em></button>';
+      }).join('');
+    });
+    box.innerHTML = h || '<p class="fl-note">Nothing matches — ask me in the chat instead, I can explain it.</p>';
+  }
+  function startTour(slug) {
+    loadTours().then(function (d) {
+      var t = d && (d.tours || []).filter(function (x) { return x.slug === slug; })[0];
+      if (!t || !window.FitTour) { setMood('sad', 2000); return; }
+      close();
+      setMood('happy', 1200);
+      setTimeout(function () { window.FitTour.start(t); }, 250);
     });
   }
 
@@ -767,5 +824,10 @@
     e.preventDefault();
     open(t.getAttribute('data-fit-ask'));
   });
-  window.TTFit = { ask: function (q) { open(q); } };
+  window.TTFit = {
+    ask: function (q) { open(q); },
+    tour: function (slug) { startTour(slug); },
+    mood: function (m, ms) { setMood(m, ms); },
+    cheer: function (text) { hop(); setMood('happy', 3000); sayLook({ emoji: '🎉', name: 'Well done', greeting: text }); }
+  };
 })();

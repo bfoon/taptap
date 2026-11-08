@@ -330,3 +330,84 @@ html[data-theme="dark"] .fit-b.go { background: #2f6fd6; border-color: #2f6fd6; 
 .fl-tile b { font-size: 11.5px; font-weight: 750; line-height: 1.2; color: var(--f-ink); }
 .fl-tile small { font-size: 10.5px; color: var(--f-mut); line-height: 1.2; }
 .fitp-ib.on { background: rgba(255, 255, 255, .18); }
+
+/* ───────── Fit's "How to" tours (static/js/fit-tour.js) ───────── */
+.fit.is-throw .fb-arm-r { animation: fb-throw .7s cubic-bezier(.3, 1.2, .5, 1); }
+@keyframes fb-throw { 0% { transform: rotate(0) } 35% { transform: rotate(-160deg) } 65% { transform: rotate(-40deg) } 100% { transform: rotate(0) } }
+.fit.is-throw .fb-head { transform: rotate(-8deg); }
+.fit.is-aim .fb-arm-r { transform: rotate(-100deg); }
+.fit.is-aim .fb-driver { animation: fb-recoil .12s ease-in-out 6 alternate; }
+@keyframes fb-recoil { to { transform: translateX(-2px) } }
+.fit.is-aim .fb-eye-l { transform: scaleY(.4); }
+.fit.is-zap .fb-bulb, .fit.is-zap .fb-bulb-glow { fill: #fff59d; }
+.fit.is-zap .fb-body { animation: fb-shake .09s linear 6 alternate; }
+@keyframes fb-shake { to { transform: translateX(1.5px) } }
+.fit .fit-btn { transition: opacity .25s, transform .3s; }
+.fit.is-away .fit-btn { opacity: 0; transform: translateY(-24px) scale(.6); }
+.fit.is-touring .fit-badge, .fit.is-touring .fit-say { display: none; }
+
+.fitt-layer { position: fixed; inset: 0; pointer-events: none; z-index: 2147482000; transition: background .08s; }
+.fitt-svg { position: absolute; inset: 0; overflow: visible; }
+html.fitt-flash .fitt-layer { background: rgba(255, 250, 200, .16); }
+.fitt-beam { stroke: #fff; stroke-width: 2.5; stroke-linecap: round; }
+.fitt-beam-glow { stroke: #47e4ff; stroke-width: 9; stroke-linecap: round; opacity: .55; filter: blur(3px); }
+.fitt-bolt { fill: none; stroke: #fff; stroke-width: 2.6; stroke-linejoin: round; transition: opacity .05s; }
+.fitt-bolt-glow { fill: none; stroke: #ffe066; stroke-width: 10; stroke-linejoin: round; opacity: .7; filter: blur(4px); transition: opacity .05s; }
+.fitt-drop { fill: #4dabf7; stroke: #fff; stroke-width: .8; }
+.fitt-smoke { fill: rgba(148, 163, 184, .45); animation: fitt-smoke .9s ease-out forwards; }
+@keyframes fitt-smoke { to { opacity: 0; transform: scale(2.2); transform-box: fill-box; transform-origin: center } }
+.fitt-prop { transform-box: fill-box; transform-origin: center; animation: fitt-prop .08s linear infinite; }
+@keyframes fitt-prop { 50% { transform: scaleY(.15) } }
+
+.fitt-target { outline: 3px solid var(--fit-brand, #1769e0) !important; outline-offset: 3px; border-radius: 8px; animation: fitt-glow 1.4s ease-in-out infinite; }
+@keyframes fitt-glow { 50% { outline-color: #f5a524 } }
+.fitt-ring { position: fixed; z-index: 2147482001; pointer-events: none; width: 0; height: 0; }
+.fitt-ring i { position: absolute; left: calc(var(--w) / -2); top: calc(var(--h) / -2); width: var(--w); height: var(--h); border-radius: 14px;
+  border: 3px solid var(--fit-brand, #1769e0); opacity: 0; animation: fitt-ripple 1.8s ease-out infinite; }
+.fitt-ring i:nth-child(2) { animation-delay: .6s; } .fitt-ring i:nth-child(3) { animation-delay: 1.2s; }
+@keyframes fitt-ripple { 0% { transform: scale(.85); opacity: .9 } 100% { transform: scale(1.9); opacity: 0 } }
+.fitt-hand { position: fixed; z-index: 2147482002; pointer-events: none; margin: -2px 0 0 -12px; filter: drop-shadow(0 3px 4px rgba(0, 0, 0, .3));
+  animation: fitt-tap 1.4s ease-in-out infinite; transform-origin: 11px 4px; }
+@keyframes fitt-tap { 0%, 100% { transform: translate(14px, 18px) scale(1) } 40% { transform: translate(2px, 4px) scale(1) } 50% { transform: translate(2px, 4px) scale(.86) } 60% { transform: translate(2px, 4px) scale(1) } }
+
+.fitt-tip { position: fixed; z-index: 2147482003; width: min(320px, calc(100vw - 16px)); background: #fff; color: #12233a; border-radius: 16px;
+  border: 1px solid #e2e8f0; box-shadow: 0 18px 46px rgba(10, 22, 40, .3); padding: 11px 13px 12px; font-size: 13.5px; line-height: 1.4;
+  animation: fit-pop .3s cubic-bezier(.3, 1.5, .5, 1); }
+html[data-theme="dark"] .fitt-tip { background: #1c2129; color: #e4eaf2; border-color: #323a46; }
+.fitt-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 11.5px; font-weight: 800; color: #66788f; }
+.fitt-top button { all: unset; cursor: pointer; font-size: 18px; line-height: 1; padding: 0 4px; color: #66788f; }
+.fitt-dots { display: flex; align-items: center; gap: 4px; margin: 6px 0 4px; }
+.fitt-dots i { width: 7px; height: 7px; border-radius: 50%; background: #dbe3ee; }
+.fitt-dots i.d { background: #9ec5fe; } .fitt-dots i.on { background: var(--fit-brand, #1769e0); width: 16px; border-radius: 4px; }
+.fitt-dots small { margin-left: auto; color: #66788f; font-size: 11px; }
+.fitt-h { display: block; font-size: 15px; font-weight: 850; margin: 2px 0 3px; }
+.fitt-tip p { margin: 0 0 6px; }
+.fitt-tip code { background: rgba(23, 105, 224, .08); padding: 0 4px; border-radius: 4px; }
+.fitt-hint { background: #fff8e6; border-radius: 10px; padding: 6px 9px; font-size: 12.5px; margin-bottom: 6px; color: #7a4d00; }
+html[data-theme="dark"] .fitt-hint { background: #3a2f17; color: #f8d58c; }
+.fitt-row { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; flex-wrap: wrap; }
+.fitt-b { all: unset; cursor: pointer; font-size: 12.5px; font-weight: 750; padding: 6px 12px; border-radius: 10px; background: #eef3f9; color: #12233a; }
+.fitt-b.go { background: var(--fit-brand, #1769e0); color: #fff; }
+.fitt-b.ghost { background: transparent; color: #66788f; padding: 6px 8px; }
+.fitt-b:focus-visible { outline: 2px solid var(--fit-brand, #1769e0); }
+html[data-theme="dark"] .fitt-b { background: #2a313c; color: #e4eaf2; } html[data-theme="dark"] .fitt-b.go { background: var(--fit-brand, #1769e0); color: #fff; }
+@media (prefers-reduced-motion: reduce) { .fitt-ring i, .fitt-hand, .fitt-target { animation: none; } .fitt-ring i { opacity: .6; } }
+
+/* the How-to list in Fit's panel */
+.fit-howto { padding-bottom: 6px; }
+.fh-hero { background: linear-gradient(135deg, #0e2238, #1d4ed8); color: #fff; border-radius: 18px; padding: 12px 14px; margin-bottom: 10px; }
+.fh-hero h3 { font-size: 16px; font-weight: 850; margin: 0 0 3px; } .fh-hero p { margin: 0; font-size: 12.5px; opacity: .85; }
+.fh-search { width: 100%; box-sizing: border-box; border: 1px solid var(--f-line); border-radius: 12px; padding: 8px 11px; font: inherit; background: var(--f-bg); color: var(--f-ink); margin-bottom: 8px; }
+.fh-weap { display: flex; gap: 5px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 4px; scrollbar-width: thin; }
+.fh-weap button { all: unset; cursor: pointer; flex: none; font-size: 12px; font-weight: 700; padding: 5px 9px; border-radius: 999px; border: 1px solid var(--f-line); color: var(--f-mut); white-space: nowrap; }
+.fh-weap button.on { border-color: var(--f-lamp); color: var(--f-ink); background: color-mix(in srgb, var(--f-lamp) 12%, transparent); }
+.fh-h { font-size: 11.5px !important; font-weight: 800; color: var(--f-mut); text-transform: uppercase; letter-spacing: .05em; margin: 12px 2px 5px !important; }
+.fh-t { all: unset; box-sizing: border-box; cursor: pointer; display: flex; gap: 10px; align-items: center; width: 100%; padding: 8px 10px; border-radius: 12px;
+  border: 1px solid var(--f-line); background: var(--f-bg); margin-bottom: 5px; }
+.fh-t:hover { border-color: var(--f-lamp); } .fh-t:focus-visible { outline: 2px solid var(--f-lamp); }
+.fh-t > span { font-size: 20px; flex: none; width: 28px; text-align: center; }
+.fh-t b { display: block; font-size: 13px; font-weight: 750; color: var(--f-ink); } .fh-t small { display: block; font-size: 11.5px; color: var(--f-mut); line-height: 1.3; }
+.fh-t em { margin-left: auto; font-style: normal; font-size: 11px; color: var(--f-mut); flex: none; }
+.fit-tourcard { all: unset; cursor: pointer; display: flex; gap: 8px; align-items: center; margin-top: 8px; padding: 8px 11px; border-radius: 12px;
+  background: color-mix(in srgb, var(--f-lamp) 10%, var(--f-bg)); border: 1px solid color-mix(in srgb, var(--f-lamp) 35%, transparent); font-size: 13px; font-weight: 700; }
+.fit-tourcard small { font-weight: 500; color: var(--f-mut); }

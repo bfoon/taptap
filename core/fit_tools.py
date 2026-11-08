@@ -583,8 +583,20 @@ def t_help(ctx, query):
         if s:
             scored.append((s, g))
     scored.sort(key=lambda x: -x[0])
-    return {'guides': [{'title': g['title'], 'summary': g.get('summary', ''), 'link': reverse('support_guide', args=[g['slug']])}
-                       for _, g in scored[:4]]}
+    out = {'guides': [{'title': g['title'], 'summary': g.get('summary', ''), 'link': reverse('support_guide', args=[g['slug']])}
+                      for _, g in scored[:4]]}
+    try:   # How to: a "Show me" button under the reply starts Fit's guided tour (core/fit_tours.py)
+        from .fit_tours import search
+        role = 'owner' if getattr(ctx.business, 'user_id', None) == getattr(ctx.user, 'pk', None) else 'staff'
+        tours = search(ctx.perms, role, query)
+        if tours:
+            have = {t['slug'] for t in ctx.cards.get('tours', [])}
+            ctx.cards.setdefault('tours', []).extend(t for t in tours if t['slug'] not in have)
+            out['show_me'] = ('A “Show me” button is under your reply for: ' + ', '.join(t['title'] for t in tours)
+                              + '. Pressing it makes you point at each thing to press, page by page. Mention it in one short line.')
+    except Exception:
+        pass
+    return out
 
 
 def t_propose(ctx, kind, **args):
@@ -708,7 +720,9 @@ TOOLS = {
     'taptap_only': (VOUCHER_PERMS, t_taptap_only, 'Vouchers that exist only in TapTap (created "locally only", not on any '
                     'router yet): how many, by batch, plus the routers they could go on. To send them use propose_action '
                     'kind=put_on_router.', _obj({})),
-    'help_guides': (None, t_help, 'Find TapTap how-to guides with links.', _obj({'query': S}, ['query'])),
+    'help_guides': (None, t_help, 'Find TapTap how-to guides with links. Use it whenever the person asks how to do something in TapTap '
+                                   '(add a router, rotate a token, vouchers, members, agents…): a “Show me” button then lets you guide them '
+                                   'on screen, step by step.', _obj({'query': S}, ['query'])),
     'router_query': (NETWORK_PERMS, t_router_query, 'Read straight from a MikroTik router (live over the API / TapTap Tunnel; '
                      'TapTap Link routers return the latest synced copy). Filter rows with where. Read only — to change '
                      'something use propose_action kind=router_change or router_task.',
