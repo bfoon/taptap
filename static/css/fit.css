@@ -259,3 +259,74 @@ html[data-theme="dark"] .fit-b.go { background: #2f6fd6; border-color: #2f6fd6; 
   .fit *, .fitp *, .fitp, .fit-say { animation: none !important; transition: none !important; }
 }
 @media print { .fit, .fitp { display: none !important; } }
+
+/* ───────── Fit's wardrobe: skins & masks (static/js/fit-skins.js, core/fit_skins.py) ───────── */
+/* costume parts that move */
+.sk-pom { transform-origin: 85px 22px; animation: sk-bounce 2.6s ease-in-out infinite; }
+.sk-party .sk-pom { transform-origin: 50px -15px; }
+@keyframes sk-bounce { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(1.6px) } }
+.sk-nose { transform-origin: 50px 47.5px; animation: sk-glow 1.6s ease-in-out infinite; filter: drop-shadow(0 0 2px #ef4444); }
+@keyframes sk-glow { 0%, 100% { opacity: 1 } 50% { opacity: .55 } }
+.sk-cape { transform-origin: 50px 60px; animation: sk-cape 3.2s ease-in-out infinite; }
+@keyframes sk-cape { 0%, 100% { transform: skewX(0) scaleX(1) } 50% { transform: skewX(-4deg) scaleX(1.03) } }
+.sk-tail { transform-origin: 66px 90px; animation: sk-tail 2.4s ease-in-out infinite; }
+@keyframes sk-tail { 0%, 100% { transform: rotate(0) } 50% { transform: rotate(-12deg) } }
+.sk-tails { transform-origin: 79px 30px; animation: sk-tails .9s ease-in-out infinite alternate; }
+@keyframes sk-tails { to { transform: rotate(-9deg) } }
+.sk-lantern { transform-origin: 90px 16px; animation: sk-swing 3s ease-in-out infinite; }
+@keyframes sk-swing { 0%, 100% { transform: rotate(7deg) } 50% { transform: rotate(-7deg) } }
+.sk-glow { animation: sk-glow 1.8s ease-in-out infinite; }
+.sk-float-l { animation: sk-bounce 4s ease-in-out infinite; }
+.sk-flag-cloth { transform-origin: 88px 13px; animation: sk-wave 1.4s ease-in-out infinite; }
+@keyframes sk-wave { 0%, 100% { transform: skewY(0) scaleX(1) } 50% { transform: skewY(6deg) scaleX(.94) } }
+.sk-parrot { transform-origin: 83px 62px; animation: sk-parrot 2.8s ease-in-out infinite; }
+@keyframes sk-parrot { 0%, 70%, 100% { transform: rotate(0) } 80% { transform: rotate(-10deg) } 90% { transform: rotate(4deg) } }
+.sk-ear-l { transform-origin: 40px 18px; animation: sk-ear 3.4s ease-in-out infinite; }
+.sk-ear-r { transform-origin: 60px 18px; animation: sk-ear 3.4s ease-in-out .3s infinite reverse; }
+@keyframes sk-ear { 0%, 80%, 100% { transform: rotate(0) } 88% { transform: rotate(-9deg) } }
+.sk-loose { transform-origin: 77px 27px; animation: sk-tail 3s ease-in-out infinite; }
+.sk-ram { animation: sk-bounce 1.8s ease-in-out infinite; }
+.fit.is-sleep .sk-cape, .fit.is-sleep .sk-tail, .fit.is-sleep .sk-lantern { animation-duration: 7s; }
+
+/* particles around the robot */
+.fit-fx { position: absolute; left: -26px; right: -18px; top: -30px; bottom: 0; pointer-events: none; overflow: hidden; z-index: -1; }
+.fit-fx i { position: absolute; left: var(--x); top: 0; font-style: normal; font-size: calc(11px * var(--s)); line-height: 1; opacity: 0;
+  animation: fx-fall var(--d) linear var(--w) infinite; text-shadow: 0 0 3px rgba(0, 0, 0, .12); }
+.fit-fx.fx-float i { top: auto; bottom: 10%; animation-name: fx-rise; }
+.fit-fx.fx-bats i { animation-name: fx-bat; animation-duration: calc(var(--d) * 1.4); }
+@keyframes fx-fall { 0% { transform: translate(0, -6px) rotate(0); opacity: 0 } 15% { opacity: .95 } 85% { opacity: .8 } 100% { transform: translate(8px, 120px) rotate(160deg); opacity: 0 } }
+@keyframes fx-rise { 0% { transform: translateY(0) scale(.6); opacity: 0 } 25% { opacity: 1 } 100% { transform: translateY(-80px) scale(1.1); opacity: 0 } }
+@keyframes fx-bat { 0% { transform: translate(-10px, 60px) scaleY(1); opacity: 0 } 20% { opacity: .9 } 40% { transform: translate(10px, 30px) scaleY(.5) }
+  60% { transform: translate(-4px, 14px) scaleY(1) } 100% { transform: translate(14px, -16px) scaleY(.6); opacity: 0 } }
+.fit.is-sleep .fit-fx { opacity: .35; }
+@media (prefers-reduced-motion: reduce) { .fit-fx { display: none; } [class^="sk-"], [class*=" sk-"] { animation: none !important; } }
+
+.fit-say.look { border-left: 3px solid var(--f-lamp); }
+.fit-hello-look { font-size: 13.5px; color: var(--f-ink); background: var(--f-soft); border-radius: 12px; padding: 7px 10px; }
+
+/* the wardrobe panel */
+.fit-look { padding: 2px 2px 8px; }
+.fl-hero { display: flex; gap: 12px; align-items: center; background: var(--f-soft); border: 1px solid var(--f-line); border-radius: 18px; padding: 10px 12px; }
+.fl-stage { flex: none; width: 92px; height: 112px; }
+.fl-stage .fit-bot, .fl-mini .fit-bot { width: 100%; height: 100%; overflow: visible; }
+.fl-say small { color: var(--f-mut); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.fl-say h3 { font-size: 16.5px; font-weight: 850; margin: 1px 0 3px; }
+.fl-say p { font-size: 13px; color: var(--f-mut); margin: 0 0 8px; font-style: italic; }
+.fl-scope { display: inline-flex; gap: 3px; margin: 12px 0 2px; background: var(--f-soft); border: 1px solid var(--f-line); border-radius: 12px; padding: 3px; }
+.fl-scope button { all: unset; cursor: pointer; padding: 5px 12px; border-radius: 9px; font-size: 12.5px; font-weight: 700; color: var(--f-mut); }
+.fl-scope button.on { background: var(--f-bg); color: var(--f-ink); box-shadow: 0 1px 4px rgba(14, 34, 56, .14); }
+.fl-note { font-size: 12px; color: var(--f-mut); margin: 6px 0 0; }
+.fl-h { font-size: 12px !important; font-weight: 800; color: var(--f-mut); text-transform: uppercase; letter-spacing: .05em; margin: 14px 2px 6px !important; }
+.fl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 7px; margin-top: 10px; }
+.fl-h + .fl-grid { margin-top: 0; }
+.fl-tile { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center;
+  background: var(--f-bg); border: 1.5px solid var(--f-line); border-radius: 14px; padding: 6px 4px 7px; transition: transform .15s, border-color .15s, box-shadow .15s; }
+.fl-tile:hover { transform: translateY(-2px); border-color: var(--f-lamp); box-shadow: 0 6px 16px rgba(14, 34, 56, .12); }
+.fl-tile:focus-visible { outline: 2px solid var(--f-lamp); outline-offset: 2px; }
+.fl-tile.on { border-color: var(--f-lamp); box-shadow: 0 0 0 3px color-mix(in srgb, var(--f-lamp) 22%, transparent); }
+.fl-tile[disabled] { opacity: .6; }
+.fl-mini { width: 54px; height: 64px; display: block; }
+.fl-mini .fb-float { animation-duration: 4.2s; }
+.fl-tile b { font-size: 11.5px; font-weight: 750; line-height: 1.2; color: var(--f-ink); }
+.fl-tile small { font-size: 10.5px; color: var(--f-mut); line-height: 1.2; }
+.fitp-ib.on { background: rgba(255, 255, 255, .18); }

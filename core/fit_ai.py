@@ -404,6 +404,13 @@ def system_prompt(ctx, page=None):
         'existing dashboard, check dashboards first and pass dashboard_id.',
         _bulk_rule(ctx),
     ]
+    try:   # Fit's costume (core/fit_skins.py): at most one playful line, never in facts
+        from .fit_skins import prompt_line
+        look = prompt_line(ctx.settings, ctx.user)
+        if look:
+            lines += ['', look]
+    except Exception:
+        pass
     if page and page.get('path'):
         lines += ['', f'The person is looking at the TapTap page “{str(page.get("title", ""))[:80]}” ({str(page["path"])[:120]}). '
                       'If they say “this voucher/router/agent”, it probably means the one on that page (a number in the path is its id).']

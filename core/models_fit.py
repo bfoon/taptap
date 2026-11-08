@@ -17,6 +17,8 @@ class FitSettings(models.Model):
     allowed = models.JSONField(default=list, blank=True)
     # Customer reports: Fit may close a report itself when the voucher is diagnosed as fine again.
     auto_close_reports = models.BooleanField(default=False)
+    # Fit's wardrobe (core/fit_skins.py): {"team": "<skin>", "<user id>": "<skin>"} — "" / missing = auto / follow the team
+    looks = models.JSONField(default=dict, blank=True)
     updated_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     updated_at = models.DateTimeField(auto_now=True)
 

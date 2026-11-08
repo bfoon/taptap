@@ -9,6 +9,7 @@ import '../app/api.dart';
 import '../data/store.dart';
 import '../data/sync_engine.dart';
 import '../widgets/charts.dart';
+import 'fit_wardrobe.dart';
 
 /// Fit, your AI technician — the same Fit as on the website (/fit/), so it can do exactly what it may do for you
 /// there: same tools, same permissions, same "Allowed" groups in Fit settings, same confirmations before it acts.
@@ -83,6 +84,26 @@ class FitScreenState extends State<FitScreen> {
       if (!mounted) return;
       setState(() => _err = (e.status == 0 && _state != null) ? null : e.message);
     }
+  }
+
+  /// The costume Fit wears (core/fit_skins.py): its emoji on Fit's face, '' for the classic robot.
+  String get _lookEmoji {
+    final look = _state?['look'];
+    if (look is! Map || look['skin'] == 'classic') return '';
+    return '${(look['wearing'] as Map?)?['emoji'] ?? ''}';
+  }
+
+  Future<void> _wardrobe() async {
+    final look = (_state?['look'] as Map?)?.cast<String, dynamic>();
+    if (look == null) return;
+    final fresh = await showFitWardrobe(context, look);
+    if (fresh == null || !mounted) return;
+    setState(() => _state = {...?_state, 'look': fresh});
+    final w = (fresh['wearing'] as Map?) ?? {};
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      behavior: SnackBarBehavior.floating,
+      content: Text('${w['emoji'] ?? ''} ${w['greeting'] ?? 'Fit changed its look.'}'),
+    ));
   }
 
   Future<void> ask(String q) async {
@@ -167,11 +188,15 @@ class FitScreenState extends State<FitScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Row(children: [
-          _FitFace(thinking: _thinking),
+          _FitFace(thinking: _thinking, emoji: _lookEmoji),
           const SizedBox(width: 10),
           const Text('Fit'),
         ]),
-        actions: [IconButton(tooltip: 'New conversation', icon: const Icon(Icons.add_comment_outlined), onPressed: _newChat)],
+        actions: [
+          if (_state?['look'] is Map)
+            IconButton(tooltip: "Fit's wardrobe — skins and masks", icon: const Icon(Icons.checkroom), onPressed: _wardrobe),
+          IconButton(tooltip: 'New conversation', icon: const Icon(Icons.add_comment_outlined), onPressed: _newChat),
+        ],
       ),
       body: Column(children: [
         Expanded(
@@ -245,6 +270,12 @@ class FitScreenState extends State<FitScreen> {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const SizedBox(height: 10),
       Text('Hi $name 👋', style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900)),
+      if (_lookEmoji.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text('$_lookEmoji ${((st?['look'] as Map?)?['wearing'] as Map?)?['greeting'] ?? ''}',
+              style: TextStyle(fontStyle: FontStyle.italic, color: cs.primary)),
+        ),
       const SizedBox(height: 4),
       Text('I can check your routers, explain sales, sort customer reports and — when you allow it — fix things for you. '
           'Tap the mic and just say it.', style: TextStyle(color: cs.onSurfaceVariant)),
@@ -272,8 +303,9 @@ class FitScreenState extends State<FitScreen> {
 }
 
 class _FitFace extends StatelessWidget {
-  const _FitFace({required this.thinking});
+  const _FitFace({required this.thinking, this.emoji = ''});
   final bool thinking;
+  final String emoji;                     // Fit's costume (wardrobe): shown instead of the plain robot
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -286,7 +318,9 @@ class _FitFace extends StatelessWidget {
         shape: BoxShape.circle,
         boxShadow: thinking ? [BoxShadow(color: cs.primary.withValues(alpha: .6), blurRadius: 14)] : null,
       ),
-      child: const Icon(Icons.smart_toy, color: Colors.white, size: 20),
+      child: emoji.isEmpty
+          ? const Icon(Icons.smart_toy, color: Colors.white, size: 20)
+          : Center(child: Text(emoji, style: const TextStyle(fontSize: 19))),
     );
   }
 }

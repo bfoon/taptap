@@ -12,7 +12,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
-from . import fit_actions, fit_ai, fit_tools
+from . import fit_actions, fit_ai, fit_skins, fit_tools
 from .models_fit import FitAction, FitConversation, FitMessage, FitSettings
 from .permissions import ROLES
 
@@ -112,6 +112,7 @@ def fit_state(request):
         'conversation': conv.pk if conv else None, 'messages': msgs,
         'insights': fit_tools.insights(ctx) if s.enabled else [],
         'suggestions': _suggestions(ctx),
+        'look': fit_skins.state(s, u, manage),
     })
 
 
@@ -199,6 +200,28 @@ def fit_settings(request):
     from .utils import log
     log(b, 'Fit settings', 'Allowed: ' + (', '.join(fit_actions.GROUPS[g][0] for g in s.allowed) or 'read-only'))
     return JsonResponse({'ok': True, 'settings': _settings_json(s, True)})
+
+
+@login_required
+@require_POST
+def fit_look(request):
+    """Fit's wardrobe: {skin: "<id>" | "auto" | "", team: false} — your own look, or (Settings) the whole team's."""
+    b = _biz(request)
+    s = _settings(b)
+    d = _body(request)
+    team = bool(d.get('team'))
+    manage = _can_manage(request)
+    if team and not manage:
+        return JsonResponse({'ok': False, 'message': 'Only the owner or someone with Settings can choose Fit’s look for the whole team.'}, status=403)
+    try:
+        fit_skins.choose(s, request.user, d.get('skin', ''), team=team)
+    except ValueError as exc:
+        return JsonResponse({'ok': False, 'message': str(exc)}, status=400)
+    if team:
+        from .utils import log
+        pick = fit_skins.clean(d.get('skin'))
+        log(b, 'Fit look', 'Team look: ' + (fit_skins.meta(pick)['name'] if pick and pick != fit_skins.AUTO else 'Auto (follows the season)'))
+    return JsonResponse({'ok': True, 'look': fit_skins.state(s, request.user, manage)})
 
 
 @login_required

@@ -11,16 +11,20 @@
   var root = document.getElementById('ttFit'); if (!root) return;
   var CSRF = root.dataset.csrf || '';
   var REDUCED = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var S = { open: false, state: null, busy: false, conv: null, view: 'chat', lastMove: Date.now(), mood: '', asleep: false, polls: {} };
+  var S = { open: false, state: null, busy: false, conv: null, view: 'chat', lastMove: Date.now(), mood: '', asleep: false, polls: {}, skin: 'classic', lookScope: 'me' };
 
-  // ───────── the robot ─────────
-  function botSVG() {
-    return '' +
+  // ───────── the robot (and its wardrobe: static/js/fit-skins.js, core/fit_skins.py) ─────────
+  var SK = window.FitSkins || { get: function () { return {}; }, fx: function () { return ''; } };
+  var uidN = 0;
+  function botSVG(skinId, uid) {
+    var k = SK.get(skinId || 'classic'), u = uid || '';
+    var svg = '' +
       '<svg class="fit-bot" viewBox="0 0 100 120" aria-hidden="true">' +
-      '<defs><linearGradient id="fbSteel" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--f-steel)"/><stop offset="1" stop-color="var(--f-steel-2)"/></linearGradient>' +
-      '<linearGradient id="fbFlame" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe9a8"/><stop offset=".55" stop-color="#f5a524"/><stop offset="1" stop-color="#f5a524" stop-opacity="0"/></linearGradient></defs>' +
+      '<defs><linearGradient id="fbSteel' + u + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--f-steel)"/><stop offset="1" stop-color="var(--f-steel-2)"/></linearGradient>' +
+      '<linearGradient id="fbFlame' + u + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffe9a8"/><stop offset=".55" stop-color="#f5a524"/><stop offset="1" stop-color="#f5a524" stop-opacity="0"/></linearGradient></defs>' +
       '<ellipse class="fb-shadow" cx="50" cy="114" rx="22" ry="3.5"/>' +
       '<g class="fb-float"><g class="fb-body">' +
+        (k.back || '') +
         '<g class="fb-flame"><path d="M43 96 Q50 116 57 96 Z" fill="url(#fbFlame)"/><path d="M47 96 Q50 106 53 96 Z" fill="#fff6d8"/></g>' +
         '<rect x="41" y="89" width="18" height="8" rx="3" fill="var(--f-steel-3)"/>' +
         // left arm (waves)
@@ -31,6 +35,7 @@
         '<rect x="38" y="63.5" width="24" height="18" rx="6" fill="var(--f-visor)"/>' +
         '<circle class="fb-lamp-glow" cx="50" cy="72.5" r="6.5"/><circle class="fb-lamp" cx="50" cy="72.5" r="3.6"/>' +
         '<rect x="30" y="84" width="40" height="5" fill="var(--f-amber)"/><rect x="46" y="83.2" width="8" height="6.6" rx="1.6" fill="var(--f-amber-2)"/>' +
+        (k.body || '') +
         // right arm with the screwdriver
         '<g class="fb-arm-r"><rect x="68" y="62" width="9" height="22" rx="4.5" fill="url(#fbSteel)" stroke="var(--f-steel-3)" stroke-width=".8"/>' +
           '<g class="fb-driver"><line x1="81" y1="86" x2="93" y2="86" stroke="var(--f-steel-3)" stroke-width="1.8" stroke-linecap="round"/>' +
@@ -40,18 +45,23 @@
         '<rect x="44" y="54" width="12" height="6" rx="2" fill="var(--f-steel-3)"/>' +
         // head
         '<g class="fb-head">' +
-          '<g class="fb-antenna"><line x1="50" y1="13" x2="50" y2="6" stroke="var(--f-steel-3)" stroke-width="2" stroke-linecap="round"/>' +
-            '<circle class="fb-bulb-glow" cx="50" cy="5" r="4"/><circle class="fb-bulb" cx="50" cy="5" r="3.2"/></g>' +
-          faceSVG() +
+          (k.noAntenna ? '' : '<g class="fb-antenna"><line x1="50" y1="13" x2="50" y2="6" stroke="var(--f-steel-3)" stroke-width="2" stroke-linecap="round"/>' +
+            '<circle class="fb-bulb-glow" cx="50" cy="5" r="4"/><circle class="fb-bulb" cx="50" cy="5" r="3.2"/></g>') +
+          (k.headBack || '') +
+          faceSVG(k) +
+          (k.head || '') +
           '<g class="fb-spark"><line x1="76" y1="38" x2="71" y2="33" stroke="#ffd56a" stroke-width="1.6" stroke-linecap="round"/><line x1="76" y1="38" x2="82" y2="34" stroke="#ffd56a" stroke-width="1.6" stroke-linecap="round"/><line x1="76" y1="38" x2="83" y2="40" stroke="#fff" stroke-width="1.4" stroke-linecap="round"/></g>' +
         '</g>' +
         '<g class="fb-burst">' + burst() + '</g>' +
       '</g>' +
+        (k.top || '') +
         '<g class="fb-gear"><circle cx="84" cy="14" r="4.2" fill="none" stroke="var(--f-amber)" stroke-width="3" stroke-dasharray="2.1 1.6"/><circle cx="84" cy="14" r="1.6" fill="var(--f-amber)"/></g>' +
         '<text class="fb-zzz" x="72" y="20">z</text><text class="fb-zzz" x="76" y="16">z</text><text class="fb-zzz" x="80" y="12">Z</text>' +
       '</g></svg>';
+    return u ? svg.replace(/url\(#fbSteel\)/g, 'url(#fbSteel' + u + ')').replace(/url\(#fbFlame\)/g, 'url(#fbFlame' + u + ')') : svg;
   }
-  function faceSVG() {
+  function faceSVG(k) {
+    k = k || {};
     return '' +
       '<rect x="22" y="18" width="56" height="38" rx="13" fill="url(#fbSteel)" stroke="var(--f-steel-3)" stroke-width=".8"/>' +
       '<path d="M23 33 C23 19 33 12.5 50 12.5 C67 12.5 77 19 77 33 Z" fill="var(--f-amber)"/>' +
@@ -60,11 +70,17 @@
       '<circle cx="22" cy="45" r="3.4" fill="var(--f-steel-2)" stroke="var(--f-steel-3)" stroke-width=".8"/><path d="M20.4 45h3.2" stroke="var(--f-steel-3)" stroke-width=".9"/>' +
       '<circle cx="78" cy="45" r="3.4" fill="var(--f-steel-2)" stroke="var(--f-steel-3)" stroke-width=".8"/><path d="M76.4 45h3.2M78 43.4v3.2" stroke="var(--f-steel-3)" stroke-width=".9"/>' +
       '<rect x="28" y="37" width="44" height="16" rx="8" fill="var(--f-visor)"/>' +
+      (k.visor || '') +
       '<g class="fb-eyes"><rect class="fb-eye fb-eye-l" x="36" y="40.5" width="7" height="8" rx="3.5"/><rect class="fb-eye" x="57" y="40.5" width="7" height="8" rx="3.5"/>' +
         '<path class="fb-happy" d="M35.8 46.5 Q39.5 40.5 43.2 46.5 M56.8 46.5 Q60.5 40.5 64.2 46.5"/>' +
         '<path class="fb-closed" d="M35.8 45 Q39.5 47.6 43.2 45 M56.8 45 Q60.5 47.6 64.2 45"/>' +
         '<path class="fb-sad" d="M36 43 L43 45.5 M64 43 L57 45.5"/></g>' +
       '<g class="fb-mouth"><rect x="44.6" y="50" width="2.6" height="1.5" rx=".6"/><rect x="48.7" y="50" width="2.6" height="1.5" rx=".6"/><rect x="52.8" y="50" width="2.6" height="1.5" rx=".6"/></g>';
+  }
+  // CSS variables of a look (empty = the robot's own colours)
+  function palStyle(skinId) {
+    var p = (SK.get(skinId) || {}).pal || {}, m = { s: '--f-steel', s2: '--f-steel-2', s3: '--f-steel-3', a: '--f-amber', a2: '--f-amber-2', v: '--f-visor', l: '--f-led' };
+    return Object.keys(m).filter(function (k) { return p[k]; }).map(function (k) { return m[k] + ':' + p[k]; }).join(';');
   }
   function burst() {
     var s = '';
@@ -75,8 +91,9 @@
     return s;
   }
   function miniFace(cls) {
-    return '<svg viewBox="17 4 66 54" aria-hidden="true"><defs><linearGradient id="fbSteelM' + cls + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e3e9f1"/><stop offset="1" stop-color="#b7c3d2"/></linearGradient></defs>' +
-      faceSVG().replace(/url\(#fbSteel\)/g, 'url(#fbSteelM' + cls + ')') + '</svg>';
+    var k = SK.get(S.skin || 'classic'), id = 'fbSteelM' + cls + (++uidN);
+    return '<svg viewBox="17 4 66 54" aria-hidden="true" style="overflow:visible;' + palStyle(S.skin) + '"><defs><linearGradient id="' + id + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--f-steel)"/><stop offset="1" stop-color="var(--f-steel-2)"/></linearGradient></defs>' +
+      ((k.headBack || '') + faceSVG(k) + (k.head || '')).replace(/url\(#fbSteel\)/g, 'url(#' + id + ')') + '</svg>';
   }
 
   var ICON = {
@@ -86,6 +103,7 @@
     gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>',
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
     lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
+    hanger: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7.5a2 2 0 1 1 2-2"/><path d="M12 7.5v1.2L3 15.5a1.4 1.4 0 0 0 .9 2.5h16.2a1.4 1.4 0 0 0 .9-2.5L12 8.7"/></svg>',
     test: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7v5l3 2"/></svg>'
   };
 
@@ -146,8 +164,26 @@
 
   // ───────── build the launcher ─────────
   root.className = 'fit';
-  root.innerHTML = '<button class="fit-btn" type="button" aria-label="Open Fit, your AI technician" aria-expanded="false">' + botSVG() + '</button>';
+  root.innerHTML = '<button class="fit-btn" type="button" aria-label="Open Fit, your AI technician" aria-expanded="false"></button>';
   var btn = root.querySelector('.fit-btn');
+  var PAL = { s: '--f-steel', s2: '--f-steel-2', s3: '--f-steel-3', a: '--f-amber', a2: '--f-amber-2', v: '--f-visor', l: '--f-led' };
+  function lsSkin(v) { try { if (v === undefined) return localStorage.getItem('fit:skin'); localStorage.setItem('fit:skin', v); } catch (e) { return null; } }
+  // Put a look on the robot (and on the panel's face). Nothing is saved here — see saveLook().
+  function applySkin(id) {
+    if (!SK.layers || !SK.layers[id]) id = 'classic';
+    root.classList.remove('sk-' + S.skin);
+    S.skin = id;
+    root.classList.add('sk-' + id);
+    var p = SK.get(id).pal || {};
+    Object.keys(PAL).forEach(function (k) { if (p[k]) root.style.setProperty(PAL[k], p[k]); else root.style.removeProperty(PAL[k]); });
+    btn.innerHTML = botSVG(id);
+    var old = root.querySelector('.fit-fx'); if (old) old.remove();
+    var f = SK.get(id).fx;
+    if (f && !REDUCED) root.insertAdjacentHTML('afterbegin', SK.fx(f));
+    var ava = P && P.querySelector('.fitp-ava'); if (ava) ava.innerHTML = miniFace('h');
+    lsSkin(id);
+  }
+  applySkin(lsSkin() || 'classic');
   var brand = root.dataset.color; if (brand) document.documentElement.style.setProperty('--fit-brand', brand);
 
   function setMood(m, ms) {
@@ -238,6 +274,18 @@
     hop(); setMood('talking', 1600);
     setTimeout(function () { if (el.parentNode) el.remove(); }, 9000);
   }
+  // A new look (picked, or the calendar changed it): Fit says its line once.
+  function sayLook(w) {
+    if (!w || !w.greeting) return;
+    var old = root.querySelector('.fit-say'); if (old) old.remove();
+    var el = document.createElement('div');
+    el.className = 'fit-say look'; el.setAttribute('role', 'status');
+    el.innerHTML = '<button class="fit-say-x" type="button" aria-label="Hide">×</button><b>' + esc(w.emoji + ' ' + w.name) + '</b>' + esc(w.greeting);
+    el.addEventListener('click', function (e) { el.remove(); if (!e.target.classList.contains('fit-say-x')) { open(); } });
+    root.appendChild(el);
+    hop(); setMood('happy', 1800);
+    setTimeout(function () { if (el.parentNode) el.remove(); }, 6500);
+  }
   function markSeen(list) {
     var seen = ss('seen') || [];
     list.forEach(function (x) { if (seen.indexOf(x.text) < 0) seen.push(x.text); });
@@ -249,6 +297,11 @@
       if (!d || !d.ok) return null;
       if (!d.enabled && !(d.settings && d.settings.can_manage)) { root.remove(); return null; }
       S.state = d; S.conv = d.conversation;
+      if (d.look && d.look.skin !== S.skin) {
+        var was = S.skin;
+        applySkin(d.look.skin);
+        if (d.look.skin !== 'classic' && was !== d.look.skin && !S.open) setTimeout(function () { sayLook(d.look.wearing); }, 900);
+      }
       if (d.business && d.business.color) document.documentElement.style.setProperty('--fit-brand', d.business.color);
       ss('state', { at: Date.now(), insights: d.insights || [] });
       return d;
@@ -278,6 +331,7 @@
       '<header class="fitp-head"><div class="fitp-ava">' + miniFace('h') + '</div>' +
         '<div class="fitp-ttl"><b>Fit</b><small>AI technician for ' + esc((S.state && S.state.business && S.state.business.name) || 'your business') + '</small></div>' +
         '<button class="fitp-ib" data-a="new" type="button" title="New conversation" aria-label="New conversation">' + ICON.plus + '</button>' +
+        '<button class="fitp-ib" data-a="look" type="button" title="Fit’s wardrobe — skins and masks" aria-label="Fit’s wardrobe">' + ICON.hanger + '</button>' +
         '<button class="fitp-ib" data-a="set" type="button" title="What Fit may do" aria-label="What Fit may do" hidden>' + ICON.gear + '</button>' +
         '<button class="fitp-ib" data-a="close" type="button" title="Close" aria-label="Close Fit">' + ICON.x + '</button></header>' +
       '<div class="fitp-scope">' + ICON.lock + '<span>Fit only sees this business, and only what your role can open.</span></div>' +
@@ -327,14 +381,19 @@
   function render() {
     var d = S.state, b = body();
     P.querySelector('[data-a="set"]').classList.toggle('on', S.view === 'settings');
+    P.querySelector('[data-a="look"]').classList.toggle('on', S.view === 'look');
     if (S.view === 'settings') { renderSettings(); return; }
+    if (S.view === 'look') { renderLook(); return; }
     b.innerHTML = '';
     if (!d.ready) {
       b.innerHTML = '<div class="fit-hello"><h3>Fit is almost ready</h3><p>' + (d.settings.can_manage
         ? 'Add <code>GEMINI_API_KEY</code> (and optionally <code>GROQ_API_KEY</code>) to the server’s <code>.env</code> and restart TapTap. Fit can already show you what needs attention:'
         : 'The business owner still needs to switch Fit on. Meanwhile, here is what needs attention:') + '</p></div>';
     } else if (!d.messages.length) {
-      b.innerHTML = '<div class="fit-hello"><h3>Hi ' + esc(d.me.name) + ', I’m Fit.</h3><p>Ask me anything about your vouchers, agents, money or network. ' +
+      var w = d.look && d.look.wearing && d.look.skin !== 'classic' ? d.look.wearing : null;
+      b.innerHTML = '<div class="fit-hello"><h3>Hi ' + esc(d.me.name) + ', I’m Fit.</h3>' +
+        (w ? '<p class="fit-hello-look">' + esc(w.emoji) + ' <i>' + esc(w.greeting) + '</i></p>' : '') +
+        '<p>Ask me anything about your vouchers, agents, money or network. ' +
         'I can look things up, run tests on your routers and get changes ready — you press the button.</p></div>';
     }
     if (!d.messages.length || !d.ready) (d.insights || []).forEach(function (x) {
@@ -543,6 +602,14 @@
       return;
     }
     if (a === 'set') { S.view = S.view === 'settings' ? 'chat' : 'settings'; render(); return; }
+    if (a === 'look') { S.view = S.view === 'look' ? 'chat' : 'look'; render(); return; }
+    if (t.dataset.scope) { S.lookScope = t.dataset.scope; renderLook(); return; }
+    if (t.hasAttribute('data-skin')) return pickLook(t.getAttribute('data-skin'), t);
+    if (t.hasAttribute('data-look-random')) {
+      var all = ((S.state.look || {}).list || []).map(function (x) { return x.id; }).filter(function (x) { return x !== S.skin && x !== 'classic'; });
+      if (all.length) pickLook(all[Math.floor(Math.random() * all.length)], t);
+      return;
+    }
     if (t.dataset.ask) return send(t.dataset.ask);
     if (t.dataset.allow) return allowGroup(t.dataset.allow, t);
     if (t.dataset.dismiss) return decide(t, 'dismiss');
@@ -593,6 +660,69 @@
         c.authorized = true; var fresh = actionCard(c); el.replaceWith(fresh); remember(c);
       });
       blink(); setMood('happy', 1500);
+    });
+  }
+
+  // ── the wardrobe: skins and masks (core/fit_skins.py, static/js/fit-skins.js) ──
+  function lookTile(id, emoji, name, sub, on) {
+    var draw = id === '' ? lookOf((S.state.look || {}).team) : lookOf(id);
+    return '<button type="button" class="fl-tile' + (on ? ' on' : '') + '" data-skin="' + esc(id) + '" data-draw="' + esc(draw) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' +
+      '<span class="fl-mini sk-' + esc(draw) + '" style="' + palStyle(draw) + '">' + botSVG(draw, 't' + (++uidN)) + '</span>' +
+      '<b>' + esc(emoji) + ' ' + esc(name) + '</b>' + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</button>';
+  }
+  function lookOf(pick) {
+    var L = S.state.look || {};
+    return pick === 'auto' || !pick ? (L.season || 'classic') : pick;
+  }
+  function metaOf(id) {
+    var x = ((S.state.look || {}).list || []).filter(function (m) { return m.id === id; })[0];
+    return x || { id: 'classic', name: 'Classic Fit', emoji: '🤖' };
+  }
+  function stage(id) {
+    var st = P && P.querySelector('.fl-stage'); if (!st) return;
+    st.className = 'fl-stage sk-' + id; st.setAttribute('style', palStyle(id));
+    st.innerHTML = botSVG(id, 'H' + (++uidN));
+  }
+  function renderLook() {
+    var L = S.state.look, b = body();
+    P.querySelector('.fitp-chips').innerHTML = '';
+    if (!L) { b.innerHTML = '<div class="fit-hello"><p>The wardrobe needs the latest TapTap on the server.</p></div>'; return; }
+    var team = S.lookScope === 'team' && L.can_set_team, cur = team ? (L.team || 'auto') : (L.mine || '');
+    var w = L.wearing, season = metaOf(L.season);
+    var h = '<div class="fit-look"><div class="fl-hero"><div class="fl-stage"></div><div class="fl-say"><small>Fit is wearing</small><h3>' + esc(w.emoji + ' ' + w.name) + '</h3>' +
+      '<p>“' + esc(w.greeting) + '”</p><button type="button" class="fit-b" data-look-random>🎲 Surprise me</button></div></div>';
+    if (L.can_set_team) {
+      h += '<div class="fl-scope"><button type="button" data-scope="me" class="' + (team ? '' : 'on') + '">Just me</button>' +
+        '<button type="button" data-scope="team" class="' + (team ? 'on' : '') + '">Whole team</button></div>' +
+        (team ? '<p class="fl-note">Everyone sees this look unless they pick their own.</p>' : '');
+    }
+    h += '<div class="fl-grid">';
+    if (!team) h += lookTile('', '👥', 'Team look', L.team ? metaOf(lookOf(L.team)).name : 'Auto', cur === '');
+    h += lookTile('auto', '📅', 'Auto', 'by the calendar — now ' + season.name, cur === 'auto');
+    h += '</div>';
+    (L.groups || []).forEach(function (g) {
+      var items = (L.list || []).filter(function (x) { return x.group === g.key; });
+      if (!items.length) return;
+      h += '<h4 class="fl-h">' + esc(g.label) + '</h4><div class="fl-grid">' +
+        items.map(function (x) { return lookTile(x.id, x.emoji, x.name, '', cur === x.id); }).join('') + '</div>';
+    });
+    b.innerHTML = h + '</div>';
+    stage(S.skin);
+    b.querySelectorAll('.fl-tile').forEach(function (t) {
+      t.addEventListener('pointerenter', function () { stage(t.dataset.draw); });
+      t.addEventListener('pointerleave', function () { stage(S.skin); });
+    });
+  }
+  function pickLook(id, t) {
+    var team = S.lookScope === 'team' && S.state.look && S.state.look.can_set_team;
+    if (t) t.disabled = true;
+    api('/fit/look/', { skin: id, team: !!team }).then(function (d) {
+      if (t) t.disabled = false;
+      if (!d || !d.ok) { setMood('sad', 2000); return; }
+      S.state.look = d.look;
+      applySkin(d.look.skin);
+      if (S.view === 'look') renderLook();
+      hop(); setMood('happy', 2200); face('happy', 2000); play('is-wave', 1900);
     });
   }
 
