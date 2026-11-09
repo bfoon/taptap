@@ -181,4 +181,4 @@ class WhyPeopleDrop(TestCase):
         from core import nettools as nt
         s = nt.link_body(SimpleNamespace(pk=7, params={'kind': 'drops', 'target': 'hotspot sign-outs'}), 'https://x', 'no', 'abc')
         self.assertIn('logged out', s)
-        self.assertIn('/log find', s)
+        self.assertIn('/log print as-value', s)

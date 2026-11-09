@@ -212,3 +212,46 @@ class ScheduleKeepsTrying(Base):
             rs.process(s, due + timedelta(seconds=30))
             self.assertEqual(rs.process(s, due + rs.RETRY_FOR + timedelta(seconds=10)), 'failed')
         self.assertEqual(s.runs.get(planned_at=due).status, 'failed')
+
+
+class NetworkTestsGetThrough(Base):
+    """'Why people drop … The router did not answer within 6 minutes': the test must reach a busy router and answer."""
+
+    def test_drops_reads_the_log_safely_and_always_answers(self):
+        from core import nettools as nt
+        s = nt.link_body(SimpleNamespace(pk=7, params={'kind': 'drops', 'target': 'hotspot sign-outs'}), URL, 'no', 'abc')
+        self.assertIn('/log print as-value where message~', s)
+        self.assertNotIn('/log get', s)
+        self.assertNotIn('topics~', s)
+        self.assertIn('on-error={ :delay 3s; /tool fetch', s)            # the answer is sent again once if lost
+        r = nt.parse_link('drops', {}, b'err=log\nt=0\n')
+        self.assertTrue(r['failed'])
+        self.assertIn('log', r['error'])
+
+    def test_a_test_reaches_the_router_during_a_voucher_stream(self):
+        from core.models_nettools import NetTest
+        t = NetTest.objects.create(business=self.biz, router=self.r, kind='drops', target='hotspot sign-outs', status='waiting')
+        cmd = link.queue(self.r, 'nettest', {'test_id': t.pk, 'kind': 'drops', 'target': 'hotspot sign-outs'}, label='Why people drop')
+        delivered = False
+        for k in range(3):
+            for i in range(8):                                    # a busy router: voucher changes keep coming
+                link.queue(self.r, 'hotspot_users_disable', {'names': [f'C{k}{i}{j}' for j in range(6)], 'disabled': True},
+                           label='Switch off')
+            link.build_response(self.r, URL)
+            cmd.refresh_from_db()
+            if cmd.status == 'sent':
+                delivered = True
+                break
+            AgentCommand.objects.filter(router=self.r, status='sent').update(status='done', done_at=timezone.now())
+        self.assertTrue(delivered, 'the test waited behind voucher changes')
+        self.assertTrue(AgentCommand.objects.filter(router=self.r, kind='hotspot_users_disable', status='sent').exists(),
+                        'vouchers still go in the same check-in')
+
+    def test_waiting_test_explains_where_it_is_stuck(self):
+        from core import nettools as nt
+        from core.models_nettools import NetTest
+        t = NetTest.objects.create(business=self.biz, router=self.r, kind='drops', target='hotspot sign-outs', status='waiting')
+        cmd = link.queue(self.r, 'nettest', {'test_id': t.pk, 'kind': 'drops', 'target': 'hotspot sign-outs'}, label='x')
+        NetTest.objects.filter(pk=t.pk).update(command_id=cmd.pk, created_at=timezone.now() - timedelta(minutes=7))
+        t.refresh_from_db()
+        self.assertIn('could not hand the test', nt.expire_waiting(t).result['error'])

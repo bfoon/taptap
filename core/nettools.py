@@ -705,9 +705,15 @@ def link_body(cmd, url, check, nonce_value):
                 ':set out ("st=" . ($r->"status") . "\\n" . "dl=" . ($r->"downloaded") . "\\n" . "du=" . ($r->"duration") . "\\n") } '
                 'on-error={ :set out "err=fetch\\n" }; ')
     elif kind == 'drops':
-        body = (':local ids [/log find where message~"logged out" and topics~"hotspot"]; :local n [:len $ids]; :local s 0; '
-                f':if ($n > {DROPS_LINES}) do={{ :set s ($n - {DROPS_LINES}) }}; :set out ("t=" . $n . "\\n"); '
-                ':if ($n > 0) do={ :for i from=$s to=($n - 1) do={ :do { :local e [/log get ($ids->$i)]; '
+        # The log is read the way every TapTap sync reads a table (print as-value + where), and every step is guarded:
+        # the first version filtered on the log's `topics` list and read lines with `/log get`, which some RouterOS
+        # builds refuse — the test then stopped before its answer was sent and waited 6 minutes for nothing.
+        # Sign-outs of the router's own admins ("user admin logged out … via winbox") are skipped by drops_result.
+        body = (':local rows [:toarray ""]; '
+                ':do { :set rows [/log print as-value where message~"logged out"] } on-error={ :set out "err=log\\n" }; '
+                f':local n [:len $rows]; :local s 0; :if ($n > {DROPS_LINES}) do={{ :set s ($n - {DROPS_LINES}) }}; '
+                ':set out ($out . "t=" . $n . "\\n"); '
+                ':if ($n > 0) do={ :for i from=$s to=($n - 1) do={ :do { :local e ($rows->$i); '
                 ':set out ($out . "l=" . ($e->"time") . "|" . ($e->"message") . "\\n") } on-error={} } }; ')
     elif kind == 'doctor':
         body = (':local g ""; :do { :set g [:tostr [/ip route get ([/ip route find where dst-address="0.0.0.0/0" active]->0) gateway]] } on-error={}; '
@@ -722,7 +728,9 @@ def link_body(cmd, url, check, nonce_value):
         raise ValueError('Unknown test.')
     send = (f'/tool fetch url={upload} http-method=post http-header-field="Content-Type: text/plain" '
             f'http-data=$out output=none check-certificate={check} duration=15s idle-timeout=10s')
-    return '{ ' + head + body + send + ' }'
+    # The answer is sent once more if the first upload fails (a busy line at that second): a lost answer used to
+    # leave the test waiting the full 6 minutes.
+    return '{ ' + head + body + ':do { ' + send + ' } on-error={ :delay 3s; ' + send + ' } }'
 
 
 def _dns_lines():
@@ -783,6 +791,8 @@ def parse_link(kind, params, body):
             return res
         return speed_result([f] if f.get('ok') else [], 'The test download did not finish.')
     if kind == 'drops':
+        if get('err') == 'log' and not any(k == 'l' for k, _ in lines):
+            return {'error': 'The router would not let TapTap read its log (Link policy needs “read”).', 'failed': True}
         entries = []
         for k, v in lines:
             if k == 'l':
@@ -872,7 +882,11 @@ def expire_waiting(test):
     elif cmd.status == 'done' and cmd.done_at and (timezone.now() - cmd.done_at).total_seconds() > 60:
         reason = 'The router ran the test but its answer never reached TapTap (it may not reach TapTap over HTTPS).'
     elif (timezone.now() - test.created_at).total_seconds() > 360:
-        reason = 'The router did not answer within 6 minutes — is TapTap Link online?'
+        if cmd.status == 'queued':
+            reason = ('TapTap could not hand the test to the router for 6 minutes — it did not check in, or it was busy with '
+                      'other commands. Try again in a moment; the TapTap Link page shows its check-ins.')
+        else:
+            reason = 'The router took the test but did not answer within 6 minutes (it may be very busy, or its answer could not reach TapTap).'
     if reason:
         test.status, test.result, test.finished_at = 'failed', {'error': reason}, timezone.now()
         test.save(update_fields=['status', 'result', 'finished_at'])

@@ -1804,7 +1804,25 @@ def build_response(router, url):
     others = pending.exclude(kind__in=VOUCHER_KINDS)
     others = others.order_by('created_at') if others_turn else others.annotate(prio=delivery_order(False)).order_by('prio', 'created_at')
     rows = list(pending.filter(kind__in=VOUCHER_KINDS).order_by('created_at')[:40]) + list(others[:40])
+    keep = 0                    # room kept after the vouchers for work that must get through this time
     if not voucher_only:
+        # Vouchers still lead every batch, but room is kept behind them for: a Network tools test a person is waiting
+        # for (any turn), and the oldest other command on the other work's turn — before, a long voucher stream filled
+        # the batch and a test or a big sync table never fitted ("did not answer within 6 minutes").
+        must = [c for c in rows if c.kind == 'nettest'][:1]
+        if others_turn:
+            oldest = next((c for c in rows if c.kind not in VOUCHER_KINDS and c not in must), None)
+            if oldest is not None:
+                must.append(oldest)
+        if must:
+            rows = [c for c in rows if c.kind in VOUCHER_KINDS] + must + [c for c in rows if c.kind not in VOUCHER_KINDS and c not in must]
+            for c in must:
+                try:
+                    keep += len(wrap(c, url, check)) + 10
+                    if c.kind == 'inventory_piece':
+                        keep += len(send_function()) + 1
+                except Exception:
+                    pass
         # A restart / shutdown (a schedule picked its moment, or a person pressed it) goes at once, on its own. Behind
         # a never-ending stream of voucher changes on a busy router it used to wait until it expired, and the
         # schedule reported "the router never picked up the command".
@@ -1821,6 +1839,8 @@ def build_response(router, url):
         extra_rows = [c for c in pending.filter(pk__in=list(first - have))] if first - have else []
         rows = sorted(rows + extra_rows, key=lambda c: (0 if c.pk in first else 1))      # stable: order kept otherwise
     voucher_budget = MAX_SCRIPT // 2 if others_turn else MAX_SCRIPT
+    if keep:
+        voucher_budget = max(0, min(voucher_budget, MAX_SCRIPT - keep))
     voucher_size, vouchers_closed = 0, False
     for cmd in rows:
         if cmd.kind in TRAVEL_ALONE and parts:
