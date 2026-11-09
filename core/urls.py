@@ -117,7 +117,7 @@ urlpatterns = [
     path('routers/schedules/action/',vrsched.router_schedule_action,name='router_schedule_action'),
     path('api/mobile/v1/vouchers/',vmobv.vouchers,name='mobile_vouchers'), path('api/mobile/v1/vouchers/new/',vmobv.new,name='mobile_vouchers_new'),
     path('api/mobile/v1/vouchers/<int:pk>/',vmobv.voucher,name='mobile_voucher'), path('api/mobile/v1/batches/',vmobv.batches,name='mobile_batches'),
-    path('studio/portal/calls/',vpcall.portal_call_settings,name='portal_call_settings'), path('p/<slug:slug>/call/',vpcall.portal_call_page,name='portal_call_page'), path('p/<slug:slug>/call/api/',vpcall.portal_call_api,name='portal_call_api'),
+    path('studio/portal/calls/',vpcall.portal_call_settings,name='portal_call_settings'), path('p/<slug:slug>/call/',vpcall.portal_call_page,name='portal_call_page'), path('p/<slug:slug>/call/api/',vpcall.portal_call_api,name='portal_call_api'), path('p/<slug:slug>/call/voice/',vpcall.portal_call_voice,name='portal_call_voice'),
     path('studio/portal/',vs.portal_studio,name='portal_studio'), path('studio/portal/<int:pk>/',vs.portal_editor,name='portal_editor'),
     path('studio/portal/<int:pk>/action/',vs.portal_action,name='portal_action'), path('studio/portal/<int:pk>/export/',vs.portal_export,name='portal_export'),
     path('studio/vouchers/',vs.voucher_designs,name='voucher_designs'), path('studio/vouchers/<int:pk>/',vs.voucher_design_editor,name='voucher_design_editor'),

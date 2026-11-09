@@ -188,6 +188,9 @@ CELERY_TASK_ROUTES['core.tasks.chat_email_missed'] = {'queue': 'live'}
 # Chat photos are deleted for good after CHAT_IMAGE_DAYS (default 7) — checked hourly.
 CELERY_BEAT_SCHEDULE['taptap-chat-purge-images'] = {'task': 'core.tasks.chat_purge_images', 'schedule': 3600.0, 'options': {'expires': 1800}}
 CELERY_TASK_ROUTES['core.tasks.chat_purge_images'] = {'queue': 'live'}
+# Voice messages are deleted 1 minute after they are first played — swept every 15 seconds.
+CELERY_BEAT_SCHEDULE['taptap-chat-purge-voice'] = {'task': 'core.tasks.chat_purge_voice', 'schedule': 15.0, 'options': {'expires': 14}}
+CELERY_TASK_ROUTES['core.tasks.chat_purge_voice'] = {'queue': 'live'}
 # Old finished TapTap Link commands are deleted hourly (a huge command table made Link check-ins time out).
 CELERY_BEAT_SCHEDULE['taptap-prune-link-commands'] = {'task': 'core.tasks.prune_agent_commands', 'schedule': 3600.0, 'options': {'expires': 1800}}
 # Investors: earnings are booked for every finished day and the daily summaries go out at each business's hour.

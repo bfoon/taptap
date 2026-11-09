@@ -72,6 +72,7 @@ def chat_state(request):
     """The poll: conversations with unread counts, new messages since ?since=, typing and read receipts."""
     user, biz = request.user, _biz(request)
     chat.touch(user)
+    chat_media.sweep_voice_soon()              # listened voice messages go on time even without Celery beat
     threads = list(chat.accessible_threads(user, biz))
     ids = [t.pk for t in threads]
     raw = request.GET.get('since', '')
@@ -293,12 +294,16 @@ def platform_support_team(request):
 @login_required
 @require_POST
 def chat_upload(request):
-    """Send a photo or a short video clip (multipart: thread, file, body, once | kind=video, w, h).
-    Every chat file is kept CHAT_IMAGE_DAYS (7) days, then deleted for good."""
+    """Send a photo, a short video clip or a voice message
+    (multipart: thread, file, body, once | kind=video, w, h | kind=voice, secs, reply_to).
+    Every chat file is kept CHAT_IMAGE_DAYS (7) days, then deleted for good; a voice message 1 minute after it
+    is first played."""
     try:
         t = _thread(request, int(request.POST.get('thread') or 0))
         f = request.FILES.get('file')
-        if request.POST.get('kind') == 'video' or (f is not None and (f.content_type or '').startswith('video/')):
+        if request.POST.get('kind') == 'voice':
+            m = chat_media.save_voice(t, request.user, f, request.POST.get('secs'), request.POST.get('reply_to') or None)
+        elif request.POST.get('kind') == 'video' or (f is not None and (f.content_type or '').startswith('video/')):
             m = chat_media.save_video(t, request.user, f, request.POST.get('body', ''),
                                       request.POST.get('w'), request.POST.get('h'))
         else:
@@ -316,15 +321,18 @@ def chat_image(request, pk):
     m = get_object_or_404(ChatMessage.objects.select_related('thread', 'thread__business'), pk=pk)
     if not chat.can_access(request.user, m.thread, _biz(request)):
         return HttpResponseNotFound()
-    got = chat_media.open_image(m, request.user)
+    got = chat_media.open_image(m, request.user, listen=request.GET.get('listen') == '1')
     if got is None:
         return HttpResponse('This file has expired.', status=410, content_type='text/plain')
+    if got == 'nolisten':                      # an older app showing it as a picture: never counts as listening
+        return HttpResponse('Update TapTap to play voice messages.', status=409, content_type='text/plain')
     if got == 'sender':
         return HttpResponse('View-once photos cannot be reopened.', status=403, content_type='text/plain')
     data, mime, once = got
     status, total, extra = 200, len(data), {}
-    rng = request.META.get('HTTP_RANGE', '') if mime.startswith('video/') else ''
-    if rng.startswith('bytes=') and ',' not in rng:          # video players (Safari above all) seek with Range
+    av = mime.startswith(('video/', 'audio/'))
+    rng = request.META.get('HTTP_RANGE', '') if av else ''
+    if rng.startswith('bytes=') and ',' not in rng:          # media players (Safari above all) seek with Range
         a, _, b = rng[6:].strip().partition('-')
         try:
             if a == '':
@@ -342,9 +350,9 @@ def chat_image(request, pk):
     r = HttpResponse(data, content_type=mime, status=status)
     for k, v in extra.items():
         r[k] = v
-    if mime.startswith('video/'):
+    if av:
         r['Accept-Ranges'] = 'bytes'
-    what = 'video' if mime.startswith('video/') else 'photo'
+    what = 'video' if mime.startswith('video/') else 'voice' if mime.startswith('audio/') else 'photo'
     r['X-Content-Type-Options'] = 'nosniff'
     r['Content-Security-Policy'] = "default-src 'none'; sandbox"
     r['Content-Disposition'] = f'inline; filename="taptap-{what}-{pk}.{mime.split("/")[1]}"'

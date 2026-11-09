@@ -74,7 +74,8 @@
       (can ? '<input class="pc-in" id="pcN" maxlength="60" autocomplete="name" placeholder="Your name" value="' + esc(C.name || store('name')) + '">' +
         '<input class="pc-in" id="pcP" maxlength="30" inputmode="tel" autocomplete="tel" placeholder="Your phone number (so we can call back)" value="' + esc(store('phone')) + '">' +
         '<p class="pc-small">Free — it uses this Wi-Fi, not your phone credit. We only use your number to call you back.</p>' +
-        '<button class="pc-go" id="pcGo" type="button">' + ICON.phone + 'Call ' + esc(C.business) + '</button>' : '') +
+        '<button class="pc-go" id="pcGo" type="button">' + ICON.phone + 'Call ' + esc(C.business) + '</button>' +
+        '<button class="pc-go pc-go2 pc-vgo" type="button" data-a="voice">' + ICON.mic + 'Leave a voice message · ' + VMAX + ' s</button>' : '') +
       (C.phone ? '<a class="pc-alt" href="tel:' + esc(String(C.phone).replace(/[^\d+]/g, '')) + '">' + ICON.phone.replace('<svg', '<svg width="18" height="18"') + ' Normal phone call · ' + esc(C.phone) + '</a>' : '') + '</div>';
     var go = $('pcGo'); if (go) go.onclick = start;
   }
@@ -98,7 +99,7 @@
       ended: 'Thanks for calling.', missed: 'Nobody could answer just now.' + (S.phone ? ' We have your number and will call you back.' : ''),
       declined: 'Our team cannot take the call right now.' + (S.phone ? ' We will call you back.' : ''),
       cancelled: 'Call cancelled.', lost: 'The line dropped.', failed: 'The call could not connect over this Wi-Fi.', gone: 'The call has ended.',
-      callback: 'Thank you — we will call you back.'
+      callback: 'Thank you — we will call you back.', voice: 'Voice message sent — the team will listen and get back to you.'
     }[reason] || 'The call has ended.';
     sub.textContent = talk || text;
     tone([480, 360], 0, 0.35, 0.05);
@@ -383,6 +384,121 @@
   }
   function stopLevel() { cancelAnimationFrame(S.t.raf); root.style.setProperty('--lvl', 0); }
 
+  // ───────── a voice message instead of a call (up to 30 s) ─────────
+  // For when nobody is free, or the customer would rather not wait: record, listen back, send. It lands in the team
+  // room with their name and number; TapTap deletes it for good 1 minute after someone on the team plays it.
+  var VMAX = 30, V = null;
+  function vType() {
+    if (!window.MediaRecorder) return null;
+    var c = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm'];
+    for (var i = 0; i < c.length; i++) { try { if (MediaRecorder.isTypeSupported(c[i])) return c[i]; } catch (e) {} }
+    return '';
+  }
+  function vStopMic(v) {
+    clearInterval(v.tick); cancelAnimationFrame(v.raf);
+    try { v.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+    root.style.setProperty('--lvl', 0);
+  }
+  function vDrop() {
+    var v = V; V = null; if (!v) return;
+    v.after = null;
+    try { if (v.mr && v.mr.state !== 'inactive') v.mr.stop(); } catch (e) {}
+    if (v.stream) vStopMic(v);
+    try { if (v.pv) v.pv.pause(); } catch (e) {}
+    try { if (v.url) URL.revokeObjectURL(v.url); } catch (e) {}
+  }
+  function vScreen(msg) {
+    var v = V; if (!v) return intro();
+    S.state = 'voice'; setRoot('voice'); timer.hidden = true;     // (not 'idle': the status answer must not redraw over it)
+    var name = esc(v.name || store('name')), phone = esc(v.phone || store('phone'));
+    var head = '<p class="pc-vhead">🎙️ Voice message · up to ' + VMAX + ' seconds</p>' + (msg ? '<p class="pc-err">' + esc(msg) + '</p>' : '');
+    if (v.state === 'asking') panel.innerHTML = '<div class="pc-form">' + head + '<p class="pc-small">Tap <b>Allow</b> when your phone asks for the microphone.</p>' +
+      '<button class="pc-go pc-go2" type="button" data-a="vback">Cancel</button></div>';
+    else if (v.state === 'rec') panel.innerHTML = '<div class="pc-form">' + head +
+      '<div class="pc-vrec"><span class="pc-vdot"></span><b id="pcVt">0:00</b><span class="pc-vmax">/ 0:' + VMAX + '</span></div>' +
+      '<div class="pc-vbar"><i id="pcVb"></i></div>' +
+      '<button class="pc-go pc-vstop" type="button" data-a="vstop">■ Stop</button>' +
+      '<button class="pc-go pc-go2" type="button" data-a="vback">Cancel</button></div>';
+    else panel.innerHTML = '<div class="pc-form">' + head +
+      '<div class="pc-vrec"><button class="pc-vplay" type="button" data-a="vplay" aria-label="Listen">▶</button><b>' + clock(v.secs * 1000) + '</b>' +
+      '<button class="pc-mini" type="button" data-a="vagain">Record again</button></div>' +
+      '<input class="pc-in" id="pcVN" maxlength="60" autocomplete="name" placeholder="Your name" value="' + name + '">' +
+      '<input class="pc-in" id="pcVP" maxlength="30" inputmode="tel" autocomplete="tel" placeholder="Your phone number (optional)" value="' + phone + '">' +
+      '<p class="pc-small">The team hears it in TapTap. It is deleted for good 1 minute after they play it.</p>' +
+      '<button class="pc-go" type="button" data-a="vsend" id="pcVs">Send voice message</button>' +
+      '<button class="pc-go pc-go2" type="button" data-a="vback">Cancel</button></div>';
+  }
+  function vRecord() {
+    var type = vType();
+    if (type === null || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.isSecureContext) {
+      return intro('This window cannot record. Open this page in Chrome or Safari — or call us normally.');
+    }
+    vDrop(); ac(); S.helpWhy = '';
+    var keep = { name: (($('pcN') || $('pcVN') || {}).value || '').trim(), phone: (($('pcP') || $('pcVP') || {}).value || '').trim() };
+    var v = V = { state: 'asking', name: keep.name, phone: keep.phone }; vScreen();
+    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }).then(function (stream) {
+      if (V !== v) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+      var mr, opts = { audioBitsPerSecond: 32000 }; if (type) opts.mimeType = type;
+      try { mr = new MediaRecorder(stream, opts); } catch (e) { mr = new MediaRecorder(stream); }
+      v.mr = mr; v.stream = stream; v.chunks = []; v.state = 'rec'; v.t0 = Date.now();
+      mr.ondataavailable = function (e) { if (e.data && e.data.size) v.chunks.push(e.data); };
+      mr.onstop = function () { vStopMic(v); if (v.after) v.after(); };
+      mr.start(250); vScreen(); tone([880], 0, 0.12, 0.05);
+      v.tick = setInterval(function () {
+        var s = (Date.now() - v.t0) / 1000; if (s >= VMAX) return vStop();
+        var t = $('pcVt'), b = $('pcVb'); if (t) t.textContent = clock(s * 1000) + (VMAX - s <= 5.5 ? ' · ' + Math.ceil(VMAX - s) : '');
+        if (b) b.style.width = (100 * s / VMAX).toFixed(1) + '%';
+        root.classList.toggle('pc-vend', VMAX - s <= 5.5);
+      }, 200);
+      try {                                        // the ring around the picture follows the voice, as in a call
+        var a = ac(); if (a) { var an = a.createAnalyser(); an.fftSize = 256; a.createMediaStreamSource(stream).connect(an);
+          var buf = new Uint8Array(an.frequencyBinCount);
+          (function lv() { if (V !== v || v.state !== 'rec') return; an.getByteFrequencyData(buf); var s = 0; for (var i = 0; i < buf.length; i++) s += buf[i];
+            root.style.setProperty('--lvl', Math.min(1, s / buf.length / 60).toFixed(2)); v.raf = requestAnimationFrame(lv); })(); }
+      } catch (e) {}
+    }).catch(function (e) {
+      if (V !== v) return;
+      V = null; var why = micError(e);
+      if (why) return micHelp(why);
+      intro('The microphone is blocked. Allow it for this page, or leave your number with “Call me back”.');
+    });
+  }
+  function vStop() {
+    var v = V; if (!v || v.state !== 'rec') return;
+    v.secs = Math.min(VMAX, (Date.now() - v.t0) / 1000); v.state = 'stopping'; root.classList.remove('pc-vend');
+    v.after = function () {
+      v.after = null; if (V !== v) return;
+      v.blob = new Blob(v.chunks, { type: ((v.mr && v.mr.mimeType) || 'audio/webm').split(';')[0] });
+      if (v.secs < 1 || v.blob.size < 200) { V = null; return intro('That was too short — try again and speak for a second or more.'); }
+      v.url = URL.createObjectURL(v.blob); v.state = 'ready'; vScreen();
+    };
+    try { v.mr.stop(); } catch (e) { vStopMic(v); v.after(); }
+  }
+  function vPlay() {
+    var v = V; if (!v || !v.url) return;
+    var b = document.querySelector('[data-a="vplay"]');
+    if (v.pv && !v.pv.paused) { v.pv.pause(); if (b) b.textContent = '▶'; return; }
+    v.pv = v.pv || new Audio(v.url); v.pv.onended = function () { if (b) b.textContent = '▶'; };
+    v.pv.play().then(function () { if (b) b.textContent = '❚❚'; }).catch(function () {});
+  }
+  function vSend() {
+    var v = V; if (!v || v.state !== 'ready' || v.sending) return;
+    v.name = (($('pcVN') || {}).value || '').trim(); v.phone = (($('pcVP') || {}).value || '').trim();
+    store('name', v.name); store('phone', v.phone);
+    try { if (v.pv) v.pv.pause(); } catch (e) {}
+    var btn = $('pcVs'); v.sending = true; if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    var url = (C.voice || C.api.replace(/api\/?$/, 'voice/')) + '?' + ['name=' + encodeURIComponent(v.name), 'phone=' + encodeURIComponent(v.phone), 'secs=' + v.secs.toFixed(1)].join('&');
+    // text/plain: a "simple" request, so the router's own http:// page needs no CORS pre-check
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: v.blob, cache: 'no-store' })
+      .then(function (r) { return r.json(); }).catch(function () { return { ok: false, message: 'No connection to TapTap. Check the Wi-Fi and try again.' }; })
+      .then(function (d) {
+        if (V !== v) return;
+        v.sending = false;
+        if (d && d.ok) { tone([660, 880], 0, 0.25, 0.05); vDrop(); return done('voice', d.message); }
+        vScreen((d && d.message) || 'Could not send it. Try again.');
+      });
+  }
+
   // ───────── buttons ─────────
   function hangup(reason) {
     if (S.ended) return;
@@ -405,6 +521,11 @@
     else if (a === 'retry') { intro(); var g = $('pcGo'); if (g) g.click(); }
     else if (a === 'copy') copyLink();
     else if (a === 'callback') callback();
+    else if (a === 'voice' || a === 'vagain') vRecord();
+    else if (a === 'vstop') vStop();
+    else if (a === 'vplay') vPlay();
+    else if (a === 'vsend') vSend();
+    else if (a === 'vback') { vDrop(); root.classList.remove('pc-vend'); intro(); }
     else if (a === 'close') { if (S.id && !S.ended) hangup(); try { window.parent.postMessage({ tpCall: 'close' }, '*'); } catch (x) {} }
   });
   // Closing the page ends the call for staff straight away (instead of waiting for the heartbeat).

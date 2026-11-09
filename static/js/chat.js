@@ -21,6 +21,7 @@
     x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
     back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
     gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>',
+    mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
     send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>',
     smile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01"/></svg>',
     link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>',
@@ -203,10 +204,12 @@
         '<button class="ttc-tb" data-a="photo" title="Send a photo or a short video (deleted after ' + (t.photo_days || 7) + ' days)">' + ICON.image + '</button>' +
         '<input type="file" accept="image/*,video/mp4,video/webm,video/quicktime" class="ttc-file" hidden>' +
         '<textarea rows="1" placeholder="' + (t.kind === 'team' ? 'Message the team (@name)' : 'Write a message') + '" aria-label="Message"></textarea>' +
+        '<button class="ttc-tb ttc-mic" data-a="voice" title="Voice message (up to ' + VMAX + ' s) — deleted 1 minute after it is played">' + ICON.mic + '</button>' +
         '<button class="ttc-tb ttc-send" data-a="send" title="Send (Enter)">' + ICON.send + '</button></div>';
       wireComposer();
     }
     body.scrollTop = body.scrollHeight;
+    if (PLAY.id) updPlay();
   }
 
   // ───────── reply · edit · delete ─────────
@@ -282,15 +285,16 @@
 
   // ───────── actions ─────────
   panel.addEventListener('click', function (e) {
-    var b = e.target.closest('[data-a],[data-t],[data-u],[data-img],[data-once]'); if (!b) return;
+    var b = e.target.closest('[data-a],[data-t],[data-u],[data-img],[data-once],[data-voice]'); if (!b) return;
     if (b.dataset.img) return lightbox(+b.dataset.img, false);
     if (b.dataset.once) return lightbox(+b.dataset.once, true);
+    if (b.dataset.voice) return playVoice(+b.dataset.voice);
     if (b.dataset.t) return openThread(+b.dataset.t);
     if (b.dataset.u) return api('/chat/direct/', { user: +b.dataset.u }).then(function (d) { if (d.ok) openThread(d.thread); else toast({ sender: 'Chat', body: d.message }); });
     var a = b.dataset.a;
-    if (a === 'close') setOpen(false);
+    if (a === 'close') { cancelVoice(); setOpen(false); }
     else if (a === 'big') { S.big = !S.big; root.classList.toggle('big', S.big); }
-    else if (a === 'back') { S.view = 'list'; S.thread = null; S.typers = []; store('thread', null); render(); poll(); }
+    else if (a === 'back') { cancelVoice(); stopPlay(); S.view = 'list'; S.thread = null; S.typers = []; store('thread', null); render(); poll(); }
     else if (a === 'settings') { S.view = 'settings'; render(); }
     else if (a === 'test') { var s = S.prefs.sound; S.prefs.sound = true; chime('mention'); S.prefs.sound = s; }
     else if (a === 'notif') Notification.requestPermission().then(render);
@@ -303,6 +307,11 @@
     else if (a === 'photo') { var fi = $('.ttc-file', foot); fi && fi.click(); }
     else if (a === 'unphoto') { clearPhoto(); }
     else if (a === 'once') { if (S.photo) { S.photo.once = !S.photo.once; showAttach(); } }
+    else if (a === 'voice') startVoice();
+    else if (a === 'vcancel') cancelVoice();
+    else if (a === 'vstop') finishVoice(false);
+    else if (a === 'vsend') { if (REC && REC.state === 'ready') sendVoice(); else finishVoice(true); }
+    else if (a === 'vpreview') previewVoice();
     else if (a === 'call' || a === 'vcall') startCall(a === 'vcall');
     else if (a === 'send') send();
     else if (a === 'reply' || a === 'edit' || a === 'del') {
@@ -319,7 +328,7 @@
     var h = '';
     if (S.editing) h += '<div class="ttc-att-row ttc-compose-q"><span>' + ICON.edit + ' <b>Editing your message</b> · Esc to cancel</span><button class="btn btn-sm btn-link p-0" data-a="uncompose">Cancel</button></div>';
     else if (S.reply) h += '<div class="ttc-att-row ttc-compose-q"><span>' + ICON.reply + ' Replying to <b>' + esc(S.reply.mine ? 'yourself' : S.reply.sender) + '</b>: ' +
-      esc((S.reply.body || (S.reply.image ? '📷 Photo' : S.reply.page_title || '')).slice(0, 80)) + '</span><button class="btn btn-sm btn-link p-0" data-a="uncompose">Cancel</button></div>';
+      esc((S.reply.body || (S.reply.image ? attLabel(S.reply.image) : S.reply.page_title || '')).slice(0, 80)) + '</span><button class="btn btn-sm btn-link p-0" data-a="uncompose">Cancel</button></div>';
     h += S.attach ? '<div class="ttc-att-row"><span>🔗 Sharing: <b>' + esc(S.attach.title) + '</b></span><button class="btn btn-sm btn-link p-0" data-a="unattach">Remove</button></div>' : '';
     if (S.photo && S.photo.video) {
       h += '<div class="ttc-att-photo"><video src="' + S.photo.url + '" muted playsinline preload="metadata"></video><div><b>Video · ' + (S.photo.blob.size / 1048576).toFixed(1) + ' MB</b>' +
@@ -406,7 +415,7 @@
 
   function openThread(id, keep) {
     S.view = 'thread'; store('thread', id); S.more = false;
-    if (!keep || !S.thread || S.thread.id !== id) { S.msgs = []; foot.innerHTML = ''; S.reply = null; S.editing = null; }
+    if (!keep || !S.thread || S.thread.id !== id) { cancelVoice(); stopPlay(); S.msgs = []; foot.innerHTML = ''; S.reply = null; S.editing = null; }
     return api('/chat/t/' + id + '/').then(function (d) {
       if (!d.ok) { S.view = 'list'; render(); return; }
       S.thread = d.thread; S.msgs = d.messages; S.more = d.more;
@@ -426,7 +435,7 @@
     if (!S.prefs.popups && m.id) return;
     var el = document.createElement('div');
     el.className = 'ttc-toast ' + (kind || '');
-    el.innerHTML = av(m.initials || '💬', m.sender || 'Chat') + '<div><b>' + esc(m.sender) + (m.threadTitle ? ' · ' + esc(m.threadTitle) : '') + '</b><p>' + esc(m.body || m.page_title || '') + '</p></div>';
+    el.innerHTML = av(m.initials || '💬', m.sender || 'Chat') + '<div><b>' + esc(m.sender) + (m.threadTitle ? ' · ' + esc(m.threadTitle) : '') + '</b><p>' + esc(m.body || m.page_title || attLabel(m.image)) + '</p></div>';
     el.addEventListener('click', function () { el.remove(); if (m.onclick) return m.onclick(); if (m.thread) { if (!S.open) setOpen(true); openThread(m.thread); } });
     if (m.key) { var old = toasts.querySelector('[data-key="' + m.key + '"]'); if (old) old.remove(); el.dataset.key = m.key; }
     toasts.appendChild(el); while (toasts.children.length > 3) toasts.firstChild.remove();
@@ -434,7 +443,7 @@
   }
   function desktop(m, title) {
     if (!window.Notification || Notification.permission !== 'granted' || !document.hidden) return;
-    try { var n = new Notification(m.sender + ' · ' + title, { body: m.body || m.page_title || '', tag: 'ttc-' + m.thread, silent: !S.prefs.sound });
+    try { var n = new Notification(m.sender + ' · ' + title, { body: m.body || m.page_title || attLabel(m.image), tag: 'ttc-' + m.thread, silent: !S.prefs.sound });
       n.onclick = function () { window.focus(); setOpen(true); openThread(m.thread); n.close(); }; } catch (e) {}
   }
 
@@ -498,6 +507,7 @@
   }
   function imgHTML(m) {
     var im = m.image; if (!im) return '';
+    if (im.kind === 'voice') return voiceHTML(m, im);
     var days = (S.thread && S.thread.photo_days) || 7;
     if (im.local && im.video) return '<span class="ttc-img ttc-vid sending" style="aspect-ratio:16/9"><video src="' + im.local + '" muted playsinline preload="metadata"></video><i class="ttc-spin"></i></span>';
     if (im.local) return '<span class="ttc-img sending" style="aspect-ratio:' + im.w + '/' + im.h + '"><img src="' + im.local + '" alt=""><i class="ttc-spin"></i></span>';
@@ -509,6 +519,236 @@
       : '<button class="ttc-img-once" data-once="' + m.id + '">👁 Tap to view once<small>It is deleted as soon as you close it</small></button>';
     return '<button class="ttc-img" data-img="' + m.id + '" style="aspect-ratio:' + im.w + '/' + im.h + '" title="Open photo"><img src="/chat/img/' + m.id + '/" loading="lazy" alt="Photo">' +
       '<span class="ttc-exp" title="Deleted for everyone on ' + esc(new Date(im.expires).toLocaleString()) + '">⏳ ' + timeLeft(im.expires) + '</span></button>';
+  }
+  // ───────── voice messages: up to 30 s, deleted for good 1 minute after someone first plays them ─────────
+  // Recording: MediaRecorder (Opus in WebM/Ogg, or AAC in MP4 on Safari), stopped by itself at VMAX seconds.
+  // Playing: the bytes are fetched only when someone presses ▶ (?listen=1) and played from memory; nothing is
+  // preloaded or cached, and the memory copy is dropped when it ends or when its minute is up.
+  var VMAX = 30, REC = null, PLAY = { id: 0 }, VDL = {}, WAVE = 26;
+  function attLabel(im) {
+    if (!im) return '';
+    return im.kind === 'voice' ? '🎙️ Voice message' : im.kind === 'video' ? '🎬 Video clip' : '📷 Photo';
+  }
+  function fmtS(s) { s = Math.max(0, Math.round(s || 0)); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+  function voiceType() {
+    if (!window.MediaRecorder) return null;
+    var c = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm'];
+    for (var i = 0; i < c.length; i++) { try { if (MediaRecorder.isTypeSupported(c[i])) return c[i]; } catch (e) {} }
+    return '';
+  }
+  function waveBars(id, secs) {                    // a steady little waveform per message (drawn, not measured)
+    var h = '', x = (id * 2654435761) >>> 0, n = WAVE;
+    for (var i = 0; i < n; i++) {
+      x = (x * 1103515245 + 12345) >>> 0;
+      var env = Math.sin(Math.PI * (i + .5) / n), v = 22 + Math.round(((x >>> 16) % 70) * (.45 + .55 * env));
+      h += '<i style="height:' + Math.min(100, v) + '%"></i>';
+    }
+    return h;
+  }
+  function voiceHTML(m, im) {
+    if (im.local) return '<span class="ttc-voice sending"><span class="ttc-vplay"><i class="ttc-vspin"></i></span><span class="ttc-vwave">' + waveBars(7, im.secs) +
+      '</span><span class="ttc-vtime">' + fmtS(im.secs) + '</span></span>';
+    if (im.gone) {
+      delete VDL[m.id];
+      return im.listened ? '<span class="ttc-img-gone ttc-voice-gone">🎙️ Voice message · listened<small>🔥 Deleted for good 1 minute after it was played</small></span>'
+        : '<span class="ttc-img-gone ttc-voice-gone">🎙️ Voice message expired<small>Not played within ' + ((S.thread && S.thread.photo_days) || 7) + ' days</small></span>';
+    }
+    var note;
+    if (im.listened) {
+      var dl = VDL[m.id] || (VDL[m.id] = Date.now() + (im.left != null ? im.left : 60) * 1000);
+      note = '🔥 ' + (m.mine ? 'Played · ' : '') + 'deleted in <b data-dl="' + m.id + '">' + Math.max(0, Math.ceil((dl - Date.now()) / 1000)) + '</b> s';
+    } else note = m.mine ? '👂 Not played yet · gone 1 min after it is' : '▶ Play · deleted for everyone 1 min later';
+    return '<span class="ttc-voice' + (im.listened ? ' heard' : '') + '" data-vid="' + m.id + '">' +
+      '<button type="button" class="ttc-vplay" data-voice="' + m.id + '" title="Play" aria-label="Play voice message">▶</button>' +
+      '<span class="ttc-vwave">' + waveBars(m.id, im.secs) + '</span><span class="ttc-vtime">' + fmtS(im.secs) + '</span>' +
+      '<small class="ttc-vnote">' + note + '</small></span>';
+  }
+  function voiceEl(id) { return body.querySelector('.ttc-voice[data-vid="' + id + '"]'); }
+  function refreshVoice(m) {                       // redraw one voice bubble in place (no jump to the bottom)
+    var el = voiceEl(m.id); if (!el) return;
+    var tmp = document.createElement('span'); tmp.innerHTML = voiceHTML(m, m.image);
+    if (tmp.firstChild) el.replaceWith(tmp.firstChild);
+    updPlay();
+  }
+  function updPlay() {
+    body.querySelectorAll('.ttc-voice.playing').forEach(function (el) {
+      if (+el.dataset.vid !== PLAY.id) { el.classList.remove('playing', 'loading'); var b = el.querySelector('.ttc-vplay'); if (b) b.textContent = '▶';
+        el.querySelectorAll('.ttc-vwave i').forEach(function (i) { i.classList.remove('on'); }); }
+    });
+    if (!PLAY.id) return;
+    var el = voiceEl(PLAY.id); if (!el) return;
+    var a = PLAY.audio, m = msgById(PLAY.id), secs = (m && m.image && m.image.secs) || 1;
+    el.classList.add('playing'); el.classList.toggle('loading', !!PLAY.loading);
+    var btn = el.querySelector('.ttc-vplay'); if (btn) btn.textContent = PLAY.loading ? '…' : (a && !a.paused ? '❚❚' : '▶');
+    var t = a ? a.currentTime : 0, f = Math.min(1, t / secs), bars = el.querySelectorAll('.ttc-vwave i');
+    bars.forEach(function (i, k) { i.classList.toggle('on', (k + 1) / bars.length <= f + .001); });
+    var tm = el.querySelector('.ttc-vtime'); if (tm) tm.textContent = a && t > 0 ? fmtS(t) : fmtS(secs);
+  }
+  function stopPlay() {
+    var p = PLAY; PLAY = { id: 0 };
+    if (p.audio) { try { p.audio.pause(); p.audio.removeAttribute('src'); p.audio.load(); } catch (e) {} }
+    if (p.url) { try { URL.revokeObjectURL(p.url); } catch (e) {} }
+    if (body) updPlay();
+  }
+  function playVoice(id) {
+    var m = msgById(id); if (!m || !m.image || m.image.gone || m.image.local) return;
+    if (PLAY.id === id && PLAY.audio) { if (PLAY.audio.paused) PLAY.audio.play().catch(function () {}); else PLAY.audio.pause(); return updPlay(); }
+    if (PLAY.id === id) return;                    // still loading
+    stopPlay(); if (REC) return toast({ sender: 'Voice', body: 'Finish your recording first.' });
+    var p = PLAY = { id: id, loading: true }; updPlay();
+    fetch('/chat/img/' + id + '/?listen=1', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw r.status; return r.blob(); })
+      .then(function (b) {
+        if (PLAY !== p) return;
+        p.url = URL.createObjectURL(b); p.loading = false;
+        var a = p.audio = new Audio(); a.preload = 'auto'; a.src = p.url;
+        a.ontimeupdate = a.onplay = a.onpause = updPlay;
+        a.onended = function () { if (PLAY === p) stopPlay(); };
+        a.onerror = function () { if (PLAY === p) { stopPlay(); toast({ sender: 'Voice', body: 'This voice message cannot be played in this browser.' }); } };
+        var mm = msgById(id);
+        if (mm && !mm.mine && mm.image && !mm.image.listened) {      // the first listen starts its last minute
+          mm.image.listened = new Date().toISOString(); mm.image.left = 60; refreshVoice(mm);
+        }
+        a.play().then(updPlay).catch(function () { updPlay(); });
+      })
+      .catch(function (st) {
+        if (PLAY === p) stopPlay();
+        var mm = msgById(id);
+        if (st === 410 && mm) { mm.image = { gone: true, opened: false, kind: 'voice', listened: !!(mm.image && mm.image.listened) }; refreshVoice(mm); }
+        toast({ sender: 'Voice', body: st === 410 ? 'This voice message has been deleted.' : 'Could not play it. Check your connection.' });
+      });
+  }
+  setInterval(function () {                        // "deleted in 42 s" counts down; at 0 it is gone here too
+    if (!body || !S.open || S.view !== 'thread') return;
+    body.querySelectorAll('[data-dl]').forEach(function (b) {
+      var id = +b.dataset.dl, left = Math.ceil(((VDL[id] || 0) - Date.now()) / 1000);
+      if (left > 0) { b.textContent = left; return; }
+      var m = msgById(id); if (PLAY.id === id) stopPlay();
+      if (m && m.image && !m.image.gone) { m.image = { gone: true, opened: false, kind: 'voice', listened: true }; refreshVoice(m); }
+    });
+  }, 1000);
+
+  // recording
+  function renderRec() {
+    var el = foot && $('.ttc-rec', foot), r = REC;
+    if (!r) { if (el) el.remove(); if (foot) foot.classList.remove('ttc-recording'); return; }
+    var comp = $('.ttc-comp', foot); if (!comp) return;
+    if (!el) { el = document.createElement('div'); el.className = 'ttc-rec'; foot.insertBefore(el, comp); }
+    foot.classList.add('ttc-recording');
+    if (r.state === 'asking') el.innerHTML = '<span class="ttc-rec-dot"></span><span class="ttc-rec-msg">Allow the microphone…</span><button class="ttc-rec-x" data-a="vcancel" title="Cancel">✕</button>';
+    else if (r.state === 'ready') el.innerHTML = '<button class="ttc-rec-pv" data-a="vpreview" title="Listen before sending">▶</button>' +
+      '<span class="ttc-rec-msg"><b>🎙️ ' + fmtS(r.secs) + '</b><small>Deleted for everyone 1 minute after it is played</small></span>' +
+      '<button class="ttc-rec-x" data-a="vcancel" title="Discard">🗑</button><button class="ttc-rec-send" data-a="vsend" title="Send">' + ICON.send + '</button>';
+    else el.innerHTML = '<span class="ttc-rec-dot"></span><b class="ttc-rec-t">0:00</b><canvas class="ttc-rec-wave" width="150" height="30"></canvas>' +
+      '<span class="ttc-rec-bar"><i></i></span><button class="ttc-rec-x" data-a="vcancel" title="Discard">🗑</button>' +
+      '<button class="ttc-rec-stop" data-a="vstop" title="Stop and listen first">■</button><button class="ttc-rec-send" data-a="vsend" title="Send now">' + ICON.send + '</button>';
+    recTime();
+  }
+  function recTime() {
+    var r = REC, el = foot && $('.ttc-rec', foot); if (!r || !el || r.state !== 'rec') return;
+    var s = Math.min(VMAX, (Date.now() - r.t0) / 1000), t = $('.ttc-rec-t', el), bar = $('.ttc-rec-bar i', el);
+    if (t) t.textContent = VMAX - s <= 5.5 ? fmtS(s) + ' · ' + Math.ceil(VMAX - s) : fmtS(s);
+    if (bar) bar.style.width = (100 * s / VMAX).toFixed(1) + '%';
+    el.classList.toggle('ending', VMAX - s <= 5.5);
+  }
+  function meter(r) {                              // live level of the microphone, drawn as moving bars
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      r.ctx = new AC(); var an = r.ctx.createAnalyser(); an.fftSize = 256;
+      r.ctx.createMediaStreamSource(r.stream).connect(an);
+      var buf = new Uint8Array(an.fftSize), hist = [];
+      (function draw() {
+        if (REC !== r || r.state !== 'rec') return;
+        an.getByteTimeDomainData(buf); var peak = 0;
+        for (var i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i] - 128));
+        hist.push(Math.min(1, peak / 64)); if (hist.length > 30) hist.shift();
+        var cv = foot && $('.ttc-rec-wave', foot);
+        if (cv) { var g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height); g.fillStyle = '#e5484d';
+          hist.forEach(function (v, k) { var h = Math.max(3, v * cv.height); g.fillRect(k * 5, (cv.height - h) / 2, 3, h); }); }
+        r.raf = requestAnimationFrame(draw);
+      })();
+    } catch (e) {}
+  }
+  function stopStream(r) {
+    clearInterval(r.tick); try { cancelAnimationFrame(r.raf); } catch (e) {}
+    try { r.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+    try { if (r.ctx) r.ctx.close(); } catch (e) {}
+  }
+  function startVoice() {
+    if (REC || !S.thread) return;
+    if (S.editing) return toast({ sender: 'Voice', body: 'Finish editing your message first.' });
+    if (typeof callLive === 'function' && callLive()) return toast({ sender: 'Voice', body: 'You are in a call — send a voice message after it.' });
+    var type = voiceType();
+    if (type === null || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia)
+      return toast({ sender: 'Voice', body: 'This browser cannot record voice messages. Try Chrome, Edge, Firefox or Safari.' });
+    stopPlay();
+    var r = REC = { state: 'asking', thread: S.thread.id }; renderRec();
+    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }).then(function (stream) {
+      if (REC !== r) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+      var mr, opts = { audioBitsPerSecond: 32000 }; if (type) opts.mimeType = type;
+      try { mr = new MediaRecorder(stream, opts); } catch (e) { mr = new MediaRecorder(stream); }
+      r.mr = mr; r.stream = stream; r.chunks = []; r.t0 = Date.now(); r.state = 'rec';
+      mr.ondataavailable = function (e) { if (e.data && e.data.size) r.chunks.push(e.data); };
+      mr.onstop = function () { stopStream(r); if (r.after) r.after(); };
+      mr.start(250);
+      r.tick = setInterval(function () { if ((Date.now() - r.t0) / 1000 >= VMAX) finishVoice(false); else recTime(); }, 200);
+      renderRec(); meter(r);
+    }).catch(function () {
+      if (REC === r) { REC = null; renderRec(); }
+      toast({ sender: 'Voice', body: 'Allow the microphone (the 🔒 or 🎙 icon in the address bar) to record a voice message.' });
+    });
+  }
+  function finishVoice(andSend) {
+    var r = REC; if (!r || r.state !== 'rec') return;
+    r.secs = Math.min(VMAX, (Date.now() - r.t0) / 1000); r.state = 'stopping';
+    r.after = function () {
+      r.after = null; if (REC !== r) return;
+      var blob = new Blob(r.chunks, { type: ((r.mr && r.mr.mimeType) || r.chunks[0] && r.chunks[0].type || 'audio/webm').split(';')[0] });
+      if (r.secs < 1 || blob.size < 200) { REC = null; renderRec(); return toast({ sender: 'Voice', body: 'Too short — press the microphone and speak for a second or more.' }); }
+      r.blob = blob; r.url = URL.createObjectURL(blob); r.state = 'ready';
+      if (andSend) sendVoice(); else { renderRec(); if (r.secs >= VMAX - .3) toast({ sender: 'Voice', body: VMAX + ' seconds is the limit — listen, then send.' }); }
+    };
+    try { r.mr.stop(); } catch (e) { stopStream(r); r.after(); }
+  }
+  function cancelVoice() {
+    var r = REC; if (!r) return;
+    REC = null; r.after = null;
+    if (r.mr && r.mr.state !== 'inactive') { try { r.mr.stop(); } catch (e) {} }
+    if (r.stream) stopStream(r);
+    if (r.pv) { try { r.pv.pause(); } catch (e) {} }
+    if (r.url) { try { URL.revokeObjectURL(r.url); } catch (e) {} }
+    renderRec();
+  }
+  function previewVoice() {
+    var r = REC; if (!r || r.state !== 'ready') return;
+    var b = foot && $('.ttc-rec-pv', foot);
+    if (r.pv && !r.pv.paused) { r.pv.pause(); if (b) b.textContent = '▶'; return; }
+    r.pv = r.pv || new Audio(r.url);
+    r.pv.onended = function () { if (b) b.textContent = '▶'; };
+    r.pv.play().then(function () { if (b) b.textContent = '❚❚'; }).catch(function () {});
+  }
+  function sendVoice() {
+    var r = REC; if (!r || r.state !== 'ready') return;
+    REC = null; renderRec();
+    if (r.pv) { try { r.pv.pause(); } catch (e) {} }
+    var rep = S.thread && S.thread.id === r.thread ? S.reply : null;
+    if (rep) { S.reply = null; showAttach(); }
+    var here = S.thread && S.thread.id === r.thread, secs = Math.max(1, Math.round(r.secs));
+    var tmp = { id: 1e15, body: '', mine: true, sender: S.me.name, at: new Date().toISOString(), image: { local: r.url, kind: 'voice', secs: secs } };
+    if (here) { S.msgs.push(tmp); renderThread(); }
+    var f = new FormData(); f.append('thread', r.thread); f.append('kind', 'voice'); f.append('secs', r.secs.toFixed(1));
+    if (rep) f.append('reply_to', rep.id);
+    f.append('file', r.blob, 'voice.' + (/mp4|aac|m4a/.test(r.blob.type) ? 'm4a' : /ogg/.test(r.blob.type) ? 'ogg' : 'webm'));
+    fetch('/chat/upload/', { method: 'POST', credentials: 'same-origin', headers: { 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' }, body: f })
+      .then(function (x) { return x.json(); }).catch(function () { return { ok: false, message: 'Could not send the voice message.' }; })
+      .then(function (d) {
+        S.msgs = S.msgs.filter(function (m) { return m !== tmp; });
+        if (d.ok && S.thread && S.thread.id === r.thread) { if (!S.msgs.some(function (m) { return m.id === d.message.id; })) S.msgs.push(d.message); S.top = Math.max(S.top, d.message.id); }
+        else if (!d.ok) toast({ sender: 'Voice message not sent', body: d.message || 'Try again.' });
+        try { URL.revokeObjectURL(r.url); } catch (e) {}
+        if (S.view === 'thread') renderThread();
+        poll();
+      });
   }
   function decode(file) {
     if (window.createImageBitmap) return createImageBitmap(file, { imageOrientation: 'from-image' }).catch(function () { return createImageBitmap(file); }).catch(function () { return viaImg(file); });

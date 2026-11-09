@@ -271,8 +271,8 @@ def _own(m, user):
 
 
 def can_edit(m, user_id):
-    if m.system or m.deleted_at or m.sender_id != user_id or m.attachment == 'opened':
-        return False
+    if m.system or m.deleted_at or m.sender_id != user_id or m.attachment in ('opened', 'voice', 'voice_gone'):
+        return False                              # a voice message has nothing to edit
     return not EDIT_MINUTES or timezone.now() - m.created_at <= timedelta(minutes=EDIT_MINUTES)
 
 
@@ -284,6 +284,8 @@ def can_delete(m, user_id):
 def edit(m, user, body):
     """The sender changes the text of their message (a photo's caption too)."""
     _own(m, user)
+    if m.attachment in ('voice', 'voice_gone'):
+        raise ChatError('A voice message cannot be edited — delete it and record a new one.')
     if not can_edit(m, user.pk):
         raise ChatError(f'Messages can only be edited within {EDIT_MINUTES} minutes of sending.')
     body = (body or '').strip()
@@ -365,6 +367,10 @@ def preview_text(m):
         return '📷 Photo' + (' · ' + m.body if m.body else '')
     if m.attachment == 'video':
         return m.body or '🎬 Video clip'
+    if m.attachment == 'voice':
+        return '🎙️ Voice message'
+    if m.attachment == 'voice_gone':
+        return '🎙️ Voice message · listened'
     return m.body or m.page_title or 'Shared a page'
 
 

@@ -70,6 +70,8 @@ class ChatImage(models.Model):
     size = models.PositiveIntegerField(default=0)
     view_once = models.BooleanField(default=False)
     expires_at = models.DateTimeField(db_index=True)
+    # voice messages: when someone other than the sender first played it — the bytes are deleted 1 minute later
+    listened_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
 

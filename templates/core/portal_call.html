@@ -6,7 +6,7 @@
 <style>
 :root{--ac:{{ accent }};--at:{{ accent_text }}}
 </style>
-<link rel="stylesheet" href="{% static 'css/portal-call.css' %}?v=3">
+<link rel="stylesheet" href="{% static 'css/portal-call.css' %}?v=4">
 </head>
 <body class="{% if embedded %}embedded{% endif %}">
 <main class="pc" id="pc" aria-live="polite">
@@ -28,5 +28,5 @@
 </main>
 {{ cfg|json_script:"pcData" }}
 <script src="{% static 'js/call-speaker.js' %}?v=1"></script>
-<script src="{% static 'js/portal-call.js' %}?v=4"></script>
+<script src="{% static 'js/portal-call.js' %}?v=5"></script>
 </body></html>

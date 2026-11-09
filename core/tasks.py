@@ -218,6 +218,13 @@ def chat_purge_images():
     return purge_expired()
 
 
+@shared_task(ignore_result=True)
+def chat_purge_voice():
+    """Delete voice messages 1 minute after they were first played (and unheard ones after 7 days) — every 15 s."""
+    from .chat_media import purge_voice
+    return purge_voice()
+
+
 # Vouchers first: their own queue and worker ("vouchers" in docker-compose.yml), so a voucher change never
 # waits behind a full sync (default worker) or the all-router live loop ("live" worker). The live worker also
 # listens to "vouchers", so nothing is stranded where the dedicated worker is not deployed yet.

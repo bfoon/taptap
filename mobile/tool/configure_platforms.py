@@ -384,7 +384,7 @@ if plist.exists():
     found += 1
     s = plist.read_text()
     keys = {
-        'NSMicrophoneUsageDescription': 'TapTap uses the microphone for calls with your team and customers.',
+        'NSMicrophoneUsageDescription': 'TapTap uses the microphone for calls and voice messages with your team and customers.',
         'NSCameraUsageDescription': 'TapTap uses the camera to show something during a call and to send photos in chat.',
         'NSPhotoLibraryUsageDescription': 'TapTap lets you send photos from your library in chat.',
         'NSSpeechRecognitionUsageDescription': 'TapTap turns what you say into a question for Fit.',

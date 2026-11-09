@@ -43,7 +43,7 @@ def portal_call_page(request, slug):
         'page': page, 'biz': biz, 'business': business,
         'accent': theme.get('accent') or biz['brand'], 'accent_text': theme.get('accent_text') or '#ffffff',
         'embedded': request.GET.get('embed') == '1', 'back': _safe_back(request.GET.get('back')),
-        'cfg': {'api': f'/p/{page.slug}/call/api/', 'business': biz['name'], 'phone': biz['phone'], 'logo': biz['logo'],
+        'cfg': {'api': f'/p/{page.slug}/call/api/', 'voice': f'/p/{page.slug}/call/voice/', 'business': biz['name'], 'phone': biz['phone'], 'logo': biz['logo'],
                 'name': (request.GET.get('name') or '')[:60], 'embedded': request.GET.get('embed') == '1'},
     })
     r['Permissions-Policy'] = 'microphone=(self), camera=(), autoplay=(self)'
@@ -101,6 +101,35 @@ def portal_call_api(request, slug):
     except (chat.ChatError, ValueError) as e:
         return _cors(JsonResponse({'ok': False, 'message': str(e)}, status=400))
     return _cors(JsonResponse({'ok': True}))
+
+
+@csrf_exempt
+def portal_call_voice(request, slug):
+    """A voice message from the customer's page: the raw recording as the body (sent as text/plain so the router's
+    http:// page needs no CORS pre-check), with ?name=&phone=&secs= in the address."""
+    if request.method == 'OPTIONS':
+        resp = _cors(JsonResponse({'ok': True}))
+        resp['Access-Control-Allow-Methods'] = 'POST'
+        resp['Access-Control-Allow-Headers'] = 'Content-Type'
+        return resp
+    from . import chat_media
+    if request.method != 'POST':
+        return _cors(JsonResponse({'ok': False, 'message': 'Bad request.'}, status=400))
+    try:
+        size = int(request.META.get('CONTENT_LENGTH') or 0)
+    except ValueError:
+        size = 0
+    if size > chat_media.VOICE_MAX_BYTES:
+        return _cors(JsonResponse({'ok': False, 'message': 'That voice message is too long (up to '
+                                   f'{chat_media.VOICE_SECONDS} seconds).'}, status=400))
+    page = _page(slug)
+    try:
+        portal_call.voice_message(page, request.body or b'', name=request.GET.get('name', ''),
+                                  phone=request.GET.get('phone', ''), secs=request.GET.get('secs'),
+                                  ip=_client_ip(request))
+    except chat.ChatError as e:
+        return _cors(JsonResponse({'ok': False, 'message': str(e)}, status=400))
+    return _cors(JsonResponse({'ok': True, 'message': 'Sent — the team will listen and get back to you.'}))
 
 
 # ─────────────────────────────── owner: who answers ───────────────────────────────

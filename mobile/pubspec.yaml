@@ -18,6 +18,8 @@ dependencies:
   flutter_markdown_plus: ^1.0.3
   url_launcher: ^6.3.1
   image_picker: ^1.1.2
+  record: ^6.1.1             # chat voice messages (AAC, up to 30 s)
+  audioplayers: ^6.5.0       # playing them
   speech_to_text: ^7.3.0
   wakelock_plus: ^1.2.8
   firebase_core: ^4.0.0

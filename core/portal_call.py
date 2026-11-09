@@ -215,6 +215,62 @@ def callback_request(page, *, name='', phone='', ip='', why=''):
     return text
 
 
+VOICE_PER_IP = 3                  # voice messages per phone/IP every 10 minutes
+VOICE_PER_BUSINESS_HOUR = 40      # from all customers together
+
+
+def voice_message(page, data, *, name='', phone='', secs=0, ip=''):
+    """A customer on the Wi-Fi page leaves a voice message (up to 30 seconds) instead of calling.
+
+    It lands in the team room like a chat voice message, with the customer's name and number above it, and the
+    people who answer calls get a push. Like every voice message it is deleted for good 1 minute after someone
+    first plays it (core/chat_media.py)."""
+    from django.db import transaction
+    from . import chat_media
+    from .models_chat import ChatMessage
+    business = page.business
+    if not calls_enabled(business):
+        raise chat.ChatError('Calls and voice messages are switched off for this Wi-Fi.')
+    hs = handlers(business)
+    if not hs:
+        raise chat.ChatError('Nobody is set up to answer yet.')
+    mime, secs = chat_media.read_voice(data or b'', secs)
+    name, phone = _clean(name, 60), _clean(phone, 30)
+    if phone and sum(c.isdigit() for c in phone) < 6:
+        raise chat.ChatError('That phone number looks too short.')
+    rk, bk = f'pcall:voice:{business.pk}:{ip}', f'pcall:voice:{business.pk}'
+    n, nb = cache.get(rk, 0), cache.get(bk, 0)
+    if n >= VOICE_PER_IP:
+        raise chat.ChatError('We already have your voice messages — someone will get back to you soon.')
+    if nb >= VOICE_PER_BUSINESS_HOUR:
+        raise chat.ChatError('Too many voice messages right now. Please try again a little later.')
+    q = chat_media.QUOTA_BYTES
+    if q and chat_media.business_usage(business.pk) + len(data) > q:
+        raise chat.ChatError('Voice messages cannot be received right now. Please call instead.')
+    who = name or 'a Wi-Fi customer'
+    text = f'🎙️ Voice message from {who}' + (f' · {phone}' if phone else '') + (f' ({page.name[:80]})' if page.name else '')
+    thread = chat.team_thread(business)
+    with transaction.atomic():
+        m = ChatMessage.objects.create(thread=thread, sender=None, body=text[:4000], attachment='voice')
+        chat_media.store_voice(m, business.pk, data, mime, secs)
+        thread.last_at = m.created_at
+        thread.save(update_fields=['last_at'])
+    cache.set(rk, n + 1, IP_WINDOW)
+    cache.set(bk, nb + 1, 3600)
+    try:
+        from . import mobile_push
+        if mobile_push.configured():
+            mobile_push.portal_voice([u.pk for u in hs], m, f'{who} · {secs} s' + (f' · {phone}' if phone else ''))
+    except Exception:
+        pass
+    try:
+        from .utils import log
+        log(business, 'Wi-Fi Call', text[:200])
+    except Exception:
+        pass
+    return m
+
+
 # ─────────────────────────────── the note in the team room ───────────────────────────────
 
 def note(call, reason, live_at):

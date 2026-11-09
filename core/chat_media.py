@@ -20,6 +20,17 @@ Video clips (short screen recordings from a call, or a small clip sent in chat)
   * CHAT_VIDEO_MAX_MB (default 16) per clip, CHAT_VIDEO_SECONDS (default 30) for call recordings,
     CHAT_VIDEO_PER_HOUR (default 20) clips per person. Clips count towards the business quota.
 
+Voice messages (up to 30 seconds — web, phone app and the customer Wi-Fi portal)
+  * Stored in the same table (mime audio/webm, audio/ogg or audio/mp4, decided from the first bytes).
+  * Listen once, then gone: the first time someone other than the sender plays it, ``listened_at`` is set and the
+    file's expiry is pulled in to LISTEN_SECONDS (60) from then. Every open chat (web and phone) gets the change in
+    its next poll and counts down; ``purge_voice`` (Celery beat every few seconds, and opportunistically from the
+    chat poll) deletes the row for good and turns the message into "Voice message · listened". A voice message
+    nobody plays is deleted after CHAT_IMAGE_DAYS like every other chat file.
+  * The bytes are served only to a request that says it is playing (?listen=1), so an old app or browser that
+    shows every attachment as a picture can never "listen" to it by accident.
+  * CHAT_VOICE_SECONDS (30), CHAT_VOICE_MAX_KB (1500), CHAT_VOICE_PER_HOUR (40) per person.
+
 Space
   * CHAT_IMAGE_DAYS (default 7) — then the file is deleted for good; the message says "Photo expired".
   * CHAT_IMAGE_MAX_MB (default 5) per photo, CHAT_IMAGE_QUOTA_MB (default 300) of live photos per business,
@@ -47,7 +58,12 @@ MAX_SIDE = 8000
 VIDEO_MAX_BYTES = int(float(os.getenv('CHAT_VIDEO_MAX_MB', '16')) * 1024 * 1024)
 VIDEO_SECONDS = int(os.getenv('CHAT_VIDEO_SECONDS', '30'))
 VIDEO_PER_HOUR = int(os.getenv('CHAT_VIDEO_PER_HOUR', '20'))
-MEDIA = ('image', 'video')                      # ChatMessage.attachment values that have a ChatImage row
+VOICE_SECONDS = int(os.getenv('CHAT_VOICE_SECONDS', '30'))
+VOICE_MAX_BYTES = int(float(os.getenv('CHAT_VOICE_MAX_KB', '1500')) * 1024)
+VOICE_PER_HOUR = int(os.getenv('CHAT_VOICE_PER_HOUR', '40'))
+LISTEN_SECONDS = 60                             # after the first listen, the voice message lives this long
+MEDIA = ('image', 'video', 'voice')             # ChatMessage.attachment values that have a ChatImage row
+VOICE_GONE = 'voice_gone'                       # a voice message that was listened to and deleted
 
 
 # ─────────────────────────────── file type ───────────────────────────────
@@ -69,6 +85,16 @@ def sniff_video(data: bytes) -> str:
         return 'video/webm'
     if data[4:8] == b'ftyp':                     # ISO base media: MP4 (what Safari records)
         return 'video/mp4'
+    return ''
+
+
+def sniff_audio(data: bytes) -> str:
+    if data[:4] == b'\x1a\x45\xdf\xa3':          # WebM/Opus: what Chrome, Edge and Firefox record
+        return 'audio/webm'
+    if data[:4] == b'OggS':                      # Ogg/Opus: Firefox on some systems
+        return 'audio/ogg'
+    if data[4:8] == b'ftyp':                     # MP4/AAC (.m4a): Safari, iPhone and Android phones
+        return 'audio/mp4'
     return ''
 
 
@@ -278,6 +304,62 @@ def save_video(thread, user, upload, caption='', width=0, height=0):
     return m
 
 
+def voice_seconds(v):
+    """The length the recorder reports, clamped to 1..VOICE_SECONDS (a little slack for rounding)."""
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return 0
+    if v != v or v <= 0:                         # NaN or nothing
+        return 0
+    if v > VOICE_SECONDS + 1.5:
+        raise chat.ChatError(f'Voice messages can be up to {VOICE_SECONDS} seconds.')
+    return max(1, min(VOICE_SECONDS, int(round(v))))
+
+
+def read_voice(data: bytes, seconds):
+    """Check raw voice bytes: (mime, seconds). Raises ChatError."""
+    if len(data) > VOICE_MAX_BYTES:
+        raise chat.ChatError(f'That voice message is too long (up to {VOICE_SECONDS} seconds).')
+    if len(data) < 64:
+        raise chat.ChatError('That voice message is empty.')
+    mime = sniff_audio(data)
+    if not mime:
+        raise chat.ChatError('That recording could not be read. Try again.')
+    secs = voice_seconds(seconds)
+    if not secs:
+        raise chat.ChatError('That voice message is empty.')
+    return mime, secs
+
+
+def store_voice(message, business_id, data, mime, secs):
+    return ChatImage.objects.create(message=message, business_id=business_id, data=data, mime=mime, width=secs,
+                                    height=0, size=len(data), view_once=False,
+                                    expires_at=timezone.now() + timedelta(days=DAYS))
+
+
+def save_voice(thread, user, upload, seconds=0, reply_to=None):
+    """Store a short voice message (up to VOICE_SECONDS) as a new chat message."""
+    if upload is None:
+        raise chat.ChatError('Record a voice message first.')
+    if upload.size > VOICE_MAX_BYTES:
+        raise chat.ChatError(f'That voice message is too long (up to {VOICE_SECONDS} seconds).')
+    key = f'chat:voicerate:{user.pk}'
+    n = cache.get(key, 0)
+    if n >= VOICE_PER_HOUR:
+        raise chat.ChatError('You have sent a lot of voice messages this hour. Try again a little later.')
+    data = upload.read(VOICE_MAX_BYTES + 1)
+    mime, secs = read_voice(data, seconds)
+    if QUOTA_BYTES and business_usage(thread.business_id) + len(data) > QUOTA_BYTES:
+        raise chat.ChatError('Chat media storage for this business is full. Older files are deleted after '
+                             f'{DAYS} days — try again soon.')
+    with transaction.atomic():
+        m = chat.post(thread, user, '', attachment='voice', reply_to=reply_to)
+        store_voice(m, thread.business_id, data, mime, secs)
+    cache.set(key, n + 1, 3600)
+    return m
+
+
 # ─────────────────────────────── message JSON helpers ───────────────────────────────
 
 def prime(messages):
@@ -296,26 +378,54 @@ def prime(messages):
 def image_json(m):
     if m.attachment == 'opened':
         return {'gone': True, 'opened': True}
+    if m.attachment == VOICE_GONE:
+        return {'gone': True, 'opened': False, 'kind': 'voice', 'listened': True}
     if m.attachment not in MEDIA:
         return None
     kind = m.attachment
     im = getattr(m, '_img', 'unset')
     if im == 'unset':
         im = ChatImage.objects.filter(message_id=m.pk).defer('data').first()
-    if im is None or im.expires_at <= timezone.now():
-        return {'gone': True, 'opened': False, 'kind': kind}
+    now = timezone.now()
+    if im is None or im.expires_at <= now:
+        out = {'gone': True, 'opened': False, 'kind': kind}
+        if kind == 'voice':
+            out['listened'] = bool(im is not None and im.listened_at)
+        return out
+    if kind == 'voice':
+        return {'gone': False, 'id': m.pk, 'kind': 'voice', 'secs': im.width, 'once': False, 'size': im.size,
+                'listened': timezone.localtime(im.listened_at).isoformat() if im.listened_at else None,
+                'expires': timezone.localtime(im.expires_at).isoformat(),
+                # seconds left, from the server's clock: phones and browsers count down from this, so a wrong
+                # clock on the device never shows a wrong countdown
+                'left': max(0, int((im.expires_at - now).total_seconds())) if im.listened_at else None}
     return {'gone': False, 'id': m.pk, 'kind': kind, 'w': im.width, 'h': im.height, 'once': im.view_once,
             'expires': timezone.localtime(im.expires_at).isoformat(), 'size': im.size}
 
 
 # ─────────────────────────────── serving ───────────────────────────────
 
-def open_image(message, user):
+def open_image(message, user, listen=False):
     """(bytes, mime, view_once) for someone allowed to see the conversation; deletes view-once photos
-    when the other person opens them. Returns None when the photo has gone."""
+    when the other person opens them. Returns None when the photo has gone.
+
+    Voice messages: only a request that is really playing it (``listen``) gets the bytes ('nolisten' otherwise).
+    The first time someone other than the sender plays it, it is deleted LISTEN_SECONDS later for everyone."""
     im = ChatImage.objects.filter(message=message).first()
-    if im is None or im.expires_at <= timezone.now():
+    now = timezone.now()
+    if im is None or im.expires_at <= now:
+        if im is not None and message.attachment == 'voice':
+            purge_voice(now)                       # its minute is up: gone now, not at the next sweep
         return None
+    if message.attachment == 'voice':
+        if not listen:
+            return 'nolisten'
+        if message.sender_id != user.pk and im.listened_at is None:
+            until = min(im.expires_at, now + timedelta(seconds=LISTEN_SECONDS))
+            # first listener wins; a second request in the same instant must not move the deadline
+            if ChatImage.objects.filter(pk=im.pk, listened_at__isnull=True).update(listened_at=now, expires_at=until):
+                ChatMessage.objects.filter(pk=message.pk).update(changed_at=now)   # every open chat counts down
+        return bytes(im.data), im.mime, True
     data, mime, once = bytes(im.data), im.mime, im.view_once
     if once:
         if message.sender_id == user.pk:
@@ -330,10 +440,49 @@ def open_image(message, user):
 
 # ─────────────────────────────── purge ───────────────────────────────
 
+def purge_voice(now=None):
+    """Delete voice messages whose time is up, for good: listened ones 1 minute after the first listen, unheard ones
+    after CHAT_IMAGE_DAYS. The message turns into "Voice message · listened" (or "expired") on every screen.
+    Run every few seconds by Celery beat and, at most every POLL_SWEEP seconds, from the chat poll."""
+    now = now or timezone.now()
+    total = 0
+    while True:
+        rows = list(ChatImage.objects.filter(expires_at__lte=now, message__attachment='voice')
+                    .values_list('id', 'message_id', 'listened_at')[:500])
+        if not rows:
+            return total
+        heard = [mid for _, mid, at in rows if at]
+        unheard = [mid for _, mid, at in rows if not at]
+        with transaction.atomic():
+            deleted, _ = ChatImage.objects.filter(id__in=[i for i, _, _ in rows]).delete()
+            if heard:
+                ChatMessage.objects.filter(pk__in=heard, attachment='voice').update(attachment=VOICE_GONE, changed_at=now)
+            if unheard:
+                ChatMessage.objects.filter(pk__in=unheard).update(changed_at=now)
+        total += deleted
+
+
+POLL_SWEEP = 10
+
+
+def sweep_voice_soon():
+    """From the chat poll: run purge_voice at most once every POLL_SWEEP seconds across all web workers, so a
+    listened voice message is gone on time even if Celery beat is down."""
+    try:
+        if not cache.add('chat:voice-sweep', 1, POLL_SWEEP):
+            return 0
+    except Exception:
+        return 0
+    try:
+        return purge_voice()
+    except Exception:
+        return 0
+
+
 def purge_expired(now=None):
     """Delete every chat photo and video clip past its expiry, for good. Run hourly by Celery beat."""
     now = now or timezone.now()
-    total = 0
+    total = purge_voice(now)
     while True:                                 # in batches so a big backlog never locks the table for long
         ids = list(ChatImage.objects.filter(expires_at__lte=now).values_list('id', flat=True)[:500])
         if not ids:

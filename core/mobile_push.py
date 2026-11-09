@@ -445,6 +445,13 @@ def missed_call(user_ids, text, phone, name=''):
                                  {'type': 'missed_call', 'phone': phone, 'name': name}), kind='missed_calls')
 
 
+def portal_voice(user_ids, message, text):
+    """A customer left a voice message on the Wi-Fi page: tapping the notification opens the team room."""
+    return send(user_ids, _shown('missed_calls', '🎙️ Voice message from the Wi-Fi page', text,
+                                 {'type': 'chat', 'thread': message.thread_id, 'message': message.pk},
+                                 tag=f'chat-{message.thread_id}', thread=f'chat-{message.thread_id}'), kind='missed_calls')
+
+
 # ─────────────────────────────── bell alerts → phones ───────────────────────────────
 
 # Who hears about a business alert: the people whose role covers it (owners always do).

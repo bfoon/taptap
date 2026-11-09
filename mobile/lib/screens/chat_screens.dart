@@ -14,6 +14,7 @@ import '../calls/call_screen.dart';
 import '../data/store.dart';
 import '../data/sync_engine.dart';
 import '../widgets/common.dart';
+import 'chat_voice.dart';
 
 /// The team room, direct messages and TapTap support — TapTap's own chat (/chat/).
 class ChatListScreen extends StatelessWidget {
@@ -435,6 +436,39 @@ class _ThreadScreenState extends State<ThreadScreen> {
     }
   }
 
+  /// Record a voice message (up to 30 s) and send it; the recording on the phone is deleted afterwards.
+  Future<void> _voice() async {
+    if (_sending) return;
+    final clip = await recordVoice(context);
+    if (clip == null || !mounted) {
+      await clip?.discard();
+      return;
+    }
+    setState(() => _sending = true);
+    final reply = _replyTo;
+    try {
+      final d = await Api.I.upload('/chat/upload/', {
+        'thread': '${widget.id}',
+        'kind': 'voice',
+        'secs': clip.seconds.toStringAsFixed(1),
+        if (reply != null) 'reply_to': '${reply['id']}',
+      }, clip.file);
+      final m = (d['message'] as Map).cast<String, dynamic>();
+      if (mounted) {
+        setState(() {
+          _replyTo = null;
+          if (!_msgs.any((x) => x['id'] == m['id'])) _msgs.add(m);
+        });
+      }
+      _toBottom();
+    } on ApiError catch (e) {
+      _toast(e.message);
+    } finally {
+      await clip.discard();
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
   void _call({bool video = false}) {
     openCall(context, CallEngine.outgoing(thread: widget.id, title: '${_thread['title'] ?? widget.title}', video: video));
   }
@@ -516,7 +550,16 @@ class _ThreadScreenState extends State<ThreadScreen> {
                 ),
               ),
               const SizedBox(width: 6),
-              IconButton.filled(onPressed: _sending ? null : _send, icon: Icon(_editing != null ? Icons.check : Icons.send)),
+              // an empty box shows the microphone: hold a 30-second voice message instead of typing
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: _text,
+                builder: (_, v, __) => v.text.trim().isEmpty && _editing == null
+                    ? IconButton.filledTonal(
+                        tooltip: 'Voice message (up to $voiceMax s)',
+                        onPressed: _sending ? null : _voice,
+                        icon: const Icon(Icons.mic))
+                    : IconButton.filled(onPressed: _sending ? null : _send, icon: Icon(_editing != null ? Icons.check : Icons.send)),
+              ),
             ]),
           ),
         ),
@@ -560,7 +603,7 @@ String _preview(Map<String, dynamic> m) {
   final body = '${m['body'] ?? ''}';
   if (body.isNotEmpty) return body;
   final img = m['image'];
-  if (img is Map) return img['kind'] == 'video' ? '🎬 Video clip' : '📷 Photo';
+  if (img is Map) return img['kind'] == 'voice' ? '🎙️ Voice message' : img['kind'] == 'video' ? '🎬 Video clip' : '📷 Photo';
   return '${m['page_title'] ?? ''}'.isNotEmpty ? '🔗 ${m['page_title']}' : 'Message';
 }
 
@@ -628,7 +671,9 @@ class _BubbleState extends State<_Bubble> {
               style: TextStyle(fontStyle: FontStyle.italic, color: cs.onSurfaceVariant))
         else ...[
           if (reply != null) _quote(context, reply, mine),
-          if (img != null && img['gone'] != true && img['kind'] != 'video')
+          if (img != null && img['kind'] == 'voice')
+            VoiceBubble(m: m, mine: mine)
+          else if (img != null && img['gone'] != true && img['kind'] != 'video')
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: ClipRRect(
