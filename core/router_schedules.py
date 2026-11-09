@@ -36,6 +36,9 @@ DOWN_KEY = 'tt:rsched:down:{}'
 RESTART_BACK_WITHIN = timedelta(minutes=20)       # after this, "not back yet"
 FIRST_CONTACT_AFTER = timedelta(seconds=45)       # a check-in this long after the command means it is back
 MISSED_GRACE = timedelta(minutes=10)              # TapTap was down: later than window + this = missed
+RETRY_FOR = timedelta(minutes=8)                  # the router did not answer: keep trying this long after the window
+LATE_OK = timedelta(minutes=15)                   # a Link router heard from this recently is late (busy), not gone
+LINK_EXPIRY_MIN = 15                              # a queued restart waits this long for the router's next check-in
 MAX_WARN = 120
 MAX_WINDOW = 180
 WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -248,23 +251,42 @@ def execute(r, action, user=None, label=''):
         a = _agent(r)
         if a is None or a.revoked:
             return False, f'{r.name} has no working TapTap Link.'
-        if not a.online:
-            return False, f'{r.name} is offline (no TapTap Link check-in since {_hm(a.last_seen_at) if a.last_seen_at else "never"}).'
+        heard = a.last_heard
+        late = not a.online
+        if late and not (heard and timezone.now() - heard < LATE_OK):
+            return False, f'{r.name} is offline (no TapTap Link check-in since {_hm(heard) if heard else "never"}).'
         try:
-            link.queue(r, 'reboot' if action == 'restart' else 'shutdown', label=label or f'{what} (schedule)', user=user, minutes=5)
+            # It goes alone at the very next check-in (core/agent.build_response), and waits up to LINK_EXPIRY_MIN for
+            # a busy router that checks in late — before, it expired after 5 minutes behind voucher changes.
+            link.queue(r, 'reboot' if action == 'restart' else 'shutdown', label=label or f'{what} (schedule)', user=user,
+                       minutes=LINK_EXPIRY_MIN)
+            link.mark_urgent(r, 120)
         except ValueError as exc:
             return False, str(exc)[:300]
         log(r.business, 'Router Reboot', f'{r.name}: {what.lower()} sent through TapTap Link ({label or "schedule"})', router=r)
+        if late:
+            return True, f'{what} sent through TapTap Link — {r.name} is checking in late (busy), it runs at its next check-in.'
         return True, f'{what} sent through TapTap Link.'
     from django.conf import settings
     from .mikrotik import MikroTikService
     from . import portctl
     try:
-        with MikroTikService(r, timeout=getattr(settings, 'MIKROTIK_TIMEOUT', 10)) as svc:
-            (portctl.reboot if action == 'restart' else portctl.shutdown)(svc)
+        svc = MikroTikService(r, timeout=getattr(settings, 'MIKROTIK_TIMEOUT', 10)).connect()
+    except Exception as exc:                       # could not even log in: a real failure (retried by process())
+        return False, f'{r.name} did not answer: {exc}'[:300]
+    try:
+        (portctl.reboot if action == 'restart' else portctl.shutdown)(svc)
     except Exception as exc:
-        if 'closed' not in str(exc).lower():
-            return False, f'{r.name} did not answer: {exc}'[:300]
+        # The command was delivered; a router going down drops the connection in many ways ("reset by peer",
+        # "broken pipe", a timeout…). Before, anything but "closed" was reported as "did not answer" although the
+        # router was already restarting.
+        if not re.search(r'closed|reset|timed out|timeout|broken|eof|connection|pipe', str(exc), re.I):
+            return False, f'{r.name} refused the {what.lower()}: {exc}'[:300]
+    finally:
+        try:
+            svc.close()
+        except Exception:
+            pass
     if action == 'restart':
         type(r).objects.filter(pk=r.pk).update(status='Rebooting', last_tested_at=timezone.now())
     log(r.business, 'Router Reboot', f'{r.name}: {what.lower()} ({label or "schedule"})', router=r)
@@ -364,11 +386,22 @@ def process(s, now=None):
         _mark_down(r, s.action)
         type(run).objects.filter(pk=run.pk).update(status='sent', ran_at=now, online_at_run=n, online_seen=seen,
                                                    result=(f'Waited {waited} min for a quiet moment. ' if waited > 0 else '') + msg)
+    elif now < end + RETRY_FOR:
+        # The router did not answer this minute (a blip, a busy moment): keep trying every minute for a while
+        # instead of giving up on the first attempt.
+        m = re.search(r'\(attempt (\d+)\)$', run.result or '')
+        tries = int(m.group(1)) + 1 if m else 1
+        type(run).objects.filter(pk=run.pk).update(status='waiting', online_seen=seen,
+                                                   result=f'{msg[:220]} — trying again every minute (attempt {tries})')
+        return 'retry'
     else:
-        type(run).objects.filter(pk=run.pk).update(status='failed', online_at_run=n, online_seen=seen, result=msg[:300])
-        tell(r, f'⚠️ {r.name}: scheduled {s.get_action_display().lower()} did not happen', msg, level='danger', email=s.email,
+        type(run).objects.filter(pk=run.pk).update(status='failed', online_at_run=n, online_seen=seen,
+                                                   result=f'{msg[:240]} (tried until {_hm(end + RETRY_FOR)})')
+        tell(r, f'⚠️ {r.name}: scheduled {s.get_action_display().lower()} did not happen',
+             f'{msg} TapTap tried every minute until {_hm(end + RETRY_FOR)}.', level='danger', email=s.email,
              key=f'rsched:{s.pk}:{planned:%Y%m%d%H%M}:failed')
-    _advance(s, planned, now)
+    if ok or now >= end + RETRY_FOR:
+        _advance(s, planned, now)
     return 'sent' if ok else 'failed'
 
 

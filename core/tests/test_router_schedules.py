@@ -133,7 +133,10 @@ class RouterScheduleTests(TestCase):
         s = self.sched(warn_minutes=0, window_minutes=0)
         self.seen(timezone.now() - timedelta(hours=2))
         s = RouterSchedule.objects.select_related('router').get(pk=s.pk)
-        self.assertEqual(rs.process(s, s.next_at), 'failed')
+        due = s.next_at
+        self.assertEqual(rs.process(s, due), 'retry')                       # keeps trying every minute first
+        self.assertFalse(EventAlert.objects.filter(level='danger', title__contains='did not happen').exists())
+        self.assertEqual(rs.process(s, due + rs.RETRY_FOR + timedelta(seconds=5)), 'failed')
         self.assertTrue(EventAlert.objects.filter(level='danger', title__contains='did not happen').exists())
 
     def test_missed_when_taptap_was_down(self):

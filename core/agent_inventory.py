@@ -142,9 +142,27 @@ STAT_KEYS = ('rx-byte', 'tx-byte', 'rx-packet', 'tx-packet', 'rx-drop', 'tx-drop
              'fp-rx-byte', 'fp-tx-byte', 'fp-rx-packet', 'fp-tx-packet', 'link-downs', 'last-link-up-time', 'last-link-down-time')
 
 # Periodic traffic samples for TapTap Link routers (not part of a full sync).
+# Capped on the router (core/link_rhythm.py): the whole DNS cache and connection table, printed as one array every
+# two minutes, grew with every customer since the last restart until the router spent its CPU on them and its own
+# check-ins came late ("connection unstable" a few hours after each restart). Now: the newest DNS_SAMPLE names and
+# the newest CONN_SAMPLE busy connections, read one by one with find/get (no giant print).
+DNS_SAMPLE = 600
+CONN_SAMPLE = 400
+
+
+def _capped(menu, where, limit, with_id=False):
+    keep_id = ':set ($r->"id") [:tostr $x]; ' if with_id else ''
+    return (':local out [:toarray ""]; :local ids [' + menu + ' find' + (' where ' + where if where else '') + ']; '
+            ':local n [:len $ids]; :local s 0; :if ($n > ' + str(limit) + ') do={ :set s ($n - ' + str(limit) + ') }; '
+            ':if ($n > 0) do={ :for i from=$s to=($n - 1) do={ :do { :local x ($ids->$i); :local r [' + menu + ' get $x]; '
+            + keep_id + ':set ($out->[:len $out]) $r } on-error={} } }; :return $out')
+
+
 SAMPLE_SOURCES = OrderedDict([
-    ('traffic_dns', {'label': 'DNS cache (traffic sample)', 'path': '/ip/dns/cache', 'sample': True}),
-    ('traffic_conns', {'label': 'Busy connections (traffic sample)', 'path': '/ip/firewall/connection', 'where': 'repl-bytes>20000', 'sample': True}),
+    ('traffic_dns', {'label': 'DNS cache (traffic sample)', 'path': '/ip/dns/cache', 'sample': True,
+                     'script': _capped('/ip dns cache', '', DNS_SAMPLE)}),
+    ('traffic_conns', {'label': 'Busy connections (traffic sample)', 'path': '/ip/firewall/connection', 'where': 'repl-bytes>20000', 'sample': True,
+                       'script': _capped('/ip firewall connection', 'repl-bytes>20000', CONN_SAMPLE, with_id=True)}),
     ('share_lists', {'label': 'Internet sharing signals', 'path': '/ip/firewall/address-list', 'where': 'list~"^tt-share-"', 'sample': True}),
 ])
 
@@ -714,6 +732,12 @@ def process_piece(cmd_id):
                 ingest_connections(router, clean_rows, cache.get(f'tt:linkdns:{router.pk}') or {}, now)
             params.update(received=True, row_count=len(clean_rows))
             AgentCommand.objects.filter(pk=cmd.pk).update(params=params)
+            if cmd.sent_at:     # how hard the router worked for it: the next samples follow its load
+                try:
+                    from .link_rhythm import note_sample
+                    note_sample(router.pk, (now - cmd.sent_at).total_seconds())
+                except Exception:
+                    pass
             cache.delete(f'tt:agent-inventory-rows:{cmd.pk}')
             return len(clean_rows)
         with transaction.atomic():

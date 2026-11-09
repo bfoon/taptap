@@ -16,7 +16,7 @@
 .lk-status{background:#fff;border:1px solid var(--border);border-radius:20px;padding:1.1rem 1.2rem}
 .lk-state{display:inline-flex;align-items:center;gap:.4rem;font-weight:800;font-size:.84rem;border-radius:999px;padding:.3rem .8rem;background:#eef2f6;color:#51667b}
 .lk-state.on{background:#e4f7ee;color:#138453}.lk-state.off{background:#fdeaea;color:#c02b2b}.lk-state.wait{background:#fff4dc;color:#9a6200}.lk-state i{width:8px;height:8px;border-radius:50%;background:currentColor}
-.lk-facts{display:grid;grid-template-columns:1fr 1fr;gap:.1rem 1rem;margin-top:.8rem}.lk-facts div{display:flex;justify-content:space-between;font-size:.8rem;padding:.35rem 0;border-bottom:1px solid #eef2f6}.lk-facts span{color:var(--muted)}
+.lk-rhythm{display:flex;gap:.5rem;align-items:flex-start;margin-top:.7rem;font-size:.78rem;color:var(--muted);background:var(--soft,#f4f7fb);border-radius:10px;padding:.5rem .65rem}.lk-rhythm b{color:var(--ink,#12233a)}.lk-facts{display:grid;grid-template-columns:1fr 1fr;gap:.1rem 1rem;margin-top:.8rem}.lk-facts div{display:flex;justify-content:space-between;font-size:.8rem;padding:.35rem 0;border-bottom:1px solid #eef2f6}.lk-facts span{color:var(--muted)}
 .lk-meter{height:6px;border-radius:99px;background:#edf2f7;overflow:hidden;margin-top:.2rem}.lk-meter i{display:block;height:100%;background:linear-gradient(90deg,#1769e0,#14a3e2);transition:width .8s}
 .lk-script{position:relative;background:#0d1724;color:#d8e6f4;border-radius:14px;padding:1rem;font-size:.72rem;max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:0}
 .lk-advanced{border:1px solid #f0c36d;background:#fff9ec;border-radius:14px;padding:1rem}.lk-advanced summary{cursor:pointer;font-weight:800;color:#8a5a00}.lk-advanced .lk-script{margin-top:1rem;background:#16130d;color:#f4e7c2}
@@ -64,6 +64,14 @@
         <div style="display:block"><span>CPU</span> <b id="lkCpu" class="float-end">—</b><div class="lk-meter"><i id="lkCpuBar" style="width:0"></i></div></div>
         <div style="display:block"><span>Memory used</span> <b id="lkMem" class="float-end">—</b><div class="lk-meter"><i id="lkMemBar" style="width:0"></i></div></div>
       </div>
+      {% if rhythm and rhythm.usual %}
+      <div class="lk-rhythm" title="TapTap learns this router's own check-in rhythm, so a busy router is counted as late, not offline">
+        <i class="bi bi-activity"></i>
+        <span>Check-ins usually every <b>{{ rhythm.usual|floatformat:0 }} s</b>, slowest <b>{{ rhythm.slow|floatformat:0 }} s</b>
+          · counted online for up to <b>{{ rhythm.grace }} s</b> of silence
+          · apps &amp; sites samples every <b>{% widthratio rhythm.sample_every 60 1 %} min</b> ({{ rhythm.sample_why }}{% if rhythm.sample_took %}, last took {{ rhythm.sample_took|floatformat:0 }} s{% endif %})</span>
+      </div>
+      {% endif %}
     {% else %}
       <span class="lk-state"><i></i> {% if agent and agent.revoked %}Revoked{% else %}Not set up{% endif %}</span>
       <p class="mt-3 mb-3 small text-secondary">TapTap Link is the recommended cloud connection. When enabled, TapTap removes the saved local API IP/credentials and uses this outbound agent instead.</p>

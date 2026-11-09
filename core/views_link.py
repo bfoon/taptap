@@ -220,6 +220,11 @@ def agent_nettest(request):
         return HttpResponse(status=403)
     if cmd.status in ('failed', 'expired', 'cancelled') or cmd.expires_at < timezone.now():
         return HttpResponse(status=410)
+    try:
+        from .link_rhythm import heard
+        heard(cmd.router_id)
+    except Exception:
+        pass
     from .nettools import receive_link
     t = receive_link(cmd, request.body)
     return JsonResponse({'ok': bool(t)})
@@ -244,6 +249,11 @@ def agent_inventory(request):
         return HttpResponse(status=403)
     if cmd.status in ('failed', 'expired', 'cancelled') or cmd.expires_at < timezone.now():
         return HttpResponse(status=410)
+    try:   # an upload proves the router alive as much as a check-in (core/link_rhythm.py)
+        from .link_rhythm import heard
+        heard(cmd.router_id)
+    except Exception:
+        pass
     try:
         if request.GET.get('fmt') == 't':
             from .agent_inventory import parse_text_rows
@@ -259,6 +269,17 @@ def agent_inventory(request):
         return JsonResponse({'ok': True, **result})
     except Exception as exc:
         return JsonResponse({'ok': False, 'error': str(exc)[:300]}, status=400)
+
+
+def _rhythm(agent):
+    """The router's check-in rhythm for the Link page (core/link_rhythm.py), or None."""
+    if not agent or not agent.last_seen_at:
+        return None
+    try:
+        from .link_rhythm import summary
+        return summary(agent)
+    except Exception:
+        return None
 
 
 def troubleshooting_steps(site):
@@ -338,6 +359,7 @@ def router_link(request, pk):
                                and not router.agent_commands.filter(kind='self_update', status__in=['queued', 'sent']).exists()),
         'fixes': troubleshooting_steps(link.base_url(request)),
         'last_outage': cache.get(f'tt:link:outage:{router.pk}'),
+        'rhythm': _rhythm(agent),
         'last_refusal': refusal_for(agent),
         'shared_token': cache.get(f'tt:link:shared:{agent.pk}') if agent else None,
         'shared_text': link.SHARED_TEXT,

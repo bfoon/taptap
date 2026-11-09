@@ -1483,6 +1483,11 @@ def handle_poll(agent, data, ip, url):
     old_ip = agent.last_ip
     ip_changed = bool(old_ip) and old_ip != ip
     agent.polls += 1
+    try:   # the router's own rhythm: a busy router is late, not offline (core/link_rhythm.py)
+        from .link_rhythm import note_checkin
+        note_checkin(agent, now)
+    except Exception:
+        logger.debug('link rhythm %s', router, exc_info=True)
     agent.last_seen_at, agent.last_ip = now, ip
     agent.identity = str(data.get('id', ''))[:120]
     agent.ros_version = str(data.get('ver', ''))[:60]
@@ -1608,7 +1613,12 @@ def link_traffic_samples(router):
         return
     if AgentCommand.objects.filter(router=router, status='queued', kind__in=VOUCHER_KINDS).exists():
         return
-    if not cache.add(f'tt:link:apps:{router.pk}', 1, 120):
+    try:   # follow the router's load: every 2 min relaxed, 5 busy, 15 struggling (core/link_rhythm.py)
+        from .link_rhythm import sample_interval
+        every = sample_interval(router.agent)[0]
+    except Exception:
+        every = 120
+    if not cache.add(f'tt:link:apps:{router.pk}', 1, every):
         return
     if AgentCommand.objects.filter(router=router, kind='inventory_piece', status__in=['queued', 'sent']).exists():
         return  # a full sync is running; it has priority
@@ -1794,6 +1804,13 @@ def build_response(router, url):
     others = pending.exclude(kind__in=VOUCHER_KINDS)
     others = others.order_by('created_at') if others_turn else others.annotate(prio=delivery_order(False)).order_by('prio', 'created_at')
     rows = list(pending.filter(kind__in=VOUCHER_KINDS).order_by('created_at')[:40]) + list(others[:40])
+    if not voucher_only:
+        # A restart / shutdown (a schedule picked its moment, or a person pressed it) goes at once, on its own. Behind
+        # a never-ending stream of voucher changes on a busy router it used to wait until it expired, and the
+        # schedule reported "the router never picked up the command".
+        alone = pending.filter(kind__in=['reboot', 'shutdown']).order_by('created_at').first()
+        if alone is not None:
+            rows = [alone]
     try:
         from .voucher_priority import command_ids
         first = command_ids(router)
@@ -1853,6 +1870,12 @@ def handle_ack(cmd_id, given_nonce, status, result=''):
     cmd = AgentCommand.objects.select_related('router__business').filter(pk=cmd_id).first()
     if not cmd or not hmac.compare_digest(nonce(cmd), str(given_nonce)) or cmd.status in ('done', 'failed', 'cancelled'):
         return False
+    if cmd.kind not in ('reboot', 'shutdown'):     # those answer just before the router goes down on purpose
+        try:   # an answer proves the router alive as much as a check-in (core/link_rhythm.py)
+            from .link_rhythm import heard
+            heard(cmd.router_id)
+        except Exception:
+            pass
     # 'part' (hotspot_users only): the batch ran, but the router refused the codes listed in ``result``.
     partial = status == 'part' and cmd.kind == 'hotspot_users'
     refused = [n for n in str(result or '').split(',') if n.strip()] if partial else []
@@ -2029,11 +2052,12 @@ def check_offline_agents():
     def limit(a):
         return a.grace_seconds                  # the same rule as RouterAgent.online (core/models.py)
     recent = [a for a in agents if (now - a.last_seen_at).total_seconds() < 6 * 3600]      # long-dead routers do not count
-    silent_now = [a for a in recent if (now - a.last_seen_at).total_seconds() > limit(a) and a.router.status == 'Online']
+    # last_heard: a check-in, or an answer / upload from the router (core/link_rhythm.py)
+    silent_now = [a for a in recent if (now - a.last_heard).total_seconds() > limit(a) and a.router.status == 'Online']
     if uptime_guard.taptap_side_incident(len(silent_now), len(recent)):
         return
     for agent in agents:
-        silent = (now - agent.last_seen_at).total_seconds()
+        silent = (now - agent.last_heard).total_seconds()
         if silent <= limit(agent):
             continue
         if agent.router.status == 'Online':

@@ -1178,11 +1178,32 @@ class RouterAgent(models.Model):
         offline alerts (core/agent.check_offline_agents) and the buttons that send commands. A busy router (thousands
         of users, a long speed test) checks in later than its interval; with a stricter rule here than on the card,
         Network tools and other buttons said "offline" while the router showed Online."""
-        return max(90,(self.poll_seconds or 10)*6)
+        base=max(90,(self.poll_seconds or 10)*6)
+        # A router that is busy every evening checks in late every evening: its own usual rhythm (learned from its
+        # check-ins, core/link_rhythm.py) stretches the allowance up to 5 minutes, so a slow-but-steady router is not
+        # flagged offline and "unstable" every few minutes.
+        try:
+            from .link_rhythm import learned_grace
+            return max(base,learned_grace(self) or 0)
+        except Exception:
+            return base
+    @property
+    def last_heard(self):
+        """The last time the router was heard from: a check-in, or an answer to a command / an upload (a router busy
+        uploading a big table cannot check in at the same moment, but it is clearly alive)."""
+        try:
+            from .link_rhythm import heard_at
+            h=heard_at(self.router_id)
+        except Exception:
+            h=None
+        if h and (not self.last_seen_at or h>self.last_seen_at):
+            return h
+        return self.last_seen_at
     @property
     def online(self):
         from datetime import timedelta
-        return bool(self.last_seen_at) and not self.revoked and timezone.now()-self.last_seen_at < timedelta(seconds=self.grace_seconds)
+        heard=self.last_heard
+        return bool(heard) and not self.revoked and timezone.now()-heard < timedelta(seconds=self.grace_seconds)
 
     def pinned_ips(self):
         """The public IPs this Link is pinned to ([] = not pinned)."""
