@@ -66,6 +66,16 @@ def _warnings(r):
     return out
 
 
+def _healed(job):
+    """What the full sync's check healed on the router (core/sync_doctor.py), in one line, or ''."""
+    try:
+        from .sync_doctor import line
+        doc = (job.summary or {}).get('doctor') if job.status == 'success' else None
+        return line(doc) if isinstance(doc, dict) else ''
+    except Exception:
+        return ''
+
+
 def _card(r, now, counts):
     agent = getattr(r, 'agent', None) if r.connection_mode == 'agent' else None
     seen = (agent.last_seen_at if agent else None) or r.last_tested_at
@@ -78,7 +88,8 @@ def _card(r, now, counts):
         'users_online': counts['online'].get(r.pk, 0), 'in_use': counts['in_use'].get(r.pk, 0),
         'in_stock': counts['stock'].get(r.pk, 0), 'sales_today': counts['sales'].get(r.pk, {}).get('n', 0),
         'revenue_today': counts['sales'].get(r.pk, {}).get('v', 0) or 0,
-        'sync': {'status': job.status, 'progress': job.progress, 'phase': job.phase, 'at': job.created_at} if job else None,
+        'sync': {'status': job.status, 'progress': job.progress, 'phase': job.phase, 'at': job.created_at,
+                 'healed': _healed(job)} if job else None,
         'warnings': _warnings(r),
     }
 

@@ -579,8 +579,16 @@ def router_sync_status(request):
     try:
         jobs=business.router_sync_jobs.select_related('router').all()[:30]
         data=[]
+        from .sync_doctor import line as doctor_line, live as doctor_live
+        seen=set()
         for job in jobs:
-            summary=job.summary or {}
+            summary=dict(job.summary or {})
+            doc=summary.get('doctor')
+            if isinstance(doc,dict):     # what the full sync healed, and how much of it the router confirmed since
+                doc=doctor_live(doc) if job.router_id not in seen else {k:v for k,v in doc.items() if k!='ids'}
+                summary['doctor']=doc
+                summary['doctor_line']=doctor_line(doc)
+            seen.add(job.router_id)
             data.append({
                 'id':job.id,'router_id':job.router_id,'router_name':job.router.name,
                 'status':job.status,'progress':job.progress,'phase':job.phase,

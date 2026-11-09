@@ -894,6 +894,11 @@ def _record_piece(router, job_id, piece_summary):
     if not router.sales_baseline_at:
         Router.objects.filter(pk=router.pk, sales_baseline_at__isnull=True).update(sales_baseline_at=now)
     log(router.business, 'Router Sync', f'{router.name}: full inventory synchronized through TapTap Link', router=router)
+    try:    # then every voucher is checked against what the router just sent, and what differs is healed
+        from .sync_doctor import schedule
+        schedule(job)
+    except Exception:
+        logger.debug('sync doctor %s', router, exc_info=True)
 
 
 def record_job(router_id, job_id, errors=None):

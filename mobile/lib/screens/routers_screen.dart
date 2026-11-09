@@ -268,6 +268,14 @@ class _RouterCard extends StatelessWidget {
               const SizedBox(height: 4),
               LinearProgressIndicator(value: toI(sync['progress']) / 100),
             ],
+            if (!syncing && '${sync?['healed'] ?? ''}'.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Row(children: [
+                Icon('${sync!['healed']}'.startsWith('Healed') ? Icons.healing : Icons.verified_outlined, size: 16, color: cs.primary),
+                const SizedBox(width: 6),
+                Expanded(child: Text('Last full sync: ${sync['healed']}', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant))),
+              ]),
+            ],
             for (final w in warnings.take(2)) ...[
               const SizedBox(height: 10),
               _Warning(w: w),

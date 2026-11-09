@@ -50,7 +50,19 @@ def _complete_job(job, summary):
         ensure_member_profiles(job.router)
     except Exception:
         pass
+    try:    # then every voucher is checked against the router and what differs is healed (core/sync_doctor.py)
+        from .sync_doctor import schedule
+        schedule(job)
+    except Exception:
+        pass
     return summary
+
+
+@shared_task(ignore_result=True)
+def sync_doctor_task(job_id):
+    """After a full sync: compare every voucher with the router and heal what differs (core/sync_doctor.py)."""
+    from .sync_doctor import run
+    return bool(run(job_id))
 
 
 @shared_task(bind=True, acks_late=True)

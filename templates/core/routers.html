@@ -2,6 +2,15 @@
 {% block title %}Routers — TapTap{% endblock %}
 {% block heading %}MikroTik Routers{% endblock %}
 {% block extra_head %}<style>
+.sync-explainer{grid-template-columns:repeat(4,1fr)}@media(max-width:1199px){.sync-explainer{grid-template-columns:repeat(2,1fr)}}@media(max-width:700px){.sync-explainer{grid-template-columns:1fr}}
+.sd-chip{display:block;margin:.35rem 0 .1rem;padding:.3rem .6rem;border-radius:10px;font-size:.72rem;font-weight:650;line-height:1.3;background:#eef6ff;color:#174a8b}
+.sd-chip i{font-size:.85rem;margin-right:.3rem}.sd-chip.ok{background:#e9f8f0;color:#146c43}.sd-chip.fix{background:#fff6e6;color:#8a5300}.sd-chip.warn{background:#fdecec;color:#9b1c1c}.sd-chip.bad{background:#fdecec;color:#9b1c1c}
+.sd-chip.run i{animation:sdbeat 1s ease-in-out infinite}@keyframes sdbeat{50%{transform:scale(1.25)}}
+.sd-more{font-size:.72rem;margin:.15rem 0 .2rem}.sd-more summary{cursor:pointer;color:#5b6b7c;font-weight:650}.sd-more ul{margin:.3rem 0;padding-left:1.1rem}.sd-more p{margin:.2rem 0;color:#5b6b7c}
+.sd-ex{display:flex;flex-direction:column;gap:.15rem;margin:.25rem 0;color:#5b6b7c}.sd-ex code{background:#f1f4f8;border-radius:6px;padding:.05rem .35rem;font-size:.68rem;color:#24313f}
+html[data-theme="dark"] .sd-chip{background:#1f3047;color:#9cc3ff}html[data-theme="dark"] .sd-chip.ok{background:#1d3a2b;color:#7bdfb4}html[data-theme="dark"] .sd-chip.fix{background:#3d2f12;color:#f3c87a}
+html[data-theme="dark"] .sd-chip.warn,html[data-theme="dark"] .sd-chip.bad{background:#4a1c1c;color:#ffb4b4}html[data-theme="dark"] .sd-ex code{background:#2a313a;color:#e3e9f0}html[data-theme="dark"] .sd-more summary,html[data-theme="dark"] .sd-more p{color:#a3adb7}
+@media(prefers-reduced-motion:reduce){.sd-chip.run i{animation:none}}
 /* router cards: name and status always on one readable line; actions never squeeze the name */
 .rc{border:1px solid var(--border);border-radius:18px;padding:.9rem 1rem;margin-bottom:.75rem;background:var(--panel,#fff);transition:box-shadow .2s,border-color .2s}
 .rc:hover{box-shadow:0 8px 24px #10203314;border-color:#d4e1f0}
@@ -71,6 +80,7 @@ html[data-theme="dark"] .rc-error{background:#3a2a17;color:#f2b46f}
   <div><i class="bi bi-link-45deg"></i><span><b>Agent first</b><small>TapTap Link routers call the cloud over HTTPS. TapTap never retries their old 192.168.x.x address.</small></span></div>
   <div><i class="bi bi-cloud-arrow-down"></i><span><b>Full inventory</b><small>Plans, HotSpot users, IP bindings, interfaces, neighbors, devices, routes, firewall and RouterOS configuration are uploaded by the agent.</small></span></div>
   <div><i class="bi bi-copy"></i><span><b>One data model</b><small>Direct API and TapTap Link both populate the same TapTap inventory, topology and voucher records.</small></span></div>
+  <div><i class="bi bi-bandaid"></i><span><b>Heals what differs</b><small>Every full sync ends by checking each voucher against the router: missing, switched off, wrong profile or time, stuck — it is sent again.</small></span></div>
 </div>
 
 <section class="panel sync-monitor mb-4" id="syncMonitor" data-status-url="{% url 'router_sync_status' %}">
@@ -280,10 +290,31 @@ html[data-theme="dark"] .mv-num{background:#2a3d52;color:#7fb0ff}html[data-theme
   const esc=s=>String(s??'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',"'":'&#39;'}[c]));
   function statusIcon(status){return status==='success'?'bi-check-circle-fill':status==='failed'?'bi-x-circle-fill':'bi-arrow-repeat';}
   function summaryText(j){const s=j.summary||{};if(j.status==='success')return `${s.pulled_plans||0} plans • ${s.pulled_vouchers||0} vouchers • ${s.devices_discovered||0} devices`;if(j.status==='failed')return j.error||j.phase;return j.phase||'Working…';}
+  // Sync doctor (core/sync_doctor.py): what the full sync healed, and how much of it the router confirmed since.
+  const LABEL={missing:'missing on the router → sent again',onoff:'on/off differed → TapTap’s state sent',profile:'wrong profile → moved to the plan’s profile',
+    time:'wrong time limit → corrected',expired_on:'time up but still on → switched off',status:'right on the router but showed Pending/Error → marked Synced',
+    profiles:'plan profiles missing → created',stuck:'stuck in the Link queue → sent again',gone:'made on the router, no longer there → flagged'};
+  const openDoc=new Set();
+  function doctorHTML(j){
+    const d=(j.summary||{}).doctor; if(!d||j.status!=='success')return '';
+    const line=(j.summary||{}).doctor_line||'';
+    if(d.state==='running')return `<div class="sd-chip run"><i class="bi bi-heart-pulse"></i> ${esc(line)}</div>`;
+    const healed=d.healed||0, score=d.score==null?'':`${d.score}% in sync`;
+    const conf=d.confirmed!=null&&(d.confirmed+d.waiting)>0?` · <b>${d.confirmed}/${d.confirmed+d.waiting}</b> confirmed by the router`:'';
+    const cls=d.state==='failed'?'bad':d.reset_suspected?'warn':healed?'fix':'ok';
+    const rows=Object.entries(d.fixed||{}).filter(([k,n])=>n).map(([k,n])=>`<li><b>${n}</b> ${esc(LABEL[k]||k)}</li>`).join('');
+    const ex=(d.examples||[]).map(e=>`<span><code>${esc(e.code)}</code> ${esc(e.what)}</span>`).join('');
+    const notes=(d.notes||[]).map(n=>`<p>${esc(n)}</p>`).join('');
+    const more=rows||ex||notes?`<details class="sd-more" data-doc="${j.id}"${openDoc.has(j.id)?' open':''}><summary>What was checked</summary>`+
+      `<p class="sd-sub">${d.checked||0} voucher(s) compared with ${esc(d.transport||'the router')}${score?' · '+score+' before healing':''}.</p>`+
+      (rows?`<ul>${rows}</ul>`:'')+(ex?`<div class="sd-ex">${ex}</div>`:'')+notes+'</details>':'';
+    return `<div class="sd-chip ${cls}"><i class="bi ${cls==='ok'?'bi-shield-check':cls==='bad'?'bi-exclamation-octagon':'bi-bandaid'}"></i> ${esc(line)}${conf}</div>`+more;
+  }
+  list.addEventListener('toggle',e=>{const dd=e.target.closest&&e.target.closest('details[data-doc]');if(dd){const id=Number(dd.dataset.doc);dd.open?openDoc.add(id):openDoc.delete(id);}},true);
   function render(data){
     count.textContent=(data.active_count||0)+' active';
     if(!data.jobs.length){list.innerHTML='<div class="empty-mini">No synchronization jobs yet.</div>';return;}
-    list.innerHTML=data.jobs.slice(0,12).map(j=>`<div class="sync-job-row status-${esc(j.status)}" data-job-id="${j.id}" data-router-id="${j.router_id}"><div class="sync-job-icon"><i class="bi ${statusIcon(j.status)}"></i></div><div class="sync-job-main"><div><b>${esc(j.router_name)}</b><span class="sync-job-status">${esc(j.status.charAt(0).toUpperCase()+j.status.slice(1))}</span></div><small class="sync-job-phase">${esc(summaryText(j))}</small><div class="progress sync-progress"><div class="progress-bar" style="width:${Number(j.progress)||0}%"></div></div></div><strong class="sync-job-percent">${Number(j.progress)||0}%</strong></div>`).join('');
+    list.innerHTML=data.jobs.slice(0,12).map(j=>`<div class="sync-job-row status-${esc(j.status)}" data-job-id="${j.id}" data-router-id="${j.router_id}"><div class="sync-job-icon"><i class="bi ${statusIcon(j.status)}"></i></div><div class="sync-job-main"><div><b>${esc(j.router_name)}</b><span class="sync-job-status">${esc(j.status.charAt(0).toUpperCase()+j.status.slice(1))}</span></div><small class="sync-job-phase">${esc(summaryText(j))}</small>${doctorHTML(j)}<div class="progress sync-progress"><div class="progress-bar" style="width:${Number(j.progress)||0}%"></div></div></div><strong class="sync-job-percent">${Number(j.progress)||0}%</strong></div>`).join('');
     const latest={};data.jobs.forEach(j=>{if(!(j.router_id in latest))latest[j.router_id]=j;});
     document.querySelectorAll('.router-sync-button').forEach(btn=>{const j=latest[Number(btn.dataset.routerId)];const active=j&&(j.status==='queued'||j.status==='running');btn.disabled=!!active;const span=btn.querySelector('span');if(span)span.textContent=active?'Syncing…':'Sync';const pill=document.getElementById('routerSyncPill'+btn.dataset.routerId);if(pill){pill.classList.toggle('active',!!active);pill.classList.toggle('failed',!!j&&j.status==='failed');pill.classList.toggle('success',!!j&&j.status==='success');pill.textContent=j?`${j.status.charAt(0).toUpperCase()+j.status.slice(1)} ${j.progress}%`:'Ready';}});
   }

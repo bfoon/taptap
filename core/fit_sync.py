@@ -33,7 +33,7 @@ SCOPES = {
     'unsynced': 'Every voucher TapTap knows is not on its router yet or failed (Pending / Error)',
     'router_time': 'Time limits only: correct every limit-uptime that disagrees (one router or all)',
     'profiles': 'Plan profiles on the routers: create missing ones, correct devices (shared-users) and speed',
-    'router': 'Full sync of one router (or all): read it again and send what TapTap has',
+    'router': 'Full sync of one router (or all): read it again, send what TapTap has, then check every voucher and heal what differs',
     'everything': 'All of the above, for one router or all',
 }
 MAX_VOUCHERS = 3000
@@ -165,6 +165,15 @@ def status(business, scope='voucher', codes='', batch='', plan='', router='', li
             'note': 'Compared with each router\'s last inventory; a full router sync refreshes that picture.'}
 
 
+def _doctor_line(job):
+    """What the last full sync healed (core/sync_doctor.py), in one line."""
+    try:
+        from .sync_doctor import line
+        return line((job.summary or {}).get('doctor')) or None if job else None
+    except Exception:
+        return None
+
+
 def routers_status(business, router='', only=None):
     from .models import AgentCommand
     out = []
@@ -173,6 +182,7 @@ def routers_status(business, router='', only=None):
         out.append({'router': r.name, 'id': r.pk, 'online': r.status == 'Online', 'status': r.status,
                     'last_sync': timezone.localtime(job.finished_at or job.created_at).strftime('%d %b %H:%M') if job else None,
                     'last_sync_result': job.status if job else None,
+                    'last_sync_check': _doctor_line(job),
                     'commands_waiting': AgentCommand.objects.filter(router=r, status__in=['queued', 'sent']).count(),
                     'commands_failed_24h': AgentCommand.objects.filter(router=r, status='failed',
                                                                        done_at__gte=timezone.now() - timedelta(hours=24)).count(),
@@ -351,5 +361,5 @@ def describe(business, scope, codes='', batch='', plan='', router=''):
     names = ', '.join(r.name for r in rs)
     return (len(rs), {'router_time': f'Corrects every time limit that disagrees with TapTap on {names}.',
                       'profiles': f'Creates missing plan profiles and corrects devices/speed on {names}.',
-                      'router': f'Full sync of {names}: reads the router again and sends what TapTap has.',
+                      'router': f'Full sync of {names}: reads the router again, sends what TapTap has, then checks every voucher against the router and heals what differs (missing, on/off, profile, time, stuck).',
                       'everything': f'Profiles, time limits, every active TapTap voucher and member, then a full sync, on {names}.'}[scope])

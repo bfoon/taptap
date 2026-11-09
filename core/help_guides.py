@@ -104,6 +104,7 @@ GUIDES = [
          S('Start a sync', 'In **MikroTik Control**, press **Sync** on the router. The progress shows at the top of the page and on the **Syncing** pill.', ('routers', 'Open MikroTik Control')),
          S('What it brings in', 'HotSpot user profiles become plans (prices are read from Mikhmon-style profiles when present), hotspot users become vouchers, and interfaces, neighbours and devices fill the topology and inventory.'),
          S('What it sends out', 'Vouchers made in TapTap are created on the router, and code changes, freezes and deletions are applied.'),
+         S('How it heals', 'At the end, TapTap checks **every voucher and member** against what the router really has. Missing ones are sent again, wrong on/off, profile or time limit is corrected, expired ones still switched on are switched off, and vouchers stuck on *Pending* that the router already has are marked *Synced*. The sync list shows what was healed and how many the router has confirmed — open **What was checked** for the details.'),
          S('When to run it', 'After adding a router, after big changes made directly on the router, and after installing a TapTap update. Day to day, **live sync** keeps things current on its own.'),
      ], 'related': ['live-sync', 'add-router-link']},
 
