@@ -1179,6 +1179,13 @@ class RouterAgent(models.Model):
         of users, a long speed test) checks in later than its interval; with a stricter rule here than on the card,
         Network tools and other buttons said "offline" while the router showed Online."""
         base=max(90,(self.poll_seconds or 10)*6)
+        # Breathing check-ins (core/link_breath.py): a router TapTap asked to check in every 30-45 s is allowed
+        # four of those intervals before it counts as offline.
+        try:
+            from .link_breath import pace
+            base=max(base,(pace(self.router_id) or 0)*4)
+        except Exception:
+            pass
         # A router that is busy every evening checks in late every evening: its own usual rhythm (learned from its
         # check-ins, core/link_rhythm.py) stretches the allowance up to 5 minutes, so a slow-but-steady router is not
         # flagged offline and "unstable" every few minutes.

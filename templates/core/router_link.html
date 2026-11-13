@@ -64,6 +64,14 @@
         <div style="display:block"><span>CPU</span> <b id="lkCpu" class="float-end">—</b><div class="lk-meter"><i id="lkCpuBar" style="width:0"></i></div></div>
         <div style="display:block"><span>Memory used</span> <b id="lkMem" class="float-end">—</b><div class="lk-meter"><i id="lkMemBar" style="width:0"></i></div></div>
       </div>
+      {% if breath and breath.on %}
+      <div class="lk-rhythm" title="TapTap asks the router to check in fast only while there is work for it — fewer check-ins mean less CPU and data on the router">
+        <i class="bi bi-wind"></i>
+        <span>TapTap’s load on this router: <b>{{ breath.label }}</b> — a check-in every <b>{{ breath.seconds }} s</b>{% if breath.why %} ({{ breath.why }}){% endif %}{% if breath.seconds != breath.base %}, back to {{ breath.base }} s the moment there is work{% endif %}
+          {% if breath.usage %}· today <b>{{ breath.usage.checkins }}</b> check-ins, about <b>{{ breath.usage.total }}</b> of data{% if breath.usage.saved %} — <b>{{ breath.usage.saved }}</b> check-ins saved ({{ breath.usage.saved_pct }} %, about {{ breath.usage.saved_data }}){% endif %}{% endif %}
+          {% if breath.sync_every %}· full sync every <b>{{ breath.sync_every }} min</b> ({{ breath.sync_why }}){% endif %}</span>
+      </div>
+      {% endif %}
       {% if rhythm and rhythm.usual %}
       <div class="lk-rhythm" title="TapTap learns this router's own check-in rhythm, so a busy router is counted as late, not offline">
         <i class="bi bi-activity"></i>

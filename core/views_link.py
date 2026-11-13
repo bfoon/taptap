@@ -121,6 +121,11 @@ def agent_poll(request):
         # (many active sessions on many routers) show up here before routers start to look offline.
         logging.getLogger('taptap.link').warning(
             'Slow TapTap Link check-in: %s took %.1f s (%s active sessions)', agent.router_id, took, data.get('n', '?'))
+    try:   # what TapTap costs this router's line, and what the pace saves (core/link_breath.py)
+        from .link_breath import note_traffic
+        note_traffic(agent.router_id, len(request.body or b''), len((script or '').encode()), agent=agent)
+    except Exception:
+        pass
     return HttpResponse(script, content_type='text/plain; charset=utf-8')
 
 
@@ -282,6 +287,17 @@ def _rhythm(agent):
         return None
 
 
+def _breath(router, agent):
+    """TapTap's own load on this router for the Link page (core/link_breath.py), or None."""
+    if not agent or not agent.last_seen_at:
+        return None
+    try:
+        from .link_breath import summary
+        return summary(router, agent)
+    except Exception:
+        return None
+
+
 def troubleshooting_steps(site):
     host = site.split('://')[-1].split('/')[0].split(':')[0] or 'your-taptap-address'
     check = 'yes-without-crl'
@@ -359,7 +375,7 @@ def router_link(request, pk):
                                and not router.agent_commands.filter(kind='self_update', status__in=['queued', 'sent']).exists()),
         'fixes': troubleshooting_steps(link.base_url(request)),
         'last_outage': cache.get(f'tt:link:outage:{router.pk}'),
-        'rhythm': _rhythm(agent),
+        'rhythm': _rhythm(agent), 'breath': _breath(router, agent),
         'last_refusal': refusal_for(agent),
         'shared_token': cache.get(f'tt:link:shared:{agent.pk}') if agent else None,
         'shared_text': link.SHARED_TEXT,
@@ -535,6 +551,11 @@ def router_link_status(request, pk):
         a = router.agent
     except RouterAgent.DoesNotExist:
         return JsonResponse({'enrolled': False})
+    try:   # someone is looking at this router: check-ins stay fast while they do (core/link_breath.py)
+        from .link_breath import watching
+        watching(router.business_id)
+    except Exception:
+        pass
     cmds = [
         {'id': c.id, 'label': c.label, 'status': c.status, 'status_label': c.get_status_display(), 'result': c.result,
          'at': c.created_at.isoformat()}

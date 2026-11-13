@@ -161,6 +161,7 @@ def mark_urgent(router, seconds=90):
     """A customer is waiting on this router (login page): check-ins speed up for a while."""
     try:
         cache.set(f'tt:link:urgent:{router.pk}', 1, seconds)
+        cache.set(f'tt:link:busy:{router.pk}', 1, max(seconds, 120))      # breathing check-ins: stay fast
     except Exception:
         pass
 
@@ -1599,7 +1600,13 @@ def handle_poll(agent, data, ip, url):
         push_pending_vouchers(router)
     except Exception as exc:
         logger.info('voucher push %s: %s', router, exc)
-    return build_response(router, url)
+    script = build_response(router, url)
+    try:   # breathing check-ins: fast while there is work, slower when there is none (core/link_breath.py)
+        from .link_breath import with_pace
+        script = with_pace(router, agent, script)
+    except Exception:
+        logger.debug('link breath %s', router, exc_info=True)
+    return script
 
 
 BACKGROUND_PIECES = ('traffic_dns', 'traffic_conns', 'share_lists')   # samples: never ahead of a voucher change
@@ -1709,6 +1716,12 @@ def auto_sync(router, first=False):
         from .agent_inventory import settle_router
         settle_router(router)
     every = int(getattr(settings, 'LINK_SYNC_MINUTES', 30))
+    if not first:
+        try:   # automatic syncs spread out while they find nothing to repair (core/link_breath.py)
+            from .link_breath import sync_minutes
+            every = sync_minutes(router, every)[0]
+        except Exception:
+            logger.debug('sync pace %s', router, exc_info=True)
     last_ok = router.sync_jobs.filter(status='success').order_by('-finished_at').values_list('finished_at', flat=True).first()
     if first or not last_ok or now - last_ok > timedelta(minutes=every):
         enqueue_router_sync(router)
