@@ -132,6 +132,7 @@ html[data-theme="dark"] .rc-error{background:#3a2a17;color:#f2b46f}
                   <li><a class="dropdown-item" href="{% url 'wan_designer' r.id %}"><i class="bi bi-diagram-3"></i> Internet lines</a></li>
                   <li><a class="dropdown-item" href="{% url 'router_link' r.id %}"><i class="bi bi-link-45deg text-success"></i> Switch to TapTap Link</a></li>
                 {% endif %}
+                <li><a class="dropdown-item" href="{% url 'config_studio' r.id %}"><i class="bi bi-grid-1x2 text-primary"></i> Config Studio</a></li>
                 <li><a class="dropdown-item" href="{% url 'router_schedules' %}?router={{ r.id }}"><i class="bi bi-calendar2-check"></i> Restart / shutdown schedule</a></li>
                 <li><a class="dropdown-item" href="{% url 'network_tools' %}?router={{ r.id }}"><i class="bi bi-speedometer2"></i> Network tools</a></li>
                 <li><a class="dropdown-item" href="{% url 'router_inventory' %}"><i class="bi bi-database-check"></i> Inventory</a></li>
@@ -155,6 +156,7 @@ html[data-theme="dark"] .rc-error{background:#3a2a17;color:#f2b46f}
           {% else %}
             <a class="rc-chip" href="{% url 'router_control' r.id %}"><i class="bi bi-sliders"></i> Control</a>
           {% endif %}
+          <a class="rc-chip" href="{% url 'config_studio' r.id %}" title="Build this router's configuration from tiles, test it on a virtual router, then deploy"><i class="bi bi-grid-1x2"></i> Studio</a>
           {% with s=r.next_schedule %}
           <a class="rc-chip sched{% if s %} set{% if s.action == 'shutdown' %} off{% endif %}{% endif %}" href="{% url 'router_schedules' %}?router={{ r.id }}" title="Restart or shut down on a timetable">
             {% if s %}<i class="bi {% if s.action == 'shutdown' %}bi-power{% else %}bi-bootstrap-reboot{% endif %}"></i> {{ s.get_action_display }} · {{ s.next_at|date:"D H:i" }}

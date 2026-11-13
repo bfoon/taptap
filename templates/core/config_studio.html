@@ -1,0 +1,133 @@
+{% extends 'core/base.html' %}
+{% load static %}
+{% block title %}{{ router.name }} Config Studio — TapTap{% endblock %}
+{% block heading %}Config Studio{% endblock %}
+{% block extra_head %}<link href="{% static 'css/config-studio.css' %}?v=1" rel="stylesheet">{% endblock %}
+{% block content %}
+<div id="cs" class="cs" data-csrf="{{ csrf_token }}">
+  <header class="cs-head">
+    <div class="cs-head-title">
+      <a class="cs-back" href="{% url 'routers' %}" title="Back to routers"><i class="bi bi-arrow-left"></i></a>
+      <div>
+        <b>{{ router.name }}</b>
+        <small id="csTransport">…</small>
+      </div>
+    </div>
+    <div class="cs-head-tools">
+      <label class="cs-base" title="What the virtual router starts from">
+        <i class="bi bi-box"></i>
+        <select id="csBase" aria-label="What the virtual router starts from">
+          <option value="router">{{ router.name }} as it is now</option>
+          <option value="lab-default">Practice router · factory default</option>
+          <option value="lab-empty">Practice router · empty</option>
+        </select>
+      </label>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="csRead"><i class="bi bi-arrow-repeat"></i> Read the router</button>
+      <a class="btn btn-sm btn-outline-secondary" href="{% url 'router_control' router.id %}"><i class="bi bi-sliders"></i> Control Center</a>
+    </div>
+  </header>
+
+  <div class="cs-grid">
+    <aside class="cs-shelf" aria-label="Tiles">
+      <input type="search" id="csFind" class="form-control form-control-sm" placeholder="Find a tile…" aria-label="Find a tile">
+      <div id="csKits" class="cs-kits"></div>
+      <div id="csShelf"></div>
+    </aside>
+
+    <section class="cs-main">
+      <div id="csPlate" class="cs-plate" aria-label="The virtual router"></div>
+
+      <form id="csAsk" class="cs-ask" autocomplete="off">
+        <i class="bi bi-stars"></i>
+        <input id="csAskText" maxlength="1200" placeholder="Say what the router should do — “guest Wi-Fi on ether5 at 10 Mbps, away from my printers”" aria-label="Tell the helper what the router should do">
+        <button class="btn btn-primary btn-sm" id="csAskGo">Build it</button>
+      </form>
+      <div id="csSay" class="cs-say" hidden></div>
+
+      <nav class="cs-tabs" role="tablist">
+        <button type="button" class="is-on" data-tab="board" role="tab"><i class="bi bi-grid-1x2"></i> Board <span id="csCountBoard"></span></button>
+        <button type="button" data-tab="lab" role="tab"><i class="bi bi-joystick"></i> Virtual router <span id="csCountLab"></span></button>
+        <button type="button" data-tab="menus" role="tab"><i class="bi bi-list-nested"></i> Every setting <span id="csCountMenus"></span></button>
+      </nav>
+
+      <div class="cs-pane" data-pane="board">
+        <div id="csBoard" class="cs-board"></div>
+      </div>
+
+      <div class="cs-pane" data-pane="lab" hidden>
+        <div id="csFindings"></div>
+        <h3 class="cs-h">Packets the virtual router tried</h3>
+        <div id="csTests" class="cs-tests"></div>
+        <h3 class="cs-h">Send your own packet</h3>
+        <form id="csTrace" class="cs-trace">
+          <label>From<select id="csFrom"></select></label>
+          <label>To<select id="csTo"><option value="internet">The internet</option><option value="router">The router itself</option><option value="ip">An address…</option></select></label>
+          <label id="csToIpWrap" hidden>Address<input id="csToIp" placeholder="192.168.88.20" size="14"></label>
+          <label>Site (optional)<input id="csHost" placeholder="tiktok.com" size="14"></label>
+          <label>Protocol<select id="csProto"><option>tcp</option><option>udp</option><option>icmp</option></select></label>
+          <label>Port<input id="csPort" value="443" size="5" inputmode="numeric"></label>
+          <label>Device MAC (optional)<input id="csMac" placeholder="AA:BB:CC:11:22:33" size="17"></label>
+          <label class="cs-check"><input type="checkbox" id="csNowOnly"> on the router as it is now (without my board)</label>
+          <button class="btn btn-sm btn-dark"><i class="bi bi-send"></i> Send</button>
+        </form>
+        <div id="csJourney"></div>
+      </div>
+
+      <div class="cs-pane" data-pane="menus" hidden>
+        <div class="cs-menus">
+          <div class="cs-menu-list" id="csMenuList"></div>
+          <div class="cs-menu-rows">
+            <div class="cs-menu-bar">
+              <b id="csMenuTitle">Pick a menu</b>
+              <div class="btn-group btn-group-sm" role="group" aria-label="Which picture">
+                <button type="button" class="btn btn-outline-secondary" data-view="now">Now</button>
+                <button type="button" class="btn btn-outline-secondary active" data-view="after">After my board</button>
+              </div>
+              <input type="search" id="csRowFind" class="form-control form-control-sm" placeholder="Filter rows…" aria-label="Filter rows">
+            </div>
+            <div id="csRows" class="cs-rows"><p class="cs-empty">Every menu TapTap read from the router is listed on the left. Rows your board adds, changes or removes are marked.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside class="cs-side">
+      <div class="cs-card cs-code">
+        <div class="cs-card-head"><b><i class="bi bi-terminal"></i> RouterOS</b>
+          <span><button type="button" class="btn btn-sm btn-link" id="csCopy">Copy</button><a class="btn btn-sm btn-link" id="csExport" href="#">.rsc</a></span></div>
+        <pre id="csCode" tabindex="0" aria-label="The RouterOS commands this board stands for"></pre>
+      </div>
+
+      <div class="cs-card cs-launch">
+        <div class="cs-card-head"><b><i class="bi bi-rocket-takeoff"></i> To the router</b></div>
+        <ol class="cs-steps">
+          <li id="csStepBoard"><i></i><div><b>Board</b><small>…</small></div></li>
+          <li id="csStepLab"><i></i><div><b>Virtual router</b><small>…</small></div></li>
+          <li id="csStepBackup"><i></i><div><b>Backup</b><small>…</small><button type="button" class="btn btn-sm btn-outline-success" id="csBackup"><i class="bi bi-cloud-arrow-down"></i> Back up now</button></div></li>
+          <li id="csStepDeploy"><i></i><div><b>Deploy</b><small>…</small>
+            <label class="cs-undo">Undo by itself after
+              <select id="csUndo"></select></label>
+            <button type="button" class="btn btn-primary w-100" id="csDeploy"><i class="bi bi-rocket-takeoff"></i> Deploy to {{ router.name }}</button></div></li>
+        </ol>
+        <div id="csLive"></div>
+      </div>
+
+      <div class="cs-card">
+        <div class="cs-card-head"><b><i class="bi bi-clock-history"></i> Earlier changes</b></div>
+        <div id="csHistory" class="cs-history"></div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="modal fade" id="csModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title" id="csModalTitle"></h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+      <div class="modal-body" id="csModalBody"></div>
+      <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Not yet</button><button type="button" class="btn btn-primary" id="csModalGo"></button></div>
+    </div></div>
+  </div>
+  <div id="csToasts" class="cs-toasts" aria-live="polite"></div>
+</div>
+{{ studio_boot|json_script:"csBoot" }}
+{% endblock %}
+{% block scripts %}<script src="{% static 'js/config-studio.js' %}?v=1" defer></script>{% endblock %}

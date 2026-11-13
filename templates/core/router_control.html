@@ -23,6 +23,7 @@
     <button class="btn btn-outline-success" type="button" id="backupFullBtn"><i class="bi bi-cloud-arrow-down"></i> Back up full configuration</button>
     <button class="btn btn-outline-secondary" type="button" id="backupHistoryBtn"><i class="bi bi-archive"></i> Backups</button>
     <button class="btn btn-dark rc-open" type="button" id="cleanBtn" data-scan="{% url 'router_cleanup_scan' router.id %}" data-clean="{% url 'router_cleanup_clean' router.id %}" data-job="{% url 'router_cleanup_job' router.id 0 %}" data-copy="{% url 'router_cleanup_copy' router.id %}" data-via="{% if router.connection_mode == 'agent' %}link{% else %}api{% endif %}"><i class="bi bi-stars"></i> Clean router memory</button>
+    <a class="btn btn-outline-primary" href="{% url 'config_studio' router.id %}"><i class="bi bi-grid-1x2"></i> Config Studio</a>
     <a class="btn btn-outline-secondary" href="{% url 'topology' %}"><i class="bi bi-diagram-3"></i> Topology</a>
   </div>
 </div>

@@ -43,6 +43,7 @@ class CoreConfig(AppConfig):
         importlib.import_module("core.models_backup_storage")
         importlib.import_module("core.models_investors")
         importlib.import_module("core.models_agent_benefits")
+        importlib.import_module("core.models_config_studio")
 
     def ready(self):
         from . import team  # noqa: F401
@@ -74,6 +75,7 @@ class CoreConfig(AppConfig):
         _install_optional("free_access")
         _install_optional("control_designer")
         _install_optional("backup_server")
+        _install_optional("config_studio")     # Config Studio: tiles → virtual router → backup → deploy with an undo timer
         _install_optional("account_navigation")
         _install_optional("investors")
         _install_optional("router_assign")
