@@ -420,11 +420,10 @@ def open_image(message, user, listen=False):
     if message.attachment == 'voice':
         if not listen:
             return 'nolisten'
-        if message.sender_id != user.pk and im.listened_at is None:
-            until = min(im.expires_at, now + timedelta(seconds=LISTEN_SECONDS))
-            # first listener wins; a second request in the same instant must not move the deadline
-            if ChatImage.objects.filter(pk=im.pk, listened_at__isnull=True).update(listened_at=now, expires_at=until):
-                ChatMessage.objects.filter(pk=message.pk).update(changed_at=now)   # every open chat counts down
+        # listen='later': a player that confirms with mark_listened() once the sound really started — so a phone or
+        # browser that cannot play the recording never burns it unheard. Older apps (listen=1) start it here.
+        if listen != 'later':
+            _start_minute(message, im, user, now)
         return bytes(im.data), im.mime, True
     data, mime, once = bytes(im.data), im.mime, im.view_once
     if once:
@@ -436,6 +435,29 @@ def open_image(message, user, listen=False):
             return None
         ChatMessage.objects.filter(pk=message.pk).update(attachment='opened')
     return data, mime, once
+
+
+def _start_minute(message, im, user, now):
+    if message.sender_id == user.pk or im.listened_at is not None:
+        return False
+    until = min(im.expires_at, now + timedelta(seconds=LISTEN_SECONDS))
+    # first listener wins; a second request in the same instant must not move the deadline
+    if ChatImage.objects.filter(pk=im.pk, listened_at__isnull=True).update(listened_at=now, expires_at=until):
+        ChatMessage.objects.filter(pk=message.pk).update(changed_at=now)   # every open chat counts down
+        return True
+    return False
+
+
+def mark_listened(message, user):
+    """The player says the voice message is really playing: its last minute starts now (once, not for the sender).
+    Returns {'gone', 'left'}: left = seconds until it is deleted (None while nobody else has played it)."""
+    im = ChatImage.objects.filter(message=message).defer('data').first() if message.attachment == 'voice' else None
+    now = timezone.now()
+    if im is None or im.expires_at <= now:
+        return {'gone': True, 'left': 0}
+    _start_minute(message, im, user, now)
+    im.refresh_from_db(fields=['expires_at', 'listened_at'])
+    return {'gone': False, 'left': max(0, int((im.expires_at - now).total_seconds())) if im.listened_at else None}
 
 
 # ─────────────────────────────── purge ───────────────────────────────

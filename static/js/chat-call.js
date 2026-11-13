@@ -487,7 +487,7 @@
   function startCaller() {
     overlay(ringHTML('Calling…', 'Starting your microphone'));
     getMic().then(function () { return S.video ? getCam().catch(function () { S.video = false; }) : null; })
-      .then(function () { return api('/chat/call/act/', { action: 'start', thread: S.thread, video: S.video }); })
+      .then(function () { return api('/chat/call/act/', +D.customer ? { action: 'start', customer: +D.customer } : { action: 'start', thread: S.thread, video: S.video }); })
       .then(function (d) {
         if (!d.ok) throw new Error(d.message);
         S.cid = d.call.id; S.ice = d.ice; S.peer.name = d.title; paintPeer(); overlay(ringHTML('Calling ' + esc(d.title) + '…', 'Ringing'));
@@ -549,6 +549,12 @@
           S.peer.initials = c.peer.initials; paintPeer();
         }
         if (c.thread && !S.thread) S.thread = c.thread;
+        if (c.customer && !S.custShown) {       // a Wi-Fi customer: their record stays on screen during the call
+          S.custShown = true; var k = c.customer, kv = k.voucher;
+          banner('cust', (kv ? '🎟 <a href="/vouchers/' + (+kv.id) + '/" target="_blank" rel="noopener" style="color:inherit"><b>' + esc(kv.code) + '</b></a> · ' + esc(kv.plan || '') + ' · <b>' + esc(kv.left || kv.state || '') + '</b>' + (kv.router ? ' · ' + esc(kv.router) : '') + ' &nbsp; ' : '') +
+            (k.mac ? '📱 MAC <b>' + esc(k.mac) + '</b>' + (k.private_mac ? ' (private)' : '') + (k.ip ? ' · ' + esc(k.ip) : '') + ' &nbsp; ' : '') +
+            (k.phone ? '☎ ' + esc(k.phone) + ' &nbsp; ' : '') + (k.why ? '<br>💡 ' + esc(k.why) : ''), 'info');
+        }
         if (c.state === 'ended') return hangup(c.reason || 'ended', true);
         if (S.role === 'caller' && c.answer && S.pc && !S.pc.remoteDescription) {
           ringback(false); overlay(ringHTML('Connecting…', 'Setting up an encrypted line'));

@@ -309,6 +309,8 @@ class _VoiceBubbleState extends State<VoiceBubble> {
   AudioPlayer? _player;
   String? _file;
   bool _loading = false, _playing = false, _goneHere = false;
+  bool _confirmed = false;                         // TapTap was told it is really playing (its last minute started)
+  Timer? _watch;                                   // no sound after a few seconds: this phone cannot play it
   Duration _pos = Duration.zero;
   DateTime? _deadline;                             // when it is deleted (from the server's "left", not the phone clock)
   Timer? _tick;
@@ -351,6 +353,8 @@ class _VoiceBubbleState extends State<VoiceBubble> {
     final p = _player, f = _file;
     _player = null;
     _file = null;
+    _watch?.cancel();
+    _confirmed = false;
     for (final s in _subs) {
       await s.cancel();
     }
@@ -384,7 +388,9 @@ class _VoiceBubbleState extends State<VoiceBubble> {
     }
     setState(() => _loading = true);
     try {
-      final bytes = await Api.I.bytes('/chat/img/$_id/', query: {'listen': '1'});
+      // listen=2: downloading alone does not start its last minute — TapTap is told when it really plays
+      // (_played), so a phone that cannot play the recording never destroys it unheard.
+      final bytes = await Api.I.bytes('/chat/img/$_id/', query: {'listen': '2'});
       final dir = await _tmp();
       final f = File('${dir.path}/voice-$_id.${_ext(bytes)}');
       await f.writeAsBytes(bytes, flush: true);
@@ -397,16 +403,20 @@ class _VoiceBubbleState extends State<VoiceBubble> {
           if (mounted) setState(() => _playing = s == PlayerState.playing);
         }))
         ..add(pl.onPositionChanged.listen((d) {
+          if (d > Duration.zero && identical(_player, pl)) _played();       // sound is really coming out
           if (mounted) setState(() => _pos = d);
         }))
         ..add(pl.onPlayerComplete.listen((_) => _stop()));
-      if (!widget.mine && _img['listened'] == null) {
-        _img['listened'] = DateTime.now().toIso8601String();      // its last minute starts now
-        _img['left'] = 60;
-        _syncDeadline();
-      }
       await pl.play(DeviceFileSource(f.path));
       if (mounted) setState(() => _loading = false);
+      _watch?.cancel();
+      _watch = Timer(const Duration(seconds: 6), () {
+        if (!mounted || _confirmed || !identical(_player, pl)) return;
+        _stop();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('This phone cannot play this recording. It has NOT been deleted — open it on TapTap web or another phone.'),
+            behavior: SnackBarBehavior.floating));
+      });
     } on ApiError catch (e) {
       if (mounted) {
         setState(() {
@@ -424,6 +434,22 @@ class _VoiceBubbleState extends State<VoiceBubble> {
     }
   }
 
+  /// The recording is really playing: tell TapTap once (someone else's message: its last minute starts now).
+  Future<void> _played() async {
+    if (_confirmed) return;
+    _confirmed = true;
+    _watch?.cancel();
+    if (widget.mine) return;
+    try {
+      final d = await Api.I.post('/chat/img/$_id/played/');
+      if (!mounted || d['left'] == null || _img['listened'] != null) return;
+      _img['listened'] = DateTime.now().toIso8601String();
+      _img['left'] = toI(d['left']);
+      _syncDeadline();
+      setState(() {});
+    } catch (_) {}
+  }
+
   static String _ext(List<int> b) {
     if (b.length > 8 && b[4] == 0x66 && b[5] == 0x74 && b[6] == 0x79 && b[7] == 0x70) return 'm4a';   // ftyp
     if (b.length > 4 && b[0] == 0x4F && b[1] == 0x67 && b[2] == 0x67 && b[3] == 0x53) return 'ogg';   // OggS
@@ -433,6 +459,7 @@ class _VoiceBubbleState extends State<VoiceBubble> {
   @override
   void dispose() {
     _tick?.cancel();
+    _watch?.cancel();
     _stop();
     super.dispose();
   }

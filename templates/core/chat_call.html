@@ -6,11 +6,11 @@
 {% include "core/_brand_icons.html" %}</head>
 <body>
 <div id="ttCall" data-csrf="{{ csrf_token }}" data-thread="{{ thread }}" data-video="{{ video|yesno:'1,0' }}"
-     data-join="{{ join }}" data-embedded="{{ embedded|yesno:'1,0' }}" data-me="{{ me }}" data-me-initials="{{ me_initials }}"
+     data-join="{{ join }}" data-customer="{{ customer|default:0 }}" data-embedded="{{ embedded|yesno:'1,0' }}" data-me="{{ me }}" data-me-initials="{{ me_initials }}"
      data-image-days="{{ image_days }}" data-video-secs="{{ video_secs }}" data-video-mb="{{ video_mb }}"
      data-me-title="{{ me_title }}" data-brand="{{ brand }}" data-fx-base="{% static 'vendor/mediapipe/' %}"></div>
 <noscript>Calls need JavaScript.</noscript>
 <script src="{% static 'js/call-fx.js' %}?v=call5" defer></script>
 <script src="{% static 'js/call-speaker.js' %}?v=1" defer></script>
-<script src="{% static 'js/chat-call.js' %}?v=call7" defer></script>
+<script src="{% static 'js/chat-call.js' %}?v=call8" defer></script>
 </body></html>

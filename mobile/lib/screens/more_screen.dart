@@ -7,6 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../app/api.dart';
 import '../app/format.dart';
 import '../app/state.dart';
+import '../calls/call_engine.dart';
+import '../calls/call_screen.dart';
 import '../data/store.dart';
 import '../data/sync_engine.dart';
 import '../push/push.dart';
@@ -24,6 +26,7 @@ class MoreScreen extends StatefulWidget {
 
 class _MoreScreenState extends State<MoreScreen> {
   List<Map>? _calls;
+  List<Map>? _callers;                             // who called: phone, voucher, MAC address; "Call back" rings their page
   List<Map>? _devices;
   StreamSubscription<String>? _saved;
 
@@ -31,6 +34,7 @@ class _MoreScreenState extends State<MoreScreen> {
   void initState() {
     super.initState();
     _calls = _list(Store.I.peek(Pages.customerCalls), 'calls');     // saved on the phone: shown at once
+    _callers = _list(Store.I.peek(Pages.customerCalls), 'callers');
     _devices = _list(Store.I.peek(Pages.devices), 'devices');
     _saved = Store.I.changes.listen((key) {
       if (!mounted || (key != Pages.customerCalls && key != Pages.devices)) return;
@@ -39,6 +43,7 @@ class _MoreScreenState extends State<MoreScreen> {
       setState(() {
         if (key == Pages.customerCalls) {
           _calls = _list(d, 'calls') ?? _calls;
+          _callers = _list(d, 'callers') ?? _callers;
         } else {
           _devices = _list(d, 'devices') ?? _devices;
         }
@@ -61,6 +66,7 @@ class _MoreScreenState extends State<MoreScreen> {
       if (!mounted) return;
       setState(() {
         _calls = _list(r[0], 'calls') ?? _calls;
+        _callers = _list(r[0], 'callers') ?? _callers;
         _devices = _list(r[1], 'devices') ?? _devices;
       });
     } catch (_) {}
@@ -169,6 +175,42 @@ class _MoreScreenState extends State<MoreScreen> {
               text: 'Customers who tap Call on your Wi-Fi page ring this phone. Keep notifications on.',
             ),
           if (app.canDo('customer_calls')) const SizedBox(height: 12),
+          if ((_callers ?? const []).isNotEmpty) ...[
+            SectionCard(
+              title: 'Customers who called',
+              child: Column(children: [
+                for (final c in _callers!.take(15))
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    isThreeLine: true,
+                    leading: Icon(c['here'] == true ? Icons.wifi_calling_3 : Icons.person_outline,
+                        color: c['here'] == true ? const Color(0xFF16A34A) : cs.onSurfaceVariant),
+                    title: Text('${'${c['name'] ?? ''}'.isEmpty ? 'Wi-Fi customer' : c['name']}${'${c['phone'] ?? ''}'.isEmpty ? '' : ' · ${c['phone']}'}',
+                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                    subtitle: Text(
+                        [
+                          if ('${c['line'] ?? ''}'.isNotEmpty) '${c['line']}',
+                          if ('${c['why'] ?? ''}'.isNotEmpty) '💡 ${c['why']}',
+                          '${c['here'] == true ? 'On the Wi-Fi page now · ' : ''}${ago(c['at'])}',
+                        ].join('\n'),
+                        style: const TextStyle(fontSize: 12.5)),
+                    trailing: c['can_ring'] == true
+                        ? IconButton(
+                            tooltip: 'Call back on the Wi-Fi page',
+                            icon: const Icon(Icons.phone_callback, color: Color(0xFF16A34A)),
+                            onPressed: () => openCall(
+                                context,
+                                CallEngine.outgoing(
+                                    thread: 0,
+                                    title: '${'${c['name'] ?? ''}'.isEmpty ? 'Wi-Fi customer' : c['name']}',
+                                    customer: toI(c['id']))),
+                          )
+                        : null,
+                  ),
+              ]),
+            ),
+            const SizedBox(height: 12),
+          ],
           SectionCard(
             title: 'Customer calls',
             child: _calls == null

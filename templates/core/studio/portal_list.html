@@ -36,7 +36,7 @@
 <section class="pc-panel" id="portal-calls">
   <div class="pc-head">
     <div><h3><i class="bi bi-telephone-inbound"></i> Calls from your Wi-Fi pages</h3>
-      <p>Customers tap <b>Call</b> on your login page and talk to you inside TapTap — free over your Wi-Fi, encrypted, no phone credit. Pick who answers: their TapTap rings like a chat call, wherever they have it open.</p></div>
+      <p>Customers tap <b>Call</b> on your login page and talk to you inside TapTap — free over your Wi-Fi, encrypted, no phone credit. Pick who answers: their TapTap rings like a chat call, wherever they have it open — and their phone rings when the TapTap app is signed in, even when it is closed.</p></div>
     <span class="pc-state {% if calls.enabled %}on{% endif %}">{% if calls.enabled %}<i class="bi bi-circle-fill"></i> On — a page has the Call button{% else %}Off — add the <b>Call button</b> block to a page to switch it on{% endif %}</span>
   </div>
   <form method="post" action="{% url 'portal_call_settings' %}">{% csrf_token %}
@@ -44,7 +44,7 @@
       {% for r in calls.rows %}<label class="pc-person{% if r.picked %} on{% endif %}">
         <input type="checkbox" name="handlers" value="{{ r.user.id }}"{% if r.picked %} checked{% endif %}>
         <span class="pc-av">{{ r.initials }}{% if r.online %}<i class="pc-dot" title="TapTap open now"></i>{% endif %}</span>
-        <span class="pc-nm"><b>{{ r.name }}</b><small>{% if r.owner %}Owner{% else %}Team{% endif %} · {% if r.online %}online now{% else %}offline{% endif %}</small></span>
+        <span class="pc-nm"><b>{{ r.name }}</b><small>{% if r.owner %}Owner{% else %}Team{% endif %} · {% if r.online %}online now{% else %}offline{% endif %} · {% if r.phone %}📱 phone app rings{% else %}no phone app{% endif %}</small></span>
         <i class="bi bi-check-circle-fill pc-tick"></i>
       </label>{% endfor %}
     </div>
@@ -55,8 +55,25 @@
     </div>
     <p class="pc-note">Nobody picked = the owner answers. Every call — answered or missed — leaves a note with the customer’s name and number in the team chat, so you can call back. Before login the router must let phones reach TapTap (the walled-garden entry TapTap adds) and, for the voice itself, your TURN relay — see the update notes.</p>
   </form>
+  {% if calls.callers %}
+  <div class="pc-callers">
+    <h4><i class="bi bi-person-lines-fill"></i> Customers who called <small>— their phone, voucher and MAC address. <b>Call back</b> rings their Wi-Fi page.</small></h4>
+    {% for c in calls.callers %}<div class="pc-caller">
+      <div class="pc-c-main"><b>{{ c.name|default:"Wi-Fi customer" }}</b>{% if c.phone %} · <a href="tel:{{ c.phone }}">{{ c.phone }}</a>{% endif %}
+        {% if c.here %}<span class="pc-here"><i class="bi bi-circle-fill"></i> on the Wi-Fi page now</span>{% endif %}
+        <small>{% if c.kind == 'voice' %}left a voice message{% elif c.kind == 'callback' %}asked to be called back{% elif c.kind == 'out' %}you called back{% else %}called{% endif %}{% if c.outcome and c.outcome != 'waiting' %} · {{ c.outcome }}{% endif %} · {{ c.calls }}×{% if c.device %} · {{ c.device }}{% endif %}</small>
+        <small>{% if c.voucher %}🎟 <a href="/vouchers/{{ c.voucher.id }}/">{{ c.voucher.code }}</a> · {{ c.voucher.plan }} · <b>{{ c.voucher.left|default:c.voucher.state }}</b>{% if c.voucher.router %} · {{ c.voucher.router }}{% endif %}{% endif %}
+          {% if c.mac %} 📱 MAC <code>{{ c.mac }}</code>{% if c.private_mac %} (private){% endif %}{% endif %}{% if c.ip %} · {{ c.ip }}{% endif %}</small>
+        {% if c.why %}<small class="pc-why">💡 {{ c.why }}</small>{% endif %}</div>
+      {% if c.can_ring %}<button type="button" class="btn btn-success btn-sm" onclick="window.TapChat&&TapChat.callCustomer({{ c.id }})"><i class="bi bi-telephone-outbound"></i> Call back</button>{% endif %}
+    </div>{% endfor %}
+  </div>
+  {% endif %}
 </section>
 <style>
+.pc-callers{margin-top:1rem;border-top:1px solid #eef2f6;padding-top:.8rem}.pc-callers h4{font-size:.9rem;font-weight:800;margin:0 0 .5rem}.pc-callers h4 small{font-weight:500;color:var(--muted)}
+.pc-caller{display:flex;gap:.8rem;align-items:center;justify-content:space-between;border:1px solid #e8edf3;border-radius:12px;padding:.5rem .7rem;margin-bottom:.4rem}
+.pc-c-main small{display:block;font-size:.76rem;color:var(--muted)}.pc-c-main .pc-why{color:#8a5a00}.pc-here{font-size:.7rem;font-weight:700;color:#138453;margin-left:.4rem}.pc-here i{font-size:.45rem;vertical-align:middle}
 .pc-panel{background:#fff;border:1px solid var(--border);border-radius:18px;padding:1rem 1.1rem;margin:0 0 1.2rem}
 .pc-head{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:flex-start}.pc-head h3{font-size:1rem;font-weight:800;margin:0 0 .2rem}.pc-head p{font-size:.82rem;color:var(--muted);margin:0;max-width:680px}
 .pc-state{font-size:.72rem;font-weight:700;border-radius:999px;padding:.25rem .7rem;background:#f1f4f8;color:#5b6b7c}.pc-state.on{background:#e4f7ee;color:#138453}.pc-state i{font-size:.5rem;vertical-align:middle}
@@ -142,7 +159,7 @@
   load();
 })();
 </script>
-<script src="{% static 'studio/thumbs.js' %}" data-renderer="{% static 'studio/portal-render.js' %}?v=9"></script>
+<script src="{% static 'studio/thumbs.js' %}" data-renderer="{% static 'studio/portal-render.js' %}?v=10"></script>
 <script>
 (function(){
   const g=JSON.parse(document.getElementById('galleryData').textContent);

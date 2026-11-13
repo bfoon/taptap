@@ -126,7 +126,7 @@ MEMBER_ALLOWED = {
     # live chat: everyone in a business can chat (the views check who may see which conversation)
     'chat_page', 'chat_state', 'chat_history', 'chat_send', 'chat_read', 'chat_direct', 'chat_settings', 'chat_support_action',
     # chat photos (7-day) and calls / screen sharing: the views check the conversation
-    'chat_upload', 'chat_image', 'chat_call_page', 'chat_call_poll', 'chat_call_act',
+    'chat_upload', 'chat_image', 'chat_voice_played', 'chat_call_page', 'chat_call_poll', 'chat_call_act',
     # Fit, the AI technician: every tool and action checks the person's own permissions (core/fit_tools.py, core/fit_actions.py)
     'fit_state', 'fit_ask', 'fit_action', 'fit_new', 'fit_settings', 'fit_look', 'fit_tours', 'fit_monitors_page', 'fit_monitor_toggle',
 }

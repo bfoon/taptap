@@ -129,6 +129,10 @@ class _CallScreenState extends State<CallScreen> {
                         const SizedBox(height: 8),
                         Text(e.error ?? e.status, textAlign: TextAlign.center,
                             style: TextStyle(color: e.error != null ? const Color(0xFFFCA5A5) : Colors.white70, fontSize: 15)),
+                        if ('${e.customerCard?['line'] ?? ''}'.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          CustomerInfo(line: '${e.customerCard!['line']}', why: '${e.customerCard!['why'] ?? ''}'),
+                        ],
                       ]),
               ),
               if (e.camOn)
@@ -355,6 +359,10 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
             ),
             const SizedBox(height: 6),
             const Text('is calling…', style: TextStyle(color: Colors.white70, fontSize: 16)),
+            if (r.info.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              CustomerInfo(line: r.info, why: r.why),
+            ],
             const Spacer(),
             Padding(
               padding: const EdgeInsets.fromLTRB(40, 0, 40, 48),
@@ -368,6 +376,27 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
       ),
     );
   }
+}
+
+/// Who is calling from the Wi-Fi page: voucher and time left, MAC address — and why they are probably calling.
+class CustomerInfo extends StatelessWidget {
+  const CustomerInfo({super.key, required this.line, this.why = ''});
+  final String line;
+  final String why;
+  @override
+  Widget build(BuildContext context) => Container(
+        margin: const EdgeInsets.symmetric(horizontal: 24),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(14)),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          SelectableText(line,
+              textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w700)),
+          if (why.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text('💡 $why', textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFFFDE68A), fontSize: 12.5)),
+          ],
+        ]),
+      );
 }
 
 class _Big extends StatelessWidget {

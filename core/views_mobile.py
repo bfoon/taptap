@@ -456,7 +456,12 @@ def customer_calls(request):
     b = _business(request)
     if b is None:
         return _err('No business.', 403)
-    return JsonResponse({'ok': True, 'calls': _customer_calls(b)})
+    from . import portal_call
+    try:
+        callers = portal_call.caller_rows(b, 30)        # who called, with MAC address and voucher; "Call back" rings their page
+    except Exception:
+        callers = []
+    return JsonResponse({'ok': True, 'calls': _customer_calls(b), 'callers': callers})
 
 
 # ─────────────────────────────── daily sales ───────────────────────────────

@@ -392,10 +392,14 @@ class Push {
             'initials': '${d['initials'] ?? ''}',
             'kind': '${d['kind'] ?? 'direct'}',
             'video': d['video'] == '1',
+            'info': '${d['info'] ?? ''}',
           });
+          unawaited(_ringing('${d['id']}'));
           return;
         }
-        await showIncoming('${d['id']}', '${d['caller'] ?? d['from'] ?? 'Call'}', d['kind'] == 'portal', d['video'] == '1');
+        await showIncoming('${d['id']}', '${d['caller'] ?? d['from'] ?? 'Call'}', d['kind'] == 'portal', d['video'] == '1',
+            info: '${d['info'] ?? ''}');
+        await _ringing('${d['id']}');
         break;
       case 'call_end':
         if (foreground) onRingEnded?.call('${d['id']}');
@@ -406,12 +410,24 @@ class Push {
     }
   }
 
-  static Future<void> showIncoming(String cid, String from, bool customer, bool video) async {
+  /// Tell TapTap this phone is ringing for the call. Until it hears that, TapTap sends the call push again
+  /// (a single push can be late or lost on a sleeping phone) — and the caller's screen can say "their phone is ringing".
+  static Future<void> _ringing(String cid) async {
+    if (cid.isEmpty) return;
+    try {
+      if (!Api.I.signedIn) await Api.I.load();          // the background isolate starts without the token
+      if (!Api.I.signedIn) return;
+      await Api.I.post('/chat/call/act/', {'action': 'ringing', 'id': cid}, const Duration(seconds: 10));
+    } catch (_) {}
+  }
+
+  static Future<void> showIncoming(String cid, String from, bool customer, bool video, {String info = ''}) async {
     await FlutterCallkitIncoming.showCallkitIncoming(CallKitParams(
       id: uuidFor(cid),
       nameCaller: from,
       appName: 'TapTap',
-      handle: customer ? '📶 Customer on your Wi-Fi page' : 'TapTap call',
+      // a Wi-Fi customer: their voucher, time left and MAC address, when TapTap knows them
+      handle: customer ? (info.isNotEmpty ? info : '📶 Customer on your Wi-Fi page') : 'TapTap call',
       type: video ? 1 : 0,
       duration: 40000,
       missedCallNotification: const NotificationParams(showNotification: true, isShowCallback: false, subtitle: 'Missed TapTap call'),

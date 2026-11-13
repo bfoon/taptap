@@ -25,13 +25,14 @@ enum CallPhase { starting, ringing, connecting, live, reconnecting, ended }
 ///   * a first connection that is slow or fails is retried with an ICE restart for up to [connectGiveUpMs] before
 ///     the call is given up — it used to hang up the moment the first attempt failed
 class CallEngine extends ChangeNotifier {
-  CallEngine.outgoing({required this.thread, required this.title, this.video = false}) : callId = null, caller = true {
+  CallEngine.outgoing({required this.thread, required this.title, this.video = false, this.customer = 0}) : callId = null, caller = true {
     peerName = title;
   }
   CallEngine.incoming({required String id, required String from, this.video = false})
       : callId = id,
         caller = false,
         thread = 0,
+        customer = 0,
         title = from {
     peerName = from;
   }
@@ -44,6 +45,12 @@ class CallEngine extends ChangeNotifier {
 
   final bool caller;
   final int thread;
+
+  /// Calling a Wi-Fi customer back on their page (their record id), instead of a chat conversation.
+  final int customer;
+
+  /// The Wi-Fi customer on this call: voucher, time left, MAC address (from TapTap, staff side only).
+  Map<String, dynamic>? customerCard;
   final String title;
   String? callId;
   bool video;
@@ -160,7 +167,7 @@ class CallEngine extends ChangeNotifier {
 
   Future<void> _startCaller() async {
     _set(CallPhase.ringing, 'Calling…');
-    final d = await _act('start', {'thread': thread, 'video': video});
+    final d = await _act('start', customer > 0 ? {'customer': customer} : {'thread': thread, 'video': video});
     callId = '${(d['call'] as Map)['id']}';
     _ice = (d['ice'] as Map?)?.cast<String, dynamic>() ?? {};
     peerName = '${d['title'] ?? title}';
@@ -346,6 +353,8 @@ class CallEngine extends ChangeNotifier {
       if (caller) peerName = '${peer['name']}';
       peerInitials = '${peer['initials'] ?? ''}';
     }
+    final cust = (c['customer'] as Map?)?.cast<String, dynamic>();
+    if (cust != null) customerCard = cust;
     if (c['state'] == 'ended') return _finish('${c['reason'] ?? 'ended'}', remote: true);
     final pc = _pc;
     if (caller && pc != null && c['answer'] is Map && await pc.getRemoteDescription() == null) {

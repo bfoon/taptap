@@ -61,6 +61,13 @@ CALL_TTL = 4 * 3600
 # long while the media itself was fine or about to come back. The browser gives up by itself after 60 s of no
 # media (static/js/chat-call.js), so this is only the backstop for a closed laptop or a killed tab.
 HEARTBEAT_LOST = 90
+# Answered but the connection details never arrived (the answering phone lost its network, the app was closed, the
+# microphone failed): the call used to stay "connecting" for CALL_TTL — and its people "busy", so no customer call
+# rang them for up to 4 hours. Both call windows give up long before this.
+CONNECT_SECONDS = 75
+# A phone that has not confirmed it is ringing gets the push again at these ages of the call (seconds): one data
+# push can be late or lost on a phone that is asleep.
+REPUSH_AT = (7, 15, 25)
 MAX_RESTART_GEN = 500
 MAX_SDP = 24000
 
@@ -113,11 +120,22 @@ def state(call):
     end = cache.get(_k(cid, 'end'))
     if end:
         return 'ended', end
+    now = time.time()
+    t = _taken(cid)
     if cache.get(_k(cid, 'answer')):
+        # both sides gone (two closed apps, a crashed tab): nobody is left to notice, so notice here
+        beats = [cache.get(_k(cid, f'hb:{u}')) for u in (call['caller'], (t or {}).get('uid')) if u is not None]
+        if beats and all(b is None or now - b > HEARTBEAT_LOST for b in beats) \
+                and now - (cache.get(_k(cid, 'live_at')) or now) > HEARTBEAT_LOST:
+            finish(call, 'lost')
+            return 'ended', cache.get(_k(cid, 'end'))
         return 'active', None
-    if _taken(cid):
+    if t:
+        if now - (t.get('at') or now) > CONNECT_SECONDS:
+            finish(call, 'failed')
+            return 'ended', cache.get(_k(cid, 'end'))
         return 'connecting', None
-    if time.time() - call['at'] > RING_SECONDS:
+    if time.time() - call['at'] > call.get('ring', RING_SECONDS):
         finish(call, 'missed')
         return 'ended', cache.get(_k(cid, 'end'))
     return 'ringing', None
@@ -145,6 +163,39 @@ def _push(fn):
     except Exception:
         import logging
         logging.getLogger(__name__).exception('call push')
+
+
+def ring_ack(call, uid):
+    """This person's phone says it is ringing (the app got the push, or its own check saw the call)."""
+    cid = call['id']
+    if uid in call.get('targets', ()) and cache.add(_k(cid, f'ack:{uid}'), time.time(), RING_SECONDS + 60):
+        cache.set(_k(cid, f'ackat:{uid}'), round(time.time() - call['at'], 1), 600)
+
+
+def ring_acked(call, uid):
+    return cache.get(_k(call['id'], f'ack:{uid}')) is not None
+
+
+def reping(call):
+    """While it rings: push again to every phone that has not confirmed it is ringing. Driven by the caller's own
+    poll (about once a second), so it needs no timer and stops with the call."""
+    cid = call['id']
+    age = time.time() - call['at']
+    if age > RING_SECONDS or call.get('kind') == 'test':
+        return 0
+    n = 0
+    for i, at in enumerate(REPUSH_AT):
+        if age < at:
+            break
+        if not cache.add(_k(cid, f'rp:{i}'), 1, RING_SECONDS + 20):
+            continue
+        for uid in call['targets']:
+            if not isinstance(uid, int) or ring_acked(call, uid) or cache.get(_k(cid, f'dec:{uid}')):
+                continue
+            _push(lambda p, uid=uid: p.call_ringing(uid, call, attempt=i + 2))
+            n += 1
+        break
+    return n
 
 
 def _drop_ring(uid, cid):
@@ -217,8 +268,11 @@ def rings_for(user):
         st, _ = state(call)
         if st != 'ringing':
             continue
-        out.append({'id': cid, 'thread': call['thread'], 'from': call['label'], 'initials': call['caller_initials'],
-                    'video': call['video'], 'kind': call['kind'], 'left': max(0, int(RING_SECONDS - (time.time() - call['at'])))})
+        ring = {'id': cid, 'thread': call['thread'], 'from': call['label'], 'initials': call['caller_initials'],
+                'video': call['video'], 'kind': call['kind'], 'left': max(0, int(RING_SECONDS - (time.time() - call['at'])))}
+        if call.get('card'):                      # a customer on the Wi-Fi page: who they are (core/portal_call.py)
+            ring['customer'] = call['card']
+        out.append(ring)
     return out
 
 
@@ -428,6 +482,11 @@ def public_state(call, uid):
     st, reason = state(call)
     out = {'id': cid, 'state': st, 'reason': reason, 'video': call['video'], 'thread': call['thread'],
            'caller': call['caller'] == uid}
+    if st == 'ringing' and call['caller'] == uid:
+        try:
+            reping(call)
+        except Exception:
+            pass
     if st in ('connecting', 'active'):
         heartbeat(call, uid)
         other = other_uid(call, uid)
@@ -436,7 +495,7 @@ def public_state(call, uid):
             finish(call, 'lost')
             out['state'], out['reason'] = 'ended', 'lost'
             return out
-        if other and call.get('guest') and other == call['caller']:     # the customer on the Wi-Fi page
+        if other and call.get('guest') and isinstance(other, str):     # the customer on the Wi-Fi page
             g = call['guest']
             out['peer'] = {'name': (g.get('name') or 'Wi-Fi customer') + (f' · {g["phone"]}' if g.get('phone') else ''),
                            'initials': call.get('caller_initials') or '☎'}
@@ -444,6 +503,8 @@ def public_state(call, uid):
             from django.contrib.auth.models import User
             u = User.objects.filter(pk=other).first()
             out['peer'] = {'name': chat.display_name(u), 'initials': chat.initials(u)} if u else None
+    if call.get('card') and isinstance(uid, int):     # staff see the customer's record during the call
+        out['customer'] = call['card']
     if call['caller'] == uid and st in ('connecting', 'active'):
         out['answer'] = cache.get(_k(cid, 'answer'))
         out['reanswer'] = cache.get(_k(cid, 'ra'))

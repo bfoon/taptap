@@ -27,6 +27,7 @@
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function api(action, extra) {
     var b = extra || {}; b.action = action; if (S.id) { b.id = S.id; b.secret = S.secret; }
+    b.dk = DK; if (C.mac) b.mac = C.mac; if (C.ip) b.ip = C.ip; if (C.user) b.user = C.user;     // which phone this is (staff see it)
     return fetch(C.api, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(b), cache: 'no-store' })
       .then(function (r) { return r.json(); }).catch(function () { return { ok: false, net: true, message: 'No connection to TapTap. Check the Wi-Fi and try again.' }; });
   }
@@ -45,6 +46,15 @@
   function setRoot(cls) { root.className = 'pc ' + cls; }
   function clock(ms) { var s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2); }
   function store(k, v) { try { if (v === undefined) return localStorage.getItem('tp-call-' + k) || ''; localStorage.setItem('tp-call-' + k, v); } catch (e) { return ''; } }
+
+  // This phone's own key for the call page (random, kept on the phone): TapTap recognises the phone when it calls
+  // again, and it is how a call-back from the business reaches this page and nobody else's.
+  var DK = store('dk');
+  if (!DK || DK.length < 16) {
+    DK = ''; try { var rb = new Uint8Array(18); (window.crypto || window.msCrypto).getRandomValues(rb); for (var ri = 0; ri < rb.length; ri++) DK += ('0' + rb[ri].toString(16)).slice(-2); } catch (e) { DK = String(Date.now()) + String(Math.random()).slice(2) + String(Math.random()).slice(2); }
+    store('dk', DK);
+  }
+  try { localStorage.setItem('tp-called', String(Date.now())); } catch (e) {}      // the Wi-Fi page now listens for a call-back
 
   // ───────── tones (Web Audio: no files to load) ─────────
   var AC;
@@ -271,15 +281,22 @@
     }, 4000);
   }
   function offer() {
-    var ice = S.ice || {};
-    var pc = new RTCPeerConnection({ iceServers: ice.iceServers || [], iceTransportPolicy: ice.iceTransportPolicy || 'all', bundlePolicy: 'max-bundle' });
-    S.pc = pc;
+    var pc = makePc();
     // Same layout as a TapTap chat call: audio, camera, screen + data channel 0.
     pc.addTransceiver(S.mic, { direction: 'sendrecv' });
     pc.addTransceiver('video', { direction: 'sendrecv' });
     pc.addTransceiver('video', { direction: 'sendrecv' });
+    return pc.createOffer().then(function (o) { return pc.setLocalDescription(o); })
+      .then(function () { return gathered(pc, GATHER_MS); })
+      .then(function () { return apiSure('offer', { desc: { type: 'offer', sdp: pc.localDescription.sdp } }); })
+      .then(function (r) { if (!r.ok) throw new Error(r.message); });
+  }
+  function makePc() {
+    var ice = S.ice || {};
+    var pc = new RTCPeerConnection({ iceServers: ice.iceServers || [], iceTransportPolicy: ice.iceTransportPolicy || 'all', bundlePolicy: 'max-bundle' });
+    S.pc = pc;
     S.dc = pc.createDataChannel('ctl', { negotiated: true, id: 0, ordered: true });
-    S.dc.onopen = function () { send({ t: 'hello', name: (S.name || 'Wi-Fi customer') + (S.phone ? ' · ' + S.phone : ''), initials: (S.name || '☎').charAt(0).toUpperCase() }); sendState(); };
+    S.dc.onopen = function () { send({ t: 'hello', name: (S.name || store('name') || 'Wi-Fi customer') + (S.phone ? ' · ' + S.phone : ''), initials: (S.name || '☎').charAt(0).toUpperCase() }); sendState(); };
     S.dc.onmessage = function (e) { try { onCtl(JSON.parse(e.data)); } catch (x) {} };
     pc.ontrack = function (e) {
       var s = new MediaStream([e.track]);
@@ -301,10 +318,77 @@
         dropped(); restart();
       }
     };
-    return pc.createOffer().then(function (o) { return pc.setLocalDescription(o); })
-      .then(function () { return gathered(pc, GATHER_MS); })
-      .then(function () { return apiSure('offer', { desc: { type: 'offer', sdp: pc.localDescription.sdp } }); })
-      .then(function (r) { if (!r.ok) throw new Error(r.message); });
+    return pc;
+  }
+
+  // ───────── the business calls back: this page answers ─────────
+  function incoming(ring) {
+    S.state = 'incoming'; setRoot('ringing'); timer.hidden = true; S.ringId = ring.id;
+    sub.textContent = 'is calling you back';
+    panel.innerHTML = '<div class="pc-form"><button class="pc-go" type="button" data-a="answer">' + ICON.phone + 'Answer</button>' +
+      '<button class="pc-go pc-go2" type="button" data-a="refuse">Not now</button>' +
+      '<p class="pc-small">Free — it uses this Wi-Fi, not your phone credit.</p></div>';
+    clearInterval(S.t.ring);
+    var beep = function () { tone([523, 659], 0, 0.4, 0.07); tone([523, 659], 0.5, 0.4, 0.07); try { if (navigator.vibrate) navigator.vibrate([250, 120, 250]); } catch (e) {} };
+    beep(); S.t.ring = setInterval(beep, 2600);
+    clearInterval(S.t.inbox);
+    S.t.inbox = setInterval(function () {            // they hung up before we answered?
+      if (S.state !== 'incoming') return clearInterval(S.t.inbox);
+      api('inbox').then(function (d) { if (S.state === 'incoming' && d && d.ok && !(d.ring && d.ring.id === S.ringId)) { clearInterval(S.t.ring); clearInterval(S.t.inbox); intro('We tried to call you back. Tap Call to reach us now.'); } });
+    }, 3000);
+  }
+  function refuse() {
+    clearInterval(S.t.ring); clearInterval(S.t.inbox);
+    fetch(C.api, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'decline', id: S.ringId, secret: DK, dk: DK, mac: C.mac || '' }), cache: 'no-store' }).catch(function () {});
+    intro();
+  }
+  function answer() {
+    clearInterval(S.t.ring); clearInterval(S.t.inbox); ac();
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return micHelp(micError());
+    sub.textContent = 'Your phone will ask to use the microphone — tap Allow.';
+    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false })
+      .then(function (stream) {
+        S.mic = stream.getAudioTracks()[0];
+        S.incoming = true; S.id = S.ringId; S.secret = DK;
+        return apiSure('accept');
+      }, function (e) { e = e || {}; e.mic = true; throw e; })
+      .then(function (d) {
+        if (!d.ok) throw new Error(d.message || 'The call has ended.');
+        if (d.call && d.call.state === 'ended') throw new Error('The call has ended.');
+        S.ice = d.ice; S.state = 'ringing'; setRoot('ringing'); sub.textContent = 'Connecting…'; inCall();
+        return d.offer || waitOffer();
+      })
+      .then(function (off) {
+        var pc = makePc();
+        return pc.setRemoteDescription(off).then(function () {
+          var t = pc.getTransceivers();
+          if (t.length < 3) throw new Error('The call could not connect.');
+          t.forEach(function (x) { x.direction = 'sendrecv'; });
+          return t[0].sender.replaceTrack(S.mic);
+        }).then(function () { return pc.createAnswer(); }).then(function (a) { return pc.setLocalDescription(a); })
+          .then(function () { return gathered(pc, GATHER_MS); })
+          .then(function () { return apiSure('answer', { desc: { type: 'answer', sdp: pc.localDescription.sdp } }); })
+          .then(function (r) { if (!r.ok) throw new Error(r.message); watchConnect(); poll(800); });
+      })
+      .catch(function (e) {
+        if (S.mic) S.mic.stop(); S.mic = null;
+        if (e && e.mic) { S.id = ''; S.incoming = false; return micHelp(micError(e)); }
+        if (S.id) api('end', { reason: 'failed' });
+        S.id = ''; S.incoming = false; if (S.pc) { try { S.pc.close(); } catch (x) {} S.pc = null; }
+        intro((e && e.message) || 'The call could not connect.');
+      });
+  }
+  function waitOffer() {
+    return new Promise(function (res, rej) {
+      var n = 0; (function again() {
+        api('poll').then(function (d) {
+          var c = d && d.call;
+          if (c && c.offer) return res(c.offer);
+          if ((c && c.state === 'ended') || ++n > 40) return rej(new Error('The call ended before it connected.'));
+          setTimeout(again, 800);
+        });
+      })();
+    });
   }
   function send(m) { try { if (S.dc && S.dc.readyState === 'open') S.dc.send(JSON.stringify(m)); } catch (e) {} }
   function sendState() { send({ t: 'state', mic: !!(S.mic && S.mic.enabled), cam: false, facing: '', screen: null }); }
@@ -328,8 +412,10 @@
         if (!c) return poll(2000);                             // a blip: try again
         if (c.state === 'ended') return done(c.reason || 'ended');
         if (c.peer && c.peer.name && !S.peerShown) { S.peerShown = true; $('pcName').textContent = c.peer.name; if (c.peer.initials) $('pcAv').textContent = c.peer.initials; }   // who answered
-        if (c.state === 'ringing') sub.textContent = 'Ringing ' + C.business + '…';
-        if (c.state === 'connecting' && !S.liveAt) { ringback(false); sub.textContent = (c.peer ? c.peer.name : 'Someone') + ' is answering…'; }
+        if (c.state === 'ringing') sub.textContent = S.incoming ? 'Connecting…' : 'Ringing ' + C.business + (c.ringing_on > 0 ? ' · their phone is ringing' : '…');
+        // a call-back we answered: the business may send a fresh offer when the line drops
+        if (S.incoming && S.pc && c.reoffer && c.reoffer.gen > (S.rseen || 0) && S.pc.remoteDescription) { S.rseen = c.reoffer.gen; answerRestart(c.reoffer.gen, c.reoffer.desc); }
+        if (c.state === 'connecting' && !S.liveAt) { ringback(false); sub.textContent = S.incoming ? 'Connecting…' : (c.peer ? c.peer.name : 'Someone') + ' is answering…'; }
         if (c.answer && S.pc && !S.pc.remoteDescription) {
           S.pc.setRemoteDescription(c.answer).then(watchConnect).catch(function () { hangup('failed'); });
         }
@@ -361,7 +447,20 @@
     if (!S.t.lost) S.t.lost = setTimeout(function () { hangup('lost'); }, GIVE_UP);
     poll(800);
   }
+  function answerRestart(gen, desc) {
+    var pc = S.pc; if (!pc || S.ended) return;
+    var roll = pc.signalingState === 'have-local-offer' ? pc.setLocalDescription({ type: 'rollback' }) : Promise.resolve();
+    roll.then(function () { return pc.setRemoteDescription(desc); })
+      .then(function () { return pc.createAnswer(); }).then(function (a) { return pc.setLocalDescription(a); })
+      .then(function () { return gathered(pc, GATHER_MS); })
+      .then(function () { if (!S.ended && gen === S.rseen) return api('reanswer', { gen: gen, desc: { type: 'answer', sdp: pc.localDescription.sdp } }); })
+      .catch(function () { S.rseen = 0; });
+  }
   function restart() {
+    if (S.incoming) {                              // only the calling side offers; we ask it to
+      if (S.ended || (S.askAt && Date.now() - S.askAt < 5000)) return;
+      S.askAt = Date.now(); api('reask'); return;
+    }
     var pc = S.pc; if (!pc || S.ended || pc.signalingState !== 'stable') return;
     if (S.restarting && Date.now() - S.restarting < 8000) return;
     S.restarting = Date.now(); var gen = ++S.rgen;
@@ -390,7 +489,8 @@
   var VMAX = 30, V = null;
   function vType() {
     if (!window.MediaRecorder) return null;
-    var c = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm'];
+    // AAC in MP4 first: every phone and browser plays it (staff on an iPhone cannot play WebM/Opus)
+    var c = ['audio/mp4;codecs=mp4a.40.2', 'audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm'];
     for (var i = 0; i < c.length; i++) { try { if (MediaRecorder.isTypeSupported(c[i])) return c[i]; } catch (e) {} }
     return '';
   }
@@ -487,7 +587,8 @@
     store('name', v.name); store('phone', v.phone);
     try { if (v.pv) v.pv.pause(); } catch (e) {}
     var btn = $('pcVs'); v.sending = true; if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
-    var url = (C.voice || C.api.replace(/api\/?$/, 'voice/')) + '?' + ['name=' + encodeURIComponent(v.name), 'phone=' + encodeURIComponent(v.phone), 'secs=' + v.secs.toFixed(1)].join('&');
+    var url = (C.voice || C.api.replace(/api\/?$/, 'voice/')) + '?' + ['name=' + encodeURIComponent(v.name), 'phone=' + encodeURIComponent(v.phone), 'secs=' + v.secs.toFixed(1),
+      'dk=' + encodeURIComponent(DK), 'mac=' + encodeURIComponent(C.mac || ''), 'ip=' + encodeURIComponent(C.ip || ''), 'user=' + encodeURIComponent(C.user || '')].join('&');
     // text/plain: a "simple" request, so the router's own http:// page needs no CORS pre-check
     fetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: v.blob, cache: 'no-store' })
       .then(function (r) { return r.json(); }).catch(function () { return { ok: false, message: 'No connection to TapTap. Check the Wi-Fi and try again.' }; })
@@ -518,7 +619,9 @@
         clearTimeout(S.t.spk); S.t.spk = setTimeout(function () { banner(''); }, r.mode === 'ios' || r.mode === 'none' ? 6000 : 2000);
       });
     }
-    else if (a === 'retry') { intro(); var g = $('pcGo'); if (g) g.click(); }
+    else if (a === 'answer') answer();
+    else if (a === 'refuse') refuse();
+    else if (a === 'retry') { if (S.ringId && !S.liveAt) return answer(); intro(); var g = $('pcGo'); if (g) g.click(); }
     else if (a === 'copy') copyLink();
     else if (a === 'callback') callback();
     else if (a === 'voice' || a === 'vagain') vRecord();
@@ -537,5 +640,11 @@
   // ───────── boot ─────────
   if (C.logo) { /* logo already in the page */ }
   intro();
-  api('status').then(function (d) { if (d && d.ok) { S.status = d; if (S.state === 'idle') intro(); } else { sub.textContent = 'Tap Call — we will ring our team.'; } });
+  // Is the business calling this phone back right now? (opened from the "… is calling you" card, or just in time)
+  api('inbox').then(function (d) {
+    if (!d || !d.ok || S.state !== 'idle') return;
+    if (d.ring) incoming(d.ring);
+    else if (d.tried) { S.note = 'We tried to call you back. Tap Call to reach us now.'; intro(S.note); }
+  });
+  api('status').then(function (d) { if (d && d.ok) { S.status = d; if (S.state === 'idle') intro(S.note); } else { sub.textContent = 'Tap Call — we will ring our team.'; } });
 })();

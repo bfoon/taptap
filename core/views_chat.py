@@ -321,7 +321,7 @@ def chat_image(request, pk):
     m = get_object_or_404(ChatMessage.objects.select_related('thread', 'thread__business'), pk=pk)
     if not chat.can_access(request.user, m.thread, _biz(request)):
         return HttpResponseNotFound()
-    got = chat_media.open_image(m, request.user, listen=request.GET.get('listen') == '1')
+    got = chat_media.open_image(m, request.user, listen={'1': 'now', '2': 'later'}.get(request.GET.get('listen'), False))
     if got is None:
         return HttpResponse('This file has expired.', status=410, content_type='text/plain')
     if got == 'nolisten':                      # an older app showing it as a picture: never counts as listening
@@ -361,6 +361,16 @@ def chat_image(request, pk):
     return r
 
 
+@login_required
+@require_POST
+def chat_voice_played(request, pk):
+    """The player confirms a voice message is really playing (after ?listen=2): its last minute starts now."""
+    m = get_object_or_404(ChatMessage.objects.select_related('thread', 'thread__business'), pk=pk)
+    if not chat.can_access(request.user, m.thread, _biz(request)):
+        return JsonResponse({'ok': False}, status=404)
+    return JsonResponse({'ok': True, **chat_media.mark_listened(m, request.user)})
+
+
 # ─────────────────────────────── calls & screen sharing ───────────────────────────────
 
 @login_required
@@ -370,6 +380,7 @@ def chat_call_page(request):
     r = render(request, 'core/chat_call.html', {
         'thread': int(request.GET.get('thread') or 0), 'video': request.GET.get('video') == '1',
         'join': (request.GET.get('join') or '')[:40], 'embedded': request.GET.get('embed') == '1',
+        'customer': int(request.GET.get('customer') or 0) if str(request.GET.get('customer') or '').isdigit() else 0,
         'me': chat.display_name(request.user), 'me_initials': chat.initials(request.user),
         # Studio name tag: "TapTap Support" for agents, else the business name (editable in the call)
         'me_title': 'TapTap Support' if chat.is_agent(request.user) else getattr(_biz(request), 'business_name', '') or '',
@@ -390,7 +401,13 @@ def chat_call_poll(request):
     from . import chat_call
     cid = request.GET.get('id', '')
     if not cid:
-        return JsonResponse({'ok': True, 'rings': chat_call.rings_for(request.user)})
+        rings = chat_call.rings_for(request.user)
+        if rings and getattr(request, 'tt_mobile', None) is not None:      # the app is showing them: no more pushes
+            for r in rings:
+                c = chat_call.get(r['id'])
+                if c:
+                    chat_call.ring_ack(c, request.user.pk)
+        return JsonResponse({'ok': True, 'rings': rings})
     call = chat_call.get(cid)
     if not call or not chat_call.is_member(call, request.user.pk):
         return JsonResponse({'ok': True, 'call': {'id': cid, 'state': 'ended', 'reason': 'gone'}})
@@ -406,6 +423,11 @@ def chat_call_act(request):
     d = _body(request) if request.content_type == 'application/json' else request.POST.dict()
     act, user = d.get('action'), request.user
     try:
+        if act == 'start' and d.get('customer'):          # call a Wi-Fi customer back on their page (core/portal_call.py)
+            from . import portal_call
+            call, title = portal_call.call_back(user, _biz(request), int(d.get('customer') or 0))
+            return JsonResponse({'ok': True, 'call': chat_call.public_state(call, user.pk), 'title': title,
+                                 'ice': chat_call.ice_config(user)})
         if act == 'start':
             t = _thread(request, int(d.get('thread') or 0))
             call = chat_call.start(t, user, video=bool(d.get('video')))
@@ -423,6 +445,8 @@ def chat_call_act(request):
                                  'call': chat_call.public_state(call, user.pk), 'from': call['label']})
         elif act == 'answer':
             chat_call.post_answer(call, user, d.get('desc'))
+        elif act == 'ringing':                  # the phone app: "it is ringing here" (stops the repeat pushes)
+            chat_call.ring_ack(call, user.pk)
         elif act == 'reoffer':
             chat_call.post_reoffer(call, user, d.get('desc'), d.get('gen'))
         elif act == 'reanswer':
@@ -438,6 +462,10 @@ def chat_call_act(request):
         elif act == 'log':
             if d.get('event') == 'control':
                 chat_call.log_control(call, user, d.get('secs'), d.get('summary'))
+        elif act == 'end' and user.pk != call['caller'] and (chat_call._taken(call['id']) or {}).get('uid') != user.pk:
+            # someone it rings for who never answered (their microphone failed, their app gave up): that is a
+            # decline for them — it must not end the call for the caller and everyone else still ringing
+            chat_call.decline(call, user)
         elif act == 'end':
             chat_call.finish(call, 'cancelled' if user.pk == call['caller'] and chat_call.state(call)[0] == 'ringing' else d.get('reason') or 'ended')
         else:

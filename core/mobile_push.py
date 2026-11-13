@@ -382,13 +382,24 @@ def _shown(kind, title, body, data, tag=None, thread=None):
 
 # ─────────────────────────────── calls, chat, complaints ───────────────────────────────
 
-def call_ringing(uid, call):
-    """Wake the phone with the incoming-call screen (data only: the app draws it, also when closed)."""
+def phone_users(user_ids):
+    """Which of these people have a signed-in phone that can be rung by push (calls not switched off)?"""
+    if not configured() or not user_ids:
+        return set()
+    from .models_mobile import MobileDevice
+    rows = MobileDevice.objects.filter(user_id__in=list(user_ids), revoked_at__isnull=True).exclude(push_token='')
+    return {d.user_id for d in rows.only('user_id', 'notify') if d.wants('calls')}
+
+
+def call_ringing(uid, call, attempt=1):
+    """Wake the phone with the incoming-call screen (data only: the app draws it, also when closed).
+    Sent again (attempt 2, 3…) while the phone has not confirmed it is ringing (core/chat_call.reping)."""
     portal = call.get('kind') == 'portal'
     # "caller", not "from": FCM keeps "from" for itself and refuses a message that uses it
     data = _data({'type': 'call', 'id': call['id'], 'caller': call.get('label') or call.get('caller_name') or 'Call',
                   'initials': call.get('caller_initials') or '', 'kind': call.get('kind') or 'direct',
-                  'video': '1' if call.get('video') else '0', 'at': int(call.get('at') or time.time())})
+                  'video': '1' if call.get('video') else '0', 'at': int(call.get('at') or time.time()),
+                  'try': attempt, 'info': call.get('info') or ''})
     return send([uid], {
         'data': data,
         'android': {'priority': 'HIGH', 'ttl': '40s'},

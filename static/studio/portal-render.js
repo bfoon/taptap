@@ -933,7 +933,7 @@
       btn.addEventListener('click', function (e) { e.stopPropagation(); e.preventDefault(); setOpen(false); openAppCall(ctx); });
     });
     // Is anybody there? (the people the owner picked, core/portal_call.py) — a green dot, or fall back to the phone
-    if (ctx.callApi && w.getAttribute('data-app') && ctx.mode !== 'preview') callStatus(w, ctx);
+    if (ctx.callApi && w.getAttribute('data-app') && ctx.mode !== 'preview') { callStatus(w, ctx); callInbox(ctx); }
     if (ctx.mode === 'preview') { var dt = w.querySelector('[data-call-dot]'); if (dt) dt.hidden = false; }
     // Once per visit, a little after the page settles; it goes away by itself. The preview shows it at once.
     if (hint) {
@@ -969,7 +969,65 @@
       x.send(JSON.stringify({ action: 'status' }));
     } catch (e) { }
   }
+  /* Which phone this is, for the staff who answer: the router's login page knows the MAC address, the IP and the
+     voucher it is signed in with (core/portal_call.py shows them with the call). */
+  function callWho(ctx) {
+    var m = ctx.mt || {}, out = '';
+    if (m.mac && m.mac.charAt(0) !== '$') out += '&mac=' + encodeURIComponent(m.mac);
+    if (m.ip && m.ip.charAt(0) !== '$') out += '&ip=' + encodeURIComponent(m.ip);
+    if (m.username && m.username.charAt(0) !== '$') out += '&user=' + encodeURIComponent(m.username);
+    return out;
+  }
+  /* The business calls back: once this phone has called (or left its number / a voice message), its Wi-Fi page asks
+     TapTap every few seconds whether someone is calling it, and shows "… is calling you · Answer". A missed
+     call-back stays as "we tried to call you" for a while. Phones that never called do not ask at all. */
+  var inboxT = 0;
+  function callInbox(ctx) {
+    clearTimeout(inboxT);
+    if (!ctx.callApi || ctx.mode === 'preview' || ctx.mode === 'thumb') return;
+    var mac = ctx.mt && ctx.mt.mac && ctx.mt.mac.charAt(0) !== '$' ? ctx.mt.mac : '', dk = '', called = 0;
+    try { called = +localStorage.getItem('tp-called') || 0; if (ctx.mode === 'hosted') dk = localStorage.getItem('tp-call-dk') || ''; } catch (e) { }
+    if ((!mac && !dk) || Date.now() - called > 86400000) return;
+    var ask = function () {
+      if (document.hidden) { inboxT = setTimeout(ask, 6000); return; }
+      try {
+        var x = new XMLHttpRequest(); x.open('POST', ctx.callApi, true); x.setRequestHeader('Content-Type', 'text/plain'); x.timeout = 6000;
+        x.onloadend = function () {
+          var d = {}; try { d = JSON.parse(x.responseText) || {}; } catch (e) { }
+          showInbox(ctx, d);
+          inboxT = setTimeout(ask, d.ring ? 3000 : 9000);
+        };
+        x.send(JSON.stringify({ action: 'inbox', mac: mac, dk: dk }));
+      } catch (e) { }
+    };
+    inboxT = setTimeout(ask, 1500);
+  }
+  function showInbox(ctx, d) {
+    var old = document.querySelector('.tp-inbox'), key = d.ring ? 'r' + d.ring.id : d.tried ? 'tried' : '';
+    if (old && old.getAttribute('data-k') === key) return;
+    if (old) old.remove();
+    if (!key) return;
+    try { if (key === 'tried' && sessionStorage.getItem('tp-tried-x') === '1') return; } catch (e) { }
+    var t = ctx.theme || {}, biz = (ctx.business && ctx.business.name) || 'We';
+    var box = h('div', { 'class': 'tp-inbox', 'data-k': key, role: 'alertdialog', style: 'position:fixed;left:12px;right:12px;bottom:12px;z-index:95;max-width:420px;margin:0 auto;background:#0b1220;color:#fff;border-radius:18px;padding:14px 14px 12px;box-shadow:0 18px 50px -12px rgba(0,0,0,.6);font:600 14px/1.35 system-ui,sans-serif' });
+    box.innerHTML = '<div style="display:flex;gap:10px;align-items:center"><span style="font-size:26px">' + (d.ring ? '📞' : '📵') + '</span><div style="flex:1;min-width:0"><b style="display:block;font-size:15px">' +
+      esc(d.ring ? ((d.ring.from || biz) + ' is calling you') : 'We tried to call you back') + '</b><small style="opacity:.75;font-weight:500">' +
+      (d.ring ? 'Free · over this Wi-Fi' : 'Sorry we missed you — call us again now') + '</small></div></div>' +
+      '<div style="display:flex;gap:8px;margin-top:10px"><button type="button" data-in="go" style="flex:1;border:0;border-radius:12px;padding:12px;font:800 15px system-ui,sans-serif;background:#22c55e;color:#fff;cursor:pointer">' +
+      (d.ring ? 'Answer' : 'Call us') + '</button><button type="button" data-in="x" style="border:0;border-radius:12px;padding:12px 16px;font:700 14px system-ui,sans-serif;background:rgba(255,255,255,.14);color:#fff;cursor:pointer">' + (d.ring ? 'Not now' : 'Close') + '</button></div>';
+    box.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('[data-in]') : null; if (!b) return;
+      box.remove();
+      if (b.getAttribute('data-in') === 'go') { answerId = d.ring ? d.ring.id : ''; openAppCall(ctx); answerId = ''; }
+      else if (!d.ring) { try { sessionStorage.setItem('tp-tried-x', '1'); } catch (x) { } }
+      else box.setAttribute('data-k', key), document.body.appendChild(h('span', { 'class': 'tp-inbox', 'data-k': key, hidden: 'hidden' }));   // "Not now": keep quiet for this call
+    });
+    document.body.appendChild(box);
+    try { if (d.ring && navigator.vibrate) navigator.vibrate([300, 150, 300]); } catch (e) { }
+  }
+  var answerId = '';
   function openAppCall(ctx) {
+    if (ctx.mode !== 'preview' && ctx.mode !== 'thumb') { try { localStorage.setItem('tp-called', String(Date.now())); } catch (e) { } }
     if (ctx.mode === 'preview' || ctx.mode === 'thumb') {
       var cw = document.querySelector('[data-callw]'), hint = cw && cw.querySelector('[data-call-hint]');     // not "h": that is the element helper
       if (hint) { hint.textContent = 'Preview: on the live page this opens the call screen and rings the people you picked in Portal Studio.'; hint.hidden = false; }
@@ -979,7 +1037,7 @@
     if (ctx.mode === 'hosted' && window.isSecureContext) {         // same site, https: the call screen in an overlay
       var old = document.querySelector('.tp-callframe'); if (old) old.remove();
       var box = h('div', { 'class': 'tp-callframe', role: 'dialog', 'aria-label': 'Call' });
-      var f = h('iframe', { src: ctx.callUrl + '?embed=1', allow: 'microphone; autoplay', title: 'Call' });
+      var f = h('iframe', { src: ctx.callUrl + '?embed=1' + callWho(ctx) + (answerId ? '&answer=' + encodeURIComponent(answerId) : ''), allow: 'microphone; autoplay', title: 'Call' });
       box.appendChild(f); document.body.appendChild(box);
       if (!global.__tpCallMsg) {
         global.__tpCallMsg = true;
@@ -988,7 +1046,7 @@
       return;
     }
     // The router's own page is http:// — browsers refuse the microphone there, so open TapTap's https call page.
-    var url = ctx.callUrl + '?back=' + encodeURIComponent(location.href);
+    var url = ctx.callUrl + '?back=' + encodeURIComponent(location.href) + callWho(ctx) + (answerId ? '&answer=' + encodeURIComponent(answerId) : '');
     var win = null; try { win = window.open(url, '_blank'); } catch (e) { }
     if (!win) location.href = url;
   }

@@ -525,6 +525,7 @@
   // Playing: the bytes are fetched only when someone presses ▶ (?listen=1) and played from memory; nothing is
   // preloaded or cached, and the memory copy is dropped when it ends or when its minute is up.
   var VMAX = 30, REC = null, PLAY = { id: 0 }, VDL = {}, WAVE = 26;
+  var SILENCE = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=';
   function attLabel(im) {
     if (!im) return '';
     return im.kind === 'voice' ? '🎙️ Voice message' : im.kind === 'video' ? '🎬 Video clip' : '📷 Photo';
@@ -532,7 +533,8 @@
   function fmtS(s) { s = Math.max(0, Math.round(s || 0)); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
   function voiceType() {
     if (!window.MediaRecorder) return null;
-    var c = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm'];
+    // AAC in MP4 first: every phone and browser plays it (an iPhone cannot play WebM/Opus)
+    var c = ['audio/mp4;codecs=mp4a.40.2', 'audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm'];
     for (var i = 0; i < c.length; i++) { try { if (MediaRecorder.isTypeSupported(c[i])) return c[i]; } catch (e) {} }
     return '';
   }
@@ -592,24 +594,41 @@
   }
   function playVoice(id) {
     var m = msgById(id); if (!m || !m.image || m.image.gone || m.image.local) return;
-    if (PLAY.id === id && PLAY.audio) { if (PLAY.audio.paused) PLAY.audio.play().catch(function () {}); else PLAY.audio.pause(); return updPlay(); }
+    if (PLAY.id === id && PLAY.audio && !PLAY.loading) { if (PLAY.audio.paused) PLAY.audio.play().catch(function () {}); else PLAY.audio.pause(); return updPlay(); }
     if (PLAY.id === id) return;                    // still loading
     stopPlay(); if (REC) return toast({ sender: 'Voice', body: 'Finish your recording first.' });
     var p = PLAY = { id: id, loading: true }; updPlay();
-    fetch('/chat/img/' + id + '/?listen=1', { credentials: 'same-origin', cache: 'no-store' })
+    // The player is made (and started once, silent) inside this tap: Safari only lets a page start sound from a
+    // tap, and by the time the recording has downloaded the tap is over — the first press used to do nothing.
+    var a = p.audio = new Audio(); a.preload = 'auto';
+    try { a.src = SILENCE; var u = a.play(); if (u && u.catch) u.catch(function () {}); } catch (e) {}
+    // listen=2: the recording's last minute starts only when it is really playing here (confirmed below), so a
+    // browser that cannot play it never destroys it unheard.
+    fetch('/chat/img/' + id + '/?listen=2', { credentials: 'same-origin', cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw r.status; return r.blob(); })
       .then(function (b) {
         if (PLAY !== p) return;
         p.url = URL.createObjectURL(b); p.loading = false;
-        var a = p.audio = new Audio(); a.preload = 'auto'; a.src = p.url;
+        try { a.pause(); } catch (e) {}
         a.ontimeupdate = a.onplay = a.onpause = updPlay;
         a.onended = function () { if (PLAY === p) stopPlay(); };
-        a.onerror = function () { if (PLAY === p) { stopPlay(); toast({ sender: 'Voice', body: 'This voice message cannot be played in this browser.' }); } };
-        var mm = msgById(id);
-        if (mm && !mm.mine && mm.image && !mm.image.listened) {      // the first listen starts its last minute
-          mm.image.listened = new Date().toISOString(); mm.image.left = 60; refreshVoice(mm);
-        }
-        a.play().then(updPlay).catch(function () { updPlay(); });
+        var failed = function () {
+          if (PLAY !== p || p.confirmed) return;
+          stopPlay(); toast({ sender: 'Voice', body: 'This browser cannot play this recording. It has NOT been deleted — open it in the TapTap app or another browser.' });
+        };
+        a.onerror = failed;
+        a.onplaying = function () {
+          if (PLAY !== p || p.confirmed || a.src !== p.url) return;
+          p.confirmed = true;
+          var mm = msgById(id);
+          if (!mm || mm.mine) return;
+          api('/chat/img/' + id + '/played/', {}).then(function (d) {
+            var m2 = msgById(id); if (!m2 || !m2.image || m2.image.gone || !d || !d.ok) return;
+            if (d.left != null && !m2.image.listened) { m2.image.listened = new Date().toISOString(); m2.image.left = d.left; refreshVoice(m2); }
+          }).catch(function () {});
+        };
+        a.src = p.url;
+        a.play().then(updPlay).catch(function (e) { updPlay(); if (e && e.name === 'NotSupportedError') failed(); });
       })
       .catch(function (st) {
         if (PLAY === p) stopPlay();
@@ -1286,12 +1305,22 @@
     if (CALL.ring && CALL.ring.id === r.id) return;
     showRing(r);
   }
+  // Who is calling from the Wi-Fi page: voucher, time left, MAC address — and why they are probably calling.
+  function custHTML(c) {
+    if (!c) return '';
+    var v = c.voucher, out = '<span class="ttc-ring-cust" style="display:block;margin-top:4px;font-size:11.5px;line-height:1.45;opacity:.95">';
+    if (v) out += '🎟 <a href="/vouchers/' + (+v.id) + '/" target="_blank" rel="noopener" style="color:inherit;font-weight:800;text-decoration:underline">' + esc(v.code) + '</a> · ' + esc(v.plan || '') + ' · <b>' + esc(v.left || v.state || '') + '</b>' + (v.router ? ' · ' + esc(v.router) : '') + '<br>';
+    if (c.mac) out += '📱 MAC <b style="font-family:ui-monospace,monospace">' + esc(c.mac) + '</b>' + (c.private_mac ? ' (private)' : '') + (c.ip ? ' · ' + esc(c.ip) : '') + (c.device ? ' · ' + esc(c.device) : '') + '<br>';
+    if (c.why) out += '<span style="display:inline-block;margin-top:2px;padding:1px 7px;border-radius:8px;background:rgba(255,196,0,.25)">💡 ' + esc(c.why) + '</span>';
+    else if (c.calls > 1) out += '↩ Called ' + (+c.calls) + ' times';
+    return out + '</span>';
+  }
   var QUICK = ['Can’t talk right now — I’ll call you back.', 'In a meeting. Can you text me?', 'Calling you back in 5 minutes.'];
   function showRing(r) {
     hideRing(); CALL.ring = r;
     var portal = r.kind === 'portal';      // a customer calling from a Wi-Fi page (core/portal_call.py)
     var card = document.createElement('div'); card.className = 'ttc-ring' + (r.kind === 'support' ? ' support' : '') + (portal ? ' portal' : ''); card.setAttribute('role', 'alertdialog');
-    card.innerHTML = '<div class="ttc-ring-av">' + esc(r.initials) + '</div><div class="ttc-ring-mid"><b>' + esc(r.from) + '</b><small>' + (portal ? '📶 Customer on your Wi-Fi page' : (r.video ? 'Incoming video call' : 'Incoming voice call')) + ' · 🔒 encrypted</small></div>' +
+    card.innerHTML = '<div class="ttc-ring-av">' + esc(r.initials) + '</div><div class="ttc-ring-mid"><b>' + esc(r.from) + '</b><small>' + (portal ? '📶 Customer on your Wi-Fi page' : (r.video ? 'Incoming video call' : 'Incoming voice call')) + ' · 🔒 encrypted</small>' + custHTML(r.customer) + '</div>' +
       '<div class="ttc-ring-btns"><button class="ttc-rb no" data-r="decline" title="Decline">' + ICON.phone + '</button>' +
       (portal ? '' : '<button class="ttc-rb msg" data-r="msg" title="Decline with a message">' + ICON.chat + '</button>') +
       (r.video ? '<button class="ttc-rb yes" data-r="video" title="Answer with video">' + ICON.video + '</button>' : '') +
@@ -1359,6 +1388,8 @@
   window.TapChat = {
     open: function (id) { setOpen(true); if (id) openThread(id); },
     call: function (threadId, video) { openCall('/chat/call/?thread=' + threadId + '&video=' + (video ? 1 : 0)); },
+    // ring a Wi-Fi customer back on their page (Portal Studio → Customers who called)
+    callCustomer: function (id) { openCall('/chat/call/?customer=' + (+id)); },
     // "Chat with TapTap support" buttons in the help center
     openSupport: function () {
       var id = supportId(); if (id) { setOpen(true); openThread(id); return; }

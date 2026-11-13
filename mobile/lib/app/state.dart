@@ -23,6 +23,11 @@ class Ring {
   bool get video => data['video'] == true;
   String get kind => '${data['kind'] ?? 'direct'}';
   bool get fromCustomer => kind == 'portal';
+
+  /// A Wi-Fi customer's record (voucher, time left, MAC address, why they may be calling), when TapTap has one.
+  Map<String, dynamic>? get customer => (data['customer'] as Map?)?.cast<String, dynamic>();
+  String get info => '${customer?['line'] ?? data['info'] ?? ''}';
+  String get why => '${customer?['why'] ?? ''}';
 }
 
 /// Who is signed in, what they may do, and the live bits every screen shares (unread, rings).
