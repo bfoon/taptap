@@ -118,19 +118,30 @@
 
             <a class="btn btn-sm btn-outline-secondary" href="{% url 'batch_receipt' x.id %}" title="Batch receipt" aria-label="Receipt for {{ x.name }}"><i class="bi bi-receipt"></i></a>
             <div class="btn-group">
+              {% if x.left and x.left < x.actual %}
+              <a class="btn btn-sm btn-outline-primary" href="{% url 'voucher_print' %}?batch={{ x.id }}&show=left" title="Only the {{ x.left }} still for sale, not the whole batch of {{ x.actual }}">
+                <i class="bi bi-printer"></i> Print {{ x.left }} left
+              </a>
+              {% else %}
               <a class="btn btn-sm btn-outline-primary" href="{% url 'voucher_print' %}?batch={{ x.id }}">
                 <i class="bi bi-printer"></i> Print
               </a>
-              {% if designs|length > 1 %}
-                <button class="btn btn-sm btn-outline-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-label="Choose design"></button>
+              {% endif %}
+              {% if designs|length > 1 or x.left and x.left < x.actual %}
+                <button class="btn btn-sm btn-outline-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-label="More ways to print {{ x.name }}"></button>
                 <ul class="dropdown-menu dropdown-menu-end">
-                  {% for d in designs %}
+                  {% if x.left and x.left < x.actual %}
+                    <li><a class="dropdown-item" href="{% url 'voucher_print' %}?batch={{ x.id }}&show=left"><i class="bi bi-check2-circle text-success"></i> What's left · {{ x.left }}</a></li>
+                    <li><a class="dropdown-item" href="{% url 'voucher_print' %}?batch={{ x.id }}"><i class="bi bi-collection"></i> Whole batch · {{ x.actual }}</a></li>
+                    {% if designs|length > 1 %}<li><hr class="dropdown-divider"></li>{% endif %}
+                  {% endif %}
+                  {% if designs|length > 1 %}{% for d in designs %}
                     <li>
-                      <a class="dropdown-item" href="{% url 'voucher_print' %}?batch={{ x.id }}&design={{ d.id }}">
+                      <a class="dropdown-item" href="{% url 'voucher_print' %}?batch={{ x.id }}&design={{ d.id }}{% if x.left and x.left < x.actual %}&show=left{% endif %}">
                         {{ d.name }}{% if d.is_default %} (default){% endif %}
                       </a>
                     </li>
-                  {% endfor %}
+                  {% endfor %}{% endif %}
                 </ul>
               {% endif %}
             </div>

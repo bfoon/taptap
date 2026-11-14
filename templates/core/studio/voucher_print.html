@@ -22,7 +22,26 @@
 .cs-row>*{min-width:0}.cs-row b{letter-spacing:.6pt;font-size:9pt;white-space:nowrap;overflow:hidden}.cs-row small{color:#6c7c90;font-size:6.4pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.cs-row i{width:3.2mm;height:3.2mm;border:.2mm solid #8a9aab;border-radius:.6mm}
 .cs-head{display:flex;justify-content:space-between;font:700 9pt Inter,system-ui,sans-serif;margin-bottom:2mm;border-bottom:.3mm solid #102033;padding-bottom:1.5mm}.cs-head small{font-weight:500;color:#6c7c90}
 .empty{max-width:520px;margin:4rem auto;text-align:center;background:#fff;border-radius:16px;padding:2rem}
-@media print{.sheets{zoom:1!important}html,body{margin:0!important;padding:0!important;background:#fff}.bar,.note{display:none!important}.sheets{padding:0;gap:0;display:block}
+/* Batch stock ribbon: tap a group to put it on, or take it off, the sheets (core/batch_print.py) */
+.stock{max-width:900px;margin:1rem auto 0;background:#fff;border:1px solid #d7e0ea;border-radius:14px;padding:.8rem 1rem}
+.stock-top{display:flex;flex-wrap:wrap;gap:.5rem 1rem;align-items:baseline;justify-content:space-between}.stock-top b{font-size:.95rem}.stock-top small{color:#6c7c90;font-size:.78rem}
+.stock-bar{display:flex;height:14px;border-radius:999px;overflow:hidden;background:#eef2f6;margin:.6rem 0}.stock-bar span{display:block;min-width:3px;transition:opacity .15s}.stock-bar span.is-off{opacity:.22}
+.stock-chips{display:flex;flex-wrap:wrap;gap:.45rem}
+.stock-chip{display:flex;align-items:center;gap:.45rem;font:inherit;font-size:.8rem;font-weight:650;border:1.5px solid #d5dfea;background:#fff;color:#102033;border-radius:999px;padding:.3rem .7rem .3rem .45rem;cursor:pointer}
+.stock-chip i{width:16px;height:16px;border-radius:50%;background:var(--c);display:grid;place-items:center;color:#fff;font-size:.62rem;font-style:normal}
+.stock-chip[aria-pressed=false]{color:#8a9aab;background:#f6f8fb}.stock-chip[aria-pressed=false] i{background:#cfd8e2}.stock-chip[aria-pressed=true]{border-color:var(--c)}
+.stock-chip:disabled{opacity:.45;cursor:default}.stock-chip em{font-style:normal;font-weight:800}
+.stock-quick{display:flex;gap:.4rem;margin-left:auto}.stock-quick button{font:inherit;font-size:.74rem;border:0;background:none;color:#1769e0;cursor:pointer;padding:.2rem .3rem;text-decoration:underline}
+.stock-foot{margin-top:.6rem;font-size:.76rem;color:#526579;line-height:1.5}.stock-foot code{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.72rem;color:#102033}
+.s-left{--c:#18a66a}.s-sold{--c:#f59e0b}.s-used{--c:#7c8a9a}.s-off{--c:#dc3545}
+.slip{height:100%;border:.3mm dashed #102033;border-radius:1.5mm;padding:2mm 2.5mm;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;font-family:Inter,system-ui,sans-serif;color:#102033}
+.slip b{font-size:1.25em;line-height:1.1;display:block}.slip big{font-size:2em;font-weight:800;line-height:1}.slip small{display:block;font-size:.78em;color:#44566a;line-height:1.25}
+.slip .sign{display:flex;gap:2mm;font-size:.72em;color:#44566a}.slip .sign span{flex:1;border-top:.2mm solid #8a9aab;padding-top:.6mm}
+.pl-row{display:grid;grid-template-columns:5mm 13mm 1fr auto;gap:1.5mm;align-items:center;height:5.4mm;border-bottom:.15mm solid #d5dde6;font-size:7.6pt}
+.pl-row>*{min-width:0}.pl-row b{font-family:"JetBrains Mono",ui-monospace,monospace;letter-spacing:.5pt;font-size:8.6pt;white-space:nowrap;overflow:hidden;text-decoration:line-through;text-decoration-color:#8a9aab}
+.pl-row small{color:#6c7c90;font-size:6.4pt;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pl-row i{width:3.2mm;height:3.2mm;border:.2mm solid #8a9aab;border-radius:.6mm}
+.cs-sub{font:500 7.4pt Inter,system-ui,sans-serif;color:#44566a;margin:-1mm 0 2mm}
+@media print{.sheets{zoom:1!important}html,body{margin:0!important;padding:0!important;background:#fff}.bar,.note,.stock{display:none!important}.sheets{padding:0;gap:0;display:block}
 .sheet{box-shadow:none;margin:0;break-after:page;page-break-after:always;break-inside:avoid;page-break-inside:avoid}.sheet:last-child{break-after:auto;page-break-after:auto}.cell{break-inside:avoid;page-break-inside:avoid}}
 </style></head><body>
 <div class="bar">
@@ -31,7 +50,8 @@
   <span class="sp"></span>
   <label>Design <select id="design">{% for d in designs %}<option value="{{ d.id }}" {% if design and d.id == design.id %}selected{% endif %}>{{ d.name }}{% if d.is_default %} (default){% endif %}</option>{% empty %}<option value="">Classic Blue</option>{% endfor %}</select></label>
   <label>Paper <select id="paper"><option value="A4">A4</option><option value="Letter">Letter</option><option value="A5">A5</option><option value="thermal58">58 mm roll</option><option value="thermal80">80 mm roll</option></select></label>
-  <label>Layout <select id="layout"><option value="cards">Cards</option><option value="sheet">Code sheet (list)</option></select></label>
+  <label>Layout <select id="layout"><option value="cards">Cards</option><option value="sheet">Code sheet (list)</option>{% if stock %}<option value="pull">Pull list (cross off the rest)</option>{% endif %}</select></label>
+  {% if stock %}<label title="A slip in the first place of the print: batch, how many, which serials, the date, and room for two signatures"><input type="checkbox" id="slip"> Tally slip</label>{% endif %}
   <label class="cards-only">Size <select id="scale"><option value="1">100%</option><option value=".9">90%</option><option value=".8">80%</option><option value=".7">70%</option><option value=".6">60%</option><option value=".5">50%</option><option value=".45">45%</option><option value=".4">40%</option><option value="fit">Fit a number per sheet…</option></select></label>
   <label class="cards-only" id="fitWrap" style="display:none">Per sheet <input type="number" id="fitN" min="1" max="400" step="1" value="60" style="width:70px"></label>
   <label class="cards-only">Margin <input type="range" id="margin" min="3" max="15" step=".5" style="width:70px"><output id="marginO"></output></label>
@@ -41,6 +61,12 @@
   {% if design %}<a href="{% url 'voucher_design_editor' design.id %}"><i class="bi bi-palette"></i> Edit design</a>{% else %}<a href="{% url 'voucher_designs' %}"><i class="bi bi-palette"></i> Create a design</a>{% endif %}
   <button class="primary" onclick="window.print()" title="In the print window choose Scale 100% (Actual size), Margins None and turn off Headers and footers"><i class="bi bi-printer"></i> Print</button>
 </div>
+{% if stock %}<div class="stock" id="stock" aria-label="What to print from this batch">
+  <div class="stock-top"><b id="stockTitle"></b><small id="stockSave"></small></div>
+  <div class="stock-bar" id="stockBar" aria-hidden="true"></div>
+  <div class="stock-chips" id="stockChips"></div>
+  <div class="stock-foot" id="stockFoot"></div>
+</div>{% endif %}
 <div class="note" id="qrNote" hidden></div>
 <div class="note" id="printTip"><b>Printing tip:</b> in the print window set <b>Scale 100%</b> (or “Actual size”), <b>Margins: None</b>, and untick <b>Headers and footers</b>. “Fit to page” or default margins shrink or push the cards off the sheet.</div>
 {% if sample %}<div class="note">This is a test sheet with example codes. Print it once to check sizes and colours before printing real vouchers.</div>{% endif %}
@@ -48,7 +74,7 @@
 <script src="{% static 'vendor/qrcode.js' %}"></script><script src="{% static 'studio/voucher-render.js' %}"></script>
 <script>
 (function(){
-  var SAMPLE_LEN={{ sample_len|default:8 }}, cfg={{ config_json|safe }}, rows={{ rows_json|safe }}, biz={{ business_json|safe }}, PAPERS={{ papers_json|safe }}, sample={{ sample|yesno:"true,false" }}, ADS={{ ads_json|safe }};
+  var SAMPLE_LEN={{ sample_len|default:8 }}, cfg={{ config_json|safe }}, rows={{ rows_json|safe }}, STOCK={{ stock_json|default:"null"|safe }}, ALL=rows, biz={{ business_json|safe }}, PAPERS={{ papers_json|safe }}, sample={{ sample|yesno:"true,false" }}, ADS={{ ads_json|safe }};
   cfg.page=cfg.page||{paper:'A4',margin:8,gap:3,cut_marks:true};
   var paper=document.getElementById('paper'), cut=document.getElementById('cut'), sheets=document.getElementById('sheets');
   paper.value=cfg.page.paper||'A4'; cut.checked=!!cfg.page.cut_marks;
@@ -67,6 +93,65 @@
   var MIN_MARGIN=3, SAFE=1.2;
   function grid(W,H,m,g,cw,ch){var cols=Math.max(0,Math.floor((W-2*m+g)/(cw+g))), rws=H?Math.max(0,Math.floor((H-2*m+g)/(ch+g))):Infinity;return {cols:cols,rows:rws,per:H?cols*rws:Infinity};}
   function cardData(r,i){var d=TapVoucher.sample({business:biz.name,ssid:biz.ssid,phone:biz.phone,currency:biz.currency,login_url:biz.login_url,logo:biz.logo});for(var k in r) if(r[k]!=null&&r[k]!=='') d[k]=r[k];d.ad=ADS.length?ADS[i%ADS.length]:null;return d;}
+  // ── Batch stock: which groups of the batch go on the sheets ──
+  var TITLE0=document.querySelector('.bar h1').textContent, ORDER=['left','sold','used','off'], picked={}, slipBox=$('slip');
+  function esc(t){return String(t==null?'':t).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function ranges(list){            // 000101, 000102, 000103, 000107 → 000101–000103, 000107
+    var items=list.map(function(r){var m=/^(.*?)(\d+)$/.exec(String(r.serial||''));return m?{p:m[1],n:+m[2],s:r.serial}:null;}).filter(Boolean)
+      .sort(function(a,b){return a.p<b.p?-1:a.p>b.p?1:a.n-b.n;}), out=[], i=0;
+    while(i<items.length){var j=i;while(j+1<items.length&&items[j+1].p===items[i].p&&items[j+1].n===items[j].n+1)j++;out.push(j>i?items[i].s+'–'+items[j].s:items[i].s);i=j+1;}
+    return out;
+  }
+  function chosen(){return ALL.filter(function(r){return picked[r.state];});}
+  function others(){return ALL.filter(function(r){return !picked[r.state];});}
+  function pick(list){ORDER.forEach(function(s){picked[s]=list.indexOf(s)>=0;});
+    try{var q=new URLSearchParams(location.search), on=ORDER.filter(function(s){return picked[s];});if(on.length===ORDER.length||!on.length)q.delete('show');else q.set('show',on.join(','));history.replaceState(null,'','?'+q.toString());}catch(e){}
+    drawStock();layout();}
+  function drawStock(){
+    var c=STOCK.counts, on=ORDER.filter(function(s){return picked[s];}), n=chosen().length, bar=$('stockBar'), chips=$('stockChips');
+    rows=chosen();
+    var what=on.length===ORDER.length?'whole batch':on.length===1&&picked.left?'what is left':on.map(function(s){return STOCK.labels[s].toLowerCase();}).join(' + ');
+    document.querySelector('.bar h1').textContent=TITLE0+' — '+(on.length===ORDER.length?'whole batch':n+' of '+STOCK.total+(on.length===1&&picked.left?' left':''));
+    $('stockTitle').textContent='Printing '+what+': '+n+' of '+STOCK.total+' voucher'+(STOCK.total===1?'':'s')+(STOCK.holder?' · held by '+STOCK.holder:'');
+    bar.innerHTML='';chips.innerHTML='';
+    ORDER.forEach(function(s){
+      if(c[s]){var seg=document.createElement('span');seg.className='s-'+s+(picked[s]?'':' is-off');seg.style.cssText='flex:'+c[s]+';background:var(--c)';seg.title=STOCK.labels[s]+': '+c[s];bar.appendChild(seg);}
+      var b=document.createElement('button');b.type='button';b.className='stock-chip s-'+s;b.disabled=!c[s];b.setAttribute('aria-pressed',String(!!picked[s]&&!!c[s]));
+      b.innerHTML='<i>'+(picked[s]&&c[s]?'✓':'')+'</i>'+esc(STOCK.labels[s])+' <em>'+c[s]+'</em>';
+      b.onclick=function(){var next=ORDER.filter(function(x){return x===s?!picked[x]:picked[x];});pick(next);};
+      chips.appendChild(b);
+    });
+    var quick=document.createElement('span');quick.className='stock-quick';
+    [['Only what is left',['left']],['Whole batch',ORDER]].forEach(function(q){var b=document.createElement('button');b.type='button';b.textContent=q[0];b.onclick=function(){pick(q[1]);};quick.appendChild(b);});
+    chips.appendChild(quick);
+    var rg=ranges(rows), foot=$('stockFoot');
+    foot.innerHTML=!n?'Nothing is ticked. Tap a group above to put it on the sheets.'
+      :(rg.length?'Serials on these sheets: <code>'+esc(rg.slice(0,14).join(', '))+(rg.length>14?' … and '+(rg.length-14)+' more ranges':'')+'</code><br>':'')
+       +(others().length?'Already printed this batch? Choose the layout <b>Pull list</b> to print the '+others().length+' codes to cross off the old sheets instead of printing new ones.':'');
+  }
+  function slipCell(cw,ch){
+    var rg=ranges(rows), on=ORDER.filter(function(s){return picked[s];}), d=document.createElement('div');
+    d.className='slip';d.style.fontSize=Math.max(5,Math.min(13,Math.min(ch/4.6,cw/9)))+'pt';
+    d.innerHTML='<div><small>'+esc(biz.name||'')+' · Wi-Fi vouchers</small><b>'+esc(STOCK.batch)+'</b></div>'
+      +'<div><big>'+rows.length+'</big> <small style="display:inline">of '+STOCK.total+' · '+esc(on.length===ORDER.length?'whole batch':on.map(function(s){return STOCK.labels[s];}).join(' + '))+'</small>'
+      +'<small>'+esc(rg.slice(0,4).join(', '))+(rg.length>4?' …':'')+'</small></div>'
+      +'<div><small>Printed '+esc(STOCK.printed)+(STOCK.holder?' · '+esc(STOCK.holder):'')+'</small><div class="sign"><span>Counted by</span><span>Received by</span></div></div>';
+    return d;
+  }
+  function pullList(W,H,roll){
+    var list=others(), m=8, rowH=5.4, cols=roll?1:(W>=200?3:(W>=140?2:1)), head=16, rowsPer=roll?Infinity:Math.floor((H-2*m-head)/rowH), per=roll?Infinity:cols*rowsPer, pages=roll?1:Math.max(1,Math.ceil(list.length/per));
+    if(!list.length){sheets.innerHTML='<div class="empty"><h2>Nothing to cross off</h2><p>Every voucher of this batch is ticked above, so the old sheets are still right as they are.</p></div>';$('summary').textContent='Pull list · nothing to cross off';return;}
+    for(var p=0;p<pages;p++){
+      var sh=document.createElement('div');sh.className='sheet';sh.style.cssText='width:'+W+'mm;'+(roll?'':'height:'+H+'mm;')+'padding:'+m+'mm';
+      var slice=roll?list:list.slice(p*per,(p+1)*per), colLen=roll?slice.length:Math.ceil(slice.length/cols);
+      var html='<div class="cs-head"><span>'+esc(biz.name||'')+' — pull list</span><small>'+esc(STOCK.batch)+' · sheet '+(p+1)+' of '+pages+'</small></div>'
+        +'<div class="cs-sub">Cross these '+list.length+' codes off the sheets you already printed (or pull the cards out). What stays is still for sale: '+rows.length+' of '+STOCK.total+'. '+esc(STOCK.printed)+'</div>'
+        +'<div class="cs-grid" style="grid-template-columns:repeat('+cols+',1fr)">';
+      for(var c=0;c<cols;c++){ html+='<div>'; slice.slice(c*colLen,(c+1)*colLen).forEach(function(r){ html+='<div class="pl-row"><i></i><small>#'+esc(r.serial)+'</small><b>'+esc(r.code)+'</b><small>'+esc({sold:'Sold',used:'Used',off:'Off',left:'Left'}[r.state]||'')+'</small></div>'; }); html+='</div>'; }
+      sh.innerHTML=html+'</div>'; sheets.appendChild(sh);
+    }
+    $('summary').textContent='Pull list · '+list.length+' codes to cross off · '+pages+' sheet'+(pages===1?'':'s');
+  }
   function layout(){
     remember();
     var pk=paper.value, pp=PAPERS[pk]||PAPERS.A4, roll=!pp[1], W=roll?pp[0]:pp[0]-SAFE, H=roll?0:pp[1]-SAFE, m=roll?2:Math.max(MIN_MARGIN,+mIn.value||0), g=+gIn.value||0;
@@ -77,7 +162,11 @@
     document.getElementById('pageRule').textContent='@page{size:'+(roll?pp[0]+'mm auto':pp[0]+'mm '+pp[1]+'mm')+';margin:0}';
     $('printTip').hidden=roll;
     sheets.innerHTML='';
-    if(!rows.length){sheets.innerHTML='<div class="empty"><h2>Nothing to print</h2><p>There are no vouchers matching this selection. Generate a batch or choose different vouchers.</p></div>';return;}
+    if(STOCK){ if(slipBox) slipBox.parentNode.style.display=layoutSel.value==='cards'?'':'none'; $('stockSave').textContent=''; }
+    if(STOCK&&layoutSel.value==='pull'){[].forEach.call(document.querySelectorAll('.cards-only'),function(e){e.style.display='none';});return pullList(W,H,roll);}
+    if(!rows.length){sheets.innerHTML=STOCK&&ALL.length
+        ?'<div class="empty"><h2>'+(STOCK.counts.left||!picked.left?'Nothing is ticked':'Nothing left to sell')+'</h2><p>'+(STOCK.counts.left||!picked.left?'Tap a group in the ribbon above to put it on the sheets.':'Every voucher of this batch is sold, used or switched off. Tap another group above to print it anyway.')+'</p></div>'
+        :'<div class="empty"><h2>Nothing to print</h2><p>There are no vouchers matching this selection. Generate a batch or choose different vouchers.</p></div>';$('summary').textContent='0 vouchers';return;}
     if(sheetMode) return codeSheet(W,H,roll);
     var s=1, cw0=cfg.size.w, ch0=cfg.size.h;
     if(scaleSel.value==='fit'){ var want=Math.max(1,+fitN.value||1); s=1; while(s>.25 && grid(W,H,m,g,cw0*s,ch0*s).per<want) s=Math.round((s-.01)*100)/100; }
@@ -88,27 +177,30 @@
     var smallQr=(cfg.elements||[]).filter(function(e){return e.type==='qr'&&!e.hidden&&Math.min(e.w,e.h)*s<12;}).length;
     var qn=$('qrNote'); qn.hidden=!(smallQr&&!noqr.checked); qn.innerHTML='At '+Math.round(s*100)+'% the QR code is under 12 mm and many phones will not scan it. Tick <b>Hide QR</b> or choose a larger size.';
     var c2=noqr.checked?Object.assign({},cfg,{elements:(cfg.elements||[]).filter(function(e){return e.type!=='qr';})}):cfg;
-    var pages=roll?1:Math.ceil(rows.length/per);
+    var slip=STOCK&&slipBox&&slipBox.checked?1:0, cells=slip?[null].concat(rows):rows;       // the tally slip takes the first place
+    var pages=roll?1:Math.ceil(cells.length/per);
     for(var p=0;p<pages;p++){
       var sh=document.createElement('div');sh.className='sheet'+(cut.checked?' cut':'');
-      var slice=roll?rows:rows.slice(p*per,(p+1)*per);
+      var slice=roll?cells:cells.slice(p*per,(p+1)*per);
       sh.style.cssText='width:'+W+'mm;'+(roll?'':'height:'+H+'mm;')+'padding:'+m+'mm;margin-left:auto;margin-right:auto';
       var gr=document.createElement('div');gr.className='grid';gr.style.cssText='grid-template-columns:repeat('+cols+','+cw+'mm);grid-auto-rows:'+ch+'mm;gap:'+g+'mm';
       slice.forEach(function(r,i){
         var cell=document.createElement('div');cell.className='cell';cell.style.cssText='width:'+cw+'mm;height:'+ch+'mm;overflow:hidden';
-        var card=TapVoucher.renderCard(c2,cardData(r,p*per+i)); if(s!==1){card.classList.add('cellin');card.style.transform='scale('+s+')';}
+        if(r===null){cell.appendChild(slipCell(cw,ch));gr.appendChild(cell);return;}
+        var card=TapVoucher.renderCard(c2,cardData(r,p*per+i-slip)); if(s!==1){card.classList.add('cellin');card.style.transform='scale('+s+')';}
         cell.appendChild(card);gr.appendChild(cell);
       });
       sh.appendChild(gr);sheets.appendChild(sh);
     }
     $('summary').textContent=rows.length+' voucher'+(rows.length===1?'':'s')+(roll?' on a continuous roll':' · '+pages+' sheet'+(pages===1?'':'s')+' · '+per+' per sheet ('+cols+' × '+G.rows+')')+(s!==1?' · '+Math.round(s*100)+'% size':'');
+    if(STOCK&&!roll){var whole=Math.ceil((ALL.length+slip)/per), saved=whole-pages;$('stockSave').textContent=saved>0?saved+' sheet'+(saved===1?'':'s')+' of paper saved against the whole batch ('+whole+')':'';}
   }
   function codeSheet(W,H,roll){
-    var m=8, rowH=5.4, cols=W>=200?3:(W>=140?2:1), head=10, rowsPer=roll?Infinity:Math.floor((H-2*m-head)/rowH), per=roll?Infinity:cols*rowsPer, pages=roll?1:Math.ceil(rows.length/per);
+    var m=8, rowH=5.4, cols=W>=200?3:(W>=140?2:1), head=STOCK?16:10, rowsPer=roll?Infinity:Math.floor((H-2*m-head)/rowH), per=roll?Infinity:cols*rowsPer, pages=roll?1:Math.ceil(rows.length/per);
     for(var p=0;p<pages;p++){
       var sh=document.createElement('div');sh.className='sheet';sh.style.cssText='width:'+W+'mm;'+(roll?'':'height:'+H+'mm;')+'padding:'+m+'mm';
       var slice=roll?rows:rows.slice(p*per,(p+1)*per), colLen=roll?slice.length:Math.ceil(slice.length/cols);
-      var html='<div class="cs-head"><span>'+TapVoucher.fill('{business}',{business:biz.name})+' — Wi-Fi vouchers</span><small>'+document.querySelector('.bar h1').textContent+' · sheet '+(p+1)+' of '+pages+'</small></div><div class="cs-grid" style="grid-template-columns:repeat('+(roll?1:cols)+',1fr)">';
+      var html='<div class="cs-head"><span>'+TapVoucher.fill('{business}',{business:biz.name})+' — Wi-Fi vouchers</span><small>'+document.querySelector('.bar h1').textContent+' · sheet '+(p+1)+' of '+pages+'</small></div>'+(STOCK&&p===0?'<div class="cs-sub">'+rows.length+' of '+STOCK.total+' in this batch · serials '+esc(ranges(rows).slice(0,10).join(', '))+(ranges(rows).length>10?' …':'')+' · printed '+esc(STOCK.printed)+'</div>':'')+'<div class="cs-grid" style="grid-template-columns:repeat('+(roll?1:cols)+',1fr)">';
       for(var c=0;c<(roll?1:cols);c++){ html+='<div>'; slice.slice(c*colLen,(c+1)*colLen).forEach(function(r){ html+='<div class="cs-row"><small>#'+(r.serial||'')+'</small><b>'+(r.code||'')+'</b><small>'+(r.plan||'')+' · '+(biz.currency||'D')+(r.price||'')+'</small><i title="Sold"></i></div>'; }); html+='</div>'; }
       sh.innerHTML=html+'</div>'; sheets.appendChild(sh);
     }
@@ -117,6 +209,8 @@
   [layoutSel,scaleSel,noqr].forEach(function(e){e.onchange=layout;}); [fitN,mIn,gIn].forEach(function(e){e.oninput=layout;});
   paper.onchange=layout;cut.onchange=layout;
   document.getElementById('design').onchange=function(){var q=new URLSearchParams(location.search);q.set('design',this.value);location.search=q.toString();};
+  if(slipBox){try{slipBox.checked=localStorage.getItem('tt-print-slip')==='1';}catch(e){} slipBox.onchange=function(){try{localStorage.setItem('tt-print-slip',slipBox.checked?'1':'0');}catch(e){} layout();};}
+  if(STOCK){STOCK.show.forEach(function(x){picked[x]=true;});drawStock();}
   layout(); if(document.fonts) document.fonts.ready.then(layout);
 })();
 </script><script>

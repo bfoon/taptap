@@ -506,8 +506,12 @@ def voucher_print(request):
     config = dsg.config if dsg else voucher_template('classic')
     qs = business.vouchers.all().order_by('created_at')
     title = 'Vouchers'
+    stock, states = None, {}
     if request.GET.get('batch'):
         batch = get_object_or_404(business.batches, pk=request.GET['batch']); qs = qs.filter(batch=batch); title = batch.name
+        from . import batch_print          # where every voucher of the batch stands: the page can print only what is left
+        qs = qs.order_by('created_at', 'pk')[:batch_print.BATCH_LIMIT]
+        states, stock = batch_print.stock(batch, qs, request.GET.get('show'))
     elif request.GET.get('ids'):
         ids = [int(x) for x in request.GET['ids'].split(',') if x.strip().isdigit()][:1000]; qs = qs.filter(pk__in=ids); title = f'{len(ids)} selected vouchers'
     elif request.GET.get('agent'):
@@ -520,13 +524,16 @@ def voucher_print(request):
     else:
         qs = qs.filter(status='active', sold_at__isnull=True, used_at__isnull=True, agent__isnull=True); title = 'Unsold shop stock'
     limit = min(2000, int(request.GET.get('limit') or 1000))
-    rows = voucher_print_rows(business, qs[:limit])
+    rows = voucher_print_rows(business, qs if stock else qs[:limit])
+    for row in rows if stock else ():
+        row['state'] = states.get(row['code'], 'left')
     return render(request, 'core/studio/voucher_print.html', {
         'title': title, 'design': dsg, 'designs': business.voucher_designs.all(), 'config_json': _safe_json(config),
         'rows_json': _safe_json(rows), 'business_json': _safe_json(business_ctx(business)), 'count': len(rows),
         'sample': bool(request.GET.get('sample')), 'papers_json': _safe_json({k: list(v) for k, v in PAPERS.items()}),
         'ads_json': _safe_json(ads_for(business, 'voucher')),
         'query': request.GET.urlencode(), 'sample_len': portal_code_length(business),
+        'stock': stock, 'stock_json': _safe_json(stock),
     })
 
 
