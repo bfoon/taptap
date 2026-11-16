@@ -39,6 +39,7 @@ from . import voucher_ready as vready
 from . import views_fit as vfit
 from . import views_clock as vclock
 from . import views_unstick as vunstick
+from . import views_flow as vflow
 
 urlpatterns = [
     path('network/devices/',vnd.netdev_list,name='netdev_list'), path('network/devices/save/',vnd.netdev_save,name='netdev_save'),
@@ -198,6 +199,13 @@ urlpatterns = [
     path('topology/labels/',vgeo.topology_labels,name='topology_labels'),
     path('routers/<int:pk>/ports/blink/',views_ports.port_blink,name='port_blink'),
     path('routers/<int:pk>/clock/',vclock.clock_status,name='router_clock'), path('routers/<int:pk>/clock/read/',vclock.clock_read,name='router_clock_read'), path('routers/<int:pk>/clock/set/',vclock.clock_set,name='router_clock_set'),
+    # Connection lab, internet-line switch, DHCP lease, Traffic → Idle / Slow / Lines (core/views_flow.py)
+    path('flow/lab/',vflow.flow_lab,name='flow_lab'), path('flow/lab/run/',vflow.flow_lab_run,name='flow_lab_run'),
+    path('flow/lab/verdict/',vflow.flow_lab_verdict,name='flow_lab_verdict'), path('flow/live/',vflow.flow_live,name='flow_live'),
+    path('flow/test/<int:pk>/',vflow.flow_test,name='flow_test'), path('flow/line/',vflow.flow_line,name='flow_line'),
+    path('flow/lines/',vflow.flow_lines,name='flow_lines'), path('flow/idle/',vflow.flow_idle,name='flow_idle'),
+    path('flow/slow/',vflow.flow_slow,name='flow_slow'), path('flow/slow/scan/',vflow.flow_slow_scan,name='flow_slow_scan'),
+    path('flow/dhcp/',vflow.flow_dhcp,name='flow_dhcp'),
     path('network-tools/',vnt.network_tools,name='network_tools'), path('network-tools/run/',vnt.network_tools_run,name='network_tools_run'),
     path('network-tools/test/<int:pk>/',vnt.network_tools_test,name='network_tools_test'),
     path('network-tools/path/',vnt.network_tools_path,name='network_tools_path'), path('network-tools/devices/',vnt.network_tools_devices,name='network_tools_devices'),

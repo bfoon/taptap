@@ -1184,9 +1184,14 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
         p = dict(params or {})
         if not isinstance(p.get('test_id'), int):
             raise ValueError('Invalid test.')
-        clean = clean_params(p.get('kind'), p)           # raises ValueError on anything odd
-        if p.get('target') != clean.get('target') or any(p.get(k) != v for k, v in clean.items()):
-            raise ValueError('Invalid test.')
+        from .nettools import LAB_KINDS
+        if p.get('kind') in LAB_KINDS:                   # built by TapTap itself (core/conn_lab.py); checked again here
+            from .conn_lab import validate as lab_validate
+            lab_validate(p.get('kind'), p)
+        else:
+            clean = clean_params(p.get('kind'), p)       # raises ValueError on anything odd
+            if p.get('target') != clean.get('target') or any(p.get(k) != v for k, v in clean.items()):
+                raise ValueError('Invalid test.')
     if kind == 'protection':
         from .protection import FEATURES
         if (params or {}).get('feature') not in FEATURES or (params or {}).get('action') not in ('enable', 'disable', 'unblock'):

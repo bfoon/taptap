@@ -6,7 +6,10 @@ from django.db import models
 class NetTest(models.Model):
     KINDS = [('doctor', 'Internet check'), ('ping', 'Ping'), ('trace', 'Traceroute'), ('dns', 'DNS lookup'),
              ('web', 'Website check'), ('speed', 'Speed test'),
-             ('whoami', 'Find my device'), ('hops', 'Path check'), ('mypath', 'My connection'), ('drops', 'Why people drop')]
+             ('whoami', 'Find my device'), ('hops', 'Path check'), ('mypath', 'My connection'), ('drops', 'Why people drop'),
+             # Connection lab, internet lines and DHCP lease (core/conn_lab.py)
+             ('client', 'Device check'), ('cspeed', 'Speed check'), ('slowscan', 'Slow scan'), ('lane', 'Internet line'),
+             ('lanepin', 'Line switch'), ('laneoff', 'Line release'), ('dhcp', 'DHCP lease'), ('dhcpset', 'DHCP lease change')]
     STATUS = [('running', 'Running'), ('waiting', 'Waiting for the router'), ('done', 'Done'), ('failed', 'Failed')]
     business = models.ForeignKey('core.Business', on_delete=models.CASCADE, related_name='net_tests')
     router = models.ForeignKey('core.Router', on_delete=models.CASCADE, related_name='net_tests')

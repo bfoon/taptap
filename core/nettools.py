@@ -34,9 +34,13 @@ KINDS = {
     'hops': 'Path check',
     'mypath': 'My connection',
     'drops': 'Why people drop',
+    # Connection lab, internet lines and DHCP lease (core/conn_lab.py) — started from their own pages, not from this one
+    'client': 'Device check', 'cspeed': 'Speed check', 'slowscan': 'Slow scan', 'lane': 'Internet line',
+    'lanepin': 'Line switch', 'laneoff': 'Line release', 'dhcp': 'DHCP lease', 'dhcpset': 'DHCP lease change',
 }
 DROPS_LINES = 60                 # the latest hotspot sign-outs read from the router's log
 PATH_KINDS = ('whoami', 'hops')       # core/pathtrace.py
+LAB_KINDS = ('client', 'cspeed', 'slowscan', 'lane', 'lanepin', 'laneoff', 'dhcp', 'dhcpset')   # core/conn_lab.py
 
 CHECK_IPS = ('1.1.1.1', '8.8.8.8')
 CHECK_NAME = 'google.com'
@@ -107,7 +111,7 @@ def is_ip(v):
 
 def clean_params(kind, data):
     """Validated parameters for one test (raises ValueError with a readable message)."""
-    if kind not in KINDS or kind == 'mypath':
+    if kind not in KINDS or kind == 'mypath' or kind in LAB_KINDS:      # lab tests are built by core/views_flow.py only
         raise ValueError('Unknown test.')
     if kind in PATH_KINDS:
         from .pathtrace import clean
@@ -134,7 +138,7 @@ def clean_params(kind, data):
 
 def limit_check(business, router, kind):
     """Refuse floods: a busy hand on the button must not hammer the router (or the customer's data bundle)."""
-    light = kind in ('ping',) + PATH_KINDS                         # "Keep pinging" and path checks send many small pings
+    light = kind in ('ping',) + PATH_KINDS + LAB_KINDS             # "Keep pinging", path checks and lab reads are small and many
     n, window = RATE_PINGS if light else RATE_TESTS
     key = f'tt:nt:rate:{business.pk}:{"p" if light else "t"}'
     count = cache.get(key, 0)
@@ -614,6 +618,9 @@ def run_api(test):
     from .mikrotik import MikroTikService
     svc = MikroTikService(test.router, timeout=45).connect()
     try:
+        if test.kind in LAB_KINDS:
+            from . import conn_lab
+            return conn_lab.run_api(test, svc)
         if test.kind == 'doctor':
             return run_doctor(svc)
         if test.kind == 'drops':
@@ -633,6 +640,9 @@ def summary(test):
         return 'Waiting for the router…'
     if test.status == 'failed':
         return r.get('error') or 'Failed'
+    if test.kind in LAB_KINDS:
+        from .conn_lab import summary as lab_summary
+        return lab_summary(test)
     if test.kind in ('doctor', 'drops'):
         return r.get('title', '')
     if test.kind == 'ping':
@@ -687,6 +697,9 @@ def link_body(cmd, url, check, nonce_value):
     if kind in PATH_KINDS:
         from .pathtrace import link_body as path_body
         body = path_body(kind, p, rs)
+    elif kind in LAB_KINDS:
+        from .conn_lab import link_body as lab_body
+        body = lab_body(kind, p, rs)
     elif kind == 'ping':
         body = (_resolve(rs, target) + ':if ([:len $ip] > 0) do={ :set out ("ip=" . $ip . "\\n"); '
                 f':for i from=1 to={int(p["count"])} do={{ ' + _ping_snippet('$ip', 1, p['size'], 'r=') + ':delay 400ms } }; ')
@@ -856,7 +869,11 @@ def receive_link(cmd, body):
     t = NetTest.objects.filter(pk=cmd.params.get('test_id'), router=cmd.router).first()
     if not t:
         return None
-    res = parse_link(t.kind, t.params, body)
+    if t.kind in LAB_KINDS:
+        from .conn_lab import parse_link as lab_parse
+        res = lab_parse(t.router, t.kind, t.params, _lines(body))
+    else:
+        res = parse_link(t.kind, t.params, body)
     if t.kind == 'drops':
         res = drops_members(t.router.business, res)
     if t.kind == 'whoami':

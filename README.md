@@ -498,3 +498,43 @@ default), and the person needs the same role permission as on the Members page (
 `vouchers.create`; support work: `vouchers.support`; plan assignment: `vouchers.create` or `plans.manage`; plans:
 `plans.manage`; bin: `vouchers.manage`). Everything is re-checked when Take action is pressed, done by the same
 services as the Members pages, and recorded in the member's history with "(approved in Fit)".
+
+
+## v6 — Where the traffic goes, and why it is slow
+
+### Internet lines, per customer
+- On a router that shares customers over several lines (PCC), the connection sample TapTap already takes carries each
+  connection's line mark, so **which line every customer is on** is known without asking the router.
+- **Traffic → Internet lines**: each line with the share you designed next to the share that is really there, who is on
+  it, and every switch made by hand.
+- **Switch** moves one customer to another line: one mangle rule above the sharing rules for that phone only, then its
+  open connections are closed so it changes line at once. Routes, tables, NAT and the sharing rules are never touched.
+  **Back to automatic** removes it; a rule removed on the router is noticed and forgotten here too.
+
+### Idle vouchers (Traffic → Idle vouchers)
+- **Signed in, no traffic**: per session, since when it has been silent (under 1 kb/s) or merely calm (under 10 kb/s).
+- **Time running, not online**: started vouchers whose time is ticking with nobody signed in — straight to Can't connect?
+
+### Slow vouchers (Traffic → Slow vouchers)
+- Everyone held back by fair usage, a speed rule or their own plan speed, with the speed they are doing against the limit.
+- **Scan the routers for drops** reports the packets each speed limit has dropped — what the customer actually feels.
+
+### DHCP lease time (Traffic → DHCP lease, and Network tools)
+- Every DHCP server with its lease time and how full its address pool is, plus advice: too short signs sleeping phones
+  out ("lost dhcp lease"), too long fills the pool until new customers are refused.
+- One click sets one network or all of them, and the value is read back from the router. Nobody is disconnected.
+
+### Connection lab
+- On the voucher page, the device page, Network tools and every row of the new tabs: a road from the phone to the
+  internet — phone, Wi-Fi/cable, speed limit, internet line, internet — measured from the MikroTik the customer is on.
+- Device check (pings reply by reply, Wi-Fi signal and rate, port, address lease, session) and Speed check (every limit
+  on its address with its dropped packets, its internet line, the router's own internet, CPU, its sign-outs from the log).
+- The verdict names the slow part in plain words and offers the one button that helps. Live speed is drawn every 5
+  seconds against the limit.
+- Every check is a normal TapTap Link / API test, so it appears in Network tools → Recent tests with who ran it.
+
+### Database migration
+
+    docker compose run --rm web python manage.py migrate core
+
+`showmigrations core` should show `0122_flow_lab` as `[X]`. Nothing needs changing on the routers.

@@ -297,7 +297,7 @@ def _dns_map(router, svc):
 def _connections(svc):
     res = svc.resource('/ip/firewall/connection')
     try:
-        rows = res.call('print', {'.proplist': '.id,src-address,dst-address,reply-src-address,protocol,orig-bytes,repl-bytes'})
+        rows = res.call('print', {'.proplist': '.id,src-address,dst-address,reply-src-address,protocol,orig-bytes,repl-bytes,connection-mark'})
         if rows is not None:
             return rows
     except Exception:
@@ -315,6 +315,11 @@ def collect_sessions(router, active, now=None):
     prev = cache.get(skey) or {}
     first_pass = not prev
     cur, per_user, now_list = {}, defaultdict(lambda: [0, 0, 0]), []
+    try:      # how long each session has been silent (core/traffic_idle.py)
+        from .traffic_idle import Quiet
+        quiet = Quiet(router, ts)
+    except Exception:
+        quiet = None
     tot_down = tot_up = 0
     dt_all = None
     from .sync import _routeros_seconds
@@ -342,25 +347,29 @@ def collect_sessions(router, active, now=None):
             # (bypass hosts have no reliable uptime: on the very first reading only their baseline is taken)
             # A session TapTap has not seen before: everything it used is new.
             d_up, d_down = b_up, b_down
+        q_for = quiet.note(sid, p, user, b_up, b_down, d_up, d_down, s.get('uptime')) if quiet else (None, None)
         if d_up or d_down:
             agg = per_user[(user, mac)]
             agg[0] += d_down; agg[1] += d_up; agg[2] = max(agg[2], rate_down)
             tot_down += d_down; tot_up += d_up
         now_list.append({'user': user, 'mac': mac, 'ip': str(s.get('address', '')), 'sid': sid, 'down_bps': rate_down, 'up_bps': rate_up,
-                         'session_down': b_down, 'session_up': b_up, 'uptime': str(s.get('uptime', ''))})
+                         'session_down': b_down, 'session_up': b_up, 'uptime': str(s.get('uptime', '')),
+                         'quiet': q_for[0], 'calm': q_for[1]})
     # Keep the last reading of sessions missing from this read for an hour: a read that briefly
     # misses a session must not make TapTap count that session's whole history again.
     for sid, p in prev.items():
         if sid not in cur and ts - p[2] < 3600:
             cur[sid] = p
     cache.set(skey, cur, 2 * 86400)
+    if quiet:
+        quiet.save()
     ipmap = {x['ip']: [x['mac'], x['user']] for x in now_list if x['ip']}
     if ipmap:
         cache.set(f'tt:tr:ipmap:{router.pk}', ipmap, 3600)
     # every session's live speed, by voucher code (the "now" list above keeps only the top 25)
     by_user = defaultdict(list)
     for x in now_list:
-        by_user[x['user'].upper()].append({k: x[k] for k in ('ip', 'mac', 'down_bps', 'up_bps', 'session_down', 'session_up', 'uptime')})
+        by_user[x['user'].upper()].append({k: x[k] for k in ('ip', 'mac', 'down_bps', 'up_bps', 'session_down', 'session_up', 'uptime', 'sid', 'quiet', 'calm')})
     cache.set(f'tt:tr:users:{router.pk}', {'at': now.isoformat(), 'users': dict(by_user)}, 600)
     for (user, mac), (dn, up, peak) in per_user.items():
         obj, created = UsageRecord.objects.get_or_create(router=router, username=user, mac_address=mac, hour=hour,
@@ -425,6 +434,7 @@ def ingest_connections(router, conns, dns, now):
     agg = defaultdict(lambda: [0, 0])
     per_dev = defaultdict(lambda: [0, 0])     # (client ip, app, category, domain) → [down, up]
     busy = defaultdict(int)                    # busy connections per customer (Internet sharing signal)
+    lanes = defaultdict(lambda: defaultdict(int))   # client ip → {connection mark: connections} (core/line_steer.py)
     for c in conns:
         cid = str(c.get('id') or c.get('.id') or '')
         src_ip, _ = _split_addr(c.get('src-address'))
@@ -432,6 +442,9 @@ def ingest_connections(router, conns, dns, now):
         if not cid or not _is_private(src_ip) or _is_private(dst_ip):
             continue  # only customer → Internet traffic
         busy[src_ip] += 1
+        mark = str(c.get('connection-mark') or '')
+        if mark:
+            lanes[src_ip][mark] += 1
         up, down = _int(c.get('orig-bytes')), _int(c.get('repl-bytes'))
         if up + down < 1024:
             continue
@@ -453,6 +466,11 @@ def ingest_connections(router, conns, dns, now):
         d = per_dev[(src_ip, app, cat, domain, via)]
         d[0] += d_down; d[1] += d_up
     cache.set(key, cur, 3600)
+    try:
+        from .line_steer import note_marks
+        note_marks(router, lanes, now)
+    except Exception:
+        pass
     if not agg:
         return 0
     hour = floor_hour(now)

@@ -66,7 +66,8 @@ router_backup_download live_now incident_fix incident_ignore incident_fix_all tr
 traffic_cdn app_control app_rule_save app_rule_global app_rule_action netdev_list netdev_save netdev_action netdev_session remote_proxy_root remote_proxy omada_save omada_action node_devices device_detail device_alert_toggle alerts alert_rule_save alert_rule_action alerts_read event_rule_save event_rule_preset event_rule_action router_link router_link_action
 router_link_status devices device_action topology_routers topology_router_find topology_router_action topology_router_probe
 topology_field topology_field_save topology_geo topology_labels port_blink network_tools network_tools_run network_tools_test network_tools_path network_tools_devices network_tools_verdict network_tools_save_chain network_tools_blob network_tools_sink
-router_move router_move_preview router_schedules router_schedule_save router_schedule_action'''.split()
+router_move router_move_preview router_schedules router_schedule_save router_schedule_action
+flow_lines flow_idle flow_slow flow_slow_scan flow_dhcp'''.split()
 _STUDIO = '''portal_studio portal_editor portal_qr portal_online_prepare portal_action portal_export portal_deploy portal_deploy_status voucher_designs
 voucher_design_editor voucher_design_action ads ad_save ad_action portal_call_settings'''.split()
 
@@ -89,6 +90,7 @@ URL_PERMS = {
     'shared_resolve': 'vouchers.support', 'shared_settings': 'vouchers.manage', 'vouchers_delete': 'vouchers.manage', 'batch_delete': 'vouchers.manage',
     'voucher_bin': 'vouchers.view',
     'fup_new': 'network.manage', 'fup_edit': 'network.manage', 'fup_action': 'network.manage',
+    **{n: ('vouchers.support', 'network.manage') for n in ('flow_lab', 'flow_lab_run', 'flow_lab_verdict', 'flow_live', 'flow_test', 'flow_line')},
     'fup_lift': ('vouchers.support', 'network.manage'), 'fup_device': ('vouchers.support', 'network.manage'), 'fup_slowed': ('vouchers.support', 'network.manage'),
     'plans': 'plans.manage', 'plan_update': 'plans.manage', 'plan_delete': 'plans.manage', 'plan_move': 'plans.manage', 'plan_fix_profile': 'plans.manage',
     'router_profiles': ('plans.manage', 'network.manage'), 'router_profile_import': 'plans.manage', 'profile_check_fix': 'plans.manage',

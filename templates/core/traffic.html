@@ -4,10 +4,45 @@
 {% block heading %}Traffic &amp; consumption{% endblock %}
 {% block extra_head %}
 <link href="{% static 'css/traffic.css' %}?v=3" rel="stylesheet">
+<link href="{% static 'css/flow.css' %}?v=1" rel="stylesheet">
 
 {% endblock %}
 {% block content %}
 {% include 'core/partials/router_tabs.html' %}
+{# ─────────── tabs: the report, and the operational views (core/views_flow.py) ─────────── #}
+<nav class="fl-tabs" id="flTabs" data-query="{{ query }}" role="tablist" aria-label="Traffic views">
+  <button type="button" data-tab="overview" role="tab" aria-selected="true"><i class="bi bi-graph-up"></i> Report</button>
+  <button type="button" data-tab="idle" role="tab" aria-selected="false"><i class="bi bi-moon-stars"></i> Idle vouchers <span class="fl-n" id="flIdleN">·</span></button>
+  <button type="button" data-tab="slow" role="tab" aria-selected="false"><i class="bi bi-hourglass-split"></i> Slow vouchers</button>
+  <button type="button" data-tab="lines" role="tab" aria-selected="false"><i class="bi bi-signpost-split"></i> Internet lines</button>
+  <button type="button" data-tab="dhcp" role="tab" aria-selected="false"><i class="bi bi-hdd-network"></i> DHCP lease</button>
+</nav>
+
+<div data-pane="idle" hidden>
+  <section class="panel mb-3"><div class="panel-head"><div><h3>Vouchers in use with no traffic</h3>
+    <p>Two kinds of waste: a phone signed in that sends nothing, and a voucher whose time is running with nobody signed in at all. Both are customers who paid and are getting nothing — and both free a device slot the moment you deal with them.</p></div></div>
+    <div class="fl-body"></div></section>
+</div>
+
+<div data-pane="slow" hidden>
+  <section class="panel mb-3"><div class="panel-head"><div><h3>Vouchers that are being held back</h3>
+    <p>What each one is doing now against the limit that applies to it — and, after a router scan, how many packets its limiter has dropped. Dropped packets are what the customer feels as “slow”.</p></div></div>
+    <div class="fl-body"></div></section>
+</div>
+
+<div data-pane="lines" hidden>
+  <section class="panel mb-3"><div class="panel-head"><div><h3>Who is on which internet line</h3>
+    <p>For a router that shares customers over several lines, the share you designed next to the share that is really there — and one click to move a customer to another line.</p></div></div>
+    <div class="fl-body"></div></section>
+</div>
+
+<div data-pane="dhcp" hidden>
+  <section class="panel mb-3"><div class="panel-head"><div><h3>How long a phone keeps its address</h3>
+    <p>Too short and sleeping phones are signed out (“lost dhcp lease”); too long and the addresses of people who left stay taken until new customers are refused. TapTap reads the pool and says which way to go.</p></div></div>
+    <div data-dhcp data-lazy="1"></div></section>
+</div>
+
+<div data-pane="overview">
 <div class="tr-bar">
   <div class="tr-pills" role="group" aria-label="Period">
     {% for key,label in presets.items %}
@@ -110,12 +145,15 @@
 <section class="panel mb-3" id="wanPanel" hidden><div class="panel-head"><div><h3>Internet links</h3><p>How the traffic was split between WAN links.</p></div></div>
   <div class="table-responsive"><table class="table align-middle tr-table"><thead><tr><th>Router</th><th>Link</th><th class="tr-num">Download</th><th class="tr-num">Upload</th><th class="tr-num">Top speed</th><th>Share</th></tr></thead><tbody id="tbWans"></tbody></table></div></section>
 
+</div>{# /overview #}
+
 {{ data|json_script:"trData" }}{{ now|json_script:"trNow" }}
 {% endblock %}
 
 {% block scripts %}
 <script src="{% static 'vendor/chart.umd.min.js' %}"></script>
 <script src="{% static 'js/cdn-spread.js' %}" defer></script>
+<script src="{% static 'js/flow.js' %}?v=1" defer></script>
 <script src="{% static 'js/traffic-live.js' %}?v=3" data-data-url="{% url 'traffic_data' %}?{{ query }}" data-now-url="{% url 'traffic_now' %}{% if sel_router %}?router={{ sel_router }}{% endif %}"></script>
 
 {% endblock %}
