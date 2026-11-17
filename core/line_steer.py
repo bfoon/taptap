@@ -30,6 +30,27 @@ COPY = ('chain', 'action', 'new-connection-mark', 'new-routing-mark', 'passthrou
         'in-interface', 'in-interface-list', 'dst-address-type', 'dst-address-list', 'src-address-list', 'dst-address',
         'protocol', 'routing-mark', 'connection-type', 'hotspot')
 FLUSH_MAX = 3000
+MIGRATE_HINT = ('This TapTap server has the new code but has not run its database step yet, so customers cannot be switched '
+                'to another line. On the server run:  docker compose run --rm web python manage.py migrate core')
+_ready = {'ok': False, 'at': 0.0}
+
+
+def pins_ready():
+    """True when the LinePin table exists (migration 0122_flow_lab). Everything that only *looks* works without it."""
+    import time
+    if _ready['ok']:
+        return True
+    now = time.monotonic()
+    if now - _ready['at'] < 30:
+        return False
+    _ready['at'] = now
+    try:
+        from django.db import connection
+        from .models_flow import LinePin
+        _ready['ok'] = LinePin._meta.db_table in connection.introspection.table_names()
+    except Exception:
+        _ready['ok'] = False
+    return _ready['ok']
 
 
 def _s(v):
@@ -216,6 +237,8 @@ def spread(router, sessions, info=None):
 # ─────────────────────────────── TapTap's record of pins ───────────────────────────────
 
 def active_pin(router, mac='', ip='', code=''):
+    if not pins_ready():
+        return None
     from .models_flow import LinePin
     qs = LinePin.objects.filter(router=router, removed_at__isnull=True)
     mac = clean_mac(mac)
@@ -231,6 +254,8 @@ def active_pin(router, mac='', ip='', code=''):
 
 
 def record_pin(router, key, mac, ip, code, lane, from_label, user):
+    if not pins_ready():
+        raise ValueError(MIGRATE_HINT)
     from .models_flow import LinePin
     now = timezone.now()
     LinePin.objects.filter(router=router, key=key, removed_at__isnull=True).update(removed_at=now, removed_by=user)
@@ -239,8 +264,17 @@ def record_pin(router, key, mac, ip, code, lane, from_label, user):
 
 
 def release_pin(router, key, user=None):
+    if not pins_ready():
+        return 0
     from .models_flow import LinePin
     return LinePin.objects.filter(router=router, key=key, removed_at__isnull=True).update(removed_at=timezone.now(), removed_by=user)
+
+
+def pins_of(router):
+    """Switches in force on a router ([] before the database step has run)."""
+    if not pins_ready():
+        return []
+    return list(router.line_pins.filter(removed_at__isnull=True).select_related('created_by')[:200])
 
 
 def pin_fields(lane, key, mac, ip, code):

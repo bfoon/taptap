@@ -4,9 +4,11 @@ core/traffic_idle.py.  Every router test here is a NetTest (core/nettools.py), s
 Recent tests with who ran it."""
 import json
 import logging
+from functools import wraps
 
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
+from django.db import DatabaseError
 from django.http import Http404, JsonResponse
 from django.urls import reverse
 from django.utils import timezone
@@ -25,6 +27,32 @@ logger = logging.getLogger('taptap.flow')
 
 def _b(request):
     return request.user.business
+
+
+def _missing_table(exc):
+    t = str(exc).lower()
+    return 'no such table' in t or ('relation' in t and 'does not exist' in t) or 'undefinedtable' in t
+
+
+def _safe(view):
+    """Every answer of these pages is JSON the page can show — never a bare "Server Error (500)" page.
+    The full traceback still goes to the server log (docker compose logs web)."""
+    @wraps(view)
+    def inner(request, *args, **kwargs):
+        try:
+            return view(request, *args, **kwargs)
+        except Http404:
+            raise
+        except DatabaseError as exc:
+            logger.exception('flow view %s: database error', view.__name__)
+            msg = ls.MIGRATE_HINT if _missing_table(exc) else \
+                'TapTap could not read its database just now. Try again in a moment; if it keeps happening, the details are in the server log.'
+            return JsonResponse({'ok': False, 'message': msg}, status=500)
+        except Exception as exc:  # noqa: BLE001 — shown to the person, logged in full
+            logger.exception('flow view %s failed', view.__name__)
+            return JsonResponse({'ok': False, 'message': f'TapTap hit an error here ({type(exc).__name__}). The details are in the server log '
+                                                         f'(docker compose logs web) — please send them so it can be fixed.'}, status=500)
+    return inner
 
 
 def _perms(request):
@@ -110,6 +138,7 @@ def _start_json(request, router, kind, data):
 
 @login_required
 @require_GET
+@_safe
 def flow_test(request, pk):
     t = _b(request).net_tests.select_related('router').filter(pk=pk, kind__in=lab.LAB_KINDS).first()
     if not t:
@@ -161,6 +190,7 @@ def _target(business, r, code, s, age, info_cache, can_switch):
 
 @login_required
 @require_GET
+@_safe
 def flow_lab(request):
     """Everything the lab shows before any router is asked: who, where, live speed, limits, internet line."""
     from .voucher_history import display_state
@@ -193,7 +223,7 @@ def flow_lab(request):
             pass
     # a code typed in Network tools may be online on any router; an address belongs to the router it was seen on
     found = _sessions(b, codes, macs, router if g.get('ip') else None)
-    can_switch = bool({'network.manage', 'vouchers.support'} & set(_perms(request)))
+    can_switch = bool({'network.manage', 'vouchers.support'} & set(_perms(request))) and ls.pins_ready()
     info_cache = {}
     targets = [_target(b, r, c, s, age, info_cache, can_switch) for r, c, s, age in found]
     if not targets and router and nt.is_ip(g.get('ip', '')):
@@ -204,7 +234,7 @@ def flow_lab(request):
         v = b.vouchers.filter(code__iexact=targets[0]['code']).first()
     for t in targets:
         t['limits'] = ti.device_limits(b, v, t['code'], t['ip'], b.routers.filter(pk=t['router_id']).first())
-    out = {'ok': True, 'targets': targets, 'can_lift': bool(v) and can_switch, 'can_dhcp': _can_network(request), 'can_fix': bool(v) and 'vouchers.support' in _perms(request)}
+    out = {'ok': True, 'setup': '' if ls.pins_ready() else ls.MIGRATE_HINT, 'targets': targets, 'can_lift': bool(v) and can_switch, 'can_dhcp': _can_network(request), 'can_fix': bool(v) and 'vouchers.support' in _perms(request)}
     if v is not None:
         key, label = display_state(v)
         end, left = ti._ends(v, timezone.now())
@@ -222,6 +252,7 @@ def flow_lab(request):
 
 @login_required
 @require_POST
+@_safe
 def flow_lab_run(request):
     """Start the device check and/or the speed check for one online device."""
     data = _body(request)
@@ -240,6 +271,7 @@ def flow_lab_run(request):
 
 @login_required
 @require_POST
+@_safe
 def flow_lab_verdict(request):
     """The headline: TapTap's own knowledge + the finished router checks."""
     b = _b(request)
@@ -263,6 +295,7 @@ def flow_lab_verdict(request):
 
 @login_required
 @require_GET
+@_safe
 def flow_live(request):
     """One device's speed right now (polled for the lab's moving line)."""
     router = _router(request, request.GET.get('router'))
@@ -283,6 +316,7 @@ def flow_live(request):
 
 @login_required
 @require_POST
+@_safe
 def flow_line(request):
     """look / switch / auto for one device.  switch: {'mark': 'TT-ether2'} or {'mark': 'next'}."""
     from .utils import log
@@ -313,6 +347,8 @@ def flow_line(request):
         return JsonResponse({'ok': True, 'test': as_json(t)})
     if action != 'switch':
         return _bad('Unknown action.')
+    if not ls.pins_ready():
+        return _bad(ls.MIGRATE_HINT)
     now_on = (ls.where(router, p['ip'], info) or {})
     pin = ls.active_pin(router, mac=p.get('mac', ''), ip=p['ip'])
     current = (pin.mark if pin else '') or now_on.get('lane', '') or str(data.get('current') or '')
@@ -335,6 +371,7 @@ def flow_line(request):
 
 @login_required
 @require_GET
+@_safe
 def flow_lines(request):
     """Traffic → Internet lines: who is on which line right now, per router, and every switch in force."""
     from .router_scope import scope
@@ -359,12 +396,12 @@ def flow_lines(request):
             pins = [{'id': p.pk, 'code': p.code, 'mac': p.mac, 'ip': p.ip, 'mark': p.mark, 'label': p.label, 'from': p.from_label,
                      'confirmed': p.confirmed, 'since': p.created_at.isoformat(),
                      'by': (p.created_by.get_full_name() or p.created_by.username) if p.created_by else ''}
-                    for p in r.line_pins.filter(removed_at__isnull=True).select_related('created_by')[:200]]
+                    for p in ls.pins_of(r)]
             seen_at = ls.seen(r).get('at')
             row.update(lines=sp['lines'], placed=sp['placed'], unknown=sp['unknown'], pins=pins, seen_at=seen_at,
                        online=len(sessions), stale=age is None or age > ti.FRESH)
         out.append(row)
-    return JsonResponse({'ok': True, 'routers': out, 'can_switch': True})
+    return JsonResponse({'ok': True, 'routers': out, 'can_switch': ls.pins_ready(), 'setup': '' if ls.pins_ready() else ls.MIGRATE_HINT})
 
 
 # ─────────────────────────────── Idle / Slow (Traffic tabs) ───────────────────────────────
@@ -377,6 +414,7 @@ def _scope_id(request):
 
 @login_required
 @require_GET
+@_safe
 def flow_idle(request):
     try:
         minutes = max(1, min(1440, int(request.GET.get('min') or 10)))
@@ -388,12 +426,14 @@ def flow_idle(request):
 
 @login_required
 @require_GET
+@_safe
 def flow_slow(request):
     return JsonResponse({'ok': True, **ti.slow(_b(request), _scope_id(request))})
 
 
 @login_required
 @require_POST
+@_safe
 def flow_slow_scan(request):
     """Ask the routers in view which speed limits are dropping packets."""
     b = _b(request)
@@ -414,6 +454,7 @@ def flow_slow_scan(request):
 # ─────────────────────────────── DHCP lease ───────────────────────────────
 
 @login_required
+@_safe
 def flow_dhcp(request):
     b = _b(request)
     if request.method == 'GET':

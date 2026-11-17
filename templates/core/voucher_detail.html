@@ -1,7 +1,7 @@
 {% extends 'core/base.html' %}{% load static %}{% load taptap_extras %}
 {% block title %}Voucher {{ v.code }} — TapTap{% endblock %}
 {% block heading %}Voucher details{% endblock %}{% block presence %}{% include "core/_presence.html" with pp_kind="voucher" pp_id=v.id %}{% endblock %}
-{% block extra_head %}<link href="{% static 'css/voucher-fix.css' %}?v=1" rel="stylesheet"><link href="{% static 'css/flow.css' %}?v=1" rel="stylesheet"><style>
+{% block extra_head %}<link href="{% static 'css/voucher-fix.css' %}?v=1" rel="stylesheet"><link href="{% static 'css/flow.css' %}?v=2" rel="stylesheet"><style>
 /* ── header ── */
 .vd-head{padding:1.1rem 1.2rem}
 .vd-top{display:flex;flex-wrap:wrap;gap:1rem;align-items:flex-start;justify-content:space-between}
@@ -687,7 +687,7 @@ document.querySelectorAll('[data-copy]').forEach(function (b) {
 </script>
 
 {% if v.router %}
-<script src="{% static 'js/flow.js' %}?v=1"></script>
+<script src="{% static 'js/flow.js' %}?v=2"></script>
 <script>
 /* A #fix link (from the Connection lab or the Traffic tabs) opens "Why can't it connect?" straight away. */
 (function () {

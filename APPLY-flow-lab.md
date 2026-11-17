@@ -2,6 +2,10 @@
 
 **Migration `0122_flow_lab`.** No new Python or app packages. Built on master (`1cd1759`).
 
+> **Build 2** (this zip) fixes the Connection lab answering **"TapTap answered 500."** on a server where the update's
+> database step had not run yet. The lab now opens either way, tells you what to run, and no Connection lab / Traffic
+> tab ever shows a bare 500 again — any error comes back as a sentence in the page, with the details in the server log.
+
 Five things, all driven from what live sync already collects, so nothing new is polled on a router unless somebody
 presses a button.
 
@@ -85,14 +89,28 @@ page waits, as it already does for the other tests.
 
 ## Server
 
+The zip holds the **complete files** (not a patch), under `taptap/`, in the same places as in the repository.
+
     cd /opt/taptap
     unzip -o ~/taptap-flow-lab.zip -d /tmp && cp -r /tmp/taptap/* /opt/taptap/
     docker compose build web worker vouchers live
-    docker compose run --rm web python manage.py migrate core
+    docker compose run --rm web python manage.py migrate core          # REQUIRED — creates the line-switch table
     docker compose up -d --force-recreate web worker vouchers live
 
-`docker compose exec web python manage.py showmigrations core` should show `0122_flow_lab` as `[X]`.
+Check it worked:
+
+    docker compose exec web python manage.py showmigrations core | tail -3     # 0122_flow_lab must show [X]
+
+Then reload the page with **Ctrl+F5** once (the browser must take the new `flow.js?v=2`).
 Nothing needs changing on the routers.
+
+### If something is still wrong
+
+* **The lab shows a yellow note "…has not run its database step yet"** — the `migrate` line above did not run (or
+  ran in another container). Run it, then reload. Everything except *Switch* works until then.
+* **"TapTap had an error (…)"** — the sentence names the error; the full traceback is in
+  `docker compose logs --tail=200 web`. Send that part and it can be fixed precisely.
+* **Old behaviour after the update** — the browser kept the old script: Ctrl+F5.
 
 New: `core/line_steer.py`, `core/dhcp_lease.py`, `core/conn_lab.py`, `core/traffic_idle.py`, `core/views_flow.py`,
 `core/models_flow.py`, `core/migrations/0122_flow_lab.py`, `static/js/flow.js`, `static/css/flow.css`,
@@ -101,4 +119,4 @@ Changed: `core/traffic.py`, `core/nettools.py`, `core/agent.py`, `core/models.py
 `core/urls.py`, `core/permissions.py`, `templates/core/traffic.html`, `templates/core/voucher_detail.html`,
 `templates/core/device_detail.html`, `templates/core/network_tools.html`, `README.md`.
 
-Tests: `python manage.py test core.tests.test_flow_lab` (76).
+Tests: `python manage.py test core.tests.test_flow_lab` (83).

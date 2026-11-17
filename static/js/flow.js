@@ -22,7 +22,12 @@
     var opts = { credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-CSRFToken': csrf() } };
     if (body !== undefined) { opts.method = 'POST'; opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
     return fetch(url, opts).then(function (r) {
-      return r.json().catch(function () { return { ok: false, message: r.status === 403 ? 'You do not have access to this.' : 'TapTap answered ' + r.status + '.' }; });
+      return r.json().catch(function () {
+        return { ok: false, message: r.status === 403 ? 'You do not have access to this.'
+          : r.status === 404 ? 'TapTap does not know this page — the update may not be installed on the server yet.'
+          : r.status >= 500 ? 'TapTap had an error (' + r.status + '). The details are in the server log (docker compose logs web).'
+          : 'TapTap answered ' + r.status + '.' };
+      });
     }, function () { return { ok: false, message: 'TapTap could not be reached.' }; });
   }
   function qs(o) { return Object.keys(o).filter(function (k) { return o[k] !== '' && o[k] != null; }).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(o[k]); }).join('&'); }
@@ -67,6 +72,7 @@
       self.d = d;
       if (!d.targets.length) return self.offline();
       self.frame(); self.pick(0);
+      if (d.setup) self.root.insertAdjacentHTML('afterbegin', '<div class="fl-warnline"><i class="bi bi-tools"></i> ' + esc(d.setup) + '</div>');
     });
   };
   Lab.prototype.who = function () {
@@ -271,6 +277,7 @@
       (L.can_switch ? '<div class="lab-acts"><button type="button" class="btn btn-sm btn-primary" data-act="next"><i class="bi bi-shuffle"></i> Switch to the ' + (lanes.length > 2 ? 'next' : 'other') + ' line</button>' +
         (pin ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="auto"><i class="bi bi-arrow-counterclockwise"></i> Back to automatic</button>' : '') +
         '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="look"><i class="bi bi-arrow-repeat"></i> Check now</button></div>' : '') +
+      (!L.can_switch && this.d.setup ? '<div class="fl-note mt-2"><i class="bi bi-tools"></i> Switching is off until the server runs its database step (see the note at the top).</div>' : '') +
       (!L.sticky ? '<div class="fl-note mt-2">This router shares connection by connection, so a customer normally uses every line. A switch keeps this one on a single line.</div>' : '');
     [].forEach.call(box.querySelectorAll('.lab-lane'), function (b) {
       b.addEventListener('click', function () { if (!b.classList.contains('is-on') || pin !== b.dataset.mark) self.line('switch', b.dataset.mark, b.querySelector('b').textContent); });
@@ -560,7 +567,7 @@
 
   Tabs.prototype.lines = function (pane, d) {
     var self = this, body = pane.querySelector('.fl-body');
-    body.innerHTML = d.routers.map(function (r) {
+    body.innerHTML = (d.setup ? '<div class="fl-warnline"><i class="bi bi-tools"></i> ' + esc(d.setup) + '</div>' : '') + d.routers.map(function (r) {
       if (!r.multi) return '<section class="panel ln-router"><div class="ln-head"><h3><i class="bi bi-router"></i> ' + esc(r.router) + '</h3><a class="btn btn-sm btn-outline-primary" href="' + esc(r.design_url) + '"><i class="bi bi-diagram-3"></i> Internet lines</a></div>' +
         '<p class="fl-note mb-0">' + esc(r.why) + '</p></section>';
       var lines = r.lines.map(function (l, li) {
@@ -571,7 +578,7 @@
           '<small class="fl-note">' + l.real + '% of customers now · designed for ' + l.share + '%</small>' +
           '<ul class="ln-people">' + (l.people.length ? l.people.map(function (p) {
             return '<li><span><b class="fl-code">' + esc(p.code) + '</b> <small>' + esc(p.ip) + ' · ↓ ' + esc(p.down) + (p.mixed ? ' · partly' : '') + '</small></span>' +
-              '<span class="d-flex gap-1"><button type="button" class="btn btn-sm btn-outline-primary py-0" title="Move to ' + esc(other.label) + '" data-move="' + attr({ router: r.router_id, ip: p.ip, mac: p.mac, code: p.code, mark: other.mark, label: other.label, current: l.mark }) + '"><i class="bi bi-arrow-right-circle"></i> ' + esc(other.label) + '</button>' +
+              '<span class="d-flex gap-1">' + (d.can_switch ? '<button type="button" class="btn btn-sm btn-outline-primary py-0" title="Move to ' + esc(other.label) + '" data-move="' + attr({ router: r.router_id, ip: p.ip, mac: p.mac, code: p.code, mark: other.mark, label: other.label, current: l.mark }) + '"><i class="bi bi-arrow-right-circle"></i> ' + esc(other.label) + '</button>' : '') +
               '<button type="button" class="btn btn-sm btn-light py-0" title="Connection lab" data-lab-open="' + attr({ router: r.router_id, ip: p.ip, mac: p.mac, code: p.code }) + '"><i class="bi bi-activity"></i></button></span></li>';
           }).join('') : '<li class="fl-note">Nobody seen on this line in the last minute.</li>') + '</ul></div>';
       }).join('');

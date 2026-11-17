@@ -1,5 +1,5 @@
 {% extends 'core/base.html' %}{% load static taptap_extras %}{% block title %}{% firstof d.label d.model 'Device' %} — TapTap{% endblock %}{% block heading %}Device data use{% endblock %}
-{% block extra_head %}<link href="{% static 'css/flow.css' %}?v=1" rel="stylesheet"><style>
+{% block extra_head %}<link href="{% static 'css/flow.css' %}?v=2" rel="stylesheet"><style>
 .dd-head{display:flex;flex-wrap:wrap;gap:.75rem;align-items:center;justify-content:space-between;margin-bottom:1rem}.dd-head h2{font-size:1.25rem;font-weight:800;margin:0}
 .dd-kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:.75rem}.dd-kpi{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:14px;padding:.75rem .9rem}
 .dd-kpi small{display:block;font-size:.7rem;font-weight:700;color:#8a9aab;text-transform:uppercase;letter-spacing:.04em}.dd-kpi strong{display:block;font-size:1.3rem}.dd-kpi em{font-style:normal;font-size:.75rem;color:#6b7c8f}
@@ -115,7 +115,7 @@ html[data-theme="dark"] .dd-latest-ic{background:#14243a}
 {% endif %}
 {% endblock %}
 {% block scripts %}
-{% if 'vouchers.support' in tt_perms or 'network.manage' in tt_perms %}<script src="{% static 'js/flow.js' %}?v=1"></script>{% endif %}
+{% if 'vouchers.support' in tt_perms or 'network.manage' in tt_perms %}<script src="{% static 'js/flow.js' %}?v=2"></script>{% endif %}
 {% if total %}<script src="{% static 'vendor/chart.umd.min.js' %}"></script><script>
 (function(){ if(!window.Chart) return; var D=JSON.parse(document.getElementById('ddData').textContent);
   var cols=['#1769e0','#18a66a','#f59e0b','#7c3aed','#14a3e2','#94a3b8'], dark=document.documentElement.getAttribute('data-theme')==='dark', ink=dark?'#b8c7d8':'#4e6479', grid=dark?'#23384f':'#eef2f6';
