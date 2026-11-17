@@ -115,7 +115,7 @@ def agent_benefits(request, pk):
                 return redirect(f'{here}#internet')
 
             if action == 'default_plan':
-                plan = business.member_plans.filter(pk=f.get('plan') or 0, active=True).first()
+                plan = business.member_plans.filter(pk=f.get('plan') or 0, active=True, lock_kind='').first()
                 ab.set_default_plan(business, plan)
                 messages.success(request, f'Default plan for agents: {plan.name}.' if plan else 'No default plan for agents.')
                 return redirect(f'{here}#internet')
@@ -131,7 +131,7 @@ def agent_benefits(request, pk):
     candidates = ab.refund_candidates(agent, min_days) if benefit.refund_enabled else []
     member = benefit.member if benefit.member_id and benefit.member and benefit.member.deleted_at is None else None
     password = request.session.pop(f'agent_pw_{agent.pk}', None)
-    plans = business.member_plans.filter(active=True).order_by('price', 'name')
+    plans = business.member_plans.filter(active=True, lock_kind='').order_by('price', 'name')
     default = ab.default_plan(business)
     preselect = (benefit.member_plan if benefit.member_plan and benefit.member_plan.active else None) or default or plans.first()
     wa = ''

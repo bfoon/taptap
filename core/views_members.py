@@ -47,6 +47,7 @@ def _plan_rows(business):
         business.member_plans
         # members in the bin don't count: they are not on the plan any more
         .annotate(assigned_count=Count('assignments', filter=Q(assignments__member__deleted_at__isnull=True)))
+        .select_related('locked_by')
         .order_by('-active', 'price', 'name')
     )
     for plan in plans:
@@ -54,7 +55,9 @@ def _plan_rows(business):
             plan.duration_minutes,
             plan.duration_unit,
         )
+        from .plan_lock import describe
         rows.append({
+            'lock_text': describe(plan),
             'plan': plan,
             'duration_value': value,
             'duration_unit': unit,
@@ -102,7 +105,7 @@ def members(request):
         )
 
     active_plans = business.member_plans.filter(
-        active=True
+        active=True, lock_kind='',          # a locked plan is never offered (core/plan_lock.py)
     ).order_by('price', 'name')
 
     if request.method == 'POST':
@@ -176,6 +179,25 @@ def members(request):
             )
             return redirect('/members/#member-plans')
 
+        if action in ('lock_plan', 'unlock_plan'):
+            from . import plan_lock
+            plan = get_object_or_404(business.member_plans, pk=f.get('plan_id') or 0)
+            try:
+                if action == 'lock_plan':
+                    kind = 'sealed' if f.get('kind') == 'sealed' else 'locked'
+                    plan_lock.lock(plan, request, kind=kind, reason=f.get('reason', ''), confirm=f.get('confirm', ''))
+                    n = plan.assignments.filter(member__deleted_at__isnull=True).count()
+                    messages.success(request, f'🔒 “{plan.name}” is {"sealed for good" if kind == "sealed" else "locked"}. '
+                                              f'Nobody can put anyone on it, move anyone off it or change it'
+                                              f'{"" if kind == "sealed" else " — only you can unlock it"}. '
+                                              f'Its {n} member{"s" if n != 1 else ""} keep it exactly as it is.')
+                else:
+                    plan_lock.unlock(plan, request)
+                    messages.success(request, f'“{plan.name}” is unlocked: it can be edited and given to members again.')
+            except mem.MemberError as exc:
+                messages.error(request, str(exc))
+            return redirect('/members/#member-plans')
+
         if action == 'toggle_plan':
             if not _can(request, 'plans.manage'):
                 messages.error(
@@ -189,7 +211,11 @@ def members(request):
                 pk=f.get('plan_id') or 0,
             )
             active = not plan.active
-            mem.set_plan_active(plan, active)
+            try:
+                mem.set_plan_active(plan, active)
+            except mem.MemberError as exc:
+                messages.error(request, str(exc))
+                return redirect('/members/#member-plans')
             messages.success(
                 request,
                 f'{plan.name} is now '
@@ -558,9 +584,13 @@ def _ctx(
         'remind_1_day': '1',
     }
 
+    from .plan_lock import is_owner
+    plan_rows = _plan_rows(business)
     return {
         'plans': plans,
-        'plan_rows': _plan_rows(business),
+        'plan_rows': plan_rows,
+        'is_owner': is_owner(request, business),
+        'locked_plans': [r['plan'] for r in plan_rows if r['plan'].lock_kind],
         'routers': business.routers.all(),
         'agents': business.agents.filter(active=True),
         'methods': MANUAL_METHODS,

@@ -233,7 +233,8 @@ html[data-theme="dark"] .md-paused{background:#13233a;border-color:#244a7a}html[
     <div class="col-12"><label for="dNote">Note on the account</label><input class="form-control form-control-sm" id="dNote" name="note" value="{{ v.note }}" maxlength="255"></div>
     <div class="col-12"><button class="btn btn-sm btn-primary"><i class="bi bi-check2"></i> Save details</button></div>
   </form>
-  {% if can_create and plans %}<form method="post" action="{% url 'member_support' v.id %}" class="d-flex gap-2 align-items-end mt-3 pt-3 border-top" data-confirm="Move {{ v.code }} to this plan? Time already used counts in the new plan.">{% csrf_token %}<input type="hidden" name="action" value="plan">
+  {% if plan.lock_kind %}<div class="small mt-3 pt-3 border-top d-flex gap-2"><i class="bi {% if plan.lock_kind == 'sealed' %}bi-shield-lock-fill{% else %}bi-lock-fill{% endif %} text-warning"></i><span><b>{{ plan.name }}</b> is {{ plan.get_lock_kind_display|lower }} by the owner: {{ v.code }} stays on it exactly as it is and cannot be moved to another plan.{% if plan.lock_kind == 'locked' %} Only the owner can unlock it.{% endif %}</span></div>
+  {% elif can_create and plans %}<form method="post" action="{% url 'member_support' v.id %}" class="d-flex gap-2 align-items-end mt-3 pt-3 border-top" data-confirm="Move {{ v.code }} to this plan? Time already used counts in the new plan.">{% csrf_token %}<input type="hidden" name="action" value="plan">
     <div class="flex-grow-1"><label for="dPlan">Member Plan</label><select class="form-select form-select-sm" id="dPlan" name="plan">{% for p in plans %}<option value="{{ p.id }}" {% if plan and p.id == plan.id %}selected{% endif %}>{{ p.name }} — {{ p.price }} · {{ p.max_devices }} device{{ p.max_devices|pluralize }}</option>{% endfor %}</select></div>
     <button class="btn btn-sm btn-outline-primary text-nowrap"><i class="bi bi-arrow-left-right"></i> Change plan</button></form>{% endif %}
   {% endif %}

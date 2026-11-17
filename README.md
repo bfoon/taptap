@@ -566,3 +566,15 @@ services as the Members pages, and recorded in the member's history with "(appro
 - Every late Network-tools test explains itself with facts (check-ins, voucher changes ahead, when it was taken).
 
 `showmigrations core` should show `0124_lab_steps` as `[X]`.
+
+## v9 — Locked Member Plans, and a chat composer that always fits
+
+- The owner can **Lock** a Member Plan (only the owner can unlock it) or **Seal** it for good (nobody can ever unlock
+  it; confirmed by typing its name). A locked plan cannot be given to anyone, edited, switched off or deleted, and
+  its members cannot be moved off it — they keep it exactly as it is (renewals, pauses, devices carry on). Enforced
+  in `core/plan_lock.py`, the core member functions and `MemberPlanAssignment.save()`; staff and support "view as"
+  cannot lock or unlock.
+- Chat: the message box can shrink (it kept a ~20-character minimum and pushed Send off screen); emoji / share /
+  photo fold into a ＋ tray in narrow chats; mic and Send share one round button (✓ while editing).
+
+`showmigrations core` should show `0125_member_plan_lock` as `[X]`.

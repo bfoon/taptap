@@ -68,6 +68,9 @@ def _plan(business, name, active_only=True):
         names = ', '.join(qs.values_list('name', flat=True)[:12]) or 'none yet — create one first (save_member_plan)'
         raise FitActionError(f'Which Member Plan? Choose one of: {names}.' if not name
                              else f'There is no {"active " if active_only else ""}Member Plan “{name}”. Plans: {names}.')
+    if active_only and p.lock_kind:          # picking a plan to put a member on: a locked plan is never used (core/plan_lock.py)
+        raise FitActionError(f'{p.name} is {"sealed" if p.lock_kind == "sealed" else "locked"} by the owner: nobody can be put on it. '
+                             'Its members keep it as it is.')
     return p
 
 
@@ -334,6 +337,9 @@ def _check_change_plan(business, a):
     cur = plan_for_member(v)
     if cur and cur.pk == plan.pk:
         raise FitActionError(f'{v.code} is already on {plan.name}.')
+    if cur is not None and cur.lock_kind:
+        raise FitActionError(f'{v.code} is on {cur.name}, which is {"sealed" if cur.lock_kind == "sealed" else "locked"} by the owner: '
+                             'its members stay exactly as they are and cannot be moved.')
     return {'code': v.code, 'plan': plan.name}, f'Move {v.code} to {plan.name}', \
         f'From {cur.name if cur else "no plan"}. Time already used counts in the new plan; price, devices and speed follow ' \
         f'{plan.name} ({_money(business, plan.price)}, {plan.max_devices} device{"s" if plan.max_devices != 1 else ""}). ' \
@@ -676,6 +682,8 @@ def _plan_data(business, a):
 
 def _check_save_plan(business, a):
     plan, data, minutes = _plan_data(business, a)
+    if plan is not None and plan.lock_kind:
+        raise FitActionError(f'{plan.name} is {"sealed" if plan.lock_kind == "sealed" else "locked"} by the owner: it cannot be edited.')
     n = plan.assignments.count() if plan else 0
     detail = (f'{data["name"]}: {business.currency or "D"}{data["price"]}, {duration_text(minutes)}, {data["max_devices"]} '
               f'device(s), speed {data["speed_limit"] or "no limit"}.')
@@ -700,6 +708,8 @@ def _do_save_plan(business, p, user):
 def _check_toggle_plan(business, a):
     plan = _plan(business, a.get('plan'), active_only=False)
     on = _bool(a.get('active'))
+    if plan.lock_kind:
+        raise FitActionError(f'{plan.name} is {"sealed" if plan.lock_kind == "sealed" else "locked"} by the owner: it cannot be switched on or off.')
     if plan.active == on:
         raise FitActionError(f'{plan.name} is already {"on" if on else "off"}.')
     return {'plan': plan.name, 'active': on}, f'Switch Member Plan {plan.name} {"on" if on else "off"}', \
@@ -710,7 +720,10 @@ def _check_toggle_plan(business, a):
 def _do_toggle_plan(business, p, user):
     from . import members as mem
     plan = _plan(business, p['plan'], active_only=False)
-    mem.set_plan_active(plan, p['active'])
+    try:
+        mem.set_plan_active(plan, p['active'])
+    except mem.MemberError as exc:
+        raise FitActionError(str(exc))
     return f'Member Plan {plan.name} is now {"on" if p["active"] else "off"}.'
 
 

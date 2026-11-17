@@ -34,7 +34,8 @@
     reply: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 6 6v5"/></svg>',
     edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>',
-    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>'
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
+    plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>'
   };
 
   // ───────── helpers ─────────
@@ -198,16 +199,19 @@
     body.innerHTML = h + '</div>';
     renderTyping();
     if (!$('.ttc-comp', foot)) {
-      foot.innerHTML = '<div class="ttc-attach ttc-hidden"></div><div class="ttc-comp">' +
-        '<button class="ttc-tb" data-a="emoji" title="Emoji">' + ICON.smile + '</button>' +
-        '<button class="ttc-tb" data-a="share" title="Share the page you are on">' + ICON.link + '</button>' +
-        '<button class="ttc-tb" data-a="photo" title="Send a photo or a short video (deleted after ' + (t.photo_days || 7) + ' days)">' + ICON.image + '</button>' +
+      foot.innerHTML = '<div class="ttc-attach ttc-hidden"></div><div class="ttc-comp' + (voiceType() === null ? ' no-voice' : '') + '">' +
+        '<button type="button" class="ttc-tb ttc-plus" data-a="tools" title="Emoji, share this page, photo or video" aria-label="Add" aria-expanded="false">' + ICON.plus + '</button>' +
+        '<div class="ttc-tools" role="group" aria-label="Add to your message">' +
+        '<button class="ttc-tb" data-a="emoji" title="Emoji">' + ICON.smile + '<span>Emoji</span></button>' +
+        '<button class="ttc-tb" data-a="share" title="Share the page you are on">' + ICON.link + '<span>Share this page</span></button>' +
+        '<button class="ttc-tb" data-a="photo" title="Send a photo or a short video (deleted after ' + (t.photo_days || 7) + ' days)">' + ICON.image + '<span>Photo or video</span></button></div>' +
         '<input type="file" accept="image/*,video/mp4,video/webm,video/quicktime" class="ttc-file" hidden>' +
         '<textarea rows="1" placeholder="' + (t.kind === 'team' ? 'Message the team (@name)' : 'Write a message') + '" aria-label="Message"></textarea>' +
-        '<button class="ttc-tb ttc-mic" data-a="voice" title="Voice message (up to ' + VMAX + ' s) — deleted 1 minute after it is played">' + ICON.mic + '</button>' +
-        '<button class="ttc-tb ttc-send" data-a="send" title="Send (Enter)">' + ICON.send + '</button></div>';
+        '<button class="ttc-tb ttc-mic" data-a="voice" title="Voice message (up to ' + VMAX + ' s) — deleted 1 minute after it is played" aria-label="Voice message">' + ICON.mic + '</button>' +
+        '<button class="ttc-tb ttc-send" data-a="send" title="Send (Enter)" aria-label="Send">' + ICON.send + '</button></div>';
       wireComposer();
     }
+    syncComp();
     body.scrollTop = body.scrollHeight;
     if (PLAY.id) updPlay();
   }
@@ -247,10 +251,12 @@
     S.reply = null; S.editing = m; clearPhoto(); S.attach = null; showAttach();
     var ta = $('textarea', foot); if (!ta) return;
     ta.value = m.body || ''; ta.focus(); ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px';
+    syncComp();
   }
   function cancelCompose() {
     var wasEdit = !!S.editing; S.reply = null; S.editing = null; showAttach();
     if (wasEdit) { var ta = $('textarea', foot); if (ta) { ta.value = ''; ta.style.height = 'auto'; } }
+    syncComp();
   }
   function deleteMsg(m) {
     if (!canDelete(m)) return toast({ sender: 'Chat', body: 'Messages can only be deleted within 1 hour of sending.' });
@@ -301,10 +307,11 @@
     else if (a === 'mute') { var info = S.threads.filter(function (x) { return x.id === S.thread.id; })[0] || {}; info.muted = !info.muted; api('/chat/settings/', { thread: S.thread.id, mute: info.muted }); renderThread(); }
     else if (a === 'solve' || a === 'reopen') api('/chat/support/', { thread: S.thread.id, action: a }).then(function () { openThread(S.thread.id, true); });
     else if (a === 'older') loadOlder();
-    else if (a === 'emoji') togglePop('emoji');
-    else if (a === 'share') { S.attach = { url: location.pathname + location.search, title: document.title.replace(/^\(\d+\)\s*/, '').replace(/\s*—\s*TapTap$/, '') }; showAttach(); }
+    else if (a === 'tools') toggleTools();
+    else if (a === 'emoji') { toggleTools(false); togglePop('emoji'); }
+    else if (a === 'share') { toggleTools(false); S.attach = { url: location.pathname + location.search, title: document.title.replace(/^\(\d+\)\s*/, '').replace(/\s*—\s*TapTap$/, '') }; showAttach(); }
     else if (a === 'unattach') { S.attach = null; showAttach(); }
-    else if (a === 'photo') { var fi = $('.ttc-file', foot); fi && fi.click(); }
+    else if (a === 'photo') { toggleTools(false); var fi = $('.ttc-file', foot); fi && fi.click(); }
     else if (a === 'unphoto') { clearPhoto(); }
     else if (a === 'once') { if (S.photo) { S.photo.once = !S.photo.once; showAttach(); } }
     else if (a === 'voice') startVoice();
@@ -341,7 +348,35 @@
         '</div><button class="btn btn-sm btn-link p-0" data-a="unphoto">Remove</button></div>';
     }
     el.innerHTML = h;
+    syncComp();
   }
+
+  // One round button at the end of the composer, always on screen: 🎙 when the box is empty, ➤ as soon as there
+  // is something to send (text, a photo, a shared page), ✓ while you edit a message.
+  function syncComp() {
+    var comp = foot && $('.ttc-comp', foot); if (!comp) return;
+    var ta = $('textarea', comp), edit = !!S.editing;
+    comp.classList.toggle('has-content', !!((ta && ta.value.trim()) || S.photo || S.attach || edit));
+    comp.classList.toggle('editing', edit);
+    var sb = $('.ttc-send', comp), mode = edit ? 'save' : 'send';
+    if (sb && sb.dataset.mode !== mode) {
+      sb.dataset.mode = mode; sb.innerHTML = edit ? ICON.check : ICON.send;
+      sb.title = edit ? 'Save your edit (Enter)' : 'Send (Enter)'; sb.setAttribute('aria-label', edit ? 'Save' : 'Send');
+    }
+  }
+  // The ＋ tray: in a narrow chat (the side panel, a phone) emoji / share / photo fold behind one button.
+  function toggleTools(force) {
+    var comp = foot && $('.ttc-comp', foot); if (!comp) return;
+    var open = force === undefined ? !comp.classList.contains('tools-open') : !!force;
+    if (open === comp.classList.contains('tools-open')) return;
+    comp.classList.toggle('tools-open', open);
+    var b = $('.ttc-plus', comp); if (b) b.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) { var pop = $('.ttc-pop', foot); if (pop) pop.remove(); var first = $('.ttc-tools .ttc-tb', comp); if (first) first.focus(); }
+  }
+  document.addEventListener('click', function (e) {          // a click anywhere else closes the tray
+    var comp = foot && $('.ttc-comp.tools-open', foot);
+    if (comp && !(e.target.closest && e.target.closest('.ttc-tools,.ttc-plus'))) toggleTools(false);
+  }, true);
 
   function togglePop(kind, items) {
     var old = $('.ttc-pop', foot); if (old) { var same = old.dataset.k === kind; old.remove(); if (same && kind === 'emoji') return; }
@@ -357,7 +392,7 @@
       pop.remove();
     });
   }
-  function insert(txt) { var ta = $('textarea', foot), s = ta.selectionStart || ta.value.length; ta.value = ta.value.slice(0, s) + txt + ta.value.slice(ta.selectionEnd || s); ta.focus(); ta.selectionStart = ta.selectionEnd = s + txt.length; }
+  function insert(txt) { var ta = $('textarea', foot), s = ta.selectionStart || ta.value.length; ta.value = ta.value.slice(0, s) + txt + ta.value.slice(ta.selectionEnd || s); ta.focus(); ta.selectionStart = ta.selectionEnd = s + txt.length; syncComp(); }
 
   function wireComposer() {
     var ta = $('textarea', foot), fi = $('.ttc-file', foot);
@@ -366,7 +401,11 @@
       var f = [].slice.call((e.clipboardData && e.clipboardData.files) || []).filter(function (x) { return /^image\//.test(x.type); })[0];
       if (f) { e.preventDefault(); pickPhoto(f); }
     });
+    $('.ttc-comp', foot).addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && e.target.closest('.ttc-tools')) { e.preventDefault(); toggleTools(false); var pb = $('.ttc-plus', foot); if (pb) pb.focus(); }
+    });
     ta.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && $('.ttc-comp.tools-open', foot)) { e.preventDefault(); return toggleTools(false); }
       if (e.key === 'Escape' && (S.reply || S.editing)) { e.preventDefault(); return cancelCompose(); }
       if (e.key === 'ArrowUp' && !ta.value && !S.editing) {          // ↑ in an empty box edits your last message
         var last = S.msgs.filter(function (x) { return x.mine && x.can_edit && !x.deleted; }).pop();
@@ -376,6 +415,7 @@
     });
     ta.addEventListener('input', function () {
       ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px';
+      syncComp(); toggleTools(false);
       var m = ta.value.slice(0, ta.selectionStart).match(/@([\w.\-]*)$/);
       if (m && S.thread && S.thread.kind !== 'direct') {
         var q = m[1].toLowerCase(); togglePop('ment', S.people.filter(function (p) { return p.name.toLowerCase().indexOf(q) >= 0; }).slice(0, 6));

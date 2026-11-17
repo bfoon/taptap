@@ -130,7 +130,7 @@ def member_detail(request, pk):
         'time_left': (end - now) if end and end > now else None, 'time_pct': _time_pct(v, end, now),
         'frozen_left_minutes': (left_frozen // 60) if left_frozen else None,
         'pending': [s for s in schedules if s.status == 'pending'], 'schedules': [s for s in schedules if s.status != 'pending'][:8],
-        'plans': business.member_plans.filter(active=True).order_by('name'),
+        'plans': business.member_plans.filter(active=True, lock_kind='').order_by('name'),
         'bindings': v.device_bindings.order_by('slot_no'),
         'security': ms.security(v),
         'renewals': MemberRenewal.objects.filter(member=v).order_by('-renewed_at')[:10],

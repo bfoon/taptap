@@ -46,6 +46,9 @@ def can_delete(plan, perms=None):
     """(allowed, reason). ``perms`` None means "not checked" (Fit and tests pass their own)."""
     if plan.deleted_at:
         return False, 'This Member Plan is already in the bin.'
+    if plan.lock_kind:
+        return False, (f'{plan.name} is {"sealed" if plan.lock_kind == "sealed" else "locked"} by the owner: it cannot be deleted, '
+                       'and its members keep it as it is.')
     if perms is not None and 'plans.manage' not in perms:
         return False, 'Your role cannot delete Member Plans.'
     if plan.active:
@@ -55,7 +58,7 @@ def can_delete(plan, perms=None):
 
 def move_targets(plan):
     """Active Member Plans of the same business that the members can move to."""
-    return plan.business.member_plans.filter(active=True).exclude(pk=plan.pk).order_by('price', 'name')
+    return plan.business.member_plans.filter(active=True, lock_kind='').exclude(pk=plan.pk).order_by('price', 'name')
 
 
 def delete_member_plan(plan, *, user=None, reason='', move_to=None, perms=None):

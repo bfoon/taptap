@@ -73,9 +73,25 @@ class MemberPlan(models.Model):
     )
     delete_reason = models.CharField(max_length=255, blank=True)
     delete_info = models.JSONField(default=dict, blank=True)
+    # Locked by the owner (core/plan_lock.py): nobody joins, leaves or edits it; its members keep it as it is.
+    # 'locked' = only the owner can unlock; 'sealed' = nobody can, not even the owner.
+    lock_kind = models.CharField(max_length=10, blank=True, default='', choices=[('', 'Open'), ('locked', 'Locked'), ('sealed', 'Sealed')])
+    lock_reason = models.CharField(max_length=200, blank=True)
+    locked_at = models.DateTimeField(null=True, blank=True)
+    locked_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='+',
+    )
 
     objects = AliveManager()
     all_objects = BinQuerySet.as_manager()
+
+    @property
+    def is_locked(self):
+        return bool(self.lock_kind)
 
     class Meta:
         app_label = 'core'
@@ -141,6 +157,11 @@ class MemberPlanAssignment(models.Model):
     )
     assigned_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def save(self, *args, **kwargs):
+        from .plan_lock import guard_assignment
+        guard_assignment(self)            # nobody joins or leaves a locked plan, whatever path writes this row
+        return super().save(*args, **kwargs)
 
     class Meta:
         app_label = 'core'

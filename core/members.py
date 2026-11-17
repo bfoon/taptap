@@ -146,6 +146,10 @@ def plan_choice(business, value, *, active_only=True):
     if active_only:
         qs = qs.filter(active=True)
     plan = qs.filter(pk=int(raw)).first() if raw.isdigit() else None
+    if plan is not None and plan.lock_kind:
+        from .plan_lock import KINDS, locked_error
+        raise locked_error(f'Member Plan “{plan.name}” is {KINDS[plan.lock_kind].lower()} by the owner: nobody can be put on it. '
+                           'Its members keep it as it is.')
     if not plan:
         raise MemberError(
             'Choose one of your Member Plans. Create the Member Plan first '
@@ -246,6 +250,9 @@ def save_member_plan(business, data, *, plan=None, user=None):
 
     if plan is not None and plan.business_id != business.pk:
         raise MemberError('That Member Plan does not belong to this business.')
+    if plan is not None:
+        from .plan_lock import check_edit
+        check_edit(plan, 'edited')
 
     name = str(data.get('name') or '').strip()[:80]
     if not name:
@@ -320,6 +327,8 @@ def save_member_plan(business, data, *, plan=None, user=None):
 
 @transaction.atomic
 def set_plan_active(plan, active):
+    from .plan_lock import check_edit
+    check_edit(plan, 'switched on or off')
     plan.active = bool(active)
     plan.save(update_fields=['active', 'updated_at'])
     return plan
@@ -338,6 +347,8 @@ def assign_member_plan(voucher, plan, *, user=None):
         raise MemberError(
             'The member and Member Plan belong to different businesses.'
         )
+    from .plan_lock import check_assign
+    check_assign(voucher, plan)                     # nobody joins or leaves a locked plan (core/plan_lock.py)
     if not plan.active:
         raise MemberError(
             'That Member Plan is inactive. Enable it before assigning members.'
