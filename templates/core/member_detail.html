@@ -1,7 +1,7 @@
-{% extends 'core/base.html' %}{% load taptap_extras %}
+{% extends 'core/base.html' %}{% load static %}{% load taptap_extras %}
 {% block title %}{{ v.customer_name|default:v.code }} — Member — TapTap{% endblock %}
 {% block heading %}Member{% endblock %}{% block presence %}{% include "core/_presence.html" with pp_kind="member" pp_id=v.id %}{% endblock %}
-{% block extra_head %}<style>
+{% block extra_head %}<link href="{% static 'css/flow.css' %}?v=3" rel="stylesheet"><style>
 .md-head{background:var(--panel,#fff);border:1px solid var(--border,#e3e9f1);border-radius:20px;padding:1.2rem 1.3rem;margin-bottom:1rem}
 .md-top{display:flex;flex-wrap:wrap;gap:1rem;justify-content:space-between;align-items:flex-start}
 .md-who{display:flex;gap:.9rem;align-items:center;min-width:0}
@@ -116,12 +116,17 @@ html[data-theme="dark"] .md-paused{background:#13233a;border-color:#244a7a}html[
     <div class="md-kpi"><small>{% if v.frozen_at %}Time kept while paused{% else %}Time left{% endif %}</small>
       <b>{% if v.frozen_at %}{% if frozen_left_minutes %}{{ frozen_left_minutes|minutes_text }}{% else %}Full time{% endif %}{% elif time_left %}{{ time_left|duration_short }}{% elif v.is_unlimited %}No limit{% elif not ends_at %}Starts at first login{% else %}Ran out{% endif %}</b>
       <span>{% if ends_at %}ends {{ ends_at|date:'d M Y H:i' }}{% elif v.frozen_at %}since {{ v.frozen_at|date:'d M H:i' }}{% endif %}</span></div>
-    <div class="md-kpi"><small>Devices</small><b>{{ bindings|length }} / {{ v.max_devices|default:1 }}</b><span>{% if plan %}{{ plan.speed_limit|default:"plan speed" }}{% endif %}</span></div>
+    <div class="md-kpi"><small>Devices</small><b>{{ bindings|length }} / {{ v.max_devices|default:1 }}</b><span>{% if plan %}{% if plan.speed_limit %}{{ plan.speed_limit }} each{% else %}full speed{% endif %}{% endif %}</span></div>
     <a class="md-kpi text-decoration-none {% if arrears %}owe{% endif %}" href="#billing"><small>Balance owed</small><b>{% if arrears %}{{ arrears|money:cur }}{% else %}Nothing{% endif %}</b><span>{% if arrears %}tap to record a payment{% else %}{{ renewals|length }} renewal{{ renewals|length|pluralize }}{% endif %}</span></a>
     <div class="md-kpi"><small>Member portal</small><b>{% if security.profile.last_portal_login_at %}{{ security.profile.last_portal_login_at|timesince }} ago{% else %}Never used{% endif %}</b><span>{{ email|default:"no email" }}</span></div>
   </div>
   {% if time_pct is not None and not v.frozen_at %}<div class="md-bar" title="Time used"><i class="{% if time_pct >= 90 %}end{% elif time_pct >= 70 %}mid{% endif %}" style="width:{{ time_pct }}%"></i></div>{% endif %}
 </section>
+
+{% if v.router and can_support %}
+{# Speed per device: every device of this member gets the plan's whole speed, its own lane (core/device_lanes.py) #}
+<section class="sp-card" id="speed-per-device" data-lanes-voucher="{{ v.id }}"></section>
+{% endif %}
 
 <nav class="md-nav" aria-label="Sections"><a href="#pause"><i class="bi bi-pause-circle"></i> Pause</a><a href="#access"><i class="bi bi-key"></i> Password &amp; access</a><a href="#devices"><i class="bi bi-phone"></i> Devices</a>
   <a href="#details"><i class="bi bi-person-lines-fill"></i> Details</a><a href="#billing"><i class="bi bi-receipt"></i> Billing</a><a href="#security"><i class="bi bi-shield-lock"></i> Security</a>
@@ -349,7 +354,7 @@ html[data-theme="dark"] .md-paused{background:#13233a;border-color:#244a7a}html[
 </div>
 {% endwith %}
 {% endblock %}
-{% block scripts %}<script>
+{% block scripts %}{% if v.router and can_support %}<script src="{% static 'js/lanes.js' %}?v=1"></script>{% endif %}<script>
 (function(){
   // Pause: schedule or now; date or days-left
   var act=document.getElementById('pauseAction'),btn=document.getElementById('pauseBtn'),later=document.getElementById('pauseLater');

@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}{% load taptap_extras %}
+{% extends 'core/base.html' %}{% load static %}{% load taptap_extras %}
 {% block title %}Plans — TapTap{% endblock %}
 {% block heading %}Wi‑Fi Plans{% endblock %}
 {% block content %}
@@ -112,7 +112,7 @@ f.to.value='';f.querySelectorAll('option[data-plan]').forEach(o=>{o.hidden=o.dat
   <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary">Save plan</button></div></form></div></div>
 {% endwith %}
 {% endblock %}
-{% block scripts %}<script>
+{% block scripts %}<script src="{% static 'js/lanes.js' %}?v=1" defer></script><script>
 (function(){document.querySelectorAll('[data-fix-plan]').forEach(function(s){var box=s.closest('form').querySelector('[data-new-plan]');
   s.addEventListener('change',function(){box.hidden=s.value!=='new';box.querySelectorAll('input[name=new_name]').forEach(function(i){i.required=s.value==='new';});});});
   if(location.hash==='#fix'&&window.bootstrap){bootstrap.Tab.getOrCreateInstance(document.getElementById('tabFix')).show();}

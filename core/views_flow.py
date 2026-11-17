@@ -481,3 +481,214 @@ def flow_dhcp(request):
     names = t.params.get('servers') or []
     log(b, 'DHCP', f'{router.name}: lease time set to {dl.human(t.params["minutes"])} on ' + (', '.join(names) if names else 'every network'), router=router)
     return JsonResponse({'ok': True, 'test': as_json(t)})
+
+
+# ─────────────────────────────── Speed per device (core/device_lanes.py) ───────────────────────────────
+
+def _lane_json(lane):
+    return {'id': lane.pk, 'scope': lane.scope, 'voucher': lane.voucher.code if lane.voucher_id else '', 'voucher_id': lane.voucher_id,
+            'until': lane.until.isoformat() if lane.until else None, 'since': lane.created_at.isoformat(), 'reason': lane.reason,
+            'by': (lane.created_by.get_full_name() or lane.created_by.username) if lane.created_by else ''}
+
+
+def _plans_math(business):
+    from .device_lanes import math
+    out = []
+    for p in business.plans.filter(active=True).order_by('name'):
+        if (p.max_devices or 1) > 1:
+            out.append({'name': p.name, 'kind': 'Plan', 'devices': p.max_devices, 'rate': p.speed_limit, **math(p.speed_limit, p.max_devices)})
+    try:
+        for p in business.member_plans.filter(active=True).order_by('name'):
+            if (p.max_devices or 1) > 1:
+                out.append({'name': p.name, 'kind': 'Member plan', 'devices': p.max_devices, 'rate': p.speed_limit, **math(p.speed_limit, p.max_devices)})
+    except Exception:
+        pass
+    return out
+
+
+def _voucher_view(request, v):
+    from . import device_lanes as dlan
+    from .traffic_report import human_bps
+    b = _b(request)
+    rate, up, down, profile = dlan.speed_of(v)
+    shared, per = dlan.active(b)
+    lane = per.get(v.pk)
+    codes = [v.code]
+    try:
+        from .models import VoucherCodeAlias
+        codes += list(VoucherCodeAlias.objects.filter(voucher=v).values_list('code', flat=True))
+    except Exception:
+        pass
+    found = _sessions(b, codes, [])
+    labels = ti._labels(b, [s.get('mac') for _r, _c, s, _a in found])
+    devices, routers = [], {}
+    for r, code, s, age in found:
+        checked = (dlan.last(r) or {})
+        state = next((d for x in (checked.get('result') or {}).get('vouchers') or [] if x['code'].upper() == v.code.upper()
+                      for d in x['devices'] if d['ip'] == s.get('ip')), None)
+        fresh = bool(checked.get('at')) and (timezone.now() - timezone.datetime.fromisoformat(checked['at'])).total_seconds() < 1800
+        d = labels.get((s.get('mac') or '').upper())
+        devices.append({'router_id': r.pk, 'router': r.name, 'ip': s.get('ip', ''), 'mac': s.get('mac', ''), 'label': d[1] if d else '',
+                        'down_bps': s.get('down_bps') or 0, 'up_bps': s.get('up_bps') or 0,
+                        'down': human_bps(s.get('down_bps')), 'up': human_bps(s.get('up_bps')),
+                        'pct': min(100, round((s.get('down_bps') or 0) * 100 / down)) if down else None,
+                        'state': (state or {}).get('state') if fresh else None, 'text': (state or {}).get('text', '') if fresh else '',
+                        'checked_at': checked.get('at') if fresh and state else None, 'stale': age > ti.FRESH})
+        routers[r.pk] = r.name
+    devices.sort(key=lambda x: x['ip'])
+    guaranteed = bool(lane) or (shared is not None and (v.max_devices or 1) > 1)
+    perms = set(_perms(request))
+    return JsonResponse({'ok': True, 'setup': '' if dlan.ready() else ls.MIGRATE_HINT,
+                         'voucher': {'id': v.pk, 'code': v.code, 'plan': v.plan_name, 'devices_allowed': v.max_devices or 1,
+                                     'rate': rate, 'down_bps': down, 'up_bps': up, 'profile': profile, 'member': getattr(v, 'is_member', False)},
+                         'math': dlan.math(rate, v.max_devices or 1), 'devices': devices, 'routers': routers,
+                         'lane': _lane_json(lane) if lane else None, 'shared_on': shared is not None, 'guaranteed': guaranteed,
+                         'can_lane': bool({'vouchers.support', 'network.manage'} & perms) and dlan.ready() and bool(down),
+                         'can_fix': 'network.manage' in perms})
+
+
+@_safe
+@login_required
+@require_GET
+def flow_speed(request):
+    """Traffic → Speed per device (router-wide), or ?voucher=<id> for the voucher / member pages."""
+    from . import device_lanes as dlan
+    b = _b(request)
+    if request.GET.get('voucher', '').isdigit():
+        v = b.vouchers.select_related('router').filter(pk=int(request.GET['voucher'])).first()
+        if not v:
+            raise Http404
+        return _voucher_view(request, v)
+    rid = _scope_id(request)
+    shared, per = dlan.active(b)
+    out = []
+    for r in (b.routers.filter(pk=rid) if rid else b.routers.order_by('name')):
+        rows, age = dlan.online(r, business=b)
+        last = dlan.last(r) or {}
+        out.append({'router_id': r.pk, 'router': r.name, 'via': _via(r), 'shared_online': len(rows),
+                    'vouchers_online': len({c for c, _s in rows}), 'stale': age is None or age > ti.FRESH,
+                    'last': last.get('result'), 'last_at': last.get('at')})
+    lanes = [_lane_json(l) for l in per.values()]
+    lanes.sort(key=lambda x: x['since'], reverse=True)
+    return JsonResponse({'ok': True, 'setup': '' if dlan.ready() else ls.MIGRATE_HINT, 'routers': out,
+                         'shared_on': shared is not None, 'shared': _lane_json(shared) if shared else None, 'lanes': lanes[:200],
+                         'plans': _plans_math(b), 'can_fix': _can_network(request)})
+
+
+@_safe
+@login_required
+@require_POST
+def flow_speed_check(request):
+    """Ask the router(s) which queue really carries each device: of one voucher, or of every shared voucher online."""
+    from . import device_lanes as dlan
+    b = _b(request)
+    data = _body(request)
+    tests, notes = [], []
+    if str(data.get('voucher') or '').isdigit():
+        v = b.vouchers.filter(pk=int(data['voucher'])).first()
+        if not v:
+            return _bad('That voucher is gone.', 404)
+        by_router = {}
+        for r, _c, s, _a in _sessions(b, [v.code], []):
+            by_router.setdefault(r.pk, (r, []))[1].append(s.get('ip'))
+        if not by_router:
+            return _bad(f'{v.code} is not online right now — the check looks at devices that are signed in.')
+        for r, ips in by_router.values():
+            try:
+                tests.append(as_json(start(b, r, 'lanes', {'ips': ips, 'codes': [v.code]}, request.user)))
+            except ValueError as exc:
+                notes.append(f'{r.name}: {exc}')
+    else:
+        if not _can_network(request):
+            return _bad('Checking every router needs network rights.', 403)
+        rid = _scope_id(request)
+        for r in (b.routers.filter(pk=rid) if rid else b.routers.order_by('name')[:12]):
+            rows, age = dlan.online(r, business=b)
+            if not rows:
+                notes.append(f'{r.name}: no shared voucher online right now' + (' (live sync is quiet)' if age is None or age > ti.FRESH else ''))
+                continue
+            try:
+                tests.append(as_json(start(b, r, 'lanes', {'ips': [s.get('ip') for _c, s in rows][:dlan.MAX_IPS]}, request.user)))
+            except ValueError as exc:
+                notes.append(f'{r.name}: {exc}')
+    if not tests and notes:
+        return _bad(' · '.join(notes))
+    return JsonResponse({'ok': True, 'tests': tests, 'notes': notes})
+
+
+@_safe
+@login_required
+@require_POST
+def flow_speed_fix(request):
+    """Give every device its own lane: fix the router (profiles, parent queue, FastTrack) and/or add TapTap lanes."""
+    from . import device_lanes as dlan
+    from .utils import log
+    b = _b(request)
+    data = _body(request)
+    if not dlan.ready():
+        return _bad(ls.MIGRATE_HINT)
+    router = _router(request, data.get('router'))
+    if not router:
+        return _bad('Choose a router first.')
+    last = (dlan.last(router) or {}).get('result')
+    if not last:
+        return _bad('Check the router first, so TapTap knows what to fix.')
+    fx = last.get('fix') or {}
+    net = _can_network(request)
+    profiles, guard = bool(data.get('profiles', True)) and net, bool(data.get('guard', True)) and net
+    params = {'ips': [d['ip'] for x in last.get('vouchers') or [] for d in x['devices']][:dlan.MAX_IPS],
+              'rates': (fx.get('rates') or []) if profiles else [], 'unparent': (fx.get('unparent') or []) if profiles else [],
+              'guard': bool(fx.get('guard')) and guard, 'nets': fx.get('nets') or []}
+    lanes_made = 0
+    if data.get('lanes', True) and fx.get('lanes'):
+        vs = list(b.vouchers.filter(pk__in=fx['lanes']))
+        lanes_made = dlan.add_lanes(b, vs, request.user, reason='Speed check: a device did not have its own lane')
+        if lanes_made:
+            dlan.apply_now(b)
+    test = None
+    if params['rates'] or params['unparent'] or params['guard']:
+        t, err = _start_json(request, router, 'lanefix', params)
+        if err:
+            return err
+        test = as_json(t)
+    if not test and not lanes_made:
+        return JsonResponse({'ok': True, 'test': None, 'lanes_made': 0, 'message': 'Nothing to fix — every device checked already has its own lane.'})
+    log(b, 'Speed per device', f'{router.name}: fix — {len(params["rates"])} profile speed(s), {len(params["unparent"])} parent queue(s) removed'
+        + (', FastTrack guard' if params['guard'] else '') + f', {lanes_made} voucher(s) given their own lanes', router=router)
+    return JsonResponse({'ok': True, 'test': test, 'lanes_made': lanes_made})
+
+
+@_safe
+@login_required
+@require_POST
+def flow_speed_lane(request):
+    """Lanes by hand: one voucher on / off, or the always-on guarantee for every shared voucher."""
+    from . import device_lanes as dlan
+    from .utils import log
+    b = _b(request)
+    data = _body(request)
+    if not dlan.ready():
+        return _bad(ls.MIGRATE_HINT)
+    action = data.get('action')
+    if action in ('shared_on', 'shared_off'):
+        if not _can_network(request):
+            return _bad('Turning this on for the whole business needs network rights.', 403)
+        dlan.set_shared(b, action == 'shared_on', request.user)
+        dlan.apply_now(b)
+        log(b, 'Speed per device', 'Every device of a shared voucher gets its own lane: ' + ('ON' if action == 'shared_on' else 'off'))
+        return JsonResponse({'ok': True, 'shared_on': action == 'shared_on'})
+    if action == 'stop':
+        n = dlan.stop(b, int(data.get('lane') or 0), request.user)
+        dlan.apply_now(b)
+        return JsonResponse({'ok': bool(n)})
+    if action == 'add':
+        v = b.vouchers.filter(pk=int(data.get('voucher') or 0)).first() if str(data.get('voucher') or '').isdigit() else None
+        if not v:
+            return _bad('That voucher is gone.', 404)
+        if not dlan.speed_of(v)[2]:
+            return _bad(f'{v.code} has no speed limit, so there is no speed to give each device.')
+        dlan.add_lanes(b, [v], request.user, reason='Given by hand on the voucher page')
+        dlan.apply_now(b)
+        log(b, 'Speed per device', f'{v.code}: each device gets its own lane at the plan speed')
+        return JsonResponse({'ok': True})
+    return _bad('Unknown action.')

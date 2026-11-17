@@ -206,6 +206,8 @@ urlpatterns = [
     path('flow/lines/',vflow.flow_lines,name='flow_lines'), path('flow/idle/',vflow.flow_idle,name='flow_idle'),
     path('flow/slow/',vflow.flow_slow,name='flow_slow'), path('flow/slow/scan/',vflow.flow_slow_scan,name='flow_slow_scan'),
     path('flow/dhcp/',vflow.flow_dhcp,name='flow_dhcp'),
+    path('flow/speed/',vflow.flow_speed,name='flow_speed'), path('flow/speed/check/',vflow.flow_speed_check,name='flow_speed_check'),
+    path('flow/speed/fix/',vflow.flow_speed_fix,name='flow_speed_fix'), path('flow/speed/lane/',vflow.flow_speed_lane,name='flow_speed_lane'),
     path('network-tools/',vnt.network_tools,name='network_tools'), path('network-tools/run/',vnt.network_tools_run,name='network_tools_run'),
     path('network-tools/test/<int:pk>/',vnt.network_tools_test,name='network_tools_test'),
     path('network-tools/path/',vnt.network_tools_path,name='network_tools_path'), path('network-tools/devices/',vnt.network_tools_devices,name='network_tools_devices'),

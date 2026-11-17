@@ -24,7 +24,8 @@ import re
 from . import line_steer as ls
 from . import nettools as nt
 
-LAB_KINDS = ('client', 'cspeed', 'slowscan', 'lane', 'lanepin', 'laneoff', 'dhcp', 'dhcpset')
+LAB_KINDS = ('client', 'cspeed', 'slowscan', 'lane', 'lanepin', 'laneoff', 'dhcp', 'dhcpset', 'lanes', 'lanefix')
+SPEED_KINDS = ('lanes', 'lanefix')     # core/device_lanes.py
 LANE_KINDS = ('lane', 'lanepin', 'laneoff')
 DHCP_KINDS = ('dhcp', 'dhcpset')
 CODE_RE = re.compile(r'^[\w.@:+/<>-]{1,64}$')
@@ -62,6 +63,16 @@ def clean(kind, data, router=None):
         raise ValueError('Unknown test.')
     if kind == 'slowscan':
         return {'target': 'speed limits'}
+    if kind in SPEED_KINDS:
+        from . import device_lanes as dlan
+        p = dlan.clean(data)
+        if kind == 'lanefix':
+            for k in ('rates', 'unparent', 'nets'):
+                p[k] = list(data.get(k) or [])
+            p['guard'] = bool(data.get('guard'))
+            p['target'] = 'speed per device fix'
+            dlan.validate(kind, p)
+        return p
     if kind == 'dhcp':
         return {'target': 'DHCP servers'}
     if kind == 'dhcpset':
@@ -91,6 +102,10 @@ def validate(kind, p):
     if kind not in LAB_KINDS:
         raise ValueError('Unknown test.')
     if kind in ('slowscan', 'dhcp'):
+        return
+    if kind in SPEED_KINDS:
+        from .device_lanes import validate as lanes_validate
+        lanes_validate(kind, p)
         return
     if kind == 'dhcpset':
         from .dhcp_lease import NAME_RE
@@ -288,6 +303,9 @@ def run_api(test, svc):
         return res
     if k == 'slowscan':
         return run_slowscan(svc, p)
+    if k in SPEED_KINDS:
+        from . import device_lanes as dlan
+        return dlan.finish(test.router, k, p, dlan.api_read(svc, p) if k == 'lanes' else dlan.api_fix(svc, p))
     if k in LANE_KINDS:
         raw = {'lane': ls.api_look, 'lanepin': ls.api_pin, 'laneoff': ls.api_unpin}[k](svc, p)
         return ls.result(test.router, k, p, raw)
@@ -367,6 +385,9 @@ def link_body(kind, p, rs):
         return _cspeed_body(p, rs)
     if kind == 'slowscan':
         return _slowscan_body()
+    if kind in SPEED_KINDS:
+        from .device_lanes import link_body as lanes_body
+        return lanes_body(kind, p, rs)
     if kind in LANE_KINDS:
         return ls.link_body(kind, p)
     from .dhcp_lease import link_body as dhcp_body
@@ -415,6 +436,9 @@ def parse_link(test_router, kind, p, lines):
         return res
     if kind in LANE_KINDS:
         return ls.result(test_router, kind, p, ls.parse_link(lines))
+    if kind in SPEED_KINDS:
+        from . import device_lanes as dlan
+        return dlan.finish(test_router, kind, p, dlan._lines_raw(lines))
     from . import dhcp_lease as dl
     return dl.finish(test_router, kind, p, dl.parse_link(kind, p, lines))
 

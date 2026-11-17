@@ -1023,6 +1023,13 @@ def _catalogue_body(cmd):
                        f'/queue simple set $q target={ip}/32 max-limit={lim} disabled=no }} }} on-error={{}}')
         for qn in p.get('remove', []):
             out.append(f':do {{ /queue simple remove [find name="{qn}"] }} on-error={{}}')
+        if p.get('set'):
+            # Above the hotspot's own per-device queues (a device that signs in gets a new one on top), as the Direct API
+            # path already does — added at the bottom they never caught a signed-in device. Fair usage (TTFUP) stays first.
+            out.append(':do { :local sp [/queue simple find name~"^TTSPD-"]; :local fu [/queue simple find name~"^TTFUP-"]; :local d ""; '
+                       ':foreach q in=[/queue simple find] do={ :if ([:len $d] = 0) do={ '
+                       ':if ([:typeof [:find $sp $q]] = "nil" && [:typeof [:find $fu $q]] = "nil") do={ :set d $q } } }; '
+                       ':if ([:len $d] > 0 && [:len $sp] > 0) do={ /queue simple move $sp destination=$d } } on-error={}')
         return '; '.join(out) or ':nothing'
     if k == 'unlimit':
         return f'/queue simple remove [find name={rs(p.get("queue") or ("TapTap limit " + p["name"]))}]'

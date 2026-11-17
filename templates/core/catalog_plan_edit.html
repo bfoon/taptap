@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}
+{% extends 'core/base.html' %}{% load static %}
 {% load taptap_extras %}
 {% block title %}Edit {{ p.name }} — TapTap{% endblock %}
 {% block heading %}Edit Plan{% endblock %}
@@ -22,4 +22,4 @@
 </div></div>
 <div class="col-xl-4"><div class="panel"><h3 class="h6 fw-bold">Preserve existing sales</h3><p class="text-secondary small">Changes to a plan affect future vouchers. Previously sold or activated vouchers retain their existing duration and price. Use the checkbox to update unused stock.</p><p class="text-secondary small mb-0">After editing router-related values, synchronize the affected router. For imported MikroTik plans, update the router profile itself if you want those values to remain after sync.</p></div></div></div>
 {% endblock %}
-{% block scripts %}<script>(function(){const u=document.getElementById('planDurationUnit'),v=document.getElementById('planDuration');function sync(){v.disabled=u.value==='unlimited';v.required=u.value!=='unlimited';if(!v.disabled&&!v.value)v.value=1;}u.addEventListener('change',sync);sync();})();</script>{% endblock %}
+{% block scripts %}<script src="{% static 'js/lanes.js' %}?v=1" defer></script><script>(function(){const u=document.getElementById('planDurationUnit'),v=document.getElementById('planDuration');function sync(){v.disabled=u.value==='unlimited';v.required=u.value!=='unlimited';if(!v.disabled&&!v.value)v.value=1;}u.addEventListener('change',sync);sync();})();</script>{% endblock %}

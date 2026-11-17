@@ -4,7 +4,7 @@
 {% block heading %}Traffic &amp; consumption{% endblock %}
 {% block extra_head %}
 <link href="{% static 'css/traffic.css' %}?v=3" rel="stylesheet">
-<link href="{% static 'css/flow.css' %}?v=2" rel="stylesheet">
+<link href="{% static 'css/flow.css' %}?v=3" rel="stylesheet">
 
 {% endblock %}
 {% block content %}
@@ -15,6 +15,7 @@
   <button type="button" data-tab="idle" role="tab" aria-selected="false"><i class="bi bi-moon-stars"></i> Idle vouchers <span class="fl-n" id="flIdleN">·</span></button>
   <button type="button" data-tab="slow" role="tab" aria-selected="false"><i class="bi bi-hourglass-split"></i> Slow vouchers</button>
   <button type="button" data-tab="lines" role="tab" aria-selected="false"><i class="bi bi-signpost-split"></i> Internet lines</button>
+  <button type="button" data-tab="speed" role="tab" aria-selected="false"><i class="bi bi-signpost-2"></i> Speed per device</button>
   <button type="button" data-tab="dhcp" role="tab" aria-selected="false"><i class="bi bi-hdd-network"></i> DHCP lease</button>
 </nav>
 
@@ -34,6 +35,10 @@
   <section class="panel mb-3"><div class="panel-head"><div><h3>Who is on which internet line</h3>
     <p>For a router that shares customers over several lines, the share you designed next to the share that is really there — and one click to move a customer to another line.</p></div></div>
     <div class="fl-body"></div></section>
+</div>
+
+<div data-pane="speed" hidden>
+  <div data-lanes-tab data-lazy="1" data-query="{{ query }}"></div>
 </div>
 
 <div data-pane="dhcp" hidden>
@@ -153,7 +158,8 @@
 {% block scripts %}
 <script src="{% static 'vendor/chart.umd.min.js' %}"></script>
 <script src="{% static 'js/cdn-spread.js' %}" defer></script>
-<script src="{% static 'js/flow.js' %}?v=2" defer></script>
+<script src="{% static 'js/lanes.js' %}?v=1" defer></script>
+<script src="{% static 'js/flow.js' %}?v=3" defer></script>
 <script src="{% static 'js/traffic-live.js' %}?v=3" data-data-url="{% url 'traffic_data' %}?{{ query }}" data-now-url="{% url 'traffic_now' %}{% if sel_router %}?router={{ sel_router }}{% endif %}"></script>
 
 {% endblock %}

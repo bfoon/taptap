@@ -9,7 +9,9 @@ class NetTest(models.Model):
              ('whoami', 'Find my device'), ('hops', 'Path check'), ('mypath', 'My connection'), ('drops', 'Why people drop'),
              # Connection lab, internet lines and DHCP lease (core/conn_lab.py)
              ('client', 'Device check'), ('cspeed', 'Speed check'), ('slowscan', 'Slow scan'), ('lane', 'Internet line'),
-             ('lanepin', 'Line switch'), ('laneoff', 'Line release'), ('dhcp', 'DHCP lease'), ('dhcpset', 'DHCP lease change')]
+             ('lanepin', 'Line switch'), ('laneoff', 'Line release'), ('dhcp', 'DHCP lease'), ('dhcpset', 'DHCP lease change'),
+             # Speed per device (core/device_lanes.py)
+             ('lanes', 'Speed per device'), ('lanefix', 'Speed per device fix')]
     STATUS = [('running', 'Running'), ('waiting', 'Waiting for the router'), ('done', 'Done'), ('failed', 'Failed')]
     business = models.ForeignKey('core.Business', on_delete=models.CASCADE, related_name='net_tests')
     router = models.ForeignKey('core.Router', on_delete=models.CASCADE, related_name='net_tests')

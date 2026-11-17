@@ -35,7 +35,7 @@
       <div><span>Price</span>{{ plan.price|money:c }}{% if plan.price_source == 'manual' %} <small class="text-secondary">(set in TapTap)</small>{% elif plan.price_source == 'router' %} <small class="text-secondary">(from router)</small>{% endif %}</div>
       <div><span>Duration</span>{{ plan.duration_text }}</div>
       <div><span>Devices per voucher</span>{{ plan.max_devices }}</div>
-      <div><span>Speed limit</span>{{ plan.speed_limit|default:'None' }}</div>
+      <div><span>Speed limit</span>{{ plan.speed_limit|default:'None' }}{% if plan.speed_limit %} <small class="text-secondary">for each device{% if plan.max_devices > 1 %} — every one of its {{ plan.max_devices }} devices gets this whole speed{% endif %}</small>{% endif %}</div>
       <div><span>Data limit</span>{% if plan.data_limit_mb %}{{ plan.data_limit_mb }} MB{% else %}None{% endif %}</div>
       <div><span>Source</span>{{ plan.get_source_display }}{% if plan.imported_from_router %} · {{ plan.imported_from_router.name }}{% endif %}</div>
       {% if plan.mikrotik_profile_name %}<div><span>MikroTik profile</span>{{ plan.mikrotik_profile_name }}</div>{% endif %}

@@ -37,10 +37,12 @@ KINDS = {
     # Connection lab, internet lines and DHCP lease (core/conn_lab.py) — started from their own pages, not from this one
     'client': 'Device check', 'cspeed': 'Speed check', 'slowscan': 'Slow scan', 'lane': 'Internet line',
     'lanepin': 'Line switch', 'laneoff': 'Line release', 'dhcp': 'DHCP lease', 'dhcpset': 'DHCP lease change',
+    'lanes': 'Speed per device', 'lanefix': 'Speed per device fix',
 }
 DROPS_LINES = 60                 # the latest hotspot sign-outs read from the router's log
 PATH_KINDS = ('whoami', 'hops')       # core/pathtrace.py
-LAB_KINDS = ('client', 'cspeed', 'slowscan', 'lane', 'lanepin', 'laneoff', 'dhcp', 'dhcpset')   # core/conn_lab.py
+LAB_KINDS = ('client', 'cspeed', 'slowscan', 'lane', 'lanepin', 'laneoff', 'dhcp', 'dhcpset',
+             'lanes', 'lanefix')   # core/conn_lab.py (lanes: core/device_lanes.py)
 
 CHECK_IPS = ('1.1.1.1', '8.8.8.8')
 CHECK_NAME = 'google.com'

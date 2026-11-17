@@ -450,7 +450,7 @@
     window.addEventListener('hashchange', function () { self.show(location.hash.slice(1) || 'overview'); });
     this.show(location.hash.slice(1) || 'overview');
     this.badge();
-    setInterval(function () { if (!document.hidden) { self.badge(); if (self.tab !== 'overview' && self.tab !== 'dhcp') self.load(self.tab, true); } }, 30000);
+    setInterval(function () { if (!document.hidden) { self.badge(); if (self.tab !== 'overview' && self.tab !== 'dhcp' && self.tab !== 'speed') self.load(self.tab, true); } }, 30000);
     document.addEventListener('tt:line-changed', function () { if (self.tab === 'lines') self.load('lines', true); });
   }
   Tabs.prototype.pane = function (name) { return document.querySelector('[data-pane="' + name + '"]'); };
@@ -474,6 +474,7 @@
   Tabs.prototype.load = function (name, quiet) {
     var self = this, pane = this.pane(name);
     if (name === 'dhcp') { if (!this.loaded.dhcp) { this.loaded.dhcp = 1; new Dhcp(pane.querySelector('[data-dhcp]')); } return; }
+    if (name === 'speed') { if (window.TTLanes) TTLanes.tab(pane.querySelector('[data-lanes-tab]')); return; }   // static/js/lanes.js
     if (!quiet && !this.loaded[name]) pane.querySelector('.fl-body').innerHTML = spin('Loading…');
     this.loaded[name] = 1;
     var url = name === 'idle' ? this.url(U.idle, 'min=' + this.state.min + '&level=' + this.state.level) : this.url(name === 'slow' ? U.slow : U.lines);

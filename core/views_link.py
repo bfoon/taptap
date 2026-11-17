@@ -212,7 +212,7 @@ def agent_nettest(request):
     """TapTap Link: a MikroTik's answer to a network test (core/nettools.receive_link)."""
     if request.method != 'POST':
         return HttpResponse(status=405)
-    if len(request.body or b'') > 16_000:
+    if len(request.body or b'') > 32_000:       # Speed per device (core/device_lanes.py) answers can reach ~14 KB
         return HttpResponse('payload too large', status=413, content_type='text/plain')
     try:
         cid = int(request.GET.get('c', '0'))

@@ -538,3 +538,19 @@ services as the Members pages, and recorded in the member's history with "(appro
     docker compose run --rm web python manage.py migrate core
 
 `showmigrations core` should show `0122_flow_lab` as `[X]`. Nothing needs changing on the routers.
+
+
+## v7 — Speed per device: every device gets the whole plan speed
+
+- A plan's (or member plan's) speed is written to the router profile's `rate-limit`; RouterOS makes **one queue per
+  signed-in device**, so 2M/2M with 3 devices is 3 × 2M/2M. TapTap now **checks** that each device really has its own
+  lane, and finds what breaks it: a parent queue on the profile, a hand-made network/interface queue above, the hotspot
+  server's shared queue, a speed changed while online, and FastTrack (which skips every queue).
+- **Voucher and member pages**: one lane per device slot with live speed against its own plan speed, *Check on the router*,
+  and *Guarantee each device its own lane* — TapTap puts each device in its own queue at the plan speed, at once.
+- **Traffic → Speed per device**: *Always guarantee it* for every voucher and member allowed 2+ devices, a per-router check,
+  and *Fix it* (lanes, router profiles, FastTrack guard), read back from the router.
+- Plan forms show the per-device math as you type: each device's speed, and the whole voucher's with all devices busy.
+- Fixed: on TapTap Link routers, Speed control queues now sit above the hotspot's own queues (as on Direct API routers).
+
+`showmigrations core` should show `0123_device_lanes` as `[X]`.

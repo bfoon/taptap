@@ -162,18 +162,23 @@ def desired_caps(router, active):
         for v in (
             Voucher.objects
             .filter(business=router.business)
-            .only('pk', 'code', 'plan_name', 'agent_id')
+            # the speed fields are for per-device lanes (core/device_lanes.py): no extra query per voucher
+            .only('pk', 'code', 'plan_name', 'agent_id', 'max_devices', 'rate_limit', 'router_profile',
+                  'duration_minutes', 'expires_at', 'business')
         ):
             if v.code.upper() in codes:
                 vouchers[v.code.upper()] = v
 
     maps = _rule_maps(_active_business_rules(router.business))
     out = {}
+    unruled = []           # voucher devices no speed rule picked: candidates for their own lane
 
     for raw, user, ip, mac in rows:
         voucher = vouchers.get(user.upper()) if user else None
         rule = _pick_rule(router, raw, voucher, maps)
         if not rule:
+            if voucher is not None:
+                unruled.append((user, ip))
             continue
 
         qn = _qname(router.pk, ip)
@@ -184,6 +189,16 @@ def desired_caps(router, active):
             rule.pk,
             rule.name,
         )
+
+    # Speed per device (core/device_lanes.py): each device of a laned voucher gets its own queue at the plan speed.
+    # An owner's own speed rule (above) always wins; fair usage still sits above both.
+    if unruled:
+        try:
+            from .device_lanes import LANE_LABEL, lane_caps
+            for ip, (up, down) in lane_caps(router, unruled, vouchers).items():
+                out[_qname(router.pk, ip)] = (ip, up, down, 0, LANE_LABEL)
+        except Exception as exc:
+            logger.info('per-device lanes %s: %s', router, exc)
 
     return out
 
