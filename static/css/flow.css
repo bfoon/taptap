@@ -226,3 +226,23 @@ html[data-theme="dark"] .ln-share u{background:#e2e8f0}
 html[data-theme="dark"] .sp-card .sp-math{color:#b8c7d8}html[data-theme="dark"] .sp-card .sp-math b{color:#fff}
 html[data-theme="dark"] .sp-vrow.bad{background:#2c1d1f;border-color:#5a2f33}
 @media(prefers-reduced-motion:reduce){.sp-lane::before{animation:none}}
+
+/* ───────── Connection lab: known vs measured, and the router check strip ───────── */
+.lab-st.src-known .lab-dot{border-style:dashed;opacity:.9}
+.lab-st.src-known small{font-style:italic}
+.lab-st.src-measured .lab-dot{box-shadow:0 0 0 3px #ffffff12}
+.lab-steps{border:1px solid var(--border,#e5ebf3);border-radius:14px;padding:.55rem .75rem;margin-bottom:.8rem;background:var(--panel,#fff)}
+.lab-steps-h{display:flex;flex-wrap:wrap;gap:.4rem;justify-content:space-between;align-items:center;font-size:.8rem;font-weight:800;color:#34495e;margin-bottom:.25rem}
+.lab-legend{font-weight:600;color:#6c7c90;display:inline-flex;gap:.35rem;align-items:center}
+.lab-legend i{display:inline-block;width:11px;height:11px;border-radius:50%;border:2px solid #18a66a;margin-left:.35rem}
+.lab-legend i.lg-k{border-style:dashed;border-color:#6c7c90}
+.lab-step{display:flex;gap:.6rem;align-items:flex-start;padding:.35rem 0;border-top:1px solid #eef2f6;font-size:.82rem}
+.lab-step:first-of-type{border-top:0}
+.lab-step>i{flex:none;font-size:1rem;margin-top:.05rem}
+.lab-step>div{flex:1;min-width:0}
+.lab-step-t{color:#34495e;line-height:1.35}
+.lab-step.warn .lab-step-t{color:#7a4b00}
+.lab-step .btn{flex:none}
+.lab-headline small{opacity:.8;margin-top:.1rem}
+html[data-theme="dark"] .lab-steps-h,html[data-theme="dark"] .lab-step-t{color:#b8c7d8}
+html[data-theme="dark"] .lab-step.warn .lab-step-t{color:#fde68a}

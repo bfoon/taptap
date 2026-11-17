@@ -96,8 +96,15 @@ def start(business, router, kind, data, user):
     params = lab.clean(kind, data, router)
     nt.limit_check(business, router, kind)
     via = _via(router)
+    polls0 = None
+    if via == 'TapTap Link':
+        try:
+            polls0 = int(router.agent.polls or 0)
+        except Exception:
+            polls0 = None
     t = NetTest.objects.create(business=business, router=router, kind=kind, target=str(params.get('target', ''))[:320], params=params,
-                               via=via, created_by=user, status='waiting' if via == 'TapTap Link' else 'running')
+                               via=via, created_by=user, status='waiting' if via == 'TapTap Link' else 'running',
+                               result={'polls0': polls0} if polls0 is not None else {})
     if via == 'TapTap Link':
         from . import agent as link
         from .linkops import send
@@ -112,6 +119,8 @@ def start(business, router, kind, data, user):
                 t.save(update_fields=['status', 'result', 'finished_at'])
         if cmd is not None:
             t.command_id = cmd.pk
+            if polls0 is not None:
+                t.result = {**(t.result or {}), 'polls0': polls0}
             t.save(update_fields=['command_id', 'result'])
             try:
                 link.mark_urgent(router)          # a person is waiting: ask the router to check in sooner
@@ -136,6 +145,43 @@ def _start_json(request, router, kind, data):
     return t, None
 
 
+def delivery(t):
+    """Where a TapTap Link test is: queued (with what is ahead of it), handed to the router, or answered — and how the
+    router has been checking in meanwhile. The lab shows this instead of a bare spinner."""
+    if t.via != 'TapTap Link':
+        return {'link': False}
+    from .agent import VOUCHER_KINDS, ros_major
+    from .models import AgentCommand
+    out = {'link': True, 'stage': {'waiting': 'queued', 'done': 'answered', 'failed': 'failed'}.get(t.status, t.status),
+           'age': int((timezone.now() - t.created_at).total_seconds()), 'express': False}
+    try:
+        agent = t.router.agent
+        heard = agent.last_heard
+        out['heard_s'] = int((timezone.now() - heard).total_seconds()) if heard else None
+        from .link_rhythm import _p, gaps
+        out['usual_s'] = int(_p(gaps(agent), .5) or agent.poll_seconds or 10)
+        p0 = (t.result or {}).get('polls0')
+        out['checkins'] = max(0, int(agent.polls or 0) - int(p0)) if p0 is not None else None
+        out['express'] = ros_major(t.router) >= 7
+    except Exception:
+        pass
+    cmd = AgentCommand.objects.filter(pk=t.command_id).first() if t.command_id else None
+    if cmd is not None:
+        out['attempts'] = cmd.attempts
+        if cmd.status == 'queued':
+            ahead = AgentCommand.objects.filter(router=t.router, status='queued', created_at__lt=cmd.created_at)
+            out['ahead'] = ahead.count()
+            out['vouchers_ahead'] = ahead.filter(kind__in=VOUCHER_KINDS).count()
+        elif cmd.status in ('sent', 'done') and t.status == 'waiting':
+            out['stage'] = 'running'
+            out['sent_s'] = int((timezone.now() - cmd.sent_at).total_seconds()) if cmd.sent_at else None
+    return out
+
+
+def test_json(t):
+    return {**as_json(t), 'delivery': delivery(t)}
+
+
 @login_required
 @require_GET
 @_safe
@@ -144,7 +190,7 @@ def flow_test(request, pk):
     if not t:
         raise Http404
     nt.expire_waiting(t)
-    return JsonResponse({'ok': True, 'test': as_json(_after(t))})
+    return JsonResponse({'ok': True, 'test': test_json(_after(t))})
 
 
 # ─────────────────────────────── Connection lab ───────────────────────────────
@@ -259,13 +305,13 @@ def flow_lab_run(request):
     router = _router(request, data.get('router'))
     if not router:
         return _bad('Choose a router first.')
-    kinds = [k for k in (data.get('kinds') or ['client', 'cspeed']) if k in ('client', 'cspeed')]
+    kinds = [k for k in (data.get('kinds') or ['labq', 'labd']) if k in ('labq', 'labd', 'client', 'cspeed')]
     tests = []
     for kind in kinds:
         t, err = _start_json(request, router, kind, data)
         if err:
             return err if not tests else JsonResponse({'ok': True, 'tests': tests, 'message': json.loads(err.content)['message']})
-        tests.append(as_json(t))
+        tests.append(test_json(t))
     return JsonResponse({'ok': True, 'tests': tests})
 
 
@@ -280,17 +326,70 @@ def flow_lab_verdict(request):
     if not router:
         return _bad('Choose a router first.')
 
-    def res(pk, kind):
-        t = b.net_tests.filter(pk=pk, router=router, kind=kind, status='done').first() if str(pk or '').isdigit() else None
+    def res(pk, kinds):
+        t = b.net_tests.filter(pk=pk, router=router, kind__in=kinds, status='done').first() if str(pk or '').isdigit() else None
         return t.result if t else None
     code, ip = str(data.get('code') or '')[:120], str(data.get('ip') or '')
     v = b.vouchers.filter(code__iexact=code).first() if code else None
-    live = next((s for _r, _c, s, _a in _sessions(b, [code] if code else [], [], router) if s.get('ip') == ip), None)
+    found = [s for _r, _c, s, _a in _sessions(b, [code] if code else [], [], router) if s.get('ip') == ip]
+    if not found:
+        users, _age = ti._snap(router, timezone.now())
+        found = [x for ss in users.values() for x in ss if x.get('ip') == ip]
+    live = found[0] if found else None
+    mac = str(data.get('mac') or (live or {}).get('mac') or '')
     ctx = ti.device_limits(b, v, code, ip, router)
     ctx.update(online=bool(live), down_bps=(live or {}).get('down_bps', 0), up_bps=(live or {}).get('up_bps', 0),
                quiet_s=int(timezone.now().timestamp() - live['calm']) if live and live.get('calm') else 0,
-               lane=ls.where(router, ip) or None)
-    return JsonResponse({'ok': True, 'verdict': lab.verdict(ctx, res(data.get('client'), 'client'), res(data.get('cspeed'), 'cspeed'))})
+               lane=ls.where(router, ip) or None, snap=_snap_facts(router, ip, mac), heard_s=_heard_s(router), via=_via(router))
+    q, d = res(data.get('labq'), ('labq',)), res(data.get('labd'), ('labd',))
+    old_c, old_s = res(data.get('client'), ('client',)), res(data.get('cspeed'), ('cspeed',))
+    dev = {**(old_c or {}), **{k: (q or {}).get(k) for k in ('ping', 'arp', 'active') if q}, **{k: (d or {}).get(k) for k in ('port', 'lease', 'host', 'wifi') if d}}
+    spd = {**(old_s or {}), **{k: (q or {}).get(k) for k in ('queues', 'lane') if q}, **{k: (d or {}).get(k) for k in ('cpu', 'drops', 'internet') if d}}
+    dev = {k: v2 for k, v2 in dev.items() if v2 is not None}
+    spd = {k: v2 for k, v2 in spd.items() if v2 is not None}
+    done = bool(q and d) or bool(old_c and old_s)
+    return JsonResponse({'ok': True, 'verdict': lab.verdict(ctx, dev, spd, done=done)})
+
+
+def _heard_s(router):
+    """Seconds since a TapTap Link router last reached TapTap (proof its internet works); None for other channels."""
+    try:
+        if _via(router) != 'TapTap Link':
+            return None
+        heard = router.agent.last_heard
+        return int((timezone.now() - heard).total_seconds()) if heard else None
+    except Exception:
+        return None
+
+
+def _snap_facts(router, ip, mac):
+    """What the last router sync says about one device: port / interface, Wi-Fi signal — and how old that is."""
+    from django.db.models import Q
+    from .linkops import snapshot_rows
+    out = {}
+    mac = ls.clean_mac(mac)
+    try:
+        q = (Q(ip_address=ip) | Q(mac_address__iexact=mac)) if mac else Q(ip_address=ip)
+        d = router.devices.filter(q).order_by('-last_seen_at').first()
+        if d:
+            out.update(iface=d.interface_name or '', type=d.connection_type or '', age=int((timezone.now() - d.last_seen_at).total_seconds()))
+            mac = mac or ls.clean_mac(d.mac_address)
+    except Exception:
+        pass
+    if mac:
+        for _cli, path, sig, ccq in lab.WIFI_TABLES:
+            try:
+                rows, _l, at = snapshot_rows(router, path)
+            except Exception:
+                rows, at = None, None
+            row = next((r for r in rows or [] if ls.clean_mac(r.get('mac-address')) == mac), None)
+            if row:
+                out['wifi'] = lab._wifi(row.get(sig), row.get('tx-rate'), row.get('rx-rate'), row.get(ccq) if ccq else '', row.get('interface'))
+                if at:
+                    out['age'] = int((timezone.now() - at).total_seconds())
+                out.setdefault('iface', out['wifi'].get('interface', ''))
+                break
+    return out
 
 
 @login_required
@@ -328,7 +427,7 @@ def flow_line(request):
     action = data.get('action')
     if action == 'look':
         t, err = _start_json(request, router, 'lane', data)
-        return err or JsonResponse({'ok': True, 'test': as_json(t)})
+        return err or JsonResponse({'ok': True, 'test': test_json(t)})
     info = ls.lanes(router)
     if len(info['lanes']) < 2:
         return _bad(info['why'])
@@ -474,7 +573,7 @@ def flow_dhcp(request):
         return _bad('Choose a router first.')
     if data.get('action') == 'read':
         t, err = _start_json(request, router, 'dhcp', {})
-        return err or JsonResponse({'ok': True, 'test': as_json(t)})
+        return err or JsonResponse({'ok': True, 'test': test_json(t)})
     t, err = _start_json(request, router, 'dhcpset', data)
     if err:
         return err

@@ -166,56 +166,98 @@
     if (limit) { c.setLineDash([5, 4]); c.strokeStyle = '#ef444499'; c.lineWidth = 1; c.beginPath(); c.moveTo(0, y(limit)); c.lineTo(w, y(limit)); c.stroke(); c.setLineDash([]); }
     line(1, '#7c3aed'); line(0, '#0b84c6', 'rgba(11,132,198,.12)');
   };
-  // ── the road: stations fill in as the router answers ──
-  Lab.prototype.station = function (key, state, detail) {
+  // ── the road: TapTap's own knowledge first (dashed), the router's measurement replaces it (solid) ──
+  var STEPS = { labq: ['Quick check', 'the phone, its speed limits, its internet line'], labd: ['Details', 'Wi-Fi signal, address lease, the internet, the log'] };
+  Lab.prototype.station = function (key, state, detail, src) {
     var li = this.$('[data-st=' + key + ']'); if (!li) return;
-    li.className = 'lab-st' + (state && state !== 'idle' ? ' s-' + state : '');
-    if (detail !== undefined) { li.querySelector('small').textContent = detail || ''; li.querySelector('small').title = detail || ''; }
+    li.className = 'lab-st' + (state && state !== 'idle' ? ' s-' + state : '') + (src ? ' src-' + src : '');
+    li.title = src === 'measured' ? 'Measured by the router just now' : src === 'known' ? 'From TapTap’s own data (live sync, the traffic sample, the last router sync)' : '';
+    if (detail !== undefined) { li.querySelector('small').textContent = detail || ''; }
   };
   Lab.prototype.check = function () {
-    var self = this, t = this.t(), wait = this.$('.lab-waitbox');
-    this.res = {};
-    STATIONS.forEach(function (s) { self.station(s[0], 'run', ''); });
-    this.head('idle', 'Asking ' + t.router + '…'); this.$('.lab-find').innerHTML = '';
-    wait.innerHTML = t.via === 'TapTap Link' ? '<div class="lab-wait"><i class="bi bi-hourglass-split"></i> ' + esc(t.router) + ' is on TapTap Link: it runs the checks at its next check-in (a few seconds each).</div>' : '';
-    api(U.run, this.body({ kinds: ['client', 'cspeed'] })).then(function (d) {
-      if (!self.alive) return;
-      if (!d.ok) { wait.innerHTML = ''; STATIONS.forEach(function (s) { self.station(s[0], 'idle'); }); return self.head('bad', d.message); }
-      var left = d.tests.length;
-      d.tests.forEach(function (test) {
-        follow(test).then(function (done) {
-          if (!self.alive || self.t() !== t) return;
-          self.res[done.kind] = done;
-          if (done.kind === 'cspeed' && done.status === 'done' && done.result.lane) self.lineBox(done.result.lane, null);
-          self.facts(); self.verdict();
-          if (--left === 0) wait.innerHTML = '';
-        });
-      });
+    var self = this, t = this.t();
+    this.res = {}; this.tries = {};
+    this.head('idle', 'Reading what TapTap already knows…'); this.$('.lab-find').innerHTML = '';
+    this.run(['labq', 'labd'], t);
+    this.verdict();                                   // TapTap's own knowledge, at once — never an empty lab
+  };
+  Lab.prototype.run = function (kinds, t) {
+    var self = this;
+    kinds.forEach(function (k) { self.res[k] = { status: 'starting', kind: k }; });
+    this.track();
+    api(U.run, this.body({ kinds: kinds })).then(function (d) {
+      if (!self.alive || self.t() !== t) return;
+      if (!d.ok) { kinds.forEach(function (k) { self.res[k] = { status: 'failed', kind: k, result: { error: d.message } }; }); return self.track(); }
+      d.tests.forEach(function (test) { self.watch(test, t); });
       if (d.message) self.note(d.message);
     });
   };
-  Lab.prototype.note = function (text) { this.$('.lab-waitbox').innerHTML = '<div class="fl-warnline">' + esc(text) + '</div>'; };
-  Lab.prototype.head = function (level, text) {
+  Lab.prototype.watch = function (test, t) {
+    var self = this, k = test.kind;
+    follow(test, function (x) { if (self.alive && self.t() === t) { self.res[k] = x; self.track(); } }).then(function (done) {
+      if (!self.alive || self.t() !== t) return;
+      if (done.status === 'failed' && !self.tries[k] && done.via === 'TapTap Link') {
+        self.tries[k] = 1;                                         // once more, automatically: a busy router usually takes the 2nd
+        self.res[k] = { status: 'retry', kind: k, result: done.result };
+        self.track();
+        return setTimeout(function () { if (self.alive && self.t() === t) self.run([k], t); }, 1500);
+      }
+      self.res[k] = done;
+      if (k === 'labq' && done.status === 'done' && done.result.lane) self.lineBox(done.result.lane, null);
+      self.facts(); self.verdict(); self.track();
+    });
+  };
+  /* The router check strip: where each step is, in facts — never a bare spinner, never a red headline. */
+  Lab.prototype.track = function () {
+    var self = this, t = this.t(), box = this.$('.lab-waitbox'), rows = [];
+    ['labq', 'labd'].forEach(function (k) {
+      var x = self.res[k]; if (!x) return;
+      var dv = x.delivery || {}, st = x.status, icon, text, cls = '';
+      if (st === 'done') { icon = 'bi-check-circle-fill text-success'; text = 'Measured' + (x.secs != null ? ' in ' + Math.round(x.secs) + ' s' : '') + (self.tries[k] ? ' (2nd try)' : ''); }
+      else if (st === 'retry') { icon = 'bi-arrow-repeat text-warning'; text = 'The answer did not arrive — trying once more…'; cls = 'warn'; }
+      else if (st === 'failed') { icon = 'bi-exclamation-circle text-warning'; text = failText(x); cls = 'warn'; }
+      else if (dv.stage === 'running') { icon = 'bi-broadcast text-primary'; text = 'Handed to ' + t.router + (dv.sent_s != null ? ' ' + dv.sent_s + ' s ago' : '') + ' — measuring now'; }
+      else if (dv.link) {
+        icon = 'bi-hourglass-split text-primary';
+        text = 'Waiting for ' + t.router + '’s next check-in' +
+          (dv.heard_s != null ? ' — last one ' + (dv.heard_s < 50 ? dv.heard_s + ' s' : Math.round(dv.heard_s / 60) + ' min') + ' ago' : '') +
+          (dv.usual_s ? ', usually every ~' + dv.usual_s + ' s' : '') +
+          (dv.vouchers_ahead ? ' · ' + dv.vouchers_ahead + ' voucher change' + (dv.vouchers_ahead > 1 ? 's' : '') + ' go first' : '') +
+          (dv.express ? ' · express seat' : '') + (dv.age ? ' · ' + dv.age + ' s' : '');
+      } else { icon = 'bi-broadcast text-primary'; text = 'Measuring…'; }
+      rows.push('<div class="lab-step ' + cls + '"><i class="bi ' + icon + '"></i><div><b>' + STEPS[k][0] + '</b> <small class="text-secondary">' + STEPS[k][1] + '</small>' +
+        '<div class="lab-step-t">' + esc(text) + '</div></div>' +
+        (st === 'failed' ? '<button type="button" class="btn btn-sm btn-outline-primary" data-retry="' + k + '"><i class="bi bi-arrow-repeat"></i> Try again</button>' : '') + '</div>');
+    });
+    box.innerHTML = rows.length ? '<div class="lab-steps"><div class="lab-steps-h"><span><i class="bi bi-router"></i> Router check on ' + esc(t.router) + '</span>' +
+      '<span class="lab-legend"><i class="lg-m"></i> measured <i class="lg-k"></i> known to TapTap</span></div>' + rows.join('') + '</div>' : '';
+    [].forEach.call(box.querySelectorAll('[data-retry]'), function (b) {
+      b.addEventListener('click', function () { b.disabled = true; self.tries[b.dataset.retry] = 1; self.run([b.dataset.retry], t); });
+    });
+  };
+  Lab.prototype.note = function (text) { this.$('.lab-waitbox').insertAdjacentHTML('beforeend', '<div class="fl-warnline">' + esc(text) + '</div>'); };
+  Lab.prototype.head = function (level, text, sub) {
     var h = this.$('.lab-headline');
     h.className = 'lab-headline h-' + level;
-    h.innerHTML = '<i class="bi ' + (level === 'idle' ? 'bi-hourglass-split' : ICON[level] || 'bi-dot') + '"></i> <span>' + esc(text) + '</span>';
+    h.innerHTML = '<i class="bi ' + (level === 'idle' ? 'bi-hourglass-split' : ICON[level] || 'bi-dot') + '"></i> <span>' + esc(text) +
+      (sub ? '<small class="d-block fw-normal">' + esc(sub) + '</small>' : '') + '</span>';
   };
   Lab.prototype.verdict = function () {
     var self = this, t = this.t(), r = this.res, id = function (k) { return r[k] && r[k].status === 'done' ? r[k].id : ''; };
-    api(U.verdict, this.body({ client: id('client'), cspeed: id('cspeed') })).then(function (d) {
+    api(U.verdict, this.body({ labq: id('labq'), labd: id('labd') })).then(function (d) {
       if (!d.ok || !self.alive || self.t() !== t) return;
-      var v = d.verdict, failed = ['client', 'cspeed'].filter(function (k) { return r[k] && r[k].status === 'failed'; });
+      var v = d.verdict, pending = ['labq', 'labd'].some(function (k) { return r[k] && ['done', 'failed'].indexOf(r[k].status) < 0; }),
+        failed = ['labq', 'labd'].filter(function (k) { return r[k] && r[k].status === 'failed'; });
       Object.keys(v.stations).forEach(function (k) {
-        var s = v.stations[k], pending = (k === 'device' || k === 'link') ? !r.client : !r.cspeed;
-        self.station(k, s.state === 'idle' ? (pending ? 'run' : 'idle') : s.state, s.detail);
+        var s = v.stations[k];
+        self.station(k, s.state === 'idle' && pending ? 'run' : s.state, s.detail, s.src);
       });
-      if (failed.length && !v.findings.length) self.head('bad', failText(r[failed[0]]));
-      else self.head(v.head.level, v.head.title);
+      self.head(v.head.level, v.head.title, v.head.measured ? (pending ? 'The router is still measuring the rest.' : '') :
+        failed.length ? 'From TapTap’s own data — the router’s measurement did not arrive (see the router check above).' :
+          pending ? 'From TapTap’s own data so far — the router is measuring.' : '');
       self.$('.lab-find').innerHTML = v.findings.map(function (f) {
         return '<li class="lab-f f-' + esc(f.level) + '"><i class="bi ' + (ICON[f.level] || 'bi-dot') + '"></i><div><b>' + esc(f.title) + '</b>' +
           (f.text ? '<small>' + esc(f.text) + '</small>' : '') + self.action(f.action) + '</div></li>';
-      }).join('') + failed.map(function (k) {
-        return '<li class="lab-f f-warn"><i class="bi ' + ICON.warn + '"></i><div><b>' + (k === 'client' ? 'The device check' : 'The speed check') + ' did not finish</b><small>' + esc(failText(r[k])) + '</small></div></li>';
       }).join('');
     });
   };
@@ -229,28 +271,31 @@
   };
   // ── numbers behind the verdict ──
   Lab.prototype.facts = function () {
-    var box = this.$('.lab-facts'), c = this.res.client && this.res.client.status === 'done' ? this.res.client.result : null,
-      s = this.res.cspeed && this.res.cspeed.status === 'done' ? this.res.cspeed.result : null, html = '', kv = [];
-    if (c) {
-      var pg = c.ping || {}, times = pg.times || [], top = Math.max.apply(null, times.map(function (x) { return typeof x === 'number' ? x : 0; }).concat([20]));
+    var box = this.$('.lab-facts'), q = this.res.labq && this.res.labq.status === 'done' ? this.res.labq.result : null,
+      dd = this.res.labd && this.res.labd.status === 'done' ? this.res.labd.result : null, html = '', kv = [];
+    if (q && q.ping) {
+      var pg = q.ping, times = pg.times || [], top = Math.max.apply(null, times.map(function (x) { return typeof x === 'number' ? x : 0; }).concat([20]));
       html += '<h5><span><i class="bi bi-broadcast"></i> Router → phone</span><small class="text-secondary fw-normal">' + (pg.received || 0) + ' of ' + (pg.sent || 0) + ' replies' + (pg.avg != null ? ' · ' + pg.avg + ' ms' : '') + '</small></h5>' +
         '<div class="lab-pings" title="One bar per ping: taller is slower, red is lost">' + times.map(function (x) {
           return x == null ? '<i class="lost"></i>' : '<i class="' + (x > 150 ? 'slow' : '') + '" style="height:' + (typeof x === 'number' ? Math.max(12, Math.round(x * 100 / top)) : 40) + '%"></i>';
         }).join('') + '</div>';
-      if (c.wifi) kv.push(['Wi-Fi', (c.wifi.signal != null ? c.wifi.signal + ' dBm' : '') + (c.wifi.tx ? ' · ' + c.wifi.tx : '') + (c.wifi.interface ? ' · ' + c.wifi.interface : '')]);
-      if (c.port || (c.arp && c.arp.interface)) kv.push(['Comes in on', c.port || c.arp.interface]);
-      if (c.lease) kv.push(['Address lease', c.lease.status + (c.lease.expires ? ' · renews within ' + c.lease.expires : '') + (c.lease.server ? ' · ' + c.lease.server : '')]);
-      if (c.lease && c.lease.host) kv.push(['Calls itself', c.lease.host]);
-      if (c.active) kv.push(['Session', 'online ' + c.active.uptime + (c.active.idle ? ' · idle ' + c.active.idle : '')]);
     }
-    if (s) {
-      (s.queues || []).forEach(function (q) {
-        kv.push([{ fup: 'Fair usage limit', rule: 'Speed rule', plan: 'Plan limit' }[q.kind] || 'Limit',
-          '↓ ' + bps(q.rate_down) + ' of ' + bps(q.max_down) + (q.drop_down ? ' · ' + q.drop_down.toLocaleString() + ' packets dropped (' + q.drop_pct + '%)' : ' · no drops')]);
+    if (q) {
+      if (q.active) kv.push(['Session', 'online ' + q.active.uptime + (q.active.idle ? ' · idle ' + q.active.idle : '')]);
+      (q.queues || []).forEach(function (x) {
+        kv.push([{ fup: 'Fair usage limit', rule: 'Speed rule', plan: 'Plan limit' }[x.kind] || 'Limit',
+          '↓ ' + bps(x.rate_down) + ' of ' + bps(x.max_down) + (x.drop_down ? ' · ' + x.drop_down.toLocaleString() + ' packets dropped (' + x.drop_pct + '%)' : ' · no drops')]);
       });
-      if (s.internet) kv.push(['Router → internet', s.internet.received ? (s.internet.avg != null ? s.internet.avg + ' ms' : 'answers') + (s.internet.loss ? ' · ' + s.internet.loss + '% lost' : '') : 'no ping reply']);
-      if (s.cpu != null) kv.push(['Router CPU', s.cpu + '%']);
-      if (s.drops && s.drops.total) kv.push(['Sign-outs in the log', s.drops.rows.slice(0, 3).map(function (x) { return x.at + ' ' + x.why; }).join(' · ')]);
+      if (q.queues && !q.queues.length) kv.push(['Speed limit on the router', 'none found for this address']);
+    }
+    if (dd) {
+      if (dd.wifi) kv.push(['Wi-Fi', (dd.wifi.signal != null ? dd.wifi.signal + ' dBm' : '') + (dd.wifi.tx ? ' · ' + dd.wifi.tx : '') + (dd.wifi.interface ? ' · ' + dd.wifi.interface : '')]);
+      if (dd.port || (q && q.arp && q.arp.interface)) kv.push(['Comes in on', dd.port || q.arp.interface]);
+      if (dd.lease) kv.push(['Address lease', dd.lease.status + (dd.lease.expires ? ' · renews within ' + dd.lease.expires : '') + (dd.lease.server ? ' · ' + dd.lease.server : '')]);
+      if (dd.lease && dd.lease.host) kv.push(['Calls itself', dd.lease.host]);
+      if (dd.internet) kv.push(['Router → internet', dd.internet.received ? (dd.internet.avg != null ? dd.internet.avg + ' ms' : 'answers') + (dd.internet.loss ? ' · ' + dd.internet.loss + '% lost' : '') : 'no ping reply']);
+      if (dd.cpu != null) kv.push(['Router CPU', dd.cpu + '%']);
+      if (dd.drops && dd.drops.total) kv.push(['Sign-outs in the log', dd.drops.rows.slice(0, 3).map(function (x) { return x.at + ' ' + x.why; }).join(' · ')]);
     }
     if (kv.length) html += '<dl class="lab-kv">' + kv.map(function (x) { return '<dt>' + esc(x[0]) + '</dt><dd>' + esc(x[1]) + '</dd>'; }).join('') + '</dl>';
     box.hidden = !html; box.innerHTML = html;

@@ -554,3 +554,15 @@ services as the Members pages, and recorded in the member's history with "(appro
 - Fixed: on TapTap Link routers, Speed control queues now sit above the hotspot's own queues (as on Direct API routers).
 
 `showmigrations core` should show `0123_device_lanes` as `[X]`.
+
+
+## v8 — Connection lab on busy routers
+
+- The lab asks the router in two small steps that each fit one protected command (a refused step answers "failed"
+  instead of going silent); the quick step finds a voucher's queues by name instead of walking every queue.
+- On RouterOS 7, a step a person is watching gets an express seat behind the vouchers of the next check-in.
+- The lab fills at once from what TapTap knows (live sync, traffic sample, last router sync), shown dashed; the router's
+  measurement turns each station solid. A router-check strip shows where each step is, retries once, then explains.
+- Every late Network-tools test explains itself with facts (check-ins, voucher changes ahead, when it was taken).
+
+`showmigrations core` should show `0124_lab_steps` as `[X]`.

@@ -661,8 +661,8 @@ class Pages(Base):
         v = self.voucher('KS1234')
         self.sessions({'user': 'KS1234', 'ip': '10.5.50.12'})
         self.login()
-        d = json.loads(self.client.post('/flow/lab/run/', data=json.dumps(
-            {'router': self.router.pk, 'ip': '10.5.50.12', 'mac': 'AA:BB:CC:DD:EE:01', 'code': 'KS1234'}),
+        d = json.loads(self.client.post('/flow/lab/run/', data=json.dumps(       # the old two checks, for a page opened before the update
+            {'router': self.router.pk, 'ip': '10.5.50.12', 'mac': 'AA:BB:CC:DD:EE:01', 'code': 'KS1234', 'kinds': ['client', 'cspeed']}),
             content_type='application/json').content)
         self.assertEqual([t['kind'] for t in d['tests']], ['client', 'cspeed'])
         self.assertEqual([t['status'] for t in d['tests']], ['waiting', 'waiting'])
@@ -840,8 +840,8 @@ class DirectApiRouter(Base):
 
         with mock.patch('core.mikrotik.MikroTikService', Svc):
             self.login()
-            d = json.loads(self.client.post('/flow/lab/run/', data=json.dumps(
-                {'router': self.router.pk, 'ip': '10.5.50.12', 'mac': 'AA:BB:CC:DD:EE:01', 'code': 'KS1234'}),
+            d = json.loads(self.client.post('/flow/lab/run/', data=json.dumps(   # the old two checks still work
+                {'router': self.router.pk, 'ip': '10.5.50.12', 'mac': 'AA:BB:CC:DD:EE:01', 'code': 'KS1234', 'kinds': ['client', 'cspeed']}),
                 content_type='application/json').content)
         tests = {t['kind']: t for t in d['tests']}
         self.assertEqual([t['status'] for t in d['tests']], ['done', 'done'])

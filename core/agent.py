@@ -99,6 +99,7 @@ def clear_refused(router):
 
 
 BATCH_GAP = 45   # seconds: one unanswered command must never freeze the whole queue
+EXPRESS_MAX = MAX_SCRIPT   # a watched test that fits one protected command may ride on any RouterOS 7 check-in
 
 # ─────────── voucher batch size per router (TapTap Link) ───────────
 # One voucher in a hotspot_users command is ~400 bytes of RouterOS script. RouterOS 7 reads up to 63 KiB from a
@@ -1867,6 +1868,7 @@ def build_response(router, url):
     if keep:
         voucher_budget = max(0, min(voucher_budget, MAX_SCRIPT - keep))
     voucher_size, vouchers_closed = 0, False
+    sent_ids, alone_sent = set(), False
     for cmd in rows:
         if cmd.kind in TRAVEL_ALONE and parts:
             break  # these always travel alone
@@ -1895,8 +1897,24 @@ def build_response(router, url):
         size += len(chunk) + 1
         voucher_work = voucher_work or cmd.kind in VOUCHER_KINDS
         AgentCommand.objects.filter(pk=cmd.pk).update(status='sent', sent_at=now, attempts=cmd.attempts + 1)
+        sent_ids.add(cmd.pk)
         if cmd.kind in TRAVEL_ALONE:
+            alone_sent = True
             break
+    # Express seat: a small test a person is watching right now (the Connection lab marks its steps "watch") rides behind
+    # whatever this check-in carries, even past the batch budget, on RouterOS 7 (which reads check-ins far bigger than
+    # MAX_SCRIPT). Vouchers are never delayed by it. Before, a busy router's check-ins were always full of voucher
+    # changes and the second lab test was never handed over ("could not hand the test to the router for 6 minutes").
+    if not voucher_only and not alone_sent:
+        try:
+            express = next((c for c in rows if c.kind == 'nettest' and c.pk not in sent_ids and (c.params or {}).get('watch')), None)
+            if express is not None and ros_major(router) >= 7:
+                chunk = wrap(express, url, check)
+                if len(chunk) <= EXPRESS_MAX:
+                    parts.append(chunk)
+                    AgentCommand.objects.filter(pk=express.pk).update(status='sent', sent_at=now, attempts=express.attempts + 1)
+        except Exception:
+            logger.debug('express seat for %s', router, exc_info=True)
     script = '\n'.join(parts)
     if parts:
         cache.set(turn_key, 1 if voucher_work else 0, 600)

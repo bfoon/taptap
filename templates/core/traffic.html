@@ -4,7 +4,7 @@
 {% block heading %}Traffic &amp; consumption{% endblock %}
 {% block extra_head %}
 <link href="{% static 'css/traffic.css' %}?v=3" rel="stylesheet">
-<link href="{% static 'css/flow.css' %}?v=3" rel="stylesheet">
+<link href="{% static 'css/flow.css' %}?v=4" rel="stylesheet">
 
 {% endblock %}
 {% block content %}
@@ -159,7 +159,7 @@
 <script src="{% static 'vendor/chart.umd.min.js' %}"></script>
 <script src="{% static 'js/cdn-spread.js' %}" defer></script>
 <script src="{% static 'js/lanes.js' %}?v=1" defer></script>
-<script src="{% static 'js/flow.js' %}?v=3" defer></script>
+<script src="{% static 'js/flow.js' %}?v=4" defer></script>
 <script src="{% static 'js/traffic-live.js' %}?v=3" data-data-url="{% url 'traffic_data' %}?{{ query }}" data-now-url="{% url 'traffic_now' %}{% if sel_router %}?router={{ sel_router }}{% endif %}"></script>
 
 {% endblock %}

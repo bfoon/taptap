@@ -38,11 +38,12 @@ KINDS = {
     'client': 'Device check', 'cspeed': 'Speed check', 'slowscan': 'Slow scan', 'lane': 'Internet line',
     'lanepin': 'Line switch', 'laneoff': 'Line release', 'dhcp': 'DHCP lease', 'dhcpset': 'DHCP lease change',
     'lanes': 'Speed per device', 'lanefix': 'Speed per device fix',
+    'labq': 'Connection lab', 'labd': 'Connection lab (details)',
 }
 DROPS_LINES = 60                 # the latest hotspot sign-outs read from the router's log
 PATH_KINDS = ('whoami', 'hops')       # core/pathtrace.py
 LAB_KINDS = ('client', 'cspeed', 'slowscan', 'lane', 'lanepin', 'laneoff', 'dhcp', 'dhcpset',
-             'lanes', 'lanefix')   # core/conn_lab.py (lanes: core/device_lanes.py)
+             'lanes', 'lanefix', 'labq', 'labd')   # core/conn_lab.py (lanes: core/device_lanes.py)
 
 CHECK_IPS = ('1.1.1.1', '8.8.8.8')
 CHECK_NAME = 'google.com'
@@ -743,6 +744,12 @@ def link_body(cmd, url, check, nonce_value):
         raise ValueError('Unknown test.')
     send = (f'/tool fetch url={upload} http-method=post http-header-field="Content-Type: text/plain" '
             f'http-data=$out output=none check-certificate={check} duration=15s idle-timeout=10s')
+    if kind in ('labq', 'labd'):
+        # The Connection lab's steps are kept small enough to travel as one protected command: the upload is written
+        # once and tried up to three times. If every try fails the command still finishes, so TapTap hears "ran, but the
+        # answer did not arrive" instead of nothing at all.
+        return ('{ ' + head + body + ':local up 0; :for t from=1 to=3 do={ :if ($up = 0) do={ :do { ' + send +
+                '; :set up 1 } on-error={ :delay 2s } } } }')
     # The answer is sent once more if the first upload fails (a busy line at that second): a lost answer used to
     # leave the test waiting the full 6 minutes.
     return '{ ' + head + body + ':do { ' + send + ' } on-error={ :delay 3s; ' + send + ' } }'
@@ -871,11 +878,18 @@ def receive_link(cmd, body):
     t = NetTest.objects.filter(pk=cmd.params.get('test_id'), router=cmd.router).first()
     if not t:
         return None
-    if t.kind in LAB_KINDS:
-        from .conn_lab import parse_link as lab_parse
-        res = lab_parse(t.router, t.kind, t.params, _lines(body))
-    else:
-        res = parse_link(t.kind, t.params, body)
+    try:
+        if t.kind in LAB_KINDS:
+            from .conn_lab import parse_link as lab_parse
+            res = lab_parse(t.router, t.kind, t.params, _lines(body))
+        else:
+            res = parse_link(t.kind, t.params, body)
+    except Exception as exc:  # noqa: BLE001 — the router must not be told "error" and retry for 6 minutes
+        import logging
+        logging.getLogger('taptap.nettools').exception('could not read the answer to test %s (%s)', t.pk, t.kind)
+        res = {'error': f'The router answered, but TapTap could not read its answer ({type(exc).__name__}). '
+                        'The details are in the server log (docker compose logs web).', 'failed': True,
+               'raw': (body or b'')[:2000].decode('utf-8', 'replace')}
     if t.kind == 'drops':
         res = drops_members(t.router.business, res)
     if t.kind == 'whoami':
@@ -887,6 +901,39 @@ def receive_link(cmd, body):
     return t
 
 
+def late_reason(test, cmd):
+    """Why a TapTap Link test got no answer in 6 minutes — from facts, not guesses: how often the router checked in
+    meanwhile, what those check-ins carried, and whether it took the test."""
+    from .agent import VOUCHER_KINDS
+    from .models import AgentCommand
+    name = test.router.name
+    checkins = None
+    try:
+        agent = test.router.agent
+        p0 = (test.result or {}).get('polls0')
+        if p0 is not None:
+            checkins = max(0, int(agent.polls or 0) - int(p0))
+        heard = agent.last_heard
+    except Exception:
+        heard = None
+    carried = AgentCommand.objects.filter(router=test.router, kind__in=VOUCHER_KINDS, sent_at__gte=test.created_at).count()
+    when = timezone.localtime(heard).strftime('%H:%M') if heard else 'a while'
+    if cmd.status == 'queued':
+        if checkins == 0 or (heard and (timezone.now() - heard).total_seconds() > 300):
+            return (f'TapTap could not hand the test to {name}: it did not check in during those 6 minutes (last heard at {when}). '
+                    'It may be off, rebooting, or its internet line may be down — the TapTap Link page shows its check-ins.')
+        return (f'TapTap could not hand the test to {name}: ' +
+                (f'it checked in {checkins} times in 6 minutes, but every check-in was already full' if checkins else
+                 'every check-in in those 6 minutes was already full') +
+                (f' ({carried} voucher changes went first — customers waiting at the login page)' if carried else '') +
+                '. Try again: tests a person is watching now get their own seat.')
+    sent = timezone.localtime(cmd.sent_at).strftime('%H:%M:%S') if cmd.sent_at else ''
+    return (f'{name} took the test{" at " + sent if sent else ""} but its answer never reached TapTap' +
+            (f' ({checkins} check-ins since, so the router is alive)' if checkins else '') +
+            '. The test may have been stopped by this RouterOS version, or the answer was lost on the way. Try again — if it keeps '
+            'happening, the router’s log (System › Log) shows the reason.')
+
+
 def expire_waiting(test):
     """A Link test whose command failed, expired or never came back is marked failed with a reason."""
     if test.status != 'waiting':
@@ -896,16 +943,15 @@ def expire_waiting(test):
     reason = ''
     if not cmd:
         reason = 'The command to the router was lost.'
+    elif cmd.status == 'failed' and str(cmd.result or '').startswith('The router reported an error'):
+        reason = (f'{test.router.name} took the test but stopped with an error (this RouterOS version refused part of it). '
+                  'TapTap shows what it already knows; the router’s log (System › Log) says which line it refused.')
     elif cmd.status in ('failed', 'expired', 'cancelled'):
         reason = f'The router did not run the test ({cmd.get_status_display().lower()}).'
     elif cmd.status == 'done' and cmd.done_at and (timezone.now() - cmd.done_at).total_seconds() > 60:
         reason = 'The router ran the test but its answer never reached TapTap (it may not reach TapTap over HTTPS).'
     elif (timezone.now() - test.created_at).total_seconds() > 360:
-        if cmd.status == 'queued':
-            reason = ('TapTap could not hand the test to the router for 6 minutes — it did not check in, or it was busy with '
-                      'other commands. Try again in a moment; the TapTap Link page shows its check-ins.')
-        else:
-            reason = 'The router took the test but did not answer within 6 minutes (it may be very busy, or its answer could not reach TapTap).'
+        reason = late_reason(test, cmd)
     if reason:
         test.status, test.result, test.finished_at = 'failed', {'error': reason}, timezone.now()
         test.save(update_fields=['status', 'result', 'finished_at'])
