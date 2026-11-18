@@ -51,6 +51,9 @@ class ChatMessage(models.Model):
     deleted_at = models.DateTimeField(null=True, blank=True, help_text='Deleted by the sender: text and photo are gone')
     changed_at = models.DateTimeField(null=True, blank=True, db_index=True,
                                       help_text='Edited or deleted at — the chat poll sends changed messages to every open chat')
+    meta = models.JSONField(default=dict, blank=True,
+                            help_text='Extra facts for a system note, e.g. {"pcall": {...}}: the customer a Wi-Fi call note is '
+                                      'about, so chat can offer "Call back on the Wi-Fi page" (core/portal_call.call_meta)')
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:

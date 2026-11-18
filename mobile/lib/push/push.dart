@@ -398,7 +398,7 @@ class Push {
           return;
         }
         await showIncoming('${d['id']}', '${d['caller'] ?? d['from'] ?? 'Call'}', d['kind'] == 'portal', d['video'] == '1',
-            info: '${d['info'] ?? ''}');
+            info: '${d['info'] ?? ''}', ring: int.tryParse('${d['ring'] ?? ''}') ?? 40);
         await _ringing('${d['id']}');
         break;
       case 'call_end':
@@ -421,7 +421,8 @@ class Push {
     } catch (_) {}
   }
 
-  static Future<void> showIncoming(String cid, String from, bool customer, bool video, {String info = ''}) async {
+  /// [ring]: seconds the call rings (from the push; a customer call 60, a chat call 40) — the phone rings as long.
+  static Future<void> showIncoming(String cid, String from, bool customer, bool video, {String info = '', int ring = 40}) async {
     await FlutterCallkitIncoming.showCallkitIncoming(CallKitParams(
       id: uuidFor(cid),
       nameCaller: from,
@@ -429,7 +430,7 @@ class Push {
       // a Wi-Fi customer: their voucher, time left and MAC address, when TapTap knows them
       handle: customer ? (info.isNotEmpty ? info : '📶 Customer on your Wi-Fi page') : 'TapTap call',
       type: video ? 1 : 0,
-      duration: 40000,
+      duration: (ring < 20 ? 20 : (ring > 120 ? 120 : ring)) * 1000,
       missedCallNotification: const NotificationParams(showNotification: true, isShowCallback: false, subtitle: 'Missed TapTap call'),
       extra: <String, dynamic>{'cid': cid, 'from': from, 'video': video},
       android: AndroidParams(

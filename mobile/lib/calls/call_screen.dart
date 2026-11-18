@@ -289,8 +289,8 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     _check = Timer.periodic(const Duration(seconds: 2), (_) {
       if (!mounted || _closed) return;
       final app = context.read<AppState>();
-      // answered elsewhere / hung up — or nothing heard for longer than any call rings (a line too slow to tell us)
-      if (!app.ringStillOn(widget.ring.id) || DateTime.now().difference(started).inSeconds > 50) _close();
+      // answered elsewhere / hung up — or nothing heard for longer than any call rings (60 s; a line too slow to tell us)
+      if (!app.ringStillOn(widget.ring.id) || DateTime.now().difference(started).inSeconds > 75) _close();   // a customer call rings 60 s
     });
   }
 

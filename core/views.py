@@ -344,7 +344,13 @@ def voucher_detail(request,pk):
     from .profile_groups import voucher_picker
     _profile_now=_vprofile(v,business.plans.filter(name=v.plan_name).first())[0]
     _picker=voucher_picker(business,v,_profile_now)
+    try:                                          # the customer's phone on the Wi-Fi page: ring it from here
+        from .portal_call import callers_for_voucher
+        _wifi_callers=callers_for_voucher(business,v)
+    except Exception:
+        _wifi_callers=[]
     return render(request,'core/voucher_detail.html',{
+        'wifi_callers':_wifi_callers,
         'v':v,'state_key':state_key,'state_label':state_label,'ends_at':end,'time_left':left,'time_is_up':vh.time_is_up(v,now),
         'time_pct':_time_pct(v,end,now),
         'timeline':vh.timeline(v,now),'bindings':v.device_bindings.order_by('slot_no'),

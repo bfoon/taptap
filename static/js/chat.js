@@ -11,6 +11,7 @@
   var root = document.getElementById('ttChat'); if (!root) return;
   var CSRF = root.dataset.csrf || '';
   var FULL = root.dataset.full === '1';
+  var SELF = (document.currentScript && document.currentScript.src) || '';   // where ring-watch.js lives too
   var S = { open: false, view: 'list', thread: null, threads: [], people: [], me: {}, prefs: {}, top: 0, msgs: [], seen: 0,
             attach: null, first: true, lastTyping: 0, timer: null, big: FULL, filter: '', typers: [], typingThreads: {},
             reply: null, editing: null, chg: 0 };      // reply / edit in the composer; chg = server time of the last poll (edits, deletes)
@@ -43,6 +44,19 @@
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function color(s) { var h = 0; s = String(s || ''); for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return COLORS[h % COLORS.length]; }
   function av(ini, name, on, cls) { return '<span class="ttc-av' + (on ? ' on' : '') + (cls ? ' ' + cls : '') + '" style="background:' + color(name) + '">' + esc(ini) + '</span>'; }
+  // Under a Wi-Fi customer-call note (core/portal_call.call_meta): ring them back on their Wi-Fi page, call their
+  // number, WhatsApp — and, after a missed call, switch on background ringing if this browser has not yet.
+  function callActs(c) {
+    if (!c) return '';
+    var h = '', answered = c.kind === 'answered' || c.kind === 'out_answered';
+    if (c.cust && !answered) h += '<button type="button" class="ttc-pcb main" data-a="cust-call" data-cust="' + (+c.cust) + '" title="Rings their Wi-Fi page (the login or status page). Not open? It asks them to call you back.">' +
+      ICON.phone + '<span>Call back on their Wi-Fi page</span>' + (c.here ? '<i class="ttc-here" title="Their Wi-Fi page is open right now">on it now</i>' : '') + '</button>';
+    if (c.phone) h += '<a class="ttc-pcb" href="tel:' + esc(String(c.phone).replace(/[^\d+]/g, '')) + '">☎ ' + esc(c.phone) + '</a>';
+    if (c.wa) h += '<a class="ttc-pcb wa" href="https://wa.me/' + esc(c.wa) + '" target="_blank" rel="noopener">WhatsApp</a>';
+    if (c.kind === 'missed' && window.Notification && Notification.permission === 'default')
+      h += '<button type="button" class="ttc-pcb" data-a="notif" title="Desktop alerts: a customer call rings even when TapTap is behind other windows">🔔 Ring me in the background</button>';
+    return h ? '<div class="ttc-pcall-acts">' + h + '</div>' : '';
+  }
   function linkify(t) {
     return esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>')
       .replace(/(^|\s)(\/[a-z0-9][\w\-\/?=&.%]*)/gi, '$1<a href="$2">$2</a>')
@@ -70,6 +84,12 @@
 
   // ───────── sound: a soft two-note chime made on the fly (no audio file needed) ─────────
   var AC = null;
+  // A ring that arrives while TapTap is in the background is silent unless the page's sound was unlocked by a touch
+  // or a key press first (browser rule). Unlock it on the first one, so a customer's call is heard from any tab.
+  function unlockSound() {
+    try { AC = AC || new (window.AudioContext || window.webkitAudioContext)(); if (AC.state === 'suspended' && AC.resume) AC.resume(); } catch (e) {}
+  }
+  ['pointerdown', 'keydown'].forEach(function (ev) { document.addEventListener(ev, unlockSound, { once: true, capture: true, passive: true }); });
   function chime(kind) {
     if (!S.prefs.sound) return;
     try {
@@ -181,7 +201,7 @@
     var lastMine = 0; S.msgs.forEach(function (m) { if (m.mine) lastMine = m.id; });
     S.msgs.forEach(function (m) {
       var day = dayLabel(m.at); if (day !== lastDay) { h += '<div class="ttc-day">' + day + '</div>'; lastDay = day; prev = null; }
-      if (m.system) { h += '<div class="ttc-sys">' + linkify(m.body) + '</div>'; prev = null; return; }
+      if (m.system) { h += '<div class="ttc-sys' + (m.call ? ' ttc-pcall k-' + esc(m.call.kind || '') : '') + '">' + linkify(m.body) + callActs(m.call) + '</div>'; prev = null; return; }
       var cont = prev && prev.sender === m.sender && prev.mine === m.mine && (new Date(m.at) - new Date(prev.at)) < 5 * 60000;
       if (!m.mine && !cont && t.kind !== 'direct') h += '<div class="ttc-who">' + esc(m.sender) + '</div>';
       h += '<div class="ttc-m' + (m.mine ? ' me' : '') + (m.agent ? ' agent' : '') + (m.mention_me ? ' hot' : '') + (cont ? ' cont' : '') + (m.deleted ? ' del' : '') + '" data-id="' + m.id + '">' +
@@ -304,6 +324,7 @@
     else if (a === 'settings') { S.view = 'settings'; render(); }
     else if (a === 'test') { var s = S.prefs.sound; S.prefs.sound = true; chime('mention'); S.prefs.sound = s; }
     else if (a === 'notif') Notification.requestPermission().then(render);
+    else if (a === 'cust-call') openCall('/chat/call/?customer=' + (+b.dataset.cust));
     else if (a === 'mute') { var info = S.threads.filter(function (x) { return x.id === S.thread.id; })[0] || {}; info.muted = !info.muted; api('/chat/settings/', { thread: S.thread.id, mute: info.muted }); renderThread(); }
     else if (a === 'solve' || a === 'reopen') api('/chat/support/', { thread: S.thread.id, action: a }).then(function () { openThread(S.thread.id, true); });
     else if (a === 'older') loadOlder();
@@ -1330,20 +1351,43 @@
     setTimeout(function () { bc.postMessage({ t: 'hello?', tab: TAB }); }, 150);   // a call window already sharing re-sends shield / control state
   }
 
-  // Incoming calls: a cheap poll (cache only) every few seconds.
+  // Incoming calls: a cheap poll (cache only) every few seconds — from a Web Worker (static/js/ring-watch.js), because
+  // browsers slow a background tab's own timers to about once a minute, longer than a call rings. That is how a
+  // customer's call came and went while TapTap sat behind another window, leaving only "Missed call".
+  function ringWatch() {
+    if (!window.Worker || !SELF || CALL.worker) return CALL.worker ? null : ringPoll();
+    try {
+      var w = new Worker(SELF.replace(/chat\.js(\?[^#]*)?(#.*)?$/, 'ring-watch.js?v=1'));
+      w.onmessage = function (e) { var d = e.data || {}; if (d.rings) handleRings(d.rings); };
+      w.onerror = function () { try { w.terminate(); } catch (x) {} CALL.worker = null; ringPoll(); };   // blocked or missing: the old way
+      w.postMessage({ every: 3000 });
+      CALL.worker = w;
+    } catch (e) { CALL.worker = null; ringPoll(); }
+  }
   function ringPoll() {
     clearTimeout(CALL.ringT);
     fetch('/chat/call/poll/', { credentials: 'same-origin', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' } })
       .then(function (r) { return r.json(); }).then(function (d) { if (d && d.ok) handleRings(d.rings || []); })
       .catch(function () {}).then(function () { CALL.ringT = setTimeout(ringPoll, document.hidden ? 8000 : 3000); });
   }
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) { clearTimeout(CALL.ringT); CALL.ringT = setTimeout(ringPoll, 150); } });
+  document.addEventListener('visibilitychange', function () {
+    if (CALL.worker) { if (!document.hidden) CALL.worker.postMessage({ now: 1 }); return; }
+    if (!document.hidden) { clearTimeout(CALL.ringT); CALL.ringT = setTimeout(ringPoll, 150); }
+  });
   function handleRings(list) {
     var r = list.filter(function (x) { return !CALL.dismissed[x.id]; })[0];
     if (!r) return hideRing();
     if (callLive()) return;                 // already talking: the caller gets "busy" next time
-    if (CALL.ring && CALL.ring.id === r.id) return;
+    if (CALL.ring && CALL.ring.id === r.id) { if (document.hidden) nudge(); return; }
     showRing(r);
+  }
+  // While it rings in a background tab, every check (the worker's pace, not the page's slowed timers) blinks the tab
+  // title and repeats the tone — so it is heard and seen from another window.
+  function nudge() {
+    var r = CALL.ring; if (!r) return;
+    CALL.blink = !CALL.blink;
+    document.title = CALL.blink ? '📞 ' + (r.kind === 'portal' ? 'Customer calling' : 'Call') + ' · ' + r.from : baseTitle;
+    if (Date.now() - (CALL.toneAt || 0) > 2400) ringTone();
   }
   // Who is calling from the Wi-Fi page: voucher, time left, MAC address — and why they are probably calling.
   function custHTML(c) {
@@ -1360,7 +1404,9 @@
     hideRing(); CALL.ring = r;
     var portal = r.kind === 'portal';      // a customer calling from a Wi-Fi page (core/portal_call.py)
     var card = document.createElement('div'); card.className = 'ttc-ring' + (r.kind === 'support' ? ' support' : '') + (portal ? ' portal' : ''); card.setAttribute('role', 'alertdialog');
-    card.innerHTML = '<div class="ttc-ring-av">' + esc(r.initials) + '</div><div class="ttc-ring-mid"><b>' + esc(r.from) + '</b><small>' + (portal ? '📶 Customer on your Wi-Fi page' : (r.video ? 'Incoming video call' : 'Incoming voice call')) + ' · 🔒 encrypted</small>' + custHTML(r.customer) + '</div>' +
+    var askAlerts = portal && window.Notification && Notification.permission === 'default';
+    card.innerHTML = '<div class="ttc-ring-av">' + esc(r.initials) + '</div><div class="ttc-ring-mid"><b>' + esc(r.from) + '</b><small>' + (portal ? (r.returning ? '↩ Returning ' + esc(r.returning) + '’s call-back' : '📶 Customer on your Wi-Fi page') : (r.video ? 'Incoming video call' : 'Incoming voice call')) + ' · 🔒 encrypted</small>' + custHTML(r.customer) +
+      (askAlerts ? '<button type="button" class="ttc-ring-alerts" data-r="alerts">🔔 Ring me here even when TapTap is in the background</button>' : '') + '</div>' +
       '<div class="ttc-ring-btns"><button class="ttc-rb no" data-r="decline" title="Decline">' + ICON.phone + '</button>' +
       (portal ? '' : '<button class="ttc-rb msg" data-r="msg" title="Decline with a message">' + ICON.chat + '</button>') +
       (r.video ? '<button class="ttc-rb yes" data-r="video" title="Answer with video">' + ICON.video + '</button>' : '') +
@@ -1372,6 +1418,7 @@
       var id = r.id;
       if (b.dataset.q) { callAct('reply', id, { text: QUICK[+b.dataset.q] }); done(); return; }
       var a = b.dataset.r;
+      if (a === 'alerts') { b.remove(); try { Notification.requestPermission(); } catch (x) {} return; }
       if (a === 'msg') { card.querySelector('.ttc-ring-quick').classList.toggle('ttc-hidden'); return; }
       if (a === 'decline') callAct('decline', id);
       else openCall('/chat/call/?join=' + encodeURIComponent(id) + (a === 'video' ? '&video=1' : ''));
@@ -1380,13 +1427,17 @@
     });
     document.body.appendChild(card);
     ringTone();
+    if (document.hidden) nudge();
     if (document.hidden && window.Notification && Notification.permission === 'granted') {
-      try { var n = new Notification((r.kind === 'portal' ? 'Wi-Fi customer call' : (r.video ? 'Video call' : 'Call')) + ' from ' + r.from, { body: 'Tap to answer on TapTap', tag: 'ttcall-' + r.id, requireInteraction: true });
+      var line = r.customer && (r.customer.why || r.customer.line);
+      try { var n = new Notification((r.kind === 'portal' ? (r.returning ? '↩ Customer returning your call' : '📶 Customer calling') : (r.video ? 'Video call' : 'Call')) + ' · ' + r.from, { body: (line ? line + '\n' : '') + 'Click to answer in TapTap', tag: 'ttcall-' + r.id, requireInteraction: true, renotify: true });
         n.onclick = function () { window.focus(); n.close(); }; CALL.note = n; } catch (e) {}
     }
   }
   function hideRing() {
-    clearTimeout(CALL.toneT); CALL.ring = null;
+    clearTimeout(CALL.toneT);
+    if (CALL.ring && CALL.blink !== undefined) { CALL.blink = undefined; updateBadge(); }     // the tab title as it was
+    CALL.ring = null;
     var c = document.querySelector('.ttc-ring'); if (c) c.remove();
     if (CALL.note) { try { CALL.note.close(); } catch (e) {} CALL.note = null; }
   }
@@ -1402,6 +1453,7 @@
   }
   function ringTone() {
     clearTimeout(CALL.toneT); if (!CALL.ring) return;
+    CALL.toneAt = Date.now();
     if (ringer()) {
       try {
         AC = AC || new (window.AudioContext || window.webkitAudioContext)(); AC.resume && AC.resume();
@@ -1422,7 +1474,7 @@
   var wasOpen = store('open'), th = store('thread');
   if (th) { S.view = 'thread'; S.thread = { id: th }; }
   poll();
-  setTimeout(ringPoll, 1200);
+  setTimeout(ringWatch, 1200);
   setTimeout(function () { if (wasOpen || FULL) setOpen(true); }, 400);
   function supportId() { var t = S.threads.filter(function (x) { return x.kind === 'support' && !x.inbox; })[0]; return t && t.id; }
   window.TapChat = {

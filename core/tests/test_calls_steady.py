@@ -84,7 +84,8 @@ class RingThePhones(Base):
             call['at'] -= 10
             cache.set(chat_call._k(call['id']), call, 600)
             self.post({'action': 'poll', 'id': d['id'], 'secret': d['secret']})
-            self.assertEqual(ring.call_count, again)
+            # (after 15 s the call also widens to the owner, who gets their own first push — core/portal_call.widen)
+            self.assertEqual([c for c in ring.call_args_list[again:] if c.args[0] in call['targets']], [])
 
     def test_app_confirms_ringing(self):
         _, token = self.phone(self.staff)

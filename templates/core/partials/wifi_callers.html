@@ -1,0 +1,35 @@
+{# The phones of this customer that TapTap knows from the Wi-Fi page (core/portal_call.callers_for_voucher):
+   ring them on their Wi-Fi page, call their number, or WhatsApp them. #}
+{% if wifi_callers %}<section class="wcall mb-3" aria-label="Call this customer">
+  <div class="wcall-h"><i class="bi bi-telephone-inbound"></i> <b>Call this customer</b>
+    <small>Rings their Wi-Fi page (login or status page) — free, over your Wi-Fi. Not open? Their page asks them to call back.</small></div>
+  {% for c in wifi_callers %}<div class="wcall-row">
+    <div class="wcall-who"><b>{{ c.name|default:"Wi-Fi customer" }}</b>{% if c.phone %} · {{ c.phone }}{% endif %}
+      {% if c.here %}<span class="wcall-here">on the Wi-Fi page now</span>{% endif %}
+      <small>{% if c.device %}{{ c.device }} · {% endif %}{% if c.mac %}{{ c.mac }} · {% endif %}{% if c.last %}{{ c.last }}, {% endif %}{% if c.just %}just now{% else %}{{ c.at|timesince }} ago{% endif %}{% if c.calls > 1 %} · {{ c.calls }} calls{% endif %}</small></div>
+    <div class="wcall-acts">
+      {% if c.can_ring %}<button type="button" class="btn btn-sm btn-success" data-wcall="{{ c.id }}"><i class="bi bi-telephone"></i> Call on Wi-Fi page</button>{% endif %}
+      {% if c.phone %}<a class="btn btn-sm btn-outline-secondary" href="tel:{{ c.phone|cut:' ' }}"><i class="bi bi-phone"></i> {{ c.phone }}</a>{% endif %}
+      {% if c.wa %}<a class="btn btn-sm btn-outline-success" href="https://wa.me/{{ c.wa }}" target="_blank" rel="noopener"><i class="bi bi-whatsapp"></i></a>{% endif %}
+    </div>
+  </div>{% endfor %}
+</section>
+<style>
+.wcall{border:1px solid #bfe8d2;background:linear-gradient(160deg,#f3fcf7,#fff 60%);border-radius:16px;padding:.8rem .95rem}
+.wcall-h{display:flex;flex-wrap:wrap;gap:.35rem .6rem;align-items:baseline;margin-bottom:.35rem}.wcall-h .bi{color:#18a66a}
+.wcall-h small{color:var(--muted,#6b7280);font-size:.76rem}
+.wcall-row{display:flex;flex-wrap:wrap;gap:.5rem .8rem;align-items:center;justify-content:space-between;padding:.45rem 0;border-top:1px solid #e3f1e9}
+.wcall-row:first-of-type{border-top:0}.wcall-who{min-width:0}.wcall-who small{display:block;color:var(--muted,#6b7280);font-size:.74rem}
+.wcall-acts{display:flex;gap:.35rem;flex-wrap:wrap}
+.wcall-here{display:inline-flex;align-items:center;gap:.3rem;margin-left:.35rem;font-size:.7rem;font-weight:800;color:#0f7a45;background:#d8f5e5;border-radius:999px;padding:.05rem .5rem}
+.wcall-here::before{content:'';width:7px;height:7px;border-radius:50%;background:#18a66a}
+html[data-theme="dark"] .wcall{background:#10261b;border-color:#1f4a33}html[data-theme="dark"] .wcall-row{border-color:#1f4a33}
+</style>
+<script>
+document.addEventListener('click', function (e) {
+  var b = e.target.closest && e.target.closest('[data-wcall]'); if (!b) return;
+  var id = +b.getAttribute('data-wcall');
+  if (window.TapChat && TapChat.callCustomer) TapChat.callCustomer(id);
+  else window.open('/chat/call/?customer=' + id, 'ttcall', 'popup=yes,width=480,height=760');
+});
+</script>{% endif %}

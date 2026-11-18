@@ -266,6 +266,8 @@ document.querySelectorAll('[data-copy]').forEach(function (b) {
 <section class="sp-card" id="speed-per-device" data-lanes-voucher="{{ v.id }}"></section>
 {% endif %}
 
+{% if 'vouchers.support' in tt_perms or 'vouchers.view' in tt_perms %}{% include 'core/partials/wifi_callers.html' %}{% endif %}
+
 {% if shared_case %}{% with sc=shared_case %}
 <section class="vd-share mb-3">
   <div class="d-flex flex-wrap justify-content-between gap-2 align-items-start">

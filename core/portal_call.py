@@ -33,6 +33,8 @@ from django.core.cache import cache
 from . import chat, chat_call
 
 GUEST = 'g:'
+PORTAL_RING_SECONDS = 60          # a customer call rings 60 s (a chat call 40 s): staff may be across the room
+WIDEN_AFTER = 15                  # nobody picked up yet: ring everyone picked, not only those who had TapTap open
 MAX_RINGING_PER_BUSINESS = 3
 STARTS_PER_IP = 5                 # per 10 minutes
 IP_WINDOW = 600
@@ -138,24 +140,39 @@ def start(page, *, name='', phone='', ip='', device=None):
     if not hs:
         raise chat.ChatError('Nobody is set up to answer calls yet.')
     targets = (reachable(hs) or hs) if settings_for(business).online_first else hs
+
+    name, phone = _clean(name, 60), _clean(phone, 30)
+    cust = remember(page, device, name=name, phone=phone, ip=ip, kind='call')
+    # Returning a call-back they missed: ring the person who tried first — whether or not they are picked.
+    returning = _tried(business.pk, cust.pk) if cust is not None else None
+    if returning and returning.get('uid'):
+        back = chat.people_of(business).filter(pk=returning['uid'], is_active=True).first()
+        if back is not None:
+            targets = [back] + [u for u in targets if u.pk != back.pk]
     free = [u for u in targets if u.is_active and not chat_call.busy(u.pk)][:12]
     if not free:
         raise chat.ChatError('Everyone is on another call. Try again in a minute.')
 
-    name, phone = _clean(name, 60), _clean(phone, 30)
-    who = name or 'Wi-Fi customer'
+    who = name or (cust.name if cust is not None and cust.name else '') or 'Wi-Fi customer'
+    phone = phone or (cust.phone if cust is not None else '')
     secret = secrets.token_urlsafe(18)
     cid = secrets.token_urlsafe(12)
     gid = GUEST + secrets.token_hex(8)
     thread = chat.team_thread(business)
     call = {'id': cid, 'thread': thread.pk, 'kind': 'portal', 'caller': gid, 'caller_name': who,
             'caller_initials': _initials(who), 'video': False, 'at': time.time(), 'targets': [u.pk for u in free],
-            'label': f'{who}' + (f' · {phone}' if phone else '') + ' · Wi-Fi',
-            'guest': {'name': name, 'phone': phone, 'business': business.pk, 'page': page.name[:80], 'key': _key(secret)}}
-    cust = remember(page, device, name=name, phone=phone, ip=ip, kind='call')
+            'ring': PORTAL_RING_SECONDS,
+            'label': (f'↩ {who}' if returning else who) + (f' · {phone}' if phone else '') + ' · Wi-Fi',
+            'guest': {'name': name or (cust.name if cust is not None else ''), 'phone': phone, 'business': business.pk,
+                      'page': page.name[:80], 'key': _key(secret)}}
+    if returning:
+        call['returning'] = returning.get('by') or ''
     if cust is not None:                       # who is calling: MAC address, voucher, why they may be calling
         call['guest'].update({'cust': cust.pk, 'mac': cust.mac})
         call['card'] = customer_card(business, cust)
+        if returning:
+            call['card']['why'] = f'Returning {returning.get("by") or "your"}’s call-back.' + (
+                f' {call["card"]["why"]}' if call['card'].get('why') else '')
         if call['card'].get('line'):
             call['info'] = call['card']['line']
     cache.set(chat_call._k(cid), call, chat_call.CALL_TTL)
@@ -164,8 +181,33 @@ def start(page, *, name='', phone='', ip='', device=None):
     for u in free:
         chat_call._add_ring(u.pk, cid)
     cache.set(rk, n + 1, IP_WINDOW)
-    cache.set(ringing_key, (live + [cid])[-10:], chat_call.RING_SECONDS + 30)
+    cache.set(ringing_key, (live + [cid])[-10:], PORTAL_RING_SECONDS + 30)
     return call, secret
+
+
+def widen(call):
+    """Nobody has picked up a customer's call after WIDEN_AFTER seconds: ring everyone picked who is not ringing yet.
+
+    "Online first" rings only the people who have TapTap open — but a TapTap tab left in the background counts as
+    open while nobody is at that computer, and then the call rang nobody who would hear it. Driven by the
+    customer's own poll (about once a second), so it needs no timer."""
+    if call.get('dir') == 'out' or call.get('kind') != 'portal':
+        return 0
+    if time.time() - call['at'] < WIDEN_AFTER or not cache.add(chat_call._k(call['id'], 'widen'), 1, chat_call.CALL_TTL):
+        return 0
+    try:
+        from .models import Business
+        business = Business.objects.get(pk=(call.get('guest') or {}).get('business'))
+    except Exception:
+        return 0
+    have = set(chat_call.targets(call))
+    add = [u.pk for u in handlers(business) if u.pk not in have and u.is_active and not chat_call.busy(u.pk)][:12]
+    if not add:
+        return 0
+    cache.set(chat_call._k(call['id'], 'more'), add, chat_call.CALL_TTL)
+    for uid in add:
+        chat_call._add_ring(uid, call['id'])
+    return len(add)
 
 
 def guest_call(cid, secret, mac=''):
@@ -189,13 +231,19 @@ def guest_uid(call):
 
 def guest_state(call):
     """What the customer's page needs on each poll (also keeps the customer's side alive)."""
+    if call.get('dir') != 'out' and chat_call.state(call)[0] == 'ringing':
+        try:
+            widen(call)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception('widen portal call')
     st = chat_call.public_state(call, guest_uid(call))
     out = {k: st.get(k) for k in ('id', 'state', 'reason', 'answer', 'reanswer', 'rask', 'offer', 'reoffer')}
     if st.get('peer'):
         out['peer'] = {'name': st['peer']['name'].split(' ')[0], 'initials': st['peer']['initials']}
     if st['state'] == 'ringing':
-        out['ringing_on'] = sum(1 for u in call['targets'] if chat_call.ring_acked(call, u))   # phones that confirmed
-        out['left'] = max(0, int(call.get('ring', chat_call.RING_SECONDS) - (time.time() - call['at'])))
+        out['ringing_on'] = sum(1 for u in chat_call.targets(call) if chat_call.ring_acked(call, u))   # phones that confirmed
+        out['left'] = max(0, int(chat_call.ring_secs(call) - (time.time() - call['at'])))
     return out
 
 
@@ -220,14 +268,15 @@ def callback_request(page, *, name='', phone='', ip='', why='', device=None):
     if n >= CALLBACKS_PER_IP:
         raise chat.ChatError('We already have your number — someone will call you back soon.')
     cache.set(rk, n + 1, IP_WINDOW)
-    remember(page, device, name=name, phone=phone, ip=ip, kind='callback', outcome='waiting')
+    cust = remember(page, device, name=name, phone=phone, ip=ip, kind='callback', outcome='waiting')
     who = name or 'a Wi-Fi customer'
     reason = {'mic': 'their phone could not use the microphone', 'captive': 'the Wi-Fi sign-in window cannot make calls'}.get(why, '')
     text = f'📶 Missed Wi-Fi call from {who} · {phone} — asked to be called back' + (f' ({reason})' if reason else '')
     where = f' ({page.name[:80]})' if page.name else ''
     from .models_chat import ChatMessage
     thread = chat.team_thread(business)
-    m = ChatMessage.objects.create(thread=thread, sender=None, body=(text + where)[:4000], system=True)
+    m = ChatMessage.objects.create(thread=thread, sender=None, body=(text + where)[:4000], system=True,
+                                   meta=call_meta('callback', cust, name, phone))
     thread.last_at = m.created_at
     thread.save(update_fields=['last_at'])
     try:
@@ -279,14 +328,15 @@ def voice_message(page, data, *, name='', phone='', secs=0, ip='', device=None):
     who = name or 'a Wi-Fi customer'
     text = f'🎙️ Voice message from {who}' + (f' · {phone}' if phone else '') + (f' ({page.name[:80]})' if page.name else '')
     thread = chat.team_thread(business)
+    cust = remember(page, device, name=name, phone=phone, ip=ip, kind='voice', outcome='waiting')
     with transaction.atomic():
-        m = ChatMessage.objects.create(thread=thread, sender=None, body=text[:4000], attachment='voice')
+        m = ChatMessage.objects.create(thread=thread, sender=None, body=text[:4000], attachment='voice',
+                                       meta=call_meta('voice', cust, name, phone))
         chat_media.store_voice(m, business.pk, data, mime, secs)
         thread.last_at = m.created_at
         thread.save(update_fields=['last_at'])
     cache.set(rk, n + 1, IP_WINDOW)
     cache.set(bk, nb + 1, 3600)
-    remember(page, device, name=name, phone=phone, ip=ip, kind='voice', outcome='waiting')
     try:
         from . import mobile_push
         if mobile_push.configured():
@@ -302,6 +352,55 @@ def voice_message(page, data, *, name='', phone='', secs=0, ip='', device=None):
 
 
 # ─────────────────────────────── the note in the team room ───────────────────────────────
+
+def wa_digits(phone):
+    """Digits for a wa.me link (local 7-digit numbers get the business country's code, as for agents)."""
+    try:
+        from .views_agents import wa_number
+        d = wa_number(phone)
+    except Exception:
+        d = ''.join(ch for ch in str(phone or '') if ch.isdigit())
+    return d if 8 <= len(d) <= 15 else ''
+
+
+def call_meta(kind, cust=None, name='', phone='', **extra):
+    """What a customer-call note carries besides its text (ChatMessage.meta['pcall']): who, and how to reach them —
+    chat draws "Call back on the Wi-Fi page", their number and WhatsApp under it."""
+    cid = getattr(cust, 'pk', None) if cust is not None and not isinstance(cust, int) else cust
+    phone = phone or (getattr(cust, 'phone', '') if cust is not None and not isinstance(cust, int) else '')
+    out = {'kind': kind, 'cust': cid, 'name': (name or '')[:60], 'phone': (phone or '')[:30], 'wa': wa_digits(phone)}
+    out.update({k: v for k, v in extra.items() if v not in (None, '')})
+    return {'pcall': out}
+
+
+def reach(call):
+    """How a customer call reached each person it rang — so a missed call says why nobody picked up:
+    "Baboucarr (TapTap rang), Fatou (phone rang), Musa (TapTap not open)"."""
+    from django.contrib.auth.models import User
+    ids = [u for u in chat_call.targets(call) if isinstance(u, int)]
+    if not ids:
+        return ''
+    try:
+        from . import mobile_push
+        phones = mobile_push.phone_users(ids)
+    except Exception:
+        phones = set()
+    names = {u.pk: chat.display_name(u).split(' ')[0] for u in User.objects.filter(pk__in=ids)}
+    parts = []
+    for uid in ids:
+        if cache.get(chat_call._k(call['id'], f'dec:{uid}')):
+            how = 'declined'
+        elif chat_call.ring_acked(call, uid):
+            how = 'phone rang'
+        elif cache.get(chat_call._k(call['id'], f'seen:{uid}')) is not None:
+            how = 'TapTap rang'
+        elif uid in phones:
+            how = 'phone did not confirm'
+        else:
+            how = 'TapTap not open'
+        parts.append(f'{names.get(uid, "someone")} ({how})')
+    return ', '.join(parts)
+
 
 def note(call, reason, live_at):
     """Leave one line in the team room for every customer call (called once, from chat_call.finish)."""
@@ -335,7 +434,9 @@ def note(call, reason, live_at):
         try:
             from .models_chat import ChatMessage, ChatThread
             thread = ChatThread.objects.get(pk=call['thread'])
-            m = ChatMessage.objects.create(thread=thread, sender=None, body=text[:4000], system=True)
+            kind = 'out_answered' if live_at else 'out_declined' if reason == 'declined' else 'out_missed'
+            m = ChatMessage.objects.create(thread=thread, sender=None, body=text[:4000], system=True,
+                                           meta=call_meta(kind, g.get('cust'), g.get('name') or '', phone, by=by))
             thread.last_at = m.created_at
             thread.save(update_fields=['last_at'])
         except Exception:
@@ -345,28 +446,42 @@ def note(call, reason, live_at):
         from django.contrib.auth.models import User
         u = User.objects.filter(pk=t['uid']).first()
         answered_by = chat.display_name(u).split(' ')[0] if u else ''
+    back = f' · returning {call["returning"]}’s call' if call.get('returning') else ''
+    detail = ''
+    rang = int(max(0, min(time.time(), call['at'] + chat_call.ring_secs(call)) - call['at']))
     if live_at:
         secs = int(time.time() - live_at)
         text = f'📶 Wi-Fi call from {who}' + (f' · {phone}' if phone else '') + f' · {secs // 60}:{secs % 60:02d}' + \
-               (f' · answered by {answered_by}' if answered_by else '')
+               (f' · answered by {answered_by}' if answered_by else '') + back
+        kind = 'answered'
     elif reason == 'declined':
-        text = f'📶 Wi-Fi call from {who}' + (f' · {phone}' if phone else '') + ' was declined'
+        text = f'📶 Wi-Fi call from {who}' + (f' · {phone}' if phone else '') + ' was declined' + back
+        kind = 'declined'
     elif reason in ('missed', 'cancelled'):
-        text = f'📶 Missed Wi-Fi call from {who}' + (f' · {phone} — call them back' if phone else ' (no number left)')
+        text = f'📶 Missed Wi-Fi call from {who}' + (f' · {phone} — call them back' if phone else ' (no number left)') + back
+        # why nobody picked up: how long it rang, and how it reached each person
+        how = reach(call)
+        detail = (f'They hung up after {rang} s' if reason == 'cancelled' else f'Rang {rang} s') + (f': {how}' if how else '')
+        kind = 'missed'
     else:
-        text = f'📶 Wi-Fi call from {who}' + (f' · {phone}' if phone else '') + ' could not connect'
+        text = f'📶 Wi-Fi call from {who}' + (f' · {phone}' if phone else '') + ' could not connect' + back
+        kind = 'failed'
     try:
         from .models_chat import ChatMessage, ChatThread
         thread = ChatThread.objects.get(pk=call['thread'])
-        m = ChatMessage.objects.create(thread=thread, sender=None, body=(text + where)[:4000], system=True)
+        m = ChatMessage.objects.create(thread=thread, sender=None, body=(text + where + (f'\n{detail}' if detail else ''))[:4000],
+                                       system=True, meta=call_meta(kind, g.get('cust'), g.get('name') or '', phone))
         thread.last_at = m.created_at
         thread.save(update_fields=['last_at'])
+        if live_at and g.get('cust'):
+            cache.delete(f'pcall:tried:{g.get("business")}:{g.get("cust")}')   # they reached us: no more "we tried"
         if not live_at and reason in ('missed', 'cancelled') and phone:
             from . import mobile_push                  # a missed customer call: tell the people who answer, with the number
             if mobile_push.configured():
-                mobile_push.missed_call(call.get('targets') or [], text[2:].strip(), phone, g.get('name') or '')
+                mobile_push.missed_call([u for u in chat_call.targets(call) if isinstance(u, int)], text[2:].strip(), phone,
+                                        g.get('name') or '')
         from .utils import log
-        log(thread.business, 'Wi-Fi Call', text[:200])
+        log(thread.business, 'Wi-Fi Call', (text + (f' — {detail}' if detail else ''))[:200])
     except Exception:
         pass
 
@@ -376,7 +491,7 @@ def note(call, reason, live_at):
 import re as _re
 
 OUT_RING_SECONDS = 90             # a call-back rings longer: the customer has to notice the card on their page
-TRIED_SECONDS = 15 * 60           # after a missed call-back their page says "we tried to call you" this long
+TRIED_SECONDS = 2 * 3600          # after a missed call-back their page says "<name> tried to call you" this long
 SEEN_SECONDS = 40                 # "on the Wi-Fi page now": their page asked for calls this recently
 
 
@@ -511,6 +626,31 @@ def seen_key(business_id, cust_id):
     return f'pcall:seen:{business_id}:{cust_id}'
 
 
+LAST_TEXT = {('call', 'answered'): 'call answered', ('call', 'missed'): 'missed call', ('call', 'declined'): 'call declined',
+             ('call', 'failed'): 'call did not connect', ('callback', 'waiting'): 'asked to be called back',
+             ('voice', 'waiting'): 'left a voice message', ('out', 'answered'): 'call-back answered',
+             ('out', 'missed'): 'call-back missed', ('out', 'declined'): 'call-back declined'}
+
+
+def callers_for_voucher(business, v, limit=3):
+    """The Wi-Fi-page records of the phones that use this voucher or member account — by the code they signed in
+    with, or by a device slot's MAC address — so the voucher and member pages can ring them on their Wi-Fi page."""
+    from django.db.models import Q
+    from .models_portal_call import PortalCaller
+    macs = [m for m in (norm_mac(b.current_mac) for b in v.device_bindings.all()) if m]
+    q = Q(username__iexact=v.code)
+    if macs:
+        q |= Q(mac__in=macs)
+    rows = []
+    for c in PortalCaller.objects.filter(business=business).filter(q)[:limit]:
+        rows.append({'id': c.pk, 'name': c.name, 'phone': c.phone, 'wa': wa_digits(c.phone), 'mac': c.mac,
+                     'device': c.device, 'at': c.last_seen, 'calls': c.calls,
+                     'just': (time.time() - c.last_seen.timestamp()) < 60,
+                     'last': LAST_TEXT.get((c.last_kind, c.last_outcome), ''),
+                     'here': bool(cache.get(seen_key(business.pk, c.pk))), 'can_ring': bool(c.key_hash or c.mac)})
+    return rows
+
+
 def caller_rows(business, limit=40):
     """The customers who called, left a number or a voice message — newest first, each with its card."""
     from .models_portal_call import PortalCaller
@@ -549,13 +689,14 @@ def call_back(user, business, cust_id):
     call = {'id': cid, 'thread': thread.pk, 'kind': 'portal', 'dir': 'out', 'caller': user.pk, 'caller_name': name,
             'caller_initials': chat.initials(user), 'video': False, 'at': time.time(), 'targets': [gid],
             'ring': OUT_RING_SECONDS, 'label': business.business_name, 'card': card,
+            'here': bool(cache.get(seen_key(business.pk, cust.pk))),       # their Wi-Fi page is open right now
             'guest': {'name': cust.name, 'phone': cust.phone, 'business': business.pk, 'page': cust.page,
                       'key': cust.key_hash, 'mac': cust.mac, 'cust': cust.pk}}
     cache.set(chat_call._k(cid), call, chat_call.CALL_TTL)
     cache.set(f'call:user:{user.pk}', cid, chat_call.CALL_TTL)
     chat_call.heartbeat(call, user.pk)
     cache.set(f'pcall:out:{business.pk}:{cust.pk}', cid, OUT_RING_SECONDS + 30)
-    cache.set(f'pcall:tried:{business.pk}:{cust.pk}', name.split(' ')[0], TRIED_SECONDS)
+    cache.set(f'pcall:tried:{business.pk}:{cust.pk}', {'by': name.split(' ')[0], 'uid': user.pk}, TRIED_SECONDS)
     return call, f'{who}' + (f' · {cust.phone}' if cust.phone else '')
 
 
@@ -571,8 +712,16 @@ def inbox(page, device):
     if call and chat_call.state(call)[0] == 'ringing':
         return {'ring': {'id': cid, 'from': business.business_name,
                          'left': max(0, int(OUT_RING_SECONDS - (time.time() - call['at'])))}}
-    tried = cache.get(f'pcall:tried:{business.pk}:{cust.pk}')
-    return {'tried': {'by': tried}} if tried and not (call and chat_call.state(call)[0] != 'ended') else {}
+    tried = _tried(business.pk, cust.pk)
+    return {'tried': {'by': tried['by']}} if tried and not (call and chat_call.state(call)[0] != 'ended') else {}
+
+
+def _tried(business_id, cust_id):
+    """{'by': first name, 'uid': user id} of the last call-back this customer missed (older entries: just a name)."""
+    t = cache.get(f'pcall:tried:{business_id}:{cust_id}')
+    if not t:
+        return None
+    return t if isinstance(t, dict) else {'by': str(t), 'uid': None}
 
 
 def answered(call):

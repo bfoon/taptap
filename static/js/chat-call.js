@@ -490,7 +490,10 @@
       .then(function () { return api('/chat/call/act/', +D.customer ? { action: 'start', customer: +D.customer } : { action: 'start', thread: S.thread, video: S.video }); })
       .then(function (d) {
         if (!d.ok) throw new Error(d.message);
-        S.cid = d.call.id; S.ice = d.ice; S.peer.name = d.title; paintPeer(); overlay(ringHTML('Calling ' + esc(d.title) + '…', 'Ringing'));
+        S.cid = d.call.id; S.ice = d.ice; S.peer.name = d.title; paintPeer();
+        // a Wi-Fi customer: say whether their page is open, so a long ring is no surprise (core/portal_call.call_back)
+        overlay(ringHTML('Calling ' + esc(d.title) + '…', !+D.customer ? 'Ringing' : d.here ? '📶 Ringing their Wi-Fi page — it is open right now'
+          : '📶 Their Wi-Fi page is not open right now. It rings if they open it in the next 90 s — then their page asks them to call you back (for 2 hours).'));
         var pc = makePC();
         S.T.audio = pc.addTransceiver(S.mic, { direction: 'sendrecv' });
         S.T.cam = pc.addTransceiver(camOut() || 'video', { direction: 'sendrecv' });

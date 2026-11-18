@@ -17,6 +17,8 @@ Every piece of a call is its own cache key, written once, so concurrent requests
     call:<id>:ro       {gen, desc}  caller's ICE-restart offer (the line dropped: new network paths)
     call:<id>:ra       {gen, desc}  callee's ICE-restart answer for that generation
     call:<id>:rask     time the callee asked the caller to restart (only the caller sends restart offers)
+    call:<id>:more     people added while it rings (a customer call that nobody picked up widens to everyone picked)
+    call:<id>:seen:<u> the first time this person's TapTap showed the ring (so a missed call can say who saw it)
     call:ring:<uid>    calls ringing for a person (checked by the cheap poll)
     call:user:<uid>    the call a person is in (busy signal)
 
@@ -67,7 +69,8 @@ HEARTBEAT_LOST = 90
 CONNECT_SECONDS = 75
 # A phone that has not confirmed it is ringing gets the push again at these ages of the call (seconds): one data
 # push can be late or lost on a phone that is asleep.
-REPUSH_AT = (7, 15, 25)
+REPUSH_AT = (7, 15, 25, 40)
+RING_KEY_TTL = 140              # call:ring:<uid> outlives the longest ring (a call-back rings 90 s)
 MAX_RESTART_GEN = 500
 MAX_SDP = 24000
 
@@ -105,6 +108,18 @@ def _side(thread, uid, biz_ids=None):
     return 'biz' if uid in biz_ids else 'agent'
 
 
+def ring_secs(call):
+    """How long this call rings: 40 s for a chat call; customer calls and call-backs ring longer."""
+    return call.get('ring', RING_SECONDS)
+
+
+def targets(call):
+    """Everyone this call rings: the people it started with, plus those added while it rang (core/portal_call.widen)."""
+    more = cache.get(_k(call['id'], 'more')) or []
+    base = list(call.get('targets') or [])
+    return base + [u for u in more if u not in base]
+
+
 def get(cid):
     if not cid or not isinstance(cid, str) or len(cid) > 40:
         return None
@@ -135,7 +150,7 @@ def state(call):
             finish(call, 'failed')
             return 'ended', cache.get(_k(cid, 'end'))
         return 'connecting', None
-    if time.time() - call['at'] > call.get('ring', RING_SECONDS):
+    if time.time() - call['at'] > ring_secs(call):
         finish(call, 'missed')
         return 'ended', cache.get(_k(cid, 'end'))
     return 'ringing', None
@@ -150,7 +165,7 @@ def busy(uid):
 def _add_ring(uid, cid):
     key = f'call:ring:{uid}'
     ids = [c for c in (cache.get(key) or []) if c != cid][-4:] + [cid]
-    cache.set(key, ids, RING_SECONDS + 20)
+    cache.set(key, ids, RING_KEY_TTL)
     _push(lambda p: p.call_ringing(uid, get(cid) or {'id': cid}))      # the mobile app's incoming-call screen
 
 
@@ -168,7 +183,7 @@ def _push(fn):
 def ring_ack(call, uid):
     """This person's phone says it is ringing (the app got the push, or its own check saw the call)."""
     cid = call['id']
-    if uid in call.get('targets', ()) and cache.add(_k(cid, f'ack:{uid}'), time.time(), RING_SECONDS + 60):
+    if uid in targets(call) and cache.add(_k(cid, f'ack:{uid}'), time.time(), ring_secs(call) + 60):
         cache.set(_k(cid, f'ackat:{uid}'), round(time.time() - call['at'], 1), 600)
 
 
@@ -181,15 +196,15 @@ def reping(call):
     poll (about once a second), so it needs no timer and stops with the call."""
     cid = call['id']
     age = time.time() - call['at']
-    if age > RING_SECONDS or call.get('kind') == 'test':
+    if age > ring_secs(call) or call.get('kind') == 'test':
         return 0
     n = 0
     for i, at in enumerate(REPUSH_AT):
         if age < at:
             break
-        if not cache.add(_k(cid, f'rp:{i}'), 1, RING_SECONDS + 20):
+        if not cache.add(_k(cid, f'rp:{i}'), 1, ring_secs(call) + 20):
             continue
-        for uid in call['targets']:
+        for uid in targets(call):
             if not isinstance(uid, int) or ring_acked(call, uid) or cache.get(_k(cid, f'dec:{uid}')):
                 continue
             _push(lambda p, uid=uid: p.call_ringing(uid, call, attempt=i + 2))
@@ -201,7 +216,7 @@ def reping(call):
 def _drop_ring(uid, cid):
     key = f'call:ring:{uid}'
     ids = [c for c in (cache.get(key) or []) if c != cid]
-    cache.set(key, ids, RING_SECONDS + 20) if ids else cache.delete(key)
+    cache.set(key, ids, RING_KEY_TTL) if ids else cache.delete(key)
 
 
 def is_member(call, uid):
@@ -210,7 +225,7 @@ def is_member(call, uid):
     t = _taken(call['id'])
     if t:
         return t['uid'] == uid
-    return uid in call['targets']
+    return uid in targets(call)
 
 
 def other_uid(call, uid):
@@ -263,13 +278,16 @@ def rings_for(user):
     out = []
     for cid in cache.get(f'call:ring:{user.pk}') or []:
         call = get(cid)
-        if not call or user.pk not in call['targets'] or cache.get(_k(cid, f'dec:{user.pk}')):
+        if not call or user.pk not in targets(call) or cache.get(_k(cid, f'dec:{user.pk}')):
             continue
         st, _ = state(call)
         if st != 'ringing':
             continue
+        cache.add(_k(cid, f'seen:{user.pk}'), round(time.time() - call['at'], 1), CALL_TTL)
         ring = {'id': cid, 'thread': call['thread'], 'from': call['label'], 'initials': call['caller_initials'],
-                'video': call['video'], 'kind': call['kind'], 'left': max(0, int(RING_SECONDS - (time.time() - call['at'])))}
+                'video': call['video'], 'kind': call['kind'], 'left': max(0, int(ring_secs(call) - (time.time() - call['at'])))}
+        if call.get('returning'):                 # the customer is returning a call-back: who they asked for
+            ring['returning'] = call['returning']
         if call.get('card'):                      # a customer on the Wi-Fi page: who they are (core/portal_call.py)
             ring['customer'] = call['card']
         out.append(ring)
@@ -295,7 +313,8 @@ def post_offer(call, user, desc):
 
 def accept(call, user):
     cid = call['id']
-    if user.pk not in call['targets']:
+    everyone = targets(call)
+    if user.pk not in everyone:
         raise chat.ChatError('This call is not for you.')
     st, _ = state(call)
     if st == 'ended':
@@ -307,9 +326,9 @@ def accept(call, user):
         if not t or t['uid'] != user.pk:
             raise chat.ChatError('Someone else already answered.')
     cache.set(f'call:user:{user.pk}', cid, CALL_TTL)
-    for uid in call['targets']:
+    for uid in everyone:
         _drop_ring(uid, cid)
-    _push(lambda p: p.call_ended([u for u in call['targets'] if u != user.pk], cid))   # stop it ringing on the others' phones
+    _push(lambda p: p.call_ended([u for u in everyone if u != user.pk and isinstance(u, int)], cid))   # stop it ringing on the others' phones
     heartbeat(call, user.pk)
     return cache.get(_k(cid, 'offer'))
 
@@ -380,9 +399,9 @@ def ask_restart(call, user):
 
 def decline(call, user):
     cid = call['id']
-    cache.set(_k(cid, f'dec:{user.pk}'), 1, RING_SECONDS + 20)
+    cache.set(_k(cid, f'dec:{user.pk}'), 1, ring_secs(call) + 20)
     _drop_ring(user.pk, cid)
-    if all(cache.get(_k(cid, f'dec:{u}')) for u in call['targets']) and not _taken(cid):
+    if all(cache.get(_k(cid, f'dec:{u}')) for u in targets(call)) and not _taken(cid):
         finish(call, 'declined')
 
 
@@ -396,10 +415,11 @@ def finish(call, reason='ended'):
     reason = reason if reason in ('ended', 'missed', 'declined', 'cancelled', 'lost', 'failed') else 'ended'
     if not cache.add(_k(cid, 'end'), reason, CALL_TTL):
         return
-    for uid in call['targets']:
+    everyone = targets(call)
+    for uid in everyone:
         _drop_ring(uid, cid)
-    _push(lambda p: p.call_ended([u for u in [call['caller']] + call['targets'] if isinstance(u, int)], cid))
-    for uid in [call['caller']] + call['targets']:
+    _push(lambda p: p.call_ended([u for u in [call['caller']] + everyone if isinstance(u, int)], cid))
+    for uid in [call['caller']] + everyone:
         if cache.get(f'call:user:{uid}') == cid:
             cache.delete(f'call:user:{uid}')
     live_at = cache.get(_k(cid, 'live_at'))

@@ -399,11 +399,12 @@ def call_ringing(uid, call, attempt=1):
     data = _data({'type': 'call', 'id': call['id'], 'caller': call.get('label') or call.get('caller_name') or 'Call',
                   'initials': call.get('caller_initials') or '', 'kind': call.get('kind') or 'direct',
                   'video': '1' if call.get('video') else '0', 'at': int(call.get('at') or time.time()),
-                  'try': attempt, 'info': call.get('info') or ''})
+                  'try': attempt, 'info': call.get('info') or '', 'ring': int(call.get('ring') or 40)})
+    ring = int(call.get('ring') or 40)               # customer calls ring 60 s, call-backs 90 s: the push lives as long
     return send([uid], {
         'data': data,
-        'android': {'priority': 'HIGH', 'ttl': '40s'},
-        'apns': {'headers': {'apns-priority': '10', 'apns-push-type': 'alert', 'apns-expiration': str(int(time.time()) + 40)},
+        'android': {'priority': 'HIGH', 'ttl': f'{ring}s'},
+        'apns': {'headers': {'apns-priority': '10', 'apns-push-type': 'alert', 'apns-expiration': str(int(time.time()) + ring)},
                  'payload': {'aps': {'alert': {'title': ('📶 Customer call · ' if portal else 'Call · ') + data['caller'],
                                                'body': 'Tap to answer in TapTap'},
                                      'sound': 'default', 'content-available': 1, 'category': 'TT_CALL'}}},

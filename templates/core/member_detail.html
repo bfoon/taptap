@@ -127,6 +127,7 @@ html[data-theme="dark"] .md-paused{background:#13233a;border-color:#244a7a}html[
 {# Speed per device: every device of this member gets the plan's whole speed, its own lane (core/device_lanes.py) #}
 <section class="sp-card" id="speed-per-device" data-lanes-voucher="{{ v.id }}"></section>
 {% endif %}
+{% if can_support %}{% include 'core/partials/wifi_callers.html' %}{% endif %}
 
 <nav class="md-nav" aria-label="Sections"><a href="#pause"><i class="bi bi-pause-circle"></i> Pause</a><a href="#access"><i class="bi bi-key"></i> Password &amp; access</a><a href="#devices"><i class="bi bi-phone"></i> Devices</a>
   <a href="#details"><i class="bi bi-person-lines-fill"></i> Details</a><a href="#billing"><i class="bi bi-receipt"></i> Billing</a><a href="#security"><i class="bi bi-shield-lock"></i> Security</a>

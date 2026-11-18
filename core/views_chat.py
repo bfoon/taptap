@@ -427,7 +427,7 @@ def chat_call_act(request):
             from . import portal_call
             call, title = portal_call.call_back(user, _biz(request), int(d.get('customer') or 0))
             return JsonResponse({'ok': True, 'call': chat_call.public_state(call, user.pk), 'title': title,
-                                 'ice': chat_call.ice_config(user)})
+                                 'ice': chat_call.ice_config(user), 'here': bool(call.get('here'))})
         if act == 'start':
             t = _thread(request, int(d.get('thread') or 0))
             call = chat_call.start(t, user, video=bool(d.get('video')))
@@ -435,7 +435,7 @@ def chat_call_act(request):
             return JsonResponse({'ok': True, 'call': chat_call.public_state(call, user.pk), 'title': title,
                                  'ice': chat_call.ice_config(user)})
         call = chat_call.get(d.get('id', ''))
-        if not call or not (chat_call.is_member(call, user.pk) or user.pk in call['targets']):
+        if not call or not (chat_call.is_member(call, user.pk) or user.pk in chat_call.targets(call)):
             raise chat.ChatError('This call has ended.')
         if act == 'offer':
             chat_call.post_offer(call, user, d.get('desc'))

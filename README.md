@@ -578,3 +578,18 @@ services as the Members pages, and recorded in the member's history with "(appro
   photo fold into a ＋ tray in narrow chats; mic and Send share one round button (✓ while editing).
 
 `showmigrations core` should show `0125_member_plan_lock` as `[X]`.
+
+## v10 — Customer calls that ring, and calling customers back on their Wi-Fi page
+
+- Incoming calls are watched from a Web Worker (`static/js/ring-watch.js`), because browsers slow a background tab's
+  timers to about once a minute, longer than a call rings. A ring in a background tab blinks the title, repeats the
+  tone (sound unlocked on the first click) and shows a desktop alert with the customer's details.
+- Customer calls ring 60 s (web and app). With "online first", a call nobody picks up after 15 s also rings everyone
+  picked (`core/portal_call.widen`).
+- A missed customer call says how long it rang and how it reached each person (TapTap rang / phone rang / declined /
+  TapTap not open). Customer-call notes carry the customer (`ChatMessage.meta`) and show **Call back on their Wi-Fi
+  page** (with "on it now"), their number and WhatsApp.
+- The voucher and member pages show **Call this customer** when that phone has called before. A missed call-back keeps
+  "<name> tried to call you" on their page for 2 hours, and their return call rings that person first.
+
+`showmigrations core` should show `0126_chat_message_meta` as `[X]`.

@@ -644,7 +644,7 @@
   api('inbox').then(function (d) {
     if (!d || !d.ok || S.state !== 'idle') return;
     if (d.ring) incoming(d.ring);
-    else if (d.tried) { S.note = 'We tried to call you back. Tap Call to reach us now.'; intro(S.note); }
+    else if (d.tried) { S.note = d.tried.by ? d.tried.by + ' from ' + C.business + ' tried to call you back. Tap Call — it rings ' + d.tried.by + ' first.' : 'We tried to call you back. Tap Call to reach us now.'; intro(S.note); }
   });
   api('status').then(function (d) { if (d && d.ok) { S.status = d; if (S.state === 'idle') intro(S.note); } else { sub.textContent = 'Tap Call — we will ring our team.'; } });
 })();

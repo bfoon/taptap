@@ -293,3 +293,21 @@ html.tt-controlled.tt-shared body::before{content:"● Sharing this tab · remot
 }
 @media(max-width:576px){.ttc-comp{padding-bottom:max(8px,env(safe-area-inset-bottom))}}
 @media(prefers-reduced-motion:reduce){.ttc-mic,.ttc-send,.ttc-tools{animation:none}.ttc-plus svg{transition:none}}
+
+/* ───────── Wi-Fi customer-call notes: one tap to ring them back (core/portal_call.call_meta) ───────── */
+.ttc-sys.ttc-pcall{white-space:pre-line;max-width:94%;background:var(--c-soft);border-radius:12px;padding:8px 10px;color:var(--c-ink);line-height:1.4}
+.ttc-sys.ttc-pcall.k-missed,.ttc-sys.ttc-pcall.k-callback,.ttc-sys.ttc-pcall.k-out_missed{background:rgba(229,72,77,.08);border:1px solid rgba(229,72,77,.22)}
+.ttc-sys.ttc-pcall.k-voice{background:rgba(23,105,224,.07)}
+.ttc-pcall-acts{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:7px}
+.ttc-pcb{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--c-line);background:var(--c-bg);color:var(--c-ink);border-radius:999px;
+  padding:5px 11px;font-size:12px;font-weight:700;text-decoration:none;cursor:pointer;line-height:1.2}
+.ttc-pcb:hover{border-color:var(--c-acc);color:var(--c-acc)}
+.ttc-pcb svg{width:14px;height:14px;flex:none}
+.ttc-pcb.main{background:#18a66a;border-color:#18a66a;color:#fff}.ttc-pcb.main:hover{filter:brightness(1.08);color:#fff}
+.ttc-pcb.wa{color:#128c4b}
+.ttc-here{font-style:normal;font-size:10.5px;font-weight:800;background:rgba(255,255,255,.25);border-radius:999px;padding:1px 7px;display:inline-flex;align-items:center;gap:4px}
+.ttc-here::before{content:'';width:7px;height:7px;border-radius:50%;background:#b7ffcf;box-shadow:0 0 0 0 rgba(183,255,207,.8);animation:ttchere 1.6s ease-out infinite}
+@keyframes ttchere{to{box-shadow:0 0 0 7px rgba(183,255,207,0)}}
+.ttc-ring-alerts{display:block;margin-top:6px;border:0;background:rgba(255,255,255,.16);color:inherit;border-radius:9px;padding:4px 8px;font-size:11.5px;font-weight:700;cursor:pointer;text-align:left}
+@media(prefers-reduced-motion:reduce){.ttc-here::before{animation:none}}
+

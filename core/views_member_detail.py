@@ -123,7 +123,13 @@ def member_detail(request, pk):
         shield = shield_stats(business, [v.pk]).get(v.pk)
     except Exception:
         shield = None
+    try:                                          # the member's phone on the Wi-Fi page: ring it from here
+        from .portal_call import callers_for_voucher
+        wifi_callers = callers_for_voucher(v.business, v)
+    except Exception:
+        wifi_callers = []
     return render(request, 'core/member_detail.html', {
+        'wifi_callers': wifi_callers,
         'shield': shield,
         'v': v, 'plan': plan, 'pref': pref, 'email': (pref.email if pref else ''),
         'state_key': state_key, 'state_label': state_label, 'ends_at': end,

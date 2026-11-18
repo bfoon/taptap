@@ -340,7 +340,21 @@ def message_json(m, me_id, agent_set=None):
             'deleted': bool(m.deleted_at), 'edited': bool(m.edited_at and not m.deleted_at),
             'reply': _reply_json(m), 'can_edit': can_edit(m, me_id),
             'delete_until': (timezone.localtime(m.created_at + timedelta(minutes=DELETE_MINUTES)).isoformat()
-                             if can_delete(m, me_id) else None)}
+                             if can_delete(m, me_id) else None),
+            'call': _call_json(m)}
+
+
+def _call_json(m):
+    """A Wi-Fi customer-call note: who it is about and how to reach them, for the buttons under it
+    (core/portal_call.call_meta). `here` = their Wi-Fi page is open right now, so a call-back will ring at once."""
+    pc = (getattr(m, 'meta', None) or {}).get('pcall') if m.system or m.sender_id is None else None
+    if not isinstance(pc, dict):
+        return None
+    out = {k: pc.get(k) for k in ('kind', 'cust', 'name', 'phone', 'wa', 'by') if pc.get(k) not in (None, '')}
+    if pc.get('cust'):
+        from .portal_call import seen_key
+        out['here'] = bool(cache.get(seen_key(m.thread.business_id, pc['cust'])))
+    return out
 
 
 def _reply_json(m):
