@@ -34,6 +34,11 @@ On first start, tap **Using your own TapTap server?** if your TapTap is not at `
 
 Release builds: `flutter build apk --release` (or `appbundle`) and `flutter build ipa`.
 
+Build with **Java 21** (the one Android Studio ships; `flutter doctor -v` shows which Java Flutter uses, and
+`flutter config --jdk-dir <path>` picks another). Current Flutter makes android/ with Gradle 9 and Android Gradle
+Plugin 9, whose lint needs Java 21: on Java 17 a release build stops in `lintVitalAnalyzeRelease` with
+`NoSuchMethodError: java.util.List.removeLast()`. `tool/configure_platforms.py` also turns that release lint off.
+
 ### Build on GitHub (no Flutter on your computer)
 
 The workflow `.github/workflows/mobile-app.yml` builds the app on every push that touches `mobile/`:

@@ -342,6 +342,24 @@ for g in (ROOT / 'android/app/build.gradle.kts', ROOT / 'android/app/build.gradl
             say(f'Android: minSdk 24 in {g.name}')
         break
 
+# Release builds skip "lint vital": it analyses every plugin's own Android code (firebase_core, callkit, webrtc…),
+# finds nothing in this app to stop a release for, and a bug in the lint tool itself — like its Java 21 call on a
+# Java 17 build — failed the whole APK build. `flutter analyze` and the tests still check the app's own code.
+for g in (ROOT / 'android/app/build.gradle.kts', ROOT / 'android/app/build.gradle'):
+    if g.exists():
+        s = g.read_text()
+        if 'checkReleaseBuilds' not in s:
+            block = ('    lint {\n        checkReleaseBuilds = false\n    }\n' if g.suffix == '.kts'
+                     else '    lint {\n        checkReleaseBuilds false\n    }\n')
+            s2 = re.sub(r'(^android\s*\{[^\n]*\n)', lambda m: m.group(1) + block, s, count=1, flags=re.M)
+            if s2 != s:
+                g.write_text(s2)
+                say(f'Android: release builds skip lint vital (plugins\' lint) in {g.name}')
+            else:
+                ok = False
+                say(f'Android: could not find the android {{ }} block in {g.name} — add lint {{ checkReleaseBuilds = false }} by hand')
+        break
+
 # ── Firebase (Android): only when android/app/google-services.json is there (CI writes it from a secret) ──
 gs = ROOT / 'android/app/google-services.json'
 if not man.exists():

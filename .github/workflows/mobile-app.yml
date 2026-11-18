@@ -47,18 +47,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Java 21, the JDK Android Studio ships. Current Flutter makes the android/ folder with Gradle 9 and Android
+      # Gradle Plugin 9, whose lint calls Java 21 methods: on Java 17 the release build died in
+      # ":firebase_core:lintVitalAnalyzeRelease" with "NoSuchMethodError: java.util.List.removeLast()".
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Flutter version
-        run: flutter --version
+      - name: Flutter and Java versions
+        run: |
+          flutter config --jdk-dir "$JAVA_HOME"      # build with that Java 21, whatever else the runner has
+          flutter --version
+          java -version
 
       - name: Make the android/ folder
         run: |
