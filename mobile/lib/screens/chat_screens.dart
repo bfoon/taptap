@@ -13,6 +13,7 @@ import '../calls/call_engine.dart';
 import '../calls/call_screen.dart';
 import '../data/store.dart';
 import '../data/sync_engine.dart';
+import '../data/voice_store.dart';
 import '../widgets/common.dart';
 import 'chat_voice.dart';
 
@@ -348,6 +349,33 @@ class _ThreadScreenState extends State<ThreadScreen> {
     }
   }
 
+  static bool _isVoice(Map<String, dynamic> m) => m['image'] is Map && (m['image'] as Map)['kind'] == 'voice';
+
+  /// A voice message's copy on this phone (kept when it was played): gone from here, like deleting a message.
+  Future<void> _deleteVoiceHere(Map<String, dynamic> m) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete from this phone?'),
+        content: Text((m['image'] as Map)['gone'] == true
+            ? 'TapTap deleted its copy already: after this, nobody can play it again.'
+            : 'Only this phone’s copy is deleted.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(ctx).colorScheme.error),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await VoiceStore.I.remove(toI(m['id']));
+    if (mounted) setState(() {});
+    _toast('Deleted from this phone');
+  }
+
   /// Long-press a message: what you can do with it.
   void _menu(Map<String, dynamic> m) {
     if (m['system'] == true || m['deleted'] == true) return;
@@ -376,6 +404,16 @@ class _ThreadScreenState extends State<ThreadScreen> {
                 Navigator.pop(ctx);
                 Clipboard.setData(ClipboardData(text: text));
                 _toast('Copied');
+              },
+            ),
+          if (_isVoice(m) && VoiceStore.I.has(toI(m['id'])))
+            ListTile(
+              leading: const Icon(Icons.phone_android),
+              title: const Text('Delete from this phone'),
+              subtitle: const Text('The copy this phone kept when you played it'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _deleteVoiceHere(m);
               },
             ),
           if (mine && m['can_edit'] == true)
@@ -506,6 +544,7 @@ class _ThreadScreenState extends State<ThreadScreen> {
                 m: m,
                 meId: me,
                 flash: _flash == id,
+                threadTitle: widget.title,
                 onLongPress: () => _menu(m),
                 onSwipeReply: () {
                   if (m['system'] != true && m['deleted'] != true) _startReply(m);
@@ -609,9 +648,10 @@ String _preview(Map<String, dynamic> m) {
 
 class _Bubble extends StatefulWidget {
   const _Bubble({super.key, required this.m, required this.meId, required this.onLongPress, required this.onSwipeReply,
-      required this.onQuoteTap, this.flash = false});
+      required this.onQuoteTap, this.flash = false, this.threadTitle = ''});
   final Map<String, dynamic> m;
   final int meId;
+  final String threadTitle;
   final bool flash;
   final VoidCallback onLongPress, onSwipeReply;
   final void Function(int id) onQuoteTap;
@@ -672,7 +712,7 @@ class _BubbleState extends State<_Bubble> {
         else ...[
           if (reply != null) _quote(context, reply, mine),
           if (img != null && img['kind'] == 'voice')
-            VoiceBubble(m: m, mine: mine)
+            VoiceBubble(m: m, mine: mine, threadTitle: widget.threadTitle)
           else if (img != null && img['gone'] != true && img['kind'] != 'video')
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),

@@ -16,6 +16,7 @@ It runs from Celery beat (``core.tasks.live_watch_all``), from the
 browser heartbeat of any open TapTap page.
 """
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import timedelta
 
@@ -180,7 +181,6 @@ def watch_router(router, force=False):
     except Exception:
         logger.debug('self-trust %s', router, exc_info=True)
     try:
-        users = svc.hotspot_users()
         active = svc.active_users()
         cache.set(f'tt:watch:active:{router.pk}', len(active), 300)     # "people online" per router (mobile app)
         try:   # live session time is not in the user's uptime counter until logout (core/router_time.note_sessions)
@@ -188,12 +188,33 @@ def watch_router(router, force=False):
             note_sessions(router.pk, active)
         except Exception:
             logger.debug('router time sessions for %s', router, exc_info=True)
+        # The whole user table only when it is useful (core/router_load.py): every voucher on a big router, four
+        # times a minute, kept it busy. Light passes work from the sessions — where everything urgent shows.
+        from . import router_load
+        on_now = sorted({str(x.get('user', '')).strip() for x in active
+                         if str(x.get('user', '')).strip() and not str(x.get('user', '')).strip().upper().startswith('T-')
+                         and str(x.get('user', '')).strip() not in SKIP_USERS})
+        unknown = False
+        if on_now and not router_load.full_due(router, force=force):
+            known = {c.upper() for c in Voucher.objects.filter(
+                business=business, code__in=on_now + [n.upper() for n in on_now] + [n.lower() for n in on_now]).values_list('code', flat=True)}
+            # a code TapTap does not know is online (made on the router): read the table to import it — once per code
+            unknown = any(n.upper() not in known and cache.add(f'tt:load:unk:{router.pk}:{n.upper()}', 1, 600) for n in on_now)
+        full = router_load.full_due(router, force=force, unknown_codes=unknown)
+        if full:
+            started = time.monotonic()
+            users = svc.hotspot_users()
+            router_load.note_full_read(router, time.monotonic() - started, len(users))
+        else:
+            users = []
+            router_load.note_light_pass(router)
+        summary['full_read'] = full
         bindings = svc.bindings()
         baseline = router.sales_baseline_at
 
         # ---------------- hotspot users → vouchers ----------------
         mirror = {u.username: u for u in RouterHotspotUser.objects.filter(router=router)}
-        names = [str(r.get('name', '')).strip() for r in users if r.get('name')]
+        names = [str(r.get('name', '')).strip() for r in users if r.get('name')] if full else list(on_now)
         vouchers = {v.code.upper(): v for v in Voucher.objects.filter(business=business, code__in=names)}
         missing = [n for n in names if n.upper() not in vouchers]
         if missing:  # codes stored in a different letter case
@@ -309,7 +330,7 @@ def watch_router(router, force=False):
             except Exception:
                 logger.exception('Could not remove deleted vouchers from %s', router.name)
 
-        gone = [u for n, u in mirror.items() if n not in seen and u.is_present]
+        gone = [u for n, u in mirror.items() if n not in seen and u.is_present] if full else []   # light pass: table not read
         if gone:
             RouterHotspotUser.objects.filter(pk__in=[u.pk for u in gone]).update(is_present=False)
             summary['users_changed'] += len(gone)
@@ -319,7 +340,7 @@ def watch_router(router, force=False):
                 push_event(business.pk, f'{len(gone)} vouchers were removed from {router.name}')
 
         # ---------------- router users without a time limit: give them their plan time (automatic mode) ----------------
-        if getattr(business, 'auto_plan_limits', False):
+        if full and getattr(business, 'auto_plan_limits', False):
             try:
                 from .plan_limits import auto as plan_auto
                 res = plan_auto(router)
@@ -331,7 +352,8 @@ def watch_router(router, force=False):
         # ---------------- time ran out: switch off at once (calendar end or router uptime used up) ----------------
         try:
             from .expiry import enforce_on_router
-            switched, summary['time_up'] = enforce_on_router(router, svc, users, active, now)
+            switched, summary['time_up'] = enforce_on_router(router, svc, users if full else router_load.light_rows(router),
+                                                             active, now, fresh=full)
             if switched:   # sessions just dropped: not online any more, no incident needed
                 active = [s for s in active if str(s.get('user', '')).strip().upper() not in switched]
         except Exception:
@@ -399,7 +421,8 @@ def watch_router(router, force=False):
         # IP-binding bypass devices: their data comes from the hotspot host list (they have no session)
         try:
             from .fair_usage import bypass_rows
-            bypassed = bypass_rows(svc.hotspot_hosts())
+            # every connected device, read only when there are bypassed IP bindings to measure (core/router_load.py)
+            bypassed = bypass_rows(svc.hotspot_hosts()) if router_load.needs_hosts(bindings) else []
         except Exception as exc:
             logger.info('bypass hosts %s: %s', router, exc)
             bypassed = []

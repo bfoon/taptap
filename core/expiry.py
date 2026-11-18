@@ -166,8 +166,12 @@ def _free_devices(svc, voucher, macs=()):
     return 0
 
 
-def enforce_on_router(router, svc, users, active, now):
-    """Expire and disable vouchers using fresh rows from a live API router."""
+def enforce_on_router(router, svc, users, active, now, fresh=True):
+    """Expire and disable vouchers using fresh rows from a live API router.
+
+    ``fresh=False`` (a light live pass, core/router_load.py): ``users`` is TapTap's own copy of the router's table.
+    Calendar expiry and switching off work the same; the router-time repair and "uptime used up on the router"
+    wait for the next full read, which has the router's real counters."""
     from .models import RouterHotspotUser, Voucher
     from .voucher_history import channel
 
@@ -211,8 +215,9 @@ def enforce_on_router(router, svc, users, active, now):
     # TapTap's clock decides: correct every TapTap voucher whose router limit disagrees (would cut it
     # early, or has no limit at all) before anything is concluded from the router's counters.
     try:
-        from .router_time import repair_api
-        repair_api(router, svc, users, now)
+        if fresh:
+            from .router_time import repair_api
+            repair_api(router, svc, users, now)
     except Exception:
         logger.exception('router time repair on %s', router)
 
@@ -227,7 +232,7 @@ def enforce_on_router(router, svc, users, active, now):
     used_up = [
         name
         for name, row in rows.items()
-        if uptime_used_up(row) and name.upper() not in owned_with_time
+        if fresh and uptime_used_up(row) and name.upper() not in owned_with_time
     ]
 
     if used_up:

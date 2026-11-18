@@ -485,7 +485,7 @@
 
   // ───────── a voice message instead of a call (up to 30 s) ─────────
   // For when nobody is free, or the customer would rather not wait: record, listen back, send. It lands in the team
-  // room with their name and number; TapTap deletes it for good 1 minute after someone on the team plays it.
+  // room with their name and number; TapTap deletes it 1 minute after someone on the team plays it (the TapTap phone app keeps the listener's copy).
   var VMAX = 30, V = null;
   function vType() {
     if (!window.MediaRecorder) return null;
@@ -524,7 +524,7 @@
       '<button class="pc-mini" type="button" data-a="vagain">Record again</button></div>' +
       '<input class="pc-in" id="pcVN" maxlength="60" autocomplete="name" placeholder="Your name" value="' + name + '">' +
       '<input class="pc-in" id="pcVP" maxlength="30" inputmode="tel" autocomplete="tel" placeholder="Your phone number (optional)" value="' + phone + '">' +
-      '<p class="pc-small">The team hears it in TapTap. It is deleted for good 1 minute after they play it.</p>' +
+      '<p class="pc-small">The team hears it in TapTap. It is deleted from TapTap 1 minute after they play it (the phone of the person who plays it may keep a copy).</p>' +
       '<button class="pc-go" type="button" data-a="vsend" id="pcVs">Send voice message</button>' +
       '<button class="pc-go pc-go2" type="button" data-a="vback">Cancel</button></div>';
   }

@@ -9,15 +9,16 @@ import 'package:record/record.dart';
 
 import '../app/api.dart';
 import '../app/format.dart';
+import '../data/voice_store.dart';
 
-/// Voice messages in chat — up to [voiceMax] seconds, deleted for good 1 minute after someone first plays them.
+/// Voice messages in chat — up to [voiceMax] seconds, deleted from TapTap 1 minute after someone first plays them.
 ///
 /// Recording: [recordVoice] opens a sheet that records AAC (.m4a) to a temporary file, stops by itself at 30 s,
 /// lets you listen back, and returns the file to send (or null). The temporary file is deleted after sending.
 ///
-/// Playing: [VoiceBubble] downloads the recording only when ▶ is pressed (?listen=1 — TapTap counts that as the
-/// first listen), plays it from a temporary file and deletes that file as soon as it ends or its minute is up.
-/// Nothing is kept on the phone.
+/// Playing: [VoiceBubble] downloads the recording the first time ▶ is pressed and keeps it on this phone
+/// ([VoiceStore]): TapTap deletes its own copy 1 minute after it is first played, this phone's copy stays until you
+/// delete it (long-press it, or More → Voice messages on this phone).
 const voiceMax = 30;
 
 String _mmss(num s) {
@@ -199,7 +200,7 @@ class _RecorderSheetState extends State<_RecorderSheet> {
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           const Text('🎙️ Voice message', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
-          Text('Up to $voiceMax seconds · deleted for everyone 1 minute after it is played',
+          Text('Up to $voiceMax seconds · deleted from TapTap 1 minute after it is played (the TapTap app keeps the listener’s copy)',
               style: TextStyle(fontSize: 12.5, color: cs.onSurfaceVariant)),
           const SizedBox(height: 18),
           if (_state == 'asking') const Center(child: Padding(padding: EdgeInsets.all(18), child: CircularProgressIndicator())),
@@ -297,34 +298,50 @@ class _LevelsPainter extends CustomPainter {
 }
 
 /// The voice message inside a chat bubble: ▶, a waveform that fills as it plays, its length, and what happens to it.
+///
+/// The first ▶ downloads it into this phone's own storage ([VoiceStore]) and plays it from there; TapTap is told
+/// once the sound really starts (its 1-minute countdown on the server starts then). After that it plays from the
+/// phone — also once TapTap has deleted its copy — until you delete it here (long-press → Delete from this phone,
+/// or More → Voice messages on this phone).
 class VoiceBubble extends StatefulWidget {
-  const VoiceBubble({super.key, required this.m, required this.mine});
+  const VoiceBubble({super.key, required this.m, required this.mine, this.threadTitle = ''});
   final Map<String, dynamic> m;
   final bool mine;
+  final String threadTitle;
   @override
   State<VoiceBubble> createState() => _VoiceBubbleState();
 }
 
 class _VoiceBubbleState extends State<VoiceBubble> {
   AudioPlayer? _player;
-  String? _file;
   bool _loading = false, _playing = false, _goneHere = false;
-  bool _confirmed = false;                         // TapTap was told it is really playing (its last minute started)
+  bool _confirmed = false;                         // the sound really started on this phone (TapTap was told)
+  bool _fresh = false;                             // this play is the first one, right after downloading
   Timer? _watch;                                   // no sound after a few seconds: this phone cannot play it
   Duration _pos = Duration.zero;
-  DateTime? _deadline;                             // when it is deleted (from the server's "left", not the phone clock)
+  DateTime? _deadline;                             // when TapTap deletes it (from the server's "left", not the phone clock)
   Timer? _tick;
   final _subs = <StreamSubscription>[];
 
   Map<String, dynamic> get _img => (widget.m['image'] as Map).cast<String, dynamic>();
   int get _id => toI(widget.m['id']);
   int get _secs => math.max(1, toI(_img['secs']));
-  bool get _gone => _goneHere || _img['gone'] == true;
+  bool get _serverGone => _goneHere || _img['gone'] == true;
+  bool get _onPhone => VoiceStore.I.has(_id);
+  bool get _gone => _serverGone && !_onPhone;     // nothing left to play anywhere
 
   @override
   void initState() {
     super.initState();
+    VoiceStore.I.changes.addListener(_onStore);
+    VoiceStore.I.ready.then((_) => _onStore());
     _syncDeadline();
+  }
+
+  void _onStore() {
+    if (!mounted) return;
+    if (!_onPhone && _serverGone) _stop();         // deleted from this phone while TapTap's copy is gone too
+    setState(() {});
   }
 
   @override
@@ -335,13 +352,13 @@ class _VoiceBubbleState extends State<VoiceBubble> {
   }
 
   void _syncDeadline() {
-    if (_gone || _img['listened'] == null) return;
+    if (_serverGone || _img['listened'] == null) return;
     _deadline ??= DateTime.now().add(Duration(seconds: _img['left'] == null ? 60 : toI(_img['left'])));
     _tick ??= Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       if (_deadline != null && DateTime.now().isAfter(_deadline!)) {
-        _stop();
         _tick?.cancel();
+        if (!_onPhone) _stop();                    // kept on this phone: it simply carries on playing
         setState(() => _goneHere = true);
       } else {
         setState(() {});
@@ -350,11 +367,9 @@ class _VoiceBubbleState extends State<VoiceBubble> {
   }
 
   Future<void> _stop() async {
-    final p = _player, f = _file;
+    final p = _player;
     _player = null;
-    _file = null;
     _watch?.cancel();
-    _confirmed = false;
     for (final s in _subs) {
       await s.cancel();
     }
@@ -365,7 +380,6 @@ class _VoiceBubbleState extends State<VoiceBubble> {
       } catch (_) {}
       await p.dispose();
     }
-    await _rm(f);                                  // the downloaded copy never stays on the phone
     if (mounted) {
       setState(() {
         _playing = false;
@@ -376,7 +390,7 @@ class _VoiceBubbleState extends State<VoiceBubble> {
   }
 
   Future<void> _toggle() async {
-    if (_gone || _loading) return;
+    if (_loading) return;
     final p = _player;
     if (p != null) {
       if (_playing) {
@@ -386,37 +400,24 @@ class _VoiceBubbleState extends State<VoiceBubble> {
       }
       return;
     }
+    final kept = await VoiceStore.I.pathOf(_id);
+    if (kept != null) return _play(kept);           // on this phone: no internet, no server needed
+    if (_serverGone) return;
     setState(() => _loading = true);
     try {
       // listen=2: downloading alone does not start its last minute — TapTap is told when it really plays
       // (_played), so a phone that cannot play the recording never destroys it unheard.
       final bytes = await Api.I.bytes('/chat/img/$_id/', query: {'listen': '2'});
-      final dir = await _tmp();
-      final f = File('${dir.path}/voice-$_id.${_ext(bytes)}');
-      await f.writeAsBytes(bytes, flush: true);
-      if (!mounted) return _rm(f.path);
-      final pl = AudioPlayer();
-      _player = pl;
-      _file = f.path;
-      _subs
-        ..add(pl.onPlayerStateChanged.listen((s) {
-          if (mounted) setState(() => _playing = s == PlayerState.playing);
-        }))
-        ..add(pl.onPositionChanged.listen((d) {
-          if (d > Duration.zero && identical(_player, pl)) _played();       // sound is really coming out
-          if (mounted) setState(() => _pos = d);
-        }))
-        ..add(pl.onPlayerComplete.listen((_) => _stop()));
-      await pl.play(DeviceFileSource(f.path));
-      if (mounted) setState(() => _loading = false);
-      _watch?.cancel();
-      _watch = Timer(const Duration(seconds: 6), () {
-        if (!mounted || _confirmed || !identical(_player, pl)) return;
-        _stop();
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('This phone cannot play this recording. It has NOT been deleted — open it on TapTap web or another phone.'),
-            behavior: SnackBarBehavior.floating));
-      });
+      final path = await VoiceStore.I.save(_id, bytes, _ext(bytes),
+          secs: _secs,
+          sender: widget.mine ? 'You' : '${widget.m['sender'] ?? ''}',
+          thread: toI(widget.m['thread']),
+          threadTitle: widget.threadTitle,
+          at: '${widget.m['at'] ?? ''}',
+          mine: widget.mine);
+      if (!mounted) return;
+      _fresh = true;
+      await _play(path);
     } on ApiError catch (e) {
       if (mounted) {
         setState(() {
@@ -434,12 +435,43 @@ class _VoiceBubbleState extends State<VoiceBubble> {
     }
   }
 
+  Future<void> _play(String path) async {
+    final pl = AudioPlayer();
+    _player = pl;
+    _confirmed = false;
+    _subs
+      ..add(pl.onPlayerStateChanged.listen((s) {
+        if (mounted) setState(() => _playing = s == PlayerState.playing);
+      }))
+      ..add(pl.onPositionChanged.listen((d) {
+        if (d > Duration.zero && identical(_player, pl)) _played();       // sound is really coming out
+        if (mounted) setState(() => _pos = d);
+      }))
+      ..add(pl.onPlayerComplete.listen((_) => _stop()));
+    await pl.play(DeviceFileSource(path));
+    if (mounted) setState(() => _loading = false);
+    _watch?.cancel();
+    _watch = Timer(const Duration(seconds: 6), () async {
+      if (!mounted || _confirmed || !identical(_player, pl)) return;
+      final first = _fresh;
+      await _stop();
+      if (first) await VoiceStore.I.remove(_id);    // never played: nothing kept, and TapTap's copy is untouched
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(first
+              ? 'This phone cannot play this recording. It has NOT been deleted — open it on TapTap web or another phone.'
+              : 'This phone could not play its copy of this voice message.'),
+          behavior: SnackBarBehavior.floating));
+    });
+  }
+
   /// The recording is really playing: tell TapTap once (someone else's message: its last minute starts now).
   Future<void> _played() async {
     if (_confirmed) return;
     _confirmed = true;
+    _fresh = false;
     _watch?.cancel();
-    if (widget.mine) return;
+    if (widget.mine || _serverGone || _img['listened'] != null) return;   // already counting down (or gone) on TapTap
     try {
       final d = await Api.I.post('/chat/img/$_id/played/');
       if (!mounted || d['left'] == null || _img['listened'] != null) return;
@@ -458,6 +490,7 @@ class _VoiceBubbleState extends State<VoiceBubble> {
 
   @override
   void dispose() {
+    VoiceStore.I.changes.removeListener(_onStore);
     _tick?.cancel();
     _watch?.cancel();
     _stop();
@@ -476,7 +509,7 @@ class _VoiceBubbleState extends State<VoiceBubble> {
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(heard ? '🎙️ Voice message · listened' : '🎙️ Voice message expired',
               style: TextStyle(fontWeight: FontWeight.w700, color: ink)),
-          Text(heard ? '🔥 Deleted for good 1 minute after it was played' : 'Not played within 7 days',
+          Text(heard ? '🔥 Deleted from TapTap 1 minute after it was played' : 'Not played within 7 days',
               style: TextStyle(fontSize: 11.5, color: soft)),
         ]),
       );
@@ -484,11 +517,18 @@ class _VoiceBubbleState extends State<VoiceBubble> {
     final total = _secs.toDouble();
     final frac = (_pos.inMilliseconds / 1000 / total).clamp(0.0, 1.0);
     String note;
-    if (_img['listened'] != null && _deadline != null) {
-      final left = math.max(0, _deadline!.difference(DateTime.now()).inSeconds);
-      note = '🔥 ${widget.mine ? 'Played · ' : ''}deleted in $left s';
+    final counting = !_serverGone && _img['listened'] != null && _deadline != null;
+    final left = counting ? math.max(0, _deadline!.difference(DateTime.now()).inSeconds) : 0;
+    if (_onPhone) {
+      note = _serverGone
+          ? '📱 On this phone · deleted from TapTap'
+          : counting
+              ? '📱 On this phone · deleted from TapTap in $left s'
+              : '📱 On this phone';
+    } else if (counting) {
+      note = '🔥 ${widget.mine ? 'Played · ' : ''}deleted from TapTap in $left s';
     } else {
-      note = widget.mine ? '👂 Not played yet · gone 1 min after it is' : '▶ Play · deleted for everyone 1 min later';
+      note = widget.mine ? '👂 Not played yet · gone from TapTap 1 min after it is' : '▶ Play · it stays on this phone';
     }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -514,7 +554,7 @@ class _VoiceBubbleState extends State<VoiceBubble> {
               style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: ink, fontFeatures: const [FontFeature.tabularFigures()])),
         ]),
         const SizedBox(height: 3),
-        Text(note, style: TextStyle(fontSize: 11, color: soft, fontWeight: _deadline != null ? FontWeight.w700 : FontWeight.w400)),
+        Text(note, style: TextStyle(fontSize: 11, color: soft, fontWeight: counting || _onPhone ? FontWeight.w700 : FontWeight.w400)),
       ]),
     );
   }

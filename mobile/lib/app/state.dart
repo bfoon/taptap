@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../data/local_db.dart';
 import '../data/store.dart';
+import '../data/voice_store.dart';
 import '../data/sync_engine.dart';
 import '../push/push.dart';
 import 'api.dart';
@@ -185,6 +186,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     try {
       // a fresh sign-in starts from a clean phone (never waits long on the phone's database)
       await Store.I.close(wipe: true).timeout(const Duration(seconds: 5));
+      await VoiceStore.I.clear().timeout(const Duration(seconds: 5));
     } catch (_) {}
     await Api.I.save(token: token);
     try {
@@ -239,7 +241,10 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   void _reset({bool wipe = false}) {
     sync.stop();
-    if (wipe) unawaited(Store.I.close(wipe: true));     // nothing of this account stays on the phone
+    if (wipe) {
+      unawaited(Store.I.close(wipe: true));             // nothing of this account stays on the phone
+      unawaited(VoiceStore.I.clear());                  // … including the voice messages it kept
+    }
     me = null;
     threads = [];
     people = [];

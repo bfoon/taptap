@@ -42,7 +42,7 @@ SAFE_KINDS = {
     'fup_queues', 'hotspot_user_set', 'hotspot_user_remove', 'hotspot_users_remove', 'hotspot_user_rename', 'app_control', 'hotspot_mac_unlock_all', 'remote_nat', 'remote_close', 'hotspot_kick_mac', 'share_rules', 'hotspot_user_profile', 'hotspot_profile_shared', 'hotspot_users_repass', 'hotspot_users_disable', 'disconnect', 'binding_set',
     'binding_remove', 'limit', 'unlimit', 'reboot', 'shutdown', 'backup', 'inventory_piece', 'self_update', 'hotspot_users_profile', 'hotspot_users_heal', 'hotspot_profile_remove',
     'binding_upsert', 'security_fix', 'bridge_port', 'wan_dhcp_nat', 'hotspot_user_extend', 'portal_install', 'portal_reset',
-    'hotspot_users_limit', 'speed_queues', 'admin_password', 'port_blink', 'protection', 'site_probe', 'nettest', 'cleanup', 'filecopy', 'restore', 'online_signin', 'clock', 'member_profiles', 'fit_router_op', 'voucher_unstick',
+    'hotspot_users_limit', 'hotspot_users_time', 'speed_queues', 'admin_password', 'port_blink', 'protection', 'site_probe', 'nettest', 'cleanup', 'filecopy', 'restore', 'online_signin', 'clock', 'member_profiles', 'fit_router_op', 'voucher_unstick',
 }
 # Delivery order for queued commands: anything about vouchers first (a customer is waiting), then the rest,
 # and the pieces of a full inventory sync last — 61 of them must never hold up a voucher.
@@ -734,7 +734,7 @@ def _ack(url, cmd, status, check, result=''):
     return f'/tool fetch url={rs(q)} output=none check-certificate={check} duration=8s idle-timeout=5s'
 
 
-PROFILE_KINDS = ('hotspot_users', 'hotspot_users_limit', 'hotspot_users_heal', 'hotspot_users_profile', 'hotspot_user_profile')
+PROFILE_KINDS = ('hotspot_users', 'hotspot_users_limit', 'hotspot_users_time', 'hotspot_users_heal', 'hotspot_users_profile', 'hotspot_user_profile')
 
 
 def _profile_names(p, k):
@@ -862,7 +862,9 @@ def _catalogue_body(cmd):
         # Security → Protection: DDoS / IDS-IPS rules (core/protection.py)
         from .protection import link_script
         return link_script(p['feature'], p['action'])
-    if k == 'hotspot_users_limit':
+    if k in ('hotspot_users_limit', 'hotspot_users_time'):
+        # 'hotspot_users_time' = the same write, sent in the background lane: a voucher's 50 % / 75 % time check
+        # (core/router_time.py) waits behind every voucher change instead of taking a voucher's place.
         # Fix with plan (core/plan_limits.py): the plan's time, and — when a plan was chosen — the plan's profile
         # (created if missing). Never creates a user.
         lines = [f':if ([:len [/ip hotspot user profile find name={rs(pr["name"])}]] = 0) do={{ /ip hotspot user profile add '
@@ -1204,7 +1206,7 @@ def queue(router, kind, params=None, label='', user=None, minutes=None):
         from .protection import FEATURES
         if (params or {}).get('feature') not in FEATURES or (params or {}).get('action') not in ('enable', 'disable', 'unblock'):
             raise ValueError('Invalid protection.')
-    if kind == 'hotspot_users_limit':
+    if kind in ('hotspot_users_limit', 'hotspot_users_time'):
         from .plan_limits import LIM_RE
         users = (params or {}).get('users') or []
         profs = (params or {}).get('profiles') or []

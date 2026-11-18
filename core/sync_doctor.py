@@ -340,6 +340,12 @@ def heal(router, job=None, mirror=None, read_at=None, profiles=None):
                 report['fixed'][k] += 1
         if len(report['examples']) < EXAMPLES:
             report['examples'].append({'code': v.code, 'what': ', '.join(LABELS[k].split(' — ')[0] for k in found)})
+        if 'time' in found:                            # this 50 % / 75 % check is handled (core/router_time.py)
+            try:
+                from .router_time import mark_checked
+                mark_checked(v, now)
+            except Exception:
+                pass
         if link and found == ['time']:
             continue                                   # Link: the time repair right after the import already queued it
         (members if v.is_member else to_push).append(v)

@@ -227,7 +227,7 @@
         '<button class="ttc-tb" data-a="photo" title="Send a photo or a short video (deleted after ' + (t.photo_days || 7) + ' days)">' + ICON.image + '<span>Photo or video</span></button></div>' +
         '<input type="file" accept="image/*,video/mp4,video/webm,video/quicktime" class="ttc-file" hidden>' +
         '<textarea rows="1" placeholder="' + (t.kind === 'team' ? 'Message the team (@name)' : 'Write a message') + '" aria-label="Message"></textarea>' +
-        '<button class="ttc-tb ttc-mic" data-a="voice" title="Voice message (up to ' + VMAX + ' s) — deleted 1 minute after it is played" aria-label="Voice message">' + ICON.mic + '</button>' +
+        '<button class="ttc-tb ttc-mic" data-a="voice" title="Voice message (up to ' + VMAX + ' s) — deleted from TapTap 1 minute after it is played; the TapTap phone app keeps the listener’s copy" aria-label="Voice message">' + ICON.mic + '</button>' +
         '<button class="ttc-tb ttc-send" data-a="send" title="Send (Enter)" aria-label="Send">' + ICON.send + '</button></div>';
       wireComposer();
     }
@@ -613,14 +613,14 @@
       '</span><span class="ttc-vtime">' + fmtS(im.secs) + '</span></span>';
     if (im.gone) {
       delete VDL[m.id];
-      return im.listened ? '<span class="ttc-img-gone ttc-voice-gone">🎙️ Voice message · listened<small>🔥 Deleted for good 1 minute after it was played</small></span>'
+      return im.listened ? '<span class="ttc-img-gone ttc-voice-gone">🎙️ Voice message · listened<small>🔥 Deleted from TapTap 1 minute after it was played</small></span>'
         : '<span class="ttc-img-gone ttc-voice-gone">🎙️ Voice message expired<small>Not played within ' + ((S.thread && S.thread.photo_days) || 7) + ' days</small></span>';
     }
     var note;
     if (im.listened) {
       var dl = VDL[m.id] || (VDL[m.id] = Date.now() + (im.left != null ? im.left : 60) * 1000);
       note = '🔥 ' + (m.mine ? 'Played · ' : '') + 'deleted in <b data-dl="' + m.id + '">' + Math.max(0, Math.ceil((dl - Date.now()) / 1000)) + '</b> s';
-    } else note = m.mine ? '👂 Not played yet · gone 1 min after it is' : '▶ Play · deleted for everyone 1 min later';
+    } else note = m.mine ? '👂 Not played yet · gone 1 min after it is' : '▶ Play · deleted from TapTap 1 min later';
     return '<span class="ttc-voice' + (im.listened ? ' heard' : '') + '" data-vid="' + m.id + '">' +
       '<button type="button" class="ttc-vplay" data-voice="' + m.id + '" title="Play" aria-label="Play voice message">▶</button>' +
       '<span class="ttc-vwave">' + waveBars(m.id, im.secs) + '</span><span class="ttc-vtime">' + fmtS(im.secs) + '</span>' +
@@ -717,7 +717,7 @@
     foot.classList.add('ttc-recording');
     if (r.state === 'asking') el.innerHTML = '<span class="ttc-rec-dot"></span><span class="ttc-rec-msg">Allow the microphone…</span><button class="ttc-rec-x" data-a="vcancel" title="Cancel">✕</button>';
     else if (r.state === 'ready') el.innerHTML = '<button class="ttc-rec-pv" data-a="vpreview" title="Listen before sending">▶</button>' +
-      '<span class="ttc-rec-msg"><b>🎙️ ' + fmtS(r.secs) + '</b><small>Deleted for everyone 1 minute after it is played</small></span>' +
+      '<span class="ttc-rec-msg"><b>🎙️ ' + fmtS(r.secs) + '</b><small>Deleted from TapTap 1 minute after it is played · the phone app keeps the listener’s copy</small></span>' +
       '<button class="ttc-rec-x" data-a="vcancel" title="Discard">🗑</button><button class="ttc-rec-send" data-a="vsend" title="Send">' + ICON.send + '</button>';
     else el.innerHTML = '<span class="ttc-rec-dot"></span><b class="ttc-rec-t">0:00</b><canvas class="ttc-rec-wave" width="150" height="30"></canvas>' +
       '<span class="ttc-rec-bar"><i></i></span><button class="ttc-rec-x" data-a="vcancel" title="Discard">🗑</button>' +

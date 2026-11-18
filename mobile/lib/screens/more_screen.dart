@@ -11,12 +11,14 @@ import '../calls/call_engine.dart';
 import '../calls/call_screen.dart';
 import '../data/store.dart';
 import '../data/sync_engine.dart';
+import '../data/voice_store.dart';
 import '../push/push.dart';
 import '../widgets/common.dart';
 import 'notifications_screen.dart';
 import 'quick_sell.dart';
 import 'router_schedules_screen.dart';
 import 'routers_screen.dart';
+import 'saved_voice_screen.dart';
 
 class MoreScreen extends StatefulWidget {
   const MoreScreen({super.key});
@@ -284,6 +286,20 @@ class _MoreScreenState extends State<MoreScreen> {
                 leading: const Icon(Icons.open_in_browser),
                 title: const Text('Open TapTap on the web'),
                 onTap: () => launchUrl(Uri.parse(Api.I.server), mode: LaunchMode.externalApplication),
+              ),
+              ValueListenableBuilder<int>(
+                valueListenable: VoiceStore.I.changes,
+                builder: (_, __, ___) {
+                  unawaited(VoiceStore.I.ready);         // read the list once (it says when it is done)
+                  final n = VoiceStore.I.count;
+                  return ListTile(
+                    leading: const Icon(Icons.record_voice_over_outlined),
+                    title: const Text('Voice messages on this phone'),
+                    subtitle: Text(n == 0 ? 'The voice messages you play in chat are kept here' : '$n kept · only on this phone'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SavedVoiceScreen())),
+                  );
+                },
               ),
               ListTile(
                 leading: Icon(Push.ready && app.me?['push'] == true ? Icons.notifications_active : Icons.notifications_off),

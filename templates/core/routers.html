@@ -48,6 +48,7 @@ html[data-theme="dark"] .sd-chip.warn,html[data-theme="dark"] .sd-chip.bad{backg
 .rc-chip.sched.set{border-style:solid;border-color:#c9dcf7;color:#1769e0;background:#f1f6fe}
 .rc-chip.sched.set.off{border-color:#f3c4c4;color:#c02b2b;background:#fdf2f2}
 .rc-error{margin-top:.6rem;font-size:.76rem;color:#b45309;background:#fff7ec;border-radius:10px;padding:.4rem .6rem}
+.rc-load{display:flex;gap:.45rem;align-items:flex-start;font-size:.74rem;color:var(--muted,#6b7280);padding:.45rem .9rem 0;line-height:1.35}.rc-load .bi{color:#18a66a;margin-top:.1rem}
 html[data-theme="dark"] .rc{background:#1f242b;border-color:#343c47}
 html[data-theme="dark"] .rc:hover{border-color:#46505d;box-shadow:none}
 html[data-theme="dark"] .rc-stat{background:#262c34}html[data-theme="dark"] .rc-stat.hot{background:#20372c}
@@ -150,6 +151,12 @@ html[data-theme="dark"] .rc-error{background:#3a2a17;color:#f2b46f}
           <div class="rc-stat"><b>{{ r.binding_count }}</b><span><i class="bi bi-shield-lock"></i> bindings</span></div>
           <div class="rc-stat"><b>{{ r.online_neighbor_count }}</b><span><i class="bi bi-broadcast-pin"></i> neighbors</span></div>
         </div>
+        {% with L=r.sync_load %}{% if L %}
+        <div class="rc-load" title="TapTap keeps each voucher's time and ends it on time itself, so it corrects the router's time limit at 50 % and 75 % of a voucher — at once only when the router would cut a customer early. Light syncs leave the router free for voucher changes.">
+          <i class="bi bi-feather"></i>
+          <span>{% if not L.link %}Voucher table read {% if L.every %}every <b>{% if L.every >= 60 %}{% widthratio L.every 60 1 %} min{% else %}{{ L.every }} s{% endif %}</b>{% else %}at every live check{% endif %}{% if L.size %} · {{ L.size }} user{{ L.size|pluralize }}{% endif %}{% if L.took is not None %} · last read {{ L.took }} s{% endif %}{% if L.slow %} · <b class="text-warning">router slow to answer — TapTap reads less</b>{% endif %} · {% endif %}voucher time checked at 50 % &amp; 75 %{% if L.time.checkpoint or L.time.urgent %} · today <b>{{ L.time.checkpoint }}</b> checkpoint fix{{ L.time.checkpoint|pluralize:"es" }}{% if L.time.urgent %}, <b>{{ L.time.urgent }}</b> urgent{% endif %}{% endif %}{% if L.time.wait %} · <b>{{ L.time.wait }}</b> left alone till their checkpoint{% endif %}</span>
+        </div>
+        {% endif %}{% endwith %}
         <div class="rc-foot">
           {% if r.connection_mode == 'agent' %}
             <a class="rc-chip link" href="{% url 'router_link' r.id %}"><i class="bi bi-link-45deg"></i> TapTap Link</a>

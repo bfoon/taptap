@@ -32,6 +32,23 @@ the router refuses it too.
 ``acceptable()`` is the drift test every sync path uses: the router is fine while its headroom
 (limit − uptime) covers time left × slots and is not wildly larger. Anything else is re-sent.
 
+Checkpoints: correct a voucher's time at 50 % and 75 % of it, not all the time
+-----------------------------------------------------------------------------
+TapTap keeps the time and ends every voucher itself at its end (core/expiry.py). The router's limit is only
+the safety net for a router that loses contact. So while a voucher is IN USE, a router that disagrees in a
+harmless way — it would let the customer stay longer, or has no limit at all — is no longer "corrected" at
+every live pass and every inventory (a family voucher used by one phone drifts that way all day, and every
+correction was another write on a busy router). It is corrected once when the voucher passes 50 % of its time
+and once at 75 %; at 100 % TapTap ends it. Never waiting:
+
+* a router that would cut the customer BEFORE TapTap's end (urgent — fixed at once, as before);
+* vouchers not used yet ("before usage" every sync path keeps them right, as before);
+* vouchers without an end that have a limit on the router (the router would cut them).
+
+``time_check()`` says which (ok · urgent · checkpoint · wait); ``acceptable()`` is True for ok and wait, so every
+path that uses it (live passes, Link inventory, member alignment, full-sync heal, Fit) follows the same rule.
+The repairs here record the checkpoint they handled (``mark_checked``) so it happens once.
+
 Used by durations.router_limit (all pushes), member_time.expected_limit / router_matches (members),
 the expiry pass (API routers, live) and the Link inventory check (TapTap Link routers).
 """
@@ -40,6 +57,8 @@ from __future__ import annotations
 import logging
 import math
 import zlib
+
+from datetime import timedelta
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -50,11 +69,15 @@ UNLIMITED_SHARED = 10      # shared-users=unlimited on the router: assume this m
 SHARED_TTL = 300
 TOLERANCE_S = 120          # headroom may be this much short before it counts as drift
 LINK_CHUNK = 4             # vouchers per Link time correction (keeps each command under agent.MAX_SCRIPT)
+TIME_KINDS = ('hotspot_users_limit', 'hotspot_users_time')   # urgent lane · background lane (core/agent.py)
 REPAIR_EVERY_S = 600       # one repair per voucher per 10 minutes, at most
 UPTIME_TTL = 3 * 86400
 SESSION_TTL = 300          # live-session uptimes from the last Link check-in / API pass
 NOTE_EVERY_S = 6 * 3600    # one "Router time corrected" history note per voucher per reason per 6 hours
 STUBBORN_AFTER = 3         # the same voucher losing its limit this many times in a day → tell the owner once
+CHECKPOINTS = (50, 75)     # % of a voucher's time at which a harmless difference is corrected (100 % = TapTap ends it)
+CP_TTL_MAX = 40 * 86400
+REPAIRS_PER_PASS = 25      # time corrections one API live pass may write (urgent ones first; the rest next pass)
 
 
 def secs(value):
@@ -264,8 +287,8 @@ def add_seconds(v, plan=None, now=None):
     return int(rem * slots(v, plan))
 
 
-def acceptable(v, have_text, uptime_text=None, plan=None, now=None):
-    """Does the router's limit-uptime agree with TapTap? (the drift test)"""
+def strictly_acceptable(v, have_text, uptime_text=None, plan=None, now=None):
+    """Does the router's limit-uptime agree with TapTap exactly enough? (the plain drift test, no checkpoints)"""
     rem = remaining_s(v, plan, now)
     have = secs(have_text)
     if rem is None:
@@ -281,6 +304,124 @@ def acceptable(v, have_text, uptime_text=None, plan=None, now=None):
     head = have - up
     need = rem * slots(v, plan)
     return need - TOLERANCE_S <= head <= need + max(need, 86400) + TOLERANCE_S
+
+
+# ─────────────────────────────── checkpoints (50 % · 75 %) ───────────────────────────────
+
+def period(v):
+    """(start, end) of the time the voucher is using now, or None (not started, or no end)."""
+    start, end = getattr(v, 'used_at', None), getattr(v, 'expires_at', None)
+    mins = int(getattr(v, 'duration_minutes', 0) or 0)
+    if end is None and start is not None and mins:
+        end = start + timedelta(minutes=mins)
+    if start is None and end is not None and mins:
+        start = end - timedelta(minutes=mins)
+    if start is None or end is None or end <= start:
+        return None
+    return start, end
+
+
+def progress(v, now=None):
+    """How much of the voucher's time is used, 0..1 (None = not started or no end)."""
+    p = period(v)
+    if p is None:
+        return None
+    now = now or timezone.now()
+    return max(0.0, min(1.0, (now - p[0]).total_seconds() / (p[1] - p[0]).total_seconds()))
+
+
+def stage(v, now=None):
+    """The last checkpoint (50 or 75) the voucher's time has passed, 0 before 50 %."""
+    f = progress(v, now)
+    if f is None:
+        return 0
+    passed = [c for c in CHECKPOINTS if f * 100 >= c]
+    return passed[-1] if passed else 0
+
+
+def _cp_key(v):
+    p = period(v)
+    return f'tt:rt:cp:{getattr(v, "pk", None)}:{int(p[1].timestamp())}' if p and getattr(v, 'pk', None) else None
+
+
+def checkpoint_open(v, now=None):
+    """The checkpoint due now and not handled yet for this period (a renewal starts new ones), else 0."""
+    st = stage(v, now)
+    key = _cp_key(v) if st else None
+    if not key:
+        return 0
+    return st if st > int(cache.get(key) or 0) else 0
+
+
+def mark_checked(v, now=None):
+    """A repair path handled (corrected or confirmed) the checkpoint due now: the next one is the next stage."""
+    st = stage(v, now)
+    key = _cp_key(v) if st else None
+    if key:
+        now = now or timezone.now()
+        ttl = int(min(CP_TTL_MAX, max(3600, (period(v)[1] - now).total_seconds() + 86400)))
+        cache.set(key, st, ttl)
+
+
+def time_check(v, have_text, uptime_text=None, plan=None, now=None):
+    """What to do about the router's limit-uptime for this voucher right now:
+
+    * ``ok``         — it agrees;
+    * ``urgent``     — fix now: the router would cut the customer before TapTap's end, the voucher is not used yet,
+                       or it has no end but a limit on the router;
+    * ``checkpoint`` — a harmless difference and the voucher just passed 50 % / 75 % of its time: fix it now, once;
+    * ``wait``       — a harmless difference between checkpoints: leave the router alone, TapTap ends it on time."""
+    now = now or timezone.now()
+    if strictly_acceptable(v, have_text, uptime_text, plan, now):
+        return 'ok'
+    rem = remaining_s(v, plan, now)
+    p = period(v)
+    started = p is not None and now >= p[0] and (getattr(v, 'used_at', None) or getattr(v, 'expires_at', None))
+    if rem is None or not started or not platform_owned(v):
+        return 'urgent'                          # before usage / no end / router-made: as before, keep it right
+    have = secs(have_text)
+    if have > 0:
+        up = counted(v, uptime_text) if uptime_text is not None else None
+        if up is None:
+            up = uptime_s(v)
+            up = assumed_uptime(v, now, plan) if up is None else up + session_s(v)
+        if have - up < rem * slots(v, plan) - TOLERANCE_S:
+            return 'urgent'                      # the router could cut the customer before TapTap's end
+    return 'checkpoint' if checkpoint_open(v, now) else 'wait'
+
+
+def acceptable(v, have_text, uptime_text=None, plan=None, now=None):
+    """Does the router's limit-uptime need no correction NOW? (the drift test every sync path uses)
+
+    True when it agrees — and, while the voucher is in use, also when the router only allows MORE than TapTap
+    (or has no limit) between checkpoints: TapTap ends the voucher itself, so that is corrected at 50 % and 75 %
+    of its time instead of at every pass (see "Checkpoints" above)."""
+    return time_check(v, have_text, uptime_text, plan, now) in ('ok', 'wait')
+
+
+def _tally(router_id, what, n=1):
+    """Per router per day: corrections made (urgent / checkpoint). ``wait`` is a gauge instead: how many vouchers in
+    use the last check left for their checkpoint."""
+    if what == 'wait':
+        if router_id:
+            cache.set(f'tt:rt:waitnow:{router_id}', int(n or 0), 86400)
+        return
+    if not router_id or not n:
+        return
+    key = f'tt:rt:tally:{router_id}:{timezone.localdate().isoformat()}:{what}'
+    if not cache.add(key, n, 2 * 86400):
+        try:
+            cache.incr(key, n)
+        except ValueError:
+            cache.set(key, n, 2 * 86400)
+
+
+def tally(router_id):
+    """Today's corrections {'urgent', 'checkpoint'} and the vouchers waiting for a checkpoint now {'wait'}."""
+    day = timezone.localdate().isoformat()
+    out = {w: int(cache.get(f'tt:rt:tally:{router_id}:{day}:{w}') or 0) for w in ('urgent', 'checkpoint')}
+    out['wait'] = int(cache.get(f'tt:rt:waitnow:{router_id}') or 0)
+    return out
 
 
 def why(v, have_text, uptime_text=None, plan=None, now=None):
@@ -369,18 +510,35 @@ def repair_api(router, svc, rows, now=None):
                                                   deleted_at__isnull=True).select_related('router')
                 if platform_owned(v) and v.code.upper() in by_name]
     plans, fixed, via = _plans(router.business), 0, channel(router)
-    res = svc.resource('/ip/hotspot/user')
+    todo, waiting = [], 0
     for v in vouchers:
         row = by_name[v.code.upper()]
         have = str(row.get('limit-uptime', row.get('limit_uptime', '')) or '')
         plan = plans.get(v.plan_name)
-        if acceptable(v, have, row.get('uptime', ''), plan, now) or not row.get('id') or not _once(router.pk, v.code):
+        verdict = time_check(v, have, row.get('uptime', ''), plan, now)
+        if verdict == 'wait':
+            waiting += 1
+        if verdict in ('ok', 'wait') or not row.get('id'):
+            continue
+        todo.append((0 if verdict == 'urgent' else 1, v, row, have, plan, verdict))
+    _tally(router.pk, 'wait', waiting)
+    if not todo:
+        return 0
+    res = svc.resource('/ip/hotspot/user')
+    todo.sort(key=lambda t: t[0])                         # a customer about to be cut early goes first
+    for _, v, row, have, plan, verdict in todo:
+        if fixed >= REPAIRS_PER_PASS:
+            break                                         # the rest next pass: never a burst of writes on the router
+        if not _once(router.pk, v.code):
             continue
         want = limit_for(v, plan, counted(v, row.get('uptime', '')), now)
         try:
             res.set(id=row['id'], limit_uptime=want)
             fixed += 1
-            _record(v, have, want, why(v, have, row.get('uptime', ''), plan, now), via)
+            _tally(router.pk, verdict)
+            mark_checked(v, now)
+            _record(v, have, want, why(v, have, row.get('uptime', ''), plan, now)
+                    + (f' — {stage(v, now)} % checkpoint' if verdict == 'checkpoint' else ''), via)
         except Exception as exc:
             logger.warning('router time fix %s on %s: %s', v.code, router.name, exc)
     return fixed
@@ -398,8 +556,9 @@ def repair_link(router, now=None):
     plans, users, notes = _plans(router.business), [], []
     from .models import AgentCommand
     waiting = {str(u.get('n', '')).upper()                      # a correction still on its way: do not queue another
-               for c in AgentCommand.objects.filter(router=router, kind='hotspot_users_limit', status__in=['queued', 'sent'])
+               for c in AgentCommand.objects.filter(router=router, kind__in=TIME_KINDS, status__in=['queued', 'sent'])
                if (c.params or {}).get('router_time') for u in (c.params or {}).get('users') or []}
+    lanes, left_alone = {'urgent': [], 'checkpoint': []}, 0
     for v in Voucher.objects.filter(business=router.business, router=router, status='active', frozen_at__isnull=True,
                                     deleted_at__isnull=True):
         if not platform_owned(v):
@@ -409,20 +568,32 @@ def repair_link(router, now=None):
             continue
         note_uptime(router.pk, v.code, m.uptime)
         plan = plans.get(v.plan_name)
-        if acceptable(v, m.limit_uptime, m.uptime, plan, now) or not _once(router.pk, v.code):
+        verdict = time_check(v, m.limit_uptime, m.uptime, plan, now)
+        if verdict == 'wait':
+            left_alone += 1
+        if verdict in ('ok', 'wait') or not _once(router.pk, v.code):
             continue
         want = limit_for(v, plan, counted(v, m.uptime), now)
         row = {'n': m.username, 'lim': want}                # the router's own spelling: [find name=] is case-sensitive
         add = add_seconds(v, plan, now)
         if add:
             row['add'] = add                                # the router adds it to its own live counter
-        users.append(row)
-        notes.append((v, m.limit_uptime, want, why(v, m.limit_uptime, m.uptime, plan, now)))
-    for i in range(0, len(users), LINK_CHUNK):            # small commands: a Link batch is at most MAX_SCRIPT bytes
-        part = users[i:i + LINK_CHUNK]
-        queue(router, 'hotspot_users_limit', {'users': part, 'profiles': [], 'router_time': True},
-              label=f'Match router time to TapTap ({len(part)} voucher{"s" if len(part) != 1 else ""})', minutes=60)
-    for v, before, after, reason in notes:
+        lanes[verdict].append(row)
+        notes.append((v, m.limit_uptime, want, why(v, m.limit_uptime, m.uptime, plan, now)
+                      + (f' — {stage(v, now)} % checkpoint' if verdict == 'checkpoint' else ''), verdict))
+    _tally(router.pk, 'wait', left_alone)
+    # urgent ones in the voucher lane (before anything else); checkpoint ones in the background lane, behind every
+    # voucher change and urgent command (core/agent.TIME_KINDS)
+    for verdict, kind in (('urgent', 'hotspot_users_limit'), ('checkpoint', 'hotspot_users_time')):
+        rows = lanes[verdict]
+        for i in range(0, len(rows), LINK_CHUNK):          # small commands: a Link batch is at most MAX_SCRIPT bytes
+            part = rows[i:i + LINK_CHUNK]
+            queue(router, kind, {'users': part, 'profiles': [], 'router_time': True, 'lane': verdict},
+                  label=(f'Match router time to TapTap ({len(part)} voucher{"s" if len(part) != 1 else ""})'
+                         + (' · 50/75 % check' if verdict == 'checkpoint' else '')), minutes=60 if verdict == 'urgent' else 180)
+    for v, before, after, reason, verdict in notes:
         RouterHotspotUser.objects.filter(router=router, username__iexact=v.code).update(limit_uptime=after)
+        _tally(router.pk, verdict)
+        mark_checked(v, now)
         _record(v, before, after, reason, 'TapTap Link')
-    return len(users)
+    return sum(len(r) for r in lanes.values())

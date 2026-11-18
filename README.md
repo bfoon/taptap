@@ -593,3 +593,16 @@ services as the Members pages, and recorded in the member's history with "(appro
   "<name> tried to call you" on their page for 2 hours, and their return call rings that person first.
 
 `showmigrations core` should show `0126_chat_message_meta` as `[X]`.
+
+## v11 — Voice messages kept on the phone, voucher time checkpoints, lighter router syncs
+
+- Phone app 1.7.0: the first ▶ keeps the voice message in the app's own storage (`mobile/lib/data/voice_store.dart`);
+  TapTap still deletes its copy 1 minute after it is played, the phone's copy stays playable, is listed in More →
+  Voice messages on this phone, and is deleted from the phone like a message (long-press) or from that list. Web
+  unchanged.
+- Voucher time in use is corrected at 50 % and 75 % of a voucher (`router_time.time_check`), at once only when the
+  router would cut a customer early, the voucher is unused, or has no end. Link checkpoint corrections use the
+  background lane (`hotspot_users_time`).
+- Direct API live passes read the whole user table only at the router's pace (`core/router_load.py`): by table size,
+  stretched while the router answers slowly, at once for an unknown code online. Light passes work from sessions.
+  At most 25 time corrections per pass; the host list only with bypassed bindings. The Routers page shows the load.

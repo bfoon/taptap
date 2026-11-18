@@ -536,9 +536,14 @@ def routers(request):
             next_sched.setdefault(s.router_id,s)
     except DatabaseError:
         pass
+    from .router_load import summary as load_summary
     for router in router_rows:
         router.next_schedule=next_sched.get(router.id)
         router.people_online=online_count(router)
+        try:      # how lightly TapTap reads this router, and today's voucher-time checks (core/router_load.py)
+            router.sync_load=load_summary(router)
+        except Exception:
+            router.sync_load=None
     return render(request,'core/routers.html',{
         'routers':router_rows,'form':form,'recent_sync_jobs':recent_jobs,
         'sync_schema_ready':sync_schema_ready,

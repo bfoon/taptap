@@ -140,6 +140,11 @@ def _queue_exact_link_repair(voucher):
         mikrotik_sync_status="Queued",
         mikrotik_sync_error="",
     )
+    try:   # this 50 % / 75 % time check is handled (core/router_time.py): no new correction until the next one
+        from .router_time import mark_checked
+        mark_checked(voucher)
+    except Exception:
+        pass
     return True
 
 
