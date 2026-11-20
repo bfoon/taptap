@@ -57,8 +57,9 @@ class DoctorScript(SimpleTestCase):
         self.assertEqual(len(set(doc.PROBE_POOL)), len(doc.PROBE_POOL))
         self.assertEqual(len(doc.PROBE_POOL), doc.MAX_LINES * 3)
 
-    def test_version_two(self):
-        self.assertTrue(self.src.startswith('# TapTap Internet Doctor v2'))
+    def test_version_three(self):
+        # v3: a modem that ignores ping is not a broken line; DHCP renewed only without an address (core/wan_doctor.py)
+        self.assertTrue(self.src.startswith('# TapTap Internet Doctor v3'))
 
 
 class FakeRes:

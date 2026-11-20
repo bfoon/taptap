@@ -10,7 +10,7 @@
   var LABEL = { ping: 'Address to ping', trace: 'Trace the path to', dns: 'Name to look up', web: 'Website' };
   var CHIPS = { ping: ['8.8.8.8', '1.1.1.1', 'google.com'], trace: ['8.8.8.8', '1.1.1.1', 'facebook.com'],
                 dns: ['google.com', 'facebook.com', 'whatsapp.net', 'youtube.com'], web: ['google.com', 'facebook.com', 'youtube.com', 'web.whatsapp.com'] };
-  var ICON = { drops: 'bi-person-dash', mypath: 'bi-bezier', whoami: 'bi-crosshair', hops: 'bi-diagram-2', doctor: 'bi-heart-pulse', ping: 'bi-broadcast', trace: 'bi-bezier2', dns: 'bi-signpost-split', web: 'bi-window', speed: 'bi-speedometer2' };
+  var ICON = { blinks: 'bi-lightning', drops: 'bi-person-dash', mypath: 'bi-bezier', whoami: 'bi-crosshair', hops: 'bi-diagram-2', doctor: 'bi-heart-pulse', ping: 'bi-broadcast', trace: 'bi-bezier2', dns: 'bi-signpost-split', web: 'bi-window', speed: 'bi-speedometer2' };
   var devices = [].map.call(document.querySelectorAll('#ntSuggest option'), function (o) { return o.textContent && /^\d/.test(o.value) && !/^(8\.8\.8\.8|1\.1\.1\.1)$/.test(o.value) ? o.value : null; }).filter(Boolean).slice(0, 3);
   CHIPS.ping = CHIPS.ping.concat(devices);
 
@@ -24,7 +24,7 @@
     document.querySelectorAll('#ntForm [data-for]').forEach(function (el) { el.hidden = el.dataset.for.split(' ').indexOf(t) < 0; });
     if (LABEL[t]) { $('ntTargetLabel').textContent = LABEL[t]; target.value = remembered[t] || ''; target.placeholder = t === 'web' ? 'google.com or https://example.com/page' : '8.8.8.8 or google.com'; }
     $('ntChips').innerHTML = (CHIPS[t] || []).map(function (c) { return '<button type="button" data-v="' + esc(c) + '">' + esc(c) + '</button>'; }).join('');
-    runBtn.querySelector('span').textContent = t === 'speed' ? 'Start speed test' : t === 'drops' ? 'Read the log' : 'Run';
+    runBtn.querySelector('span').textContent = t === 'speed' ? 'Start speed test' : t === 'drops' ? 'Read the log' : t === 'blinks' ? 'Find the blinks' : 'Run';
     msg.textContent = '';
   }
   document.querySelectorAll('.nt-tabs button').forEach(function (b) { b.addEventListener('click', function () { show(b.dataset.tool); }); });
@@ -94,7 +94,7 @@
   $('ntForm').addEventListener('submit', function (e) {
     e.preventDefault(); if (busy) return;
     var data = {};
-    if (tool !== 'speed' && tool !== 'drops') data.target = target.value.trim();
+    if (tool !== 'speed' && tool !== 'drops' && tool !== 'blinks') data.target = target.value.trim();
     if (tool === 'ping') { data.count = +$('ntCount').value; data.size = +$('ntSize').value; }
     var k = $('ntKeep');
     if (tool === 'ping' && k && k.checked) { startKeep(data); return; }
@@ -156,8 +156,31 @@
   function draw(t) {
     if (t.kind === 'doctor') { drawDoctor(t); out.innerHTML = '<div class="nt-hint">Internet check result is shown at the top of the page.</div>'; return; }
     if (t.status === 'failed') { out.innerHTML = head(t, 'failed', 'bad') + '<p class="nt-note">' + esc((t.result || {}).error || 'The test failed.') + '</p>'; return; }
-    var fn = ({ ping: function () { drawPing(t.result, t); }, trace: drawTrace, dns: drawDns, web: drawWeb, speed: drawSpeed, drops: drawDrops })[t.kind];
+    var fn = ({ ping: function () { drawPing(t.result, t); }, trace: drawTrace, dns: drawDns, web: drawWeb, speed: drawSpeed, drops: drawDrops, blinks: drawBlinks })[t.kind];
     if (fn) fn(t);
+  }
+  // Why the internet blinks: the router's blink watch + its log, side by side (core/blink_watch.py)
+  function drawBlinks(t) {
+    var r = t.result || {};
+    var causes = (r.causes || []).map(function (c) {
+      return '<div class="nt-blink-cause ' + esc(c.level) + '"><div class="nt-drop-top"><b>' + esc(c.label) + '</b><span>' +
+        (c.count ? c.count + ' blink' + (c.count === 1 ? '' : 's') : 'in the log ' + c.in_log + '×') + '</span></div><small>' + esc(c.hint) + '</small></div>';
+    }).join('');
+    var blinks = (r.blinks || []).map(function (b) {
+      return '<tr><td class="text-nowrap">' + esc(b.at) + '</td><td class="text-end"><b>' + b.secs + ' s</b></td><td>' + esc(b.cause_label || '') +
+        ((b.seen || []).length ? '<small class="d-block text-secondary">' + esc(b.seen.join(' · ')) + '</small>' : '') + '</td>' +
+        '<td><small class="text-secondary">' + esc(b.before || '') + (b.after && b.after !== b.before ? ' → ' + esc(b.after) : '') + '</small></td></tr>';
+    }).join('');
+    var flaps = (r.flaps || []).map(function (f) { return '<span class="nt-badge ' + (f.wan ? 'bad' : 'warn') + '">' + esc(f.interface) + ' down/up ' + f.count + '×' + (f.wan ? ' · internet line' : '') + '</span>'; }).join(' ');
+    var tl = (r.timeline || []).slice(0, 25).map(function (e) { return '<li><span class="text-secondary">' + esc(e.at) + '</span> ' + esc(e.text) + '</li>'; }).join('');
+    out.innerHTML = head(t, r.count ? r.count + ' blinks' : (r.watch === 'new' ? 'watching' : 'none'), r.level || 'ok')
+      + '<p class="nt-note"><b>' + esc(r.title || '') + '</b>' + (r.note ? ' — ' + esc(r.note) : '') + '</p>'
+      + (r.count ? '<div class="nt-tiles"><div class="nt-tile"><b>' + r.count + '</b><small>Blinks</small></div><div class="nt-tile"><b>' + r.total_secs + ' s</b><small>Without internet</small></div><div class="nt-tile"><b>' + r.longest + ' s</b><small>Longest</small></div><div class="nt-tile"><b>' + esc(r.uptime || '—') + '</b><small>Router up for</small></div></div>' : '')
+      + (causes ? '<h6 class="nt-sub">What causes them</h6><div class="nt-drops">' + causes + '</div>' : '')
+      + (flaps ? '<p class="nt-note">Ports that went down and up: ' + flaps + '</p>' : '')
+      + (blinks ? '<h6 class="nt-sub">Every blink</h6><div class="table-responsive"><table class="table table-sm small"><thead><tr><th>When</th><th class="text-end">Off</th><th>Why</th><th>Line before → after</th></tr></thead><tbody>' + blinks + '</tbody></table></div>' : '')
+      + (tl ? '<details class="mt-2"><summary class="nt-sub">What the router’s log says</summary><ul class="nt-timeline">' + tl + '</ul></details>' : '')
+      + '<p class="nt-note"><i class="bi bi-info-circle"></i> ' + (r.watch === 'new' ? 'A small watch now runs on this router (one ping every 5 seconds) and notes every short drop with what happened at that moment. ' : 'The blink watch on this router checks the internet every 5 seconds. ') + 'Run this again any time.</p>';
   }
   // Why people drop: the router's own reasons for the last hotspot sign-outs (core/nettools.drops_result)
   function drawDrops(t) {

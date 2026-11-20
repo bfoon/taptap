@@ -34,6 +34,7 @@ KINDS = {
     'hops': 'Path check',
     'mypath': 'My connection',
     'drops': 'Why people drop',
+    'blinks': 'Why the internet blinks',
     # Connection lab, internet lines and DHCP lease (core/conn_lab.py) — started from their own pages, not from this one
     'client': 'Device check', 'cspeed': 'Speed check', 'slowscan': 'Slow scan', 'lane': 'Internet line',
     'lanepin': 'Line switch', 'laneoff': 'Line release', 'dhcp': 'DHCP lease', 'dhcpset': 'DHCP lease change',
@@ -136,6 +137,8 @@ def clean_params(kind, data):
         out['target'] = 'Internet'
     if kind == 'drops':
         out['target'] = 'hotspot sign-outs'
+    if kind == 'blinks':
+        out['target'] = 'short internet drops'
     return out
 
 
@@ -628,6 +631,11 @@ def run_api(test):
             return run_doctor(svc)
         if test.kind == 'drops':
             return drops_members(test.router.business, run_drops(svc, test.params))
+        if test.kind == 'blinks':
+            from . import blink_watch as bw
+            watch = bw.install_api(svc)
+            entries, hist, facts = bw.read_api(svc)
+            return bw.blinks_result(entries, hist, facts, watch)
         if test.kind in PATH_KINDS:
             from . import pathtrace
             return {'whoami': pathtrace.run_whoami, 'hops': pathtrace.run_hops}[test.kind](svc, test.params)
@@ -646,7 +654,7 @@ def summary(test):
     if test.kind in LAB_KINDS:
         from .conn_lab import summary as lab_summary
         return lab_summary(test)
-    if test.kind in ('doctor', 'drops'):
+    if test.kind in ('doctor', 'drops', 'blinks'):
         return r.get('title', '')
     if test.kind == 'ping':
         return f'{r.get("received", 0)}/{r.get("sent", 0)} replies' + (f' · {r["avg"]} ms' if r.get('avg') is not None else '')
@@ -731,6 +739,9 @@ def link_body(cmd, url, check, nonce_value):
                 ':set out ($out . "t=" . $n . "\\n"); '
                 ':if ($n > 0) do={ :for i from=$s to=($n - 1) do={ :do { :local e ($rows->$i); '
                 ':set out ($out . "l=" . ($e->"time") . "|" . ($e->"message") . "\\n") } on-error={} } }; ')
+    elif kind == 'blinks':
+        from .blink_watch import link_body as blinks_body
+        body = blinks_body()
     elif kind == 'doctor':
         body = (':local g ""; :do { :set g [:tostr [/ip route get ([/ip route find where dst-address="0.0.0.0/0" active]->0) gateway]] } on-error={}; '
                 ':set out ("gw=" . $g . "\\n"); '
@@ -821,6 +832,12 @@ def parse_link(kind, params, body):
                 when, _, msg = v.partition('|')
                 entries.append((when, msg))
         return drops_result(entries, total=_int(get('t')))
+    if kind == 'blinks':
+        from . import blink_watch as bw
+        if get('err') == 'log' and not any(k == 'l' for k, _ in lines) and not get('hist'):
+            return {'error': 'The router would not let TapTap read its log (Link policy needs “read”).', 'failed': True}
+        entries, hist, facts, watch = bw.parse_link(lines)
+        return bw.blinks_result(entries, hist, facts, watch)
     if kind == 'doctor':
         g = get('gw')
         facts = {'gateway': g, 'has_route': bool(g), 'gw': None, 'wan': [], 'dns': {}, 'web': {}}

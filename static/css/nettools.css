@@ -176,3 +176,8 @@ html[data-theme="dark"] .nt-modes button.on{background:#1769e0;border-color:#176
 .nt-people li{display:grid;grid-template-columns:1fr auto;gap:.1rem .6rem;padding:.45rem .6rem;border:1px solid var(--border);border-radius:10px}
 .nt-people .u{font-family:var(--mono);font-weight:700}.nt-people .c{font-weight:800}.nt-people small{grid-column:1/-1;color:var(--muted);font-size:.74rem}
 html[data-theme="dark"] .nt-drops-info{background:#1d2a38;color:#b9cde2}html[data-theme="dark"] .nt-drop-bar{background:#2b3139}html[data-theme="dark"] .nt-people li{border-color:#343c47}
+
+.nt-blink-cause{border-left:4px solid #94a3b8;padding:.45rem .7rem;border-radius:10px;background:#f8fafc;margin-bottom:.45rem}
+.nt-blink-cause.danger{border-left-color:#d64545;background:#fdf3f3}.nt-blink-cause.warn{border-left-color:#f59e0b;background:#fffaf0}
+.nt-blink-cause.info{border-left-color:#1769e0;background:#f3f8fe}.nt-blink-cause small{display:block;color:var(--muted);margin-top:.15rem}
+.nt-timeline{list-style:none;padding:0;margin:.4rem 0 0;font-size:.84rem}.nt-timeline li{padding:.15rem 0;border-bottom:1px dashed #e5e9f0}

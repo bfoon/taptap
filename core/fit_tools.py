@@ -505,7 +505,7 @@ def t_run_test(ctx, router='', kind='doctor', target=''):
     from .voucher_history import channel
     if not ctx.settings.allows('tests'):
         raise ToolError('The business owner has not allowed Fit to run network tests. They can switch on “Network tests” in Fit settings.')
-    if kind not in ('doctor', 'ping', 'trace', 'dns', 'web', 'speed'):
+    if kind not in ('doctor', 'ping', 'trace', 'dns', 'web', 'speed', 'blinks'):
         raise ToolError('Choose doctor (internet check), ping, trace, dns, web or speed.')
     r = _router(ctx, router)
     params = nt.clean_params(kind, {'target': target})
@@ -775,8 +775,9 @@ TOOLS = {
                           'what': {'type': 'string', 'enum': list(PULLS)},
                           'refresh': {'type': 'boolean', 'description': 'TapTap Link only: also start a fresh full pull'}}, ['what'])),
     'run_network_test': (NETWORK_PERMS, t_run_test, 'Run a test from a router now with live traffic: doctor = full internet check '
-                         '(router→ISP→internet→DNS→web), ping, trace, dns, web (URL), speed.',
-                         _obj({'router': S, 'kind': {'type': 'string', 'enum': ['doctor', 'ping', 'trace', 'dns', 'web', 'speed']},
+                         '(router→ISP→internet→DNS→web), ping, trace, dns, web (URL), speed, blinks = why the internet goes off for a few seconds '
+                         '(installs a tiny watch on the router and lines every short drop up with the router log).',
+                         _obj({'router': S, 'kind': {'type': 'string', 'enum': ['doctor', 'ping', 'trace', 'dns', 'web', 'speed', 'blinks']},
                                'target': {**S, 'description': 'Host/IP for ping/trace/dns, URL for web'}}, ['kind'])),
     'test_result': (NETWORK_PERMS, t_test_result, 'Result of a network test started earlier.', _obj({'test_id': {'type': 'integer'}}, ['test_id'])),
     'team_chat_recent': (None, t_chat_recent, 'Latest messages in the team chat room (to summarise).', _obj({'limit': {'type': 'integer'}})),

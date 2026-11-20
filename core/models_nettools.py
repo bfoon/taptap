@@ -7,6 +7,7 @@ class NetTest(models.Model):
     KINDS = [('doctor', 'Internet check'), ('ping', 'Ping'), ('trace', 'Traceroute'), ('dns', 'DNS lookup'),
              ('web', 'Website check'), ('speed', 'Speed test'),
              ('whoami', 'Find my device'), ('hops', 'Path check'), ('mypath', 'My connection'), ('drops', 'Why people drop'),
+             ('blinks', 'Why the internet blinks'),
              # Connection lab, internet lines and DHCP lease (core/conn_lab.py)
              ('client', 'Device check'), ('cspeed', 'Speed check'), ('slowscan', 'Slow scan'), ('lane', 'Internet line'),
              ('lanepin', 'Line switch'), ('laneoff', 'Line release'), ('dhcp', 'DHCP lease'), ('dhcpset', 'DHCP lease change'),

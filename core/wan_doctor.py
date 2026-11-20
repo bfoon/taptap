@@ -42,7 +42,14 @@ logger = logging.getLogger('taptap.wan_doctor')
 
 TAG = 'TapTap Doctor'
 NAME = 'TapTap-Doctor'                 # script and scheduler name on the router
-VERSION = '2'
+VERSION = '3'
+# v3 (Nov 2026): the internet "goes off for a few seconds and comes back" — every 15 minutes on lines whose modem does
+#     not answer ping: v2 called such a line "down" although customers used it, released its DHCP address every 15
+#     minutes (everyone cut for a few seconds) and, with two lines, took the working line out of use. Now
+#       * the gateway not answering ping proves nothing: the line is judged by its internet test addresses,
+#       * a line whose provider blocks ping is also tested with a DNS lookup sent straight through it,
+#       * DHCP is renewed only when the line really has no address (or the internet really does not get through),
+#       * the Blink watch (core/blink_watch.py) is installed with it, so every short drop is noted with its moment.
 # v2: never leaves the router without a line (a held-off line comes back when no other line works),
 #     a line counts as healthy when 1 of its 3 test addresses answers, the line's health-check /32 route is
 #     taken out together with it (so DNS to 8.8.8.8 / 1.1.1.1 follows the working line), no blackhole
@@ -172,11 +179,12 @@ _BODY = r'''
 :local measure do={
   :local gw ""
   :local rgw ""
+  :local silent false
   :if ($kind = "dhcp") do={
     :local c [/ip dhcp-client find where interface=$iface]
     :if ([:len $c] = 0) do={ :return "skip" }
     :if ([:tostr [/ip dhcp-client get ($c->0) disabled]] = "true") do={ :return "skip" }
-    :if ([:tostr [/ip dhcp-client get ($c->0) status]] != "bound") do={ :return "down," }
+    :if ([:tostr [/ip dhcp-client get ($c->0) status]] != "bound") do={ :return "unbound," }
     :set gw [:tostr [/ip dhcp-client get ($c->0) gateway]]
   }
   :if ($kind = "pppoe") do={
@@ -194,7 +202,9 @@ _BODY = r'''
   }
   :if ($kind != "pppoe") do={
     :if ([:len $gw] = 0) do={ :return "down," }
-    :if ([/ping address=$gw interface=$iface count=2] = 0) do={ :return ("down," . $gw) }
+    # Many modems never answer ping. That alone is not a broken line: the internet test below decides (v2 called it
+    # "down" and renewed its DHCP every 15 minutes - a few seconds without internet for everyone).
+    :if ([/ping address=$gw interface=$iface count=2] = 0) do={ :set silent true }
     :set rgw ($gw . "%" . $iface)
   }
   :local tag ("TapTap Doctor probe " . $iface)
@@ -217,7 +227,21 @@ _BODY = r'''
     :if ([/ping address=$p count=2] > 0) do={ :set passed ($passed + 1) }
   }
   :global ttdocHealthy
+  # No ping got through: some providers block ping. The test addresses are DNS resolvers, so a name looked up
+  # straight at one of them (its /32 route sends it through this line) proves the internet works too.
+  :if ($passed < $ttdocHealthy) do={
+    :foreach p in=[:toarray $probes] do={
+      :if ($passed < $ttdocHealthy) do={
+        :do {
+          :local q [:parse (":return [:resolve domain-name=\"www.google.com\" server=" . $p . "]")]
+          :local a [$q]
+          :if ([:len [:tostr $a]] > 0) do={ :set passed ($passed + 1) }
+        } on-error={}
+      }
+    }
+  }
   :if ($passed >= $ttdocHealthy) do={ :return ("ok," . $gw) }
+  :if ($silent) do={ :return ("down," . $gw) }
   :return ("holding," . $gw)
 }
 
@@ -341,7 +365,9 @@ _BODY = r'''
     } on-error={ :log error ("TapTap Doctor: could not take " . $iface . " out of use") }
   }
 
-  :if (($st = "down") && ($kind = "dhcp")) do={
+  # Renew only a line that really has no address. (v2 also renewed bound lines whose modem ignores ping - every 15
+  # minutes, on a line customers were using.)
+  :if (($st = "unbound") && ($kind = "dhcp")) do={
     :if (($fail % 15) = 5) do={ :do { /ip dhcp-client release [find where interface=$iface] } on-error={} }
   }
   :return ""
@@ -437,7 +463,10 @@ def render_install_rsc(lines, allow_mac=True, router_name=''):
             f'/system script add name={NAME} policy=read,write,test dont-require-permissions=no comment="{TAG} v{VERSION}" source={_rsc_string(src)}',
             f'/system scheduler add name={NAME} interval=1m policy=read,write,test on-event="/system script run {NAME}" '
             f'comment="{TAG} - checks the internet lines every minute"',
-            '', '# Done. Activity: /log print where message~"TapTap Doctor"   Status: :put $ttdocStatus']
+            '', '# 3. The blink watch: notes every short internet drop (every 5 seconds, one ping)']
+    from .blink_watch import install_commands
+    out += install_commands()
+    out += ['', '# Done. Activity: /log print where message~"TapTap Doctor"   Status: :put $ttdocStatus']
     return '\n'.join(out) + '\n'
 
 
@@ -457,6 +486,11 @@ def install_on_router(svc, lines, allow_mac=True, router_name=''):
     svc.resource('/system/scheduler').add(name=NAME, interval='1m', policy='read,write,test',
                                           on_event=f'/system script run {NAME}',
                                           comment=f'{TAG} - checks the internet lines every minute')
+    try:
+        from .blink_watch import install_api
+        install_api(svc)                      # every short drop is noted on the router (core/blink_watch.py)
+    except Exception as exc:
+        logger.info('blink watch not installed: %s', exc)
     return [l['interface'] for l in _assign_probes([dict(l) for l in lines])]
 
 
@@ -551,9 +585,7 @@ def check_line(svc, line):
         if not out['gateway']:
             return {**out, 'state': 'down', 'fix': 'refresh', 'finding': f'{line["label"]}: no gateway on {iface}.'}
         g = _ping(svc, out['gateway'], interface=iface)
-        if not g.get('ok'):
-            return {**out, 'state': 'down', 'fix': 'refresh',
-                    'finding': f'{line["label"]}: the modem at {out["gateway"]} is not answering on {iface}. Check its power and cable.'}
+        out['gateway_silent'] = not g.get('ok')        # many modems never answer ping: the internet test decides
         rgw = f'{out["gateway"]}%{iface}'
     routes = svc.resource('/ip/route')
     added = []
@@ -571,8 +603,13 @@ def check_line(svc, line):
                 except Exception: pass
     n = len(out['reached'])
     if n >= HEALTHY_PROBES:
-        out['finding'] = f'{line["label"]} is working: the modem answers and {n} of 3 internet addresses answer through {iface}.'
+        out['finding'] = (f'{line["label"]} is working: ' + ('the modem does not answer ping (that is normal for some modems), but '
+                          if out.get('gateway_silent') else 'the modem answers and ') + f'{n} of 3 internet addresses answer through {iface}.')
         return out
+    if out.get('gateway_silent'):
+        return {**out, 'state': 'down', 'fix': 'refresh',
+                'finding': f'{line["label"]}: the modem at {out["gateway"]} is not answering on {iface} and no internet gets through. '
+                           'Check its power and cable.'}
     out['state'] = 'holding'
     out['fix'] = 'new_mac' if eth else 'refresh'
     out['finding'] = (f'{line["label"]}: the modem answers but none of 3 internet addresses get through {iface}. '
@@ -786,7 +823,7 @@ def set_in_use(svc, iface, on, lines):
 import re as _re
 
 LINK_KIND = 'wan_doctor'
-LINK_STEPS = {'turn_on', 'turn_off', 'use', 'unuse', 'refresh', 'new_mac', 'reset_mac', 'install_part', 'remove', 'run', 'rewire'}
+LINK_STEPS = {'turn_on', 'turn_off', 'use', 'unuse', 'refresh', 'new_mac', 'reset_mac', 'install_part', 'remove', 'run', 'rewire', 'watch'}
 _IFACE = _re.compile(r'^[A-Za-z0-9._:-]{1,40}$')
 _MAC = _re.compile(r'^([0-9A-F]{2}:){5}[0-9A-F]{2}$')
 CHUNK = 1000                      # raw characters of the Doctor script per Link command (Link batch budget)
@@ -827,6 +864,9 @@ def link_body(p):
     if step == 'rewire':
         from .wan_wiring import link_body as rewire_body
         return rewire_body(p)
+    if step == 'watch':                       # the Blink watch, sent right after the Doctor (core/blink_watch.py)
+        from .blink_watch import install_commands
+        return '; '.join(install_commands())
     if step == 'run':
         return f':if ([:len [/system script find where name="{NAME}"]] > 0) do={{ /system script run {NAME} }}'
     if step == 'install_part':
@@ -980,6 +1020,10 @@ def link_install(router, lines, allow_mac=True, user=None):
     for k in range(len(parts)):
         link_send(router, 'install_part', user=user, part=k, parts=len(parts), lines=raw, allow_mac=allow_mac,
                   title=router.name[:40], v=VERSION)
+    try:
+        link_send(router, 'watch', user=user)
+    except Exception as exc:                  # the Doctor works without it
+        logger.info('blink watch not queued for %s: %s', router, exc)
     return [l['interface'] for l in lines], len(parts)
 
 
