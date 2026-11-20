@@ -1,0 +1,63 @@
+{% extends 'core/base.html' %}
+{% block title %}Fit workspace — TapTap{% endblock %}{% block heading %}Fit workspace{% endblock %}
+{% block content %}
+<style>
+  .fws-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+  .fws-card{display:flex;gap:12px;align-items:flex-start;padding:14px 16px;border:1px solid var(--bs-border-color);border-radius:14px;background:var(--bs-body-bg);text-decoration:none;color:inherit;transition:transform .12s,box-shadow .12s}
+  .fws-card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(15,32,51,.08);color:inherit}
+  .fws-card .ic{font-size:26px;line-height:1}
+  .fws-card small{display:block;color:var(--bs-secondary-color)}
+  .fws-pin{font-size:11px;font-weight:700;color:#b7791f}
+  .fws-idea{display:flex;gap:10px;align-items:center;width:100%;text-align:left;padding:10px 14px;border:1px dashed var(--bs-border-color);border-radius:12px;background:transparent}
+  .fws-idea:hover{border-style:solid;background:var(--bs-tertiary-bg)}
+  .fws-tabs a{font-weight:700}
+</style>
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <div><h2 class="section-title mb-1">🤖 Fit workspace</h2>
+    <p class="text-secondary m-0">Everything Fit built for you — tables with your own filters, live dashboards, missions and monitors. Click to open; ask Fit for a new one.</p></div>
+  <div class="d-flex gap-2 flex-wrap fws-tabs">
+    <a class="btn btn-outline-secondary btn-sm" href="{{ links.dashboards }}"><i class="bi bi-graph-up"></i> Dashboards</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ links.missions }}"><i class="bi bi-bullseye"></i> Missions</a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ links.monitors }}"><i class="bi bi-eye"></i> Monitors ({{ monitors }})</a>
+  </div>
+</div>
+{% if messages %}{% for m in messages %}<div class="alert alert-{% if m.tags == 'error' %}danger{% elif m.tags == 'success' %}success{% else %}info{% endif %} py-2 small">{{ m }}</div>{% endfor %}{% endif %}
+
+<section class="panel mb-3">
+  <h3 class="h6 fw-bold mb-2">📋 Tables</h3>
+  <div class="fws-grid">
+    {% for t in tables %}
+    <a class="fws-card" href="{{ t.link }}"><span class="ic">{{ t.icon }}</span>
+      <div><b>{{ t.title }}</b>{% if t.pinned %} <span class="fws-pin">📌 pinned</span>{% endif %}
+        <small>{{ t.source_label }} · {{ t.filters|join:" · " }}</small>
+        <small>{% if t.shared %}team{% else %}only you{% endif %} · by {{ t.by|default:"—" }}</small></div></a>
+    {% empty %}<p class="text-secondary small mb-0">No tables yet. Pick an idea below — Fit builds it and gives you the link.</p>{% endfor %}
+  </div>
+</section>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <section class="panel h-100">
+      <h3 class="h6 fw-bold mb-2">✨ Ask Fit for a table</h3>
+      <div class="d-grid gap-2">
+        {% for icon, label, ask in ideas %}<button type="button" class="fws-idea" data-fit-ask="{{ ask }}"><span class="fs-5">{{ icon }}</span><span>{{ label }}</span><i class="bi bi-arrow-right ms-auto"></i></button>{% endfor %}
+        <button type="button" class="fws-idea" data-fit-ask="Make a table of "><span class="fs-5">🪄</span><span>Something else — tell Fit what you want to see</span><i class="bi bi-arrow-right ms-auto"></i></button>
+      </div>
+    </section>
+  </div>
+  <div class="col-lg-6">
+    <section class="panel mb-3">
+      <h3 class="h6 fw-bold mb-2">📊 Live dashboards</h3>
+      <div class="d-grid gap-2">
+        {% for d in dashboards %}<a class="fws-card" href="{{ d.link }}"><span class="ic">📊</span><div><b>{{ d.title }}</b><small>{{ d.widgets }} chart{{ d.widgets|pluralize }} · refreshes every {{ d.refresh_seconds }} s</small></div></a>
+        {% empty %}<button type="button" class="fws-idea" data-fit-ask="Build me a live dashboard with users online, router load and today’s sales by hour."><span class="fs-5">📊</span><span>No dashboards yet — ask Fit for one</span></button>{% endfor %}
+      </div>
+    </section>
+    <section class="panel">
+      <h3 class="h6 fw-bold mb-2">🎯 Missions waiting</h3>
+      {% for m in missions %}<a class="fws-card mb-2" href="{{ links.missions }}"><span class="ic">🎯</span><div><b>{{ m.name }}</b><small>{{ m.when_text }}</small><small>{{ m.status_label }}</small></div></a>
+      {% empty %}<p class="text-secondary small mb-0">Nothing waiting. Ask Fit: <i>“every Monday at 8 email me last week’s sales”</i>.</p>{% endfor %}
+    </section>
+  </div>
+</div>
+{% endblock %}

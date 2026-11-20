@@ -1,0 +1,95 @@
+{% extends 'core/base.html' %}
+{% block title %}{{ t.title }} — TapTap{% endblock %}{% block heading %}{{ t.title }}{% endblock %}
+{% block content %}
+<style>
+  .ftb-chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 4px}
+  .ftb-chip{display:inline-flex;gap:6px;align-items:center;padding:5px 11px;border-radius:99px;background:var(--bs-tertiary-bg);border:1px solid var(--bs-border-color);font-size:13px;color:inherit;text-decoration:none}
+  a.ftb-chip:hover{border-color:var(--bs-primary);color:var(--bs-primary)}
+  .ftb-chip b{font-weight:800}
+  .ftb-filter{font-size:12px;padding:3px 9px;border-radius:99px;background:rgba(23,105,224,.09);color:#1769e0;font-weight:700}
+  .ftb-table th a{color:inherit;text-decoration:none;white-space:nowrap}
+  .ftb-table th.on a{color:var(--bs-primary)}
+  .ftb-table tbody tr[data-href]{cursor:pointer}
+  .ftb-table tbody tr[data-href]:hover{background:var(--bs-tertiary-bg)}
+  .ftb-st{font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--bs-tertiary-bg);white-space:nowrap}
+  .ftb-st.frozen,.ftb-st.warned,.ftb-st.offline,.ftb-st.open{background:#fff3c4;color:#7a5200}
+  .ftb-st.disabled,.ftb-st.expired{background:#fde2e2;color:#9b1c1c}
+  .ftb-st.used,.ftb-st.online,.ftb-st.resolved{background:#dcfce7;color:#166534}
+  .ftb-st.unused{background:#e0ecff;color:#1d4ed8}
+  .ftb-cols{columns:2;font-size:13px}
+</style>
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
+  <div>
+    <h2 class="section-title mb-1">{{ data.icon }} {{ t.title }}{% if t.pinned %} <small class="text-warning">📌</small>{% endif %}</h2>
+    <div class="text-secondary small">{{ data.source_label }} · <b>{{ data.total }}</b> row{{ data.total|pluralize }}{% if not data.complete %} (the first {{ data.total }}){% endif %} · live — run again each time you open it · by {{ t.created_by.first_name|default:t.created_by.email|default:"Fit" }} with Fit · {% if t.shared %}the team sees it (with their own rights){% else %}only you see it{% endif %}</div>
+    <div class="d-flex flex-wrap gap-1 mt-2">{% for w in filter_words %}<span class="ftb-filter">{{ w }}</span>{% endfor %}{% if changed %}<span class="ftb-filter" style="background:#fff3c4;color:#7a5200">not saved</span>{% endif %}</div>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-sm btn-outline-secondary" href="{% url 'fit_workspace' %}"><i class="bi bi-grid"></i> Workspace</a>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-fit-ask="{{ ask }}"><i class="bi bi-robot"></i> Ask Fit about it</button>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ csv }}"><i class="bi bi-download"></i> CSV</a>
+    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#ftbFilters"><i class="bi bi-funnel"></i> Filters</button>
+    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#ftbCols"><i class="bi bi-layout-three-columns"></i> Columns</button>
+  </div>
+</div>
+{% if messages %}{% for m in messages %}<div class="alert alert-{% if m.tags == 'error' %}danger{% elif m.tags == 'success' %}success{% else %}info{% endif %} py-2 small">{{ m }}</div>{% endfor %}{% endif %}
+{% for e in errors %}<div class="alert alert-warning py-2 small">{{ e }} — showing the saved filters.</div>{% endfor %}
+
+{% if data.chips %}<div class="ftb-chips">{% for c in chips %}{% if c.href %}<a class="ftb-chip" href="{{ c.href }}" title="Show only these">{{ c.label }} <b>{{ c.value }}</b></a>{% else %}<span class="ftb-chip">{{ c.label }} <b>{{ c.value }}</b></span>{% endif %}{% endfor %}</div>{% endif %}
+
+<div class="collapse {% if changed or errors %}show{% endif %}" id="ftbFilters">
+  <section class="panel my-2">
+    <form method="get" class="row g-2 small">
+      <input type="hidden" name="edited" value="1"><input type="hidden" name="cols" value="{{ cols }}"><input type="hidden" name="sort" value="{{ sort.by }}"><input type="hidden" name="dir" value="{{ sort.dir }}">
+      {% for f in form %}<div class="col-md-4 col-lg-3"><label class="form-label fw-semibold mb-0">{{ f.label }}</label>
+        {% if f.key == 'state' %}<select class="form-select form-select-sm" name="f_state"><option value="">Any state</option>{% for k, l in states.items %}{% if k != 'any' %}<option value="{{ k }}" {% if f.value == k %}selected{% endif %}>{{ l }}</option>{% endif %}{% endfor %}</select>
+        {% elif f.key == 'members' %}<select class="form-select form-select-sm" name="f_members"><option value="">Vouchers and members</option><option value="exclude" {% if f.value == 'exclude' %}selected{% endif %}>Vouchers only</option><option value="only" {% if f.value == 'only' %}selected{% endif %}>Members only</option></select>
+        {% else %}<input class="form-control form-control-sm" name="f_{{ f.key }}" value="{{ f.value }}" placeholder="{{ f.help }}">{% endif %}</div>{% endfor %}
+      <div class="col-12 d-flex gap-2 flex-wrap"><button class="btn btn-sm btn-primary"><i class="bi bi-funnel"></i> Apply</button><a class="btn btn-sm btn-outline-secondary" href="{{ reset }}">Back to the saved table</a></div>
+    </form>
+  </section>
+</div>
+<div class="collapse" id="ftbCols">
+  <section class="panel my-2"><form method="get" id="ftbColForm" class="small">
+    {% for k, v in request.GET.items %}{% if k != 'cols' and k != 'page' %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endif %}{% endfor %}
+    {% if not request.GET.edited %}<input type="hidden" name="edited" value="1">{% for f in form %}{% if f.value != '' %}<input type="hidden" name="f_{{ f.key }}" value="{{ f.value }}">{% endif %}{% endfor %}{% endif %}
+    <input type="hidden" name="cols" id="ftbColsVal">
+    <div class="ftb-cols">{% for c in all_columns %}<label class="d-block"><input class="form-check-input" type="checkbox" value="{{ c.key }}" {% if c.on %}checked{% endif %}> {{ c.label }}</label>{% endfor %}</div>
+    <button class="btn btn-sm btn-primary mt-2">Show these columns</button></form></section>
+</div>
+
+{% if changed or can_change %}<div class="d-flex flex-wrap gap-2 align-items-center my-2">
+  {% if changed and can_change %}<form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="op" value="save"><input type="hidden" name="filters" value="{{ filters_json }}"><input type="hidden" name="cols" value="{{ cols }}"><input type="hidden" name="sort" value="{{ sort.by }}"><input type="hidden" name="dir" value="{{ sort.dir }}"><button class="btn btn-sm btn-success"><i class="bi bi-check2"></i> Save these filters</button></form>{% endif %}
+  <form method="post" class="d-inline-flex gap-1">{% csrf_token %}<input type="hidden" name="op" value="save_as"><input type="hidden" name="filters" value="{{ filters_json }}"><input type="hidden" name="cols" value="{{ cols }}"><input type="hidden" name="sort" value="{{ sort.by }}"><input type="hidden" name="dir" value="{{ sort.dir }}"><input class="form-control form-control-sm" name="title" placeholder="New table name" style="width:180px"><button class="btn btn-sm btn-outline-primary">Save as new</button></form>
+  {% if can_change %}<form method="post" class="d-inline-flex gap-1 ms-auto">{% csrf_token %}
+    <button class="btn btn-sm btn-outline-secondary" name="op" value="{% if t.pinned %}unpin{% else %}pin{% endif %}">{% if t.pinned %}Unpin{% else %}📌 Pin to workspace{% endif %}</button>
+    <button class="btn btn-sm btn-outline-secondary" name="op" value="{% if t.shared %}private{% else %}share{% endif %}">{% if t.shared %}Make private{% else %}Share with the team{% endif %}</button>
+    <button class="btn btn-sm btn-outline-danger" name="op" value="delete" onclick="return confirm('Delete this table? The data itself is not touched.')"><i class="bi bi-trash"></i></button></form>{% endif %}
+</div>{% endif %}
+
+<section class="panel p-0">
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0 ftb-table small">
+    <thead><tr>{% for h in heads %}<th class="{% if h.on %}on{% endif %} {% if h.kind == 'money' or h.kind == 'num' %}text-end{% endif %}"><a href="{{ h.href }}">{{ h.label }}{% if h.on %} {% if h.dir == 'asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>{% endfor %}</tr></thead>
+    <tbody>{% for r in data.rows %}<tr {% if r.link %}data-href="{{ r.link }}"{% endif %}>{% for c in r.cells %}<td>{{ c }}</td>{% endfor %}</tr>
+    {% empty %}<tr><td class="text-secondary p-3" colspan="{{ heads|length }}">Nothing matches right now.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</section>
+<div class="d-flex justify-content-between align-items-center mt-2 small text-secondary">
+  <span>Page {{ data.page }} of {{ data.pages }} · {{ data.total }} row{{ data.total|pluralize }}</span>
+  <span class="d-flex gap-2">{% if prev %}<a class="btn btn-sm btn-outline-secondary" href="{{ prev }}">‹ Previous</a>{% endif %}{% if next %}<a class="btn btn-sm btn-outline-secondary" href="{{ next }}">Next ›</a>{% endif %}</span>
+</div>
+<script>(function(){
+  var kinds=[{% for h in heads %}'{{ h.kind }}'{% if not forloop.last %},{% endif %}{% endfor %}];
+  document.querySelectorAll('.ftb-table tbody tr').forEach(function(tr){
+    tr.querySelectorAll('td').forEach(function(td,i){var k=kinds[i];
+      if(k==='money'||k==='num')td.classList.add('text-end');
+      if(k==='state'&&td.textContent.trim()){var s=document.createElement('span');s.className='ftb-st';s.textContent=td.textContent;
+        var t=td.textContent.toLowerCase();s.classList.add(/frozen/.test(t)?'frozen':/warn/.test(t)?'warned':/disabled/.test(t)?'disabled':/ran out|expired/.test(t)?'expired':/in use/.test(t)?'used':/not used|unused/.test(t)?'unused':/offline/.test(t)?'offline':/online/.test(t)?'online':/open/.test(t)?'open':/resolved/.test(t)?'resolved':'x');
+        td.textContent='';td.appendChild(s);}
+    });
+    if(tr.dataset.href)tr.addEventListener('click',function(e){if(e.target.closest('a,button'))return;location.href=tr.dataset.href;});
+  });
+  var cf=document.getElementById('ftbColForm');
+  if(cf)cf.addEventListener('submit',function(){document.getElementById('ftbColsVal').value=Array.from(cf.querySelectorAll('input[type=checkbox]:checked')).map(function(x){return x.value;}).join(',');});
+})();</script>
+{% endblock %}
