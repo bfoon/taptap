@@ -436,7 +436,17 @@ class _ActionCardState extends State<ActionCard> {
             Expanded(child: Text('${c['title']}', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15))),
           ]),
           if ('${c['detail'] ?? ''}'.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text('${c['detail']}')),
-          for (final f in (c['facts'] as List? ?? [])) Padding(padding: const EdgeInsets.only(top: 3), child: Text('• $f', style: const TextStyle(fontSize: 13))),
+          // facts are [label, value] pairs (a plain text from an older server is shown as it is)
+          for (final f in (c['facts'] as List? ?? []))
+            Padding(
+              padding: const EdgeInsets.only(top: 3),
+              child: f is List && f.length >= 2
+                  ? Text.rich(TextSpan(children: [
+                      TextSpan(text: '${f[0]}  ', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
+                      TextSpan(text: '${f[1]}', style: const TextStyle(fontSize: 13)),
+                    ]))
+                  : Text('• $f', style: const TextStyle(fontSize: 13)),
+            ),
           for (final w in (c['warnings'] as List? ?? []))
             Padding(padding: const EdgeInsets.only(top: 3), child: Text('⚠️ $w', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
           const SizedBox(height: 10),

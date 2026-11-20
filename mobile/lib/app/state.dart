@@ -4,9 +4,10 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../data/local_db.dart';
+import '../data/photo_store.dart';
 import '../data/store.dart';
-import '../data/voice_store.dart';
 import '../data/sync_engine.dart';
+import '../data/voice_store.dart';
 import '../push/push.dart';
 import 'api.dart';
 import 'format.dart';
@@ -187,6 +188,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       // a fresh sign-in starts from a clean phone (never waits long on the phone's database)
       await Store.I.close(wipe: true).timeout(const Duration(seconds: 5));
       await VoiceStore.I.clear().timeout(const Duration(seconds: 5));
+      await PhotoStore.I.clear().timeout(const Duration(seconds: 5));
     } catch (_) {}
     await Api.I.save(token: token);
     try {
@@ -244,6 +246,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (wipe) {
       unawaited(Store.I.close(wipe: true));             // nothing of this account stays on the phone
       unawaited(VoiceStore.I.clear());                  // … including the voice messages it kept
+      unawaited(PhotoStore.I.clear());                  // … and the chat photos
     }
     me = null;
     threads = [];
@@ -309,6 +312,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       openExtra = {'typing': d['typing'], 'seen_upto': d['seen_upto']};
       for (final m in ((d['new'] as List?) ?? []).cast<Map>()) {
         _newMessages.add(m.cast<String, dynamic>());
+      }
+      // photos that just arrived go onto the phone at once (each is deleted at its normal time: lib/data/photo_store.dart)
+      final titles = {for (final t in threads) toI(t['id']): '${t['title'] ?? ''}'};
+      for (final m in asMaps(d['new']).where(PhotoStore.keepable)) {
+        unawaited(PhotoStore.I.fetch(m, threadTitle: titles[toI(m['thread'])] ?? ''));
       }
       _top = toI(d['top']);
       if (d['now'] != null) _chg = toD(d['now']);

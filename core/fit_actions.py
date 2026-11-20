@@ -44,6 +44,9 @@ GROUPS = {
                              'you or the member, and may free an idle slot or disconnect extra devices'),
     'router': ('Router control', 'Change things directly on your MikroTik routers: sessions, cookies, IP bindings, walled garden, '
                                  'address lists, queues, DNS, ports, Wi-Fi name, router name; reboot, flush DNS, fix the clock'),
+    'missions': ('Missions', 'Jobs Fit does later by itself once you approved them: at a time, on a timetable, at the quietest '
+                             'moment, or when something happens (restart a router, a change, a report, an email to someone). '
+                             'The change itself also needs its own group switched on'),
     'bulk': ('Bulk voucher changes', 'Change many vouchers at once — e.g. disable all frozen vouchers, unfreeze a batch, add time to a '
                                      'plan, bin unused vouchers. Only the Owner or an Admin can approve these'),
 }
@@ -700,6 +703,100 @@ def _do_router_task(business, p, user):
         raise FitActionError(str(exc))
 
 
+# ─────────────────────────────── missions (core/fit_missions) ───────────────────────────────
+
+def _check_create_mission(business, a, user=None, perms=None):
+    from . import fit_missions as fm
+    if user is None:
+        raise FitActionError('A mission needs the person who sets it.')
+    if perms is None:
+        who = fm.perms_for(user, business)
+        if who is None:
+            raise FitActionError('You are not in this business.')
+        perms = who[0]
+    raw = a.get('args') if isinstance(a.get('args'), dict) and a.get('_mission') else a
+    try:
+        clean, fields, title, facts, warnings, danger, confirm = fm.build(business, user, perms, raw)
+    except fm.MissionError as exc:
+        raise FitActionError(str(exc))
+    group = fields.get('_group')
+    if group and group in GROUPS:
+        facts.append(['Needs', f'Fit settings “Missions” and “{GROUPS[group][0]}”'])
+    p = {'_mission': True, 'args': clean, 'danger': danger,
+         '_card': {'facts': facts, 'warnings': warnings, 'sample': [], 'more': 0, 'confirm': confirm}}
+    return p, title, '', '/fit/missions/'
+
+
+def _do_create_mission(business, p, user):
+    from . import fit_missions as fm
+    who = fm.perms_for(user, business)
+    if who is None:
+        raise FitActionError('You are no longer in this business.')
+    try:
+        clean, fields, *_ = fm.build(business, user, who[0], p['args'])
+        m = fm.create(business, user, fields)
+    except fm.MissionError as exc:
+        raise FitActionError(str(exc))
+    return f'Mission #{m.pk} “{m.name}” is set: {fm.describe_when(m)}. See it under Fit → Missions.'
+
+
+def _mission(business, a):
+    from .models_fit import FitMission
+    try:
+        pk = int(a.get('mission_id'))
+    except (TypeError, ValueError):
+        raise FitActionError('Which mission? Give its number (mission_id).')
+    m = FitMission.objects.filter(business=business, pk=pk).first()
+    if m is None:
+        raise FitActionError(f'There is no mission #{pk} in {business.business_name}.')
+    return m
+
+
+def _check_pause_mission(business, a):
+    m = _mission(business, a)
+    if m.status != 'waiting':
+        raise FitActionError(f'Mission “{m.name}” is {m.get_status_display().lower()}, not waiting.')
+    return {'mission_id': m.pk}, f'Pause mission “{m.name}”', 'It does nothing until you resume it.', '/fit/missions/'
+
+
+def _do_pause_mission(business, p, user):
+    from . import fit_missions as fm
+    m = _mission(business, p)
+    fm.pause(m, user)
+    return f'Mission “{m.name}” paused.'
+
+
+def _check_resume_mission(business, a):
+    m = _mission(business, a)
+    if m.status != 'paused':
+        raise FitActionError(f'Mission “{m.name}” is not paused.')
+    return {'mission_id': m.pk}, f'Resume mission “{m.name}”', 'It waits for its moment again.', '/fit/missions/'
+
+
+def _do_resume_mission(business, p, user):
+    from . import fit_missions as fm
+    m = _mission(business, p)
+    try:
+        fm.resume(m, user)
+    except fm.MissionError as exc:
+        raise FitActionError(str(exc))
+    return f'Mission “{m.name}” is waiting again.'
+
+
+def _check_cancel_mission(business, a):
+    m = _mission(business, a)
+    if m.status not in ('waiting', 'paused'):
+        raise FitActionError(f'Mission “{m.name}” is already {m.get_status_display().lower()}.')
+    return {'mission_id': m.pk}, f'Cancel mission “{m.name}”', 'It will never run. Its log is kept.', '/fit/missions/'
+
+
+def _do_cancel_mission(business, p, user):
+    from . import fit_missions as fm
+    m = _mission(business, p)
+    fm.cancel(m, user)
+    return f'Mission “{m.name}” cancelled.'
+
+
 # ─────────────────────────────── group changes (core/fit_bulk) ───────────────────────────────
 
 def _check_bulk(business, a):
@@ -749,6 +846,11 @@ KINDS = {
     'router_task': ('router', ('network.manage',), _check_router_task, _do_router_task, 'warn'),
     # Owner / Admin only: views_fit grants ADMIN_PERM ('fit.admin') to nobody else
     'bulk_vouchers': ('bulk', ('fit.admin',), _check_bulk, _do_bulk, 'danger'),
+    # missions: the job's own permission and group are checked inside (core/fit_missions.build / perform)
+    'create_mission': ('missions', (), _check_create_mission, _do_create_mission, 'ok'),
+    'pause_mission': ('missions', (), _check_pause_mission, _do_pause_mission, 'ok'),
+    'resume_mission': ('missions', (), _check_resume_mission, _do_resume_mission, 'ok'),
+    'cancel_mission': ('missions', (), _check_cancel_mission, _do_cancel_mission, 'warn'),
 }
 
 
@@ -761,11 +863,13 @@ def kinds_for(perms):
     return [k for k, (_, need, *_rest) in KINDS.items() if has_perm(perms, need)]
 
 
-def _validate(business, user, kind, args):
+def _validate(business, user, kind, args, perms=None):
     spec = KINDS.get(kind)
     if not spec:
         raise FitActionError(f'Unknown action “{kind}”.')
     check = spec[2]
+    if check is _check_create_mission:
+        return check(business, args, user, perms)
     return check(business, args, user) if check is _check_chat else check(business, args)
 
 
@@ -780,7 +884,7 @@ def propose(ctx, kind, args):
         raise FitActionError('Your role does not allow this change, so I cannot offer it. Ask the business owner.')
     if not _extra_perms_ok(kind, args, ctx.perms):
         raise FitActionError('Your role does not allow that kind of change.')
-    params, title, detail, link = _validate(ctx.business, ctx.user, kind, args or {})
+    params, title, detail, link = _validate(ctx.business, ctx.user, kind, args or {}, ctx.perms)
     a = FitAction.objects.create(business=ctx.business, conversation=ctx.conversation, proposed_to=ctx.user,
                                  kind=kind, params=params, title=title[:200], detail=(detail or '')[:500])
     card = card_json(a, ctx.settings, link=link, danger=params.get('danger') if isinstance(params, dict) and params.get('danger') else danger)
@@ -828,7 +932,7 @@ def run(action, user, perms, settings):
     if not has_perm(perms, need) or not _extra_perms_ok(action.kind, action.params, perms):
         return False, 'Your role does not allow this change.' + (' Group changes need the Owner or an Admin.' if action.kind == 'bulk_vouchers' else '')
     try:
-        _validate(action.business, user, action.kind, action.params)        # still makes sense right now?
+        _validate(action.business, user, action.kind, action.params, perms)  # still makes sense right now?
         result = str(do(action.business, action.params, user) or 'Done.')
         action.status = 'done'
     except Exception as exc:  # noqa: BLE001 — services raise ValueError subclasses and router errors

@@ -13,8 +13,10 @@ import '../calls/call_engine.dart';
 import '../calls/call_screen.dart';
 import '../data/store.dart';
 import '../data/sync_engine.dart';
+import '../data/photo_store.dart';
 import '../data/voice_store.dart';
 import '../widgets/common.dart';
+import 'chat_photo.dart';
 import 'chat_voice.dart';
 
 /// The team room, direct messages and TapTap support — TapTap's own chat (/chat/).
@@ -150,6 +152,7 @@ class _ThreadScreenState extends State<ThreadScreen> {
       setState(() => _msgs.add(m));
       _read();
       _toBottom();
+      unawaited(PhotoStore.I.fetch(m, threadTitle: widget.title));      // a new photo: onto the phone straight away
     });
     _subChanged = _app.changedMessages.listen((m) {
       if (toI(m['thread']) != widget.id) return;
@@ -165,6 +168,7 @@ class _ThreadScreenState extends State<ThreadScreen> {
       _msgs.addAll(asMaps(saved['messages']));
       _toBottom(jump: true);
     }
+    unawaited(PhotoStore.I.sweep());                                      // photos whose normal time is up go now
     _load();
     _text.addListener(() {
       _app.typing = _text.text.isNotEmpty;
@@ -210,6 +214,7 @@ class _ThreadScreenState extends State<ThreadScreen> {
         }
       });
       if (!older) _toBottom(jump: true);
+      unawaited(PhotoStore.I.fetchAll(rows, threadTitle: widget.title));  // keep this conversation's photos on the phone
       _app.pollChat();
     } on ApiError catch (e) {
       // no internet with the saved conversation on screen: the offline strip says so
@@ -376,6 +381,14 @@ class _ThreadScreenState extends State<ThreadScreen> {
     _toast('Deleted from this phone');
   }
 
+  static bool _isPhoto(Map<String, dynamic> m) => PhotoStore.keepable(m);
+
+  Future<void> _deletePhotoHere(Map<String, dynamic> m) async {
+    await PhotoStore.I.remove(toI(m['id']));
+    if (mounted) setState(() {});
+    _toast('Deleted from this phone — it shows from TapTap until its normal time');
+  }
+
   /// Long-press a message: what you can do with it.
   void _menu(Map<String, dynamic> m) {
     if (m['system'] == true || m['deleted'] == true) return;
@@ -388,6 +401,15 @@ class _ThreadScreenState extends State<ThreadScreen> {
       showDragHandle: true,
       builder: (ctx) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
+          if (parseTime(m['at']) != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 6),
+              child: Text(
+                '${mine ? 'You sent this' : 'Sent by ${m['sender']}'} · ${fullDate(m['at'])}'
+                '${m['edited'] == true ? ' · edited' : ''}',
+                style: TextStyle(fontSize: 12.5, color: Theme.of(ctx).colorScheme.onSurfaceVariant),
+              ),
+            ),
           ListTile(
             leading: const Icon(Icons.reply),
             title: const Text('Reply'),
@@ -414,6 +436,16 @@ class _ThreadScreenState extends State<ThreadScreen> {
               onTap: () {
                 Navigator.pop(ctx);
                 _deleteVoiceHere(m);
+              },
+            ),
+          if (_isPhoto(m) && PhotoStore.I.has(toI(m['id'])))
+            ListTile(
+              leading: const Icon(Icons.phone_android),
+              title: const Text('Delete from this phone'),
+              subtitle: Text('Otherwise deleted by itself ${whenText((m['image'] as Map)['expires'])}'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _deletePhotoHere(m);
               },
             ),
           if (mine && m['can_edit'] == true)
@@ -465,8 +497,10 @@ class _ThreadScreenState extends State<ThreadScreen> {
     try {
       final d = await Api.I.upload('/chat/upload/', {'thread': '${widget.id}', 'body': _text.text.trim()}, File(x.path));
       _text.clear();
-      setState(() => _msgs.add((d['message'] as Map).cast<String, dynamic>()));
+      final sent = (d['message'] as Map).cast<String, dynamic>();
+      setState(() => _msgs.add(sent));
       _toBottom();
+      unawaited(PhotoStore.I.fetch(sent, threadTitle: widget.title));
     } on ApiError catch (e) {
       _toast(e.message);
     } finally {
@@ -537,9 +571,12 @@ class _ThreadScreenState extends State<ThreadScreen> {
             itemCount: _msgs.length + (_more ? 1 : 0),
             itemBuilder: (_, i) {
               if (_more && i == 0) return Center(child: TextButton(onPressed: () => _load(older: true), child: const Text('Earlier messages')));
-              final m = _msgs[i - (_more ? 1 : 0)];
+              final at = i - (_more ? 1 : 0);
+              final m = _msgs[at];
               final id = toI(m['id']);
-              return _Bubble(
+              final day = parseTime(m['at']);
+              final prev = at > 0 ? parseTime(_msgs[at - 1]['at']) : null;
+              final bubble = _Bubble(
                 key: _keys.putIfAbsent(id, () => GlobalKey()),
                 m: m,
                 meId: me,
@@ -551,6 +588,9 @@ class _ThreadScreenState extends State<ThreadScreen> {
                 },
                 onQuoteTap: (qid) => _jump(qid),
               );
+              // a date between messages of different days: Today · Yesterday · Fri 13 Nov · Mon 2 Dec 2025
+              if (day == null || (prev != null && DateUtils.isSameDay(prev, day))) return bubble;
+              return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [_DayChip(day), bubble]);
             },
           ),
         ),
@@ -573,7 +613,7 @@ class _ThreadScreenState extends State<ThreadScreen> {
                                     onTap: () { Navigator.pop(ctx); _photo(ImageSource.camera); }),
                                 ListTile(leading: const Icon(Icons.photo), title: const Text('From the gallery'),
                                     onTap: () { Navigator.pop(ctx); _photo(ImageSource.gallery); }),
-                                const ListTile(dense: true, title: Text('Photos are deleted after 7 days.')),
+                                const ListTile(dense: true, title: Text('Photos are kept on phones and deleted everywhere after 7 days.')),
                               ]),
                             ),
                           ),
@@ -633,6 +673,26 @@ class _ThreadScreenState extends State<ThreadScreen> {
         ),
         IconButton(icon: const Icon(Icons.close), tooltip: 'Cancel', onPressed: _cancelCompose),
       ]),
+    );
+  }
+}
+
+/// The date between messages of different days.
+class _DayChip extends StatelessWidget {
+  const _DayChip(this.day);
+  final DateTime day;
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(color: cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(99)),
+          child: Text(chatDay(day), style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: cs.onSurfaceVariant)),
+        ),
+      ),
     );
   }
 }
@@ -714,14 +774,7 @@ class _BubbleState extends State<_Bubble> {
           if (img != null && img['kind'] == 'voice')
             VoiceBubble(m: m, mine: mine, threadTitle: widget.threadTitle)
           else if (img != null && img['gone'] != true && img['kind'] != 'video')
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.network(Api.I.imageUrl('/chat/img/${img['id']}/'), headers: Api.I.headers, fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const Text('📷 Photo')),
-              ),
-            )
+            PhotoBubble(m: m, mine: mine, threadTitle: widget.threadTitle)
           else if (img != null)
             Text(img['gone'] == true ? '📷 Photo (expired)' : '🎬 Video clip — open TapTap on the web to play it',
                 style: TextStyle(fontStyle: FontStyle.italic, color: mine ? Colors.white70 : null)),

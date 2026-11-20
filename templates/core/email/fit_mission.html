@@ -1,0 +1,15 @@
+<!doctype html><html><body style="margin:0;background:#f4f7fb;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#0f2033">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f7fb;padding:24px 0"><tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:14px;overflow:hidden;border:1px solid #e3e9f1">
+  <tr><td style="background:{{ color }};height:6px"></td></tr>
+  <tr><td style="padding:22px 26px 6px">
+    <div style="font-size:12px;color:#51667b;text-transform:uppercase;letter-spacing:.06em">{{ business.business_name }} · Fit mission</div>
+    <h1 style="font-size:20px;margin:6px 0 4px">{{ subject }}</h1>
+    <div style="font-size:13px;color:#51667b">“{{ mission }}”{% if by %} — set by {{ by }}{% endif %}</div>
+  </td></tr>
+  <tr><td style="padding:12px 26px 18px;font-size:15px;line-height:1.55;white-space:pre-line">{% if name %}Hello {{ name }},
+
+{% endif %}{{ body }}</td></tr>
+  {% if link %}<tr><td style="padding:0 26px 22px"><a href="{{ link }}" style="display:inline-block;background:{{ color }};color:#fff;text-decoration:none;padding:10px 16px;border-radius:9px;font-weight:700">Open the missions</a></td></tr>{% endif %}
+  <tr><td style="padding:14px 26px;background:#f8fafc;font-size:12px;color:#7a8b9c">You get this email because a TapTap mission of {{ business.business_name }} names you. Ask {{ by|default:"the business owner" }} to take you off it.</td></tr>
+</table></td></tr></table></body></html>

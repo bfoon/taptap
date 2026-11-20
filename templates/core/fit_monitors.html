@@ -5,7 +5,8 @@
   <div><h2 class="section-title mb-1">🤖 Standing watches</h2>
     <p class="text-secondary m-0">Fit watches these for you, rings the bell (and emails, if ticked) and — when you chose it — acts on its own.
       Tip: just ask Fit, e.g. <i>“Watch plans Gold and Family: when all slots are full and a new phone is refused, free an idle slot and email the member.”</i></p></div>
-  <a class="btn btn-outline-secondary" href="{% url 'alerts' %}?f=business"><i class="bi bi-bell"></i> All alerts</a>
+  <div class="d-flex gap-2"><a class="btn btn-outline-primary" href="{% url 'fit_missions_page' %}"><i class="bi bi-bullseye"></i> Missions</a>
+  <a class="btn btn-outline-secondary" href="{% url 'alerts' %}?f=business"><i class="bi bi-bell"></i> All alerts</a></div>
 </div>
 {% if messages %}{% for m in messages %}<div class="alert alert-{% if m.tags == 'error' %}danger{% elif m.tags == 'success' %}success{% else %}info{% endif %} py-2 small">{{ m }}</div>{% endfor %}{% endif %}
 

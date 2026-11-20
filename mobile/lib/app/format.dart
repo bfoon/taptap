@@ -44,6 +44,22 @@ String dayLabel(DateTime d) {
   return DateFormat('EEE d MMM').format(x);
 }
 
+/// The date line in a conversation: "Today", "Yesterday", "Friday", "Fri 13 Nov", "Mon 2 Dec 2025".
+String chatDay(DateTime d) {
+  final today = DateUtils.dateOnly(DateTime.now());
+  final x = DateUtils.dateOnly(d);
+  if (x == today) return 'Today';
+  if (x == today.subtract(const Duration(days: 1))) return 'Yesterday';
+  if (x.isAfter(today.subtract(const Duration(days: 7)))) return DateFormat('EEEE').format(x);
+  return DateFormat(x.year == today.year ? 'EEE d MMM' : 'EEE d MMM yyyy').format(x);
+}
+
+/// A full date and time: "Fri 20 Nov 2026 at 14:03".
+String fullDate(dynamic s) {
+  final t = parseTime(s);
+  return t == null ? '' : '${DateFormat('EEE d MMM yyyy').format(t)} at ${DateFormat.Hm().format(t)}';
+}
+
 String ymd(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
 
 Color hexColor(String? hex, [Color fallback = const Color(0xFF1769E0)]) {

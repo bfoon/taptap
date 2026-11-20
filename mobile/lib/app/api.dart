@@ -129,15 +129,21 @@ class Api {
     });
   }
 
-  /// Raw bytes (a chat voice message). Errors like [get]; status 410 means it has been deleted.
-  Future<Uint8List> bytes(String path, {Map<String, String>? query, Duration timeout = const Duration(seconds: 30)}) async {
+  /// Raw bytes (a chat voice message or photo). Errors like [get]; status 410 means it has been deleted.
+  Future<Uint8List> bytes(String path,
+      {Map<String, String>? query, Duration timeout = const Duration(seconds: 30), String what = 'voice message'}) async {
     final r = await _send(() => client.get(url(path, query), headers: headers).timeout(timeout));
     if (r.statusCode == 401 || r.statusCode == 302) {
       _signedOut();
       throw ApiError('Please sign in again.', status: r.statusCode, signedOut: true);
     }
     if (r.statusCode != 200 && r.statusCode != 206) {
-      throw ApiError(r.statusCode == 410 ? 'This voice message has been deleted.' : 'Could not play it (${r.statusCode}).',
+      throw ApiError(
+          r.statusCode == 410
+              ? 'This $what has been deleted.'
+              : r.statusCode == 403
+                  ? 'This $what cannot be opened again.'
+                  : 'Could not open it (${r.statusCode}).',
           status: r.statusCode);
     }
     return r.bodyBytes;

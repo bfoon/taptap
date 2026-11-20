@@ -167,3 +167,51 @@ class FitDashboard(models.Model):
 
     def __str__(self):
         return f'{self.business}: {self.title}'
+
+
+class FitMission(models.Model):
+    """A job Fit does later, by itself, once its moment comes (core/fit_missions.py).
+
+    WHEN   at a time · on a timetable · at the quietest moment of a window · when something becomes true
+    DO     tell people · restart / shut down a router · any change Fit can offer (approved once, now) · a report ·
+           ask Fit a question and send the answer
+    TELL   the person who set it, the team, chosen people or email addresses, the team chat room
+
+    It is created only from an approved Fit card (or the Missions page). Each time it runs, TapTap checks again that
+    the person who approved it is still in the business, still has the right, and that the owner still allows Fit to
+    make that kind of change.
+    """
+    TRIGGERS = [('at', 'At a time'), ('repeat', 'On a timetable'), ('quiet', 'At a quiet moment'), ('when', 'When something happens')]
+    TASKS = [('notify', 'Tell people'), ('restart_router', 'Restart a router'), ('shutdown_router', 'Shut a router down'),
+             ('action', 'A Fit change'), ('report', 'Send a report'), ('ask_fit', 'Ask Fit and send the answer')]
+    STATUS = [('waiting', 'Waiting'), ('done', 'Done'), ('failed', 'Failed'), ('paused', 'Paused'),
+              ('cancelled', 'Cancelled'), ('expired', 'Expired'), ('missed', 'Missed')]
+
+    business = models.ForeignKey('core.Business', on_delete=models.CASCADE, related_name='fit_missions')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+',
+                                   help_text='Who approved it: it runs with this person’s rights, checked again each time')
+    name = models.CharField(max_length=120)
+    trigger = models.CharField(max_length=10, choices=TRIGGERS)
+    when = models.JSONField(default=dict, blank=True, help_text='The trigger’s details (core/fit_missions.py)')
+    task = models.CharField(max_length=20, choices=TASKS)
+    task_params = models.JSONField(default=dict, blank=True)
+    tell = models.JSONField(default=dict, blank=True, help_text='{me, team, emails, chat, before_minutes, message}')
+    repeat = models.BooleanField(default=False, help_text='Runs again (timetable, every day, every time it happens)')
+    cooldown_minutes = models.PositiveIntegerField(default=60)
+    status = models.CharField(max_length=10, choices=STATUS, default='waiting', db_index=True)
+    next_at = models.DateTimeField(null=True, blank=True, db_index=True, help_text='When it is next due / its window opens')
+    expires_at = models.DateTimeField(null=True, blank=True, help_text='Give up after this (empty = no limit)')
+    state = models.JSONField(default=dict, blank=True)
+    log = models.JSONField(default=list, blank=True, help_text='The latest things it did, newest last')
+    runs = models.PositiveIntegerField(default=0)
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    last_result = models.CharField(max_length=500, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['status', 'next_at', '-id']
+        indexes = [models.Index(fields=['business', 'status'], name='fitmission_biz_status_idx')]
+
+    def __str__(self):
+        return self.name

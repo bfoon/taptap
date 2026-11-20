@@ -41,6 +41,7 @@ class FitContext:
     conversation: object = None
     role_label: str = ''
     cards: dict = field(default_factory=dict)       # filled by tools: actions, tests, links
+    read_only: bool = False                         # a mission asking Fit at its moment: look only, never propose
 
     def can(self, need):
         return not need or any(p in self.perms for p in need)
@@ -660,6 +661,21 @@ def t_monitor_test(ctx, monitor_id):
     return {'monitor': m.name, 'dry_run': dry_run(m), 'note': 'Nothing was sent or changed.'}
 
 
+def t_missions(ctx, include_finished=False):
+    from .fit_missions import as_json
+    from .models_fit import FitMission
+    qs = FitMission.objects.filter(business=ctx.business).select_related('created_by')
+    if not include_finished:
+        qs = qs.filter(status__in=('waiting', 'paused'))
+    rows = []
+    for m in qs.order_by('-id')[:25]:
+        j = as_json(m)
+        j['log'] = j['log'][:4]
+        rows.append(j)
+    return {'missions': rows, 'page': '/fit/missions/',
+            'hint': 'To change one offer propose_action kind=pause_mission / resume_mission / cancel_mission with mission_id.'}
+
+
 # ─────────────────────────────── registry ───────────────────────────────
 
 def t_taptap_only(ctx):
@@ -743,6 +759,9 @@ TOOLS = {
                              'days': {'type': 'integer'}, 'hours': {'type': 'integer'}, 'router': S}, 'required': ['source']}},
                                'refresh_seconds': {'type': 'integer'}, 'dashboard_id': {'type': 'integer'}}, ['title', 'widgets'])),
     'dashboards': (None, t_dashboards, 'The saved live dashboards of this business.', _obj({})),
+    'missions': (None, t_missions, 'The missions of this business (jobs Fit does later by itself: at a time, on a timetable, '
+                 'at a quiet moment or when something happens), with their next time, what they do, who they tell and '
+                 'their latest log.', _obj({'include_finished': {'type': 'boolean'}})),
     'count_vouchers': (VOUCHER_PERMS, t_count_vouchers,
                        'How many vouchers/members match a filter (state, plan, batch, router, agent, codes, dates): totals by '
                        'state, online now, members, by router and plan, sample codes, and whether this person may change them '
@@ -811,8 +830,58 @@ def propose_spec(ctx):
         'values': {'type': 'array', 'description': 'router_change add/set: [{"field":"max-limit","value":"5M/5M"}]',
                    'items': {'type': 'object', 'properties': {'field': S, 'value': S}}},
         'task': {'type': 'string', 'enum': list(_router_tasks()), 'description': 'router_task: reboot · flush_dns · sync_clock'},
+        **(_mission_props() if 'create_mission' in kinds else {}),
         **(_bulk_props() if 'bulk_vouchers' in kinds else {}),
     }, ['kind'])
+
+
+def _mission_props():
+    from .fit_missions import CONDITIONS, REPORTS
+    return {
+        'trigger': {'type': 'string', 'enum': ['at', 'repeat', 'quiet', 'when'],
+                    'description': 'create_mission WHEN: at = one moment (at / in_minutes) · repeat = timetable (repeat, time, '
+                                   'weekdays, month_day) · quiet = the quietest moment of a window (window_from, window_to, '
+                                   'router, max_online, otherwise, daily) · when = a condition (condition, value, router, plan, '
+                                   'code, for_minutes, every_time, window_from/window_to)'},
+        'at': {**S, 'description': 'create_mission trigger=at: "HH:MM" (next time it comes) or "YYYY-MM-DD HH:MM", local time'},
+        'in_minutes': {'type': 'integer', 'description': 'create_mission trigger=at: run this many minutes from now'},
+        'repeat': {'type': 'string', 'enum': ['daily', 'weekly', 'monthly'], 'description': 'create_mission trigger=repeat'},
+        'time': {**S, 'description': 'create_mission trigger=repeat: HH:MM'},
+        'weekdays': {**S, 'description': 'create_mission repeat=weekly: e.g. "mon,wed,fri" or "weekdays"'},
+        'month_day': {'type': 'integer', 'description': 'create_mission repeat=monthly: 1-31'},
+        'window_from': {**S, 'description': 'create_mission quiet (or when): window start HH:MM'},
+        'window_to': {**S, 'description': 'create_mission quiet (or when): window end HH:MM (may be after midnight)'},
+        'max_online': {'type': 'integer', 'description': 'create_mission quiet: go as soon as at most this many people are online '
+                                                         '(empty = the quietest moment of the window)'},
+        'otherwise': {'type': 'string', 'enum': ['run', 'skip'], 'description': 'create_mission quiet with max_online: at the end '
+                                                                                'of the window run anyway or skip'},
+        'daily': {'type': 'boolean', 'description': 'create_mission quiet: every day (default once)'},
+        'condition': {'type': 'string', 'enum': list(CONDITIONS),
+                      'description': 'create_mission trigger=when: ' + '; '.join(f'{k} = {v[0]} ({v[1]})' for k, v in CONDITIONS.items())},
+        'value': {'type': 'number', 'description': 'create_mission condition: the number (people, CPU %, money, stock, reports)'},
+        'for_minutes': {'type': 'integer', 'description': 'create_mission condition: true for this long first'},
+        'every_time': {'type': 'boolean', 'description': 'create_mission condition: every time it happens again (default once)'},
+        'mission_task': {'type': 'string', 'enum': ['notify', 'restart_router', 'shutdown_router', 'action', 'report', 'ask_fit'],
+                         'description': 'create_mission DO: notify (message) · restart_router / shutdown_router (router; shutdown '
+                                        'needs understood=true) · action (action_kind + action_args: any propose_action change) · '
+                                        'report (report) · ask_fit (question answered then, read-only)'},
+        'action_kind': {**S, 'description': 'create_mission mission_task=action: the propose_action kind to do then'},
+        'action_args': {'type': 'object', 'description': 'create_mission mission_task=action: the arguments that kind takes, '
+                                                         'e.g. {"code": "AB12", "minutes": 60} or {"operation": "disable", "state": "frozen"}'},
+        'report': {'type': 'string', 'enum': list(REPORTS), 'description': 'create_mission mission_task=report: ' +
+                   '; '.join(f'{k} = {v[1]}' for k, v in REPORTS.items())},
+        'question': {**S, 'description': 'create_mission mission_task=ask_fit: what Fit looks into at that moment'},
+        'understood': {'type': 'boolean', 'description': 'create_mission shutdown_router: the person understands it stays OFF'},
+        'tell_me': {'type': 'boolean', 'description': 'create_mission TELL: bell + phone push to this person (default true)'},
+        'tell_team': {'type': 'boolean', 'description': 'create_mission TELL: bell for the whole team'},
+        'chat_team': {'type': 'boolean', 'description': 'create_mission TELL: a note in the team chat room'},
+        'email_to': {**S, 'description': 'create_mission TELL: comma-separated: "me", team member names or emails (outside '
+                                         'addresses: Owner/Admin only)'},
+        'email_me': {'type': 'boolean', 'description': 'create_mission TELL: also email this person'},
+        'before_minutes': {'type': 'integer', 'description': 'create_mission TELL: heads-up this many minutes before a timed run'},
+        'until': {**S, 'description': 'create_mission: give up after this time (YYYY-MM-DD HH:MM)'},
+        'mission_id': {'type': 'integer', 'description': 'pause_mission / resume_mission / cancel_mission'},
+    }
 
 
 def _bulk_props():
@@ -845,13 +914,14 @@ def specs(ctx):
         if ctx.can(need):
             out.append({'type': 'function', 'function': {'name': name, 'description': desc, 'parameters': schema}})
     from .fit_actions import kinds_for
-    if kinds_for(ctx.perms):
+    if kinds_for(ctx.perms) and not getattr(ctx, 'read_only', False):
         out.append({'type': 'function', 'function': {
             'name': 'propose_action',
             'description': 'Offer a change for the person to approve (freeze/unfreeze/warn/disable/enable a voucher, add_time, '
                            'reduce_time, reset_devices, block_device, unblock_device, disconnect_session, resolve_report, '
                            'track_voucher, send_chat, free_idle_slot, create_monitor, pause_monitor, resume_monitor, '
-                           'delete_monitor, sync, put_on_router, router_change, router_task, and — Owner/Admin only — bulk_vouchers for many '
+                           'delete_monitor, sync, put_on_router, router_change, router_task, create_mission / pause_mission / '
+                           'resume_mission / cancel_mission (a job Fit does LATER by itself), and — Owner/Admin only — bulk_vouchers for many '
                            'vouchers at once). It is NOT carried out: a card with “Take action” appears.',
             'parameters': propose_spec(ctx)}})
     return out
@@ -863,6 +933,8 @@ MAX_RESULT = 4500
 def call(ctx, name, args):
     """Run one tool for the model. Always returns a JSON string (errors included) — never raises."""
     try:
+        if name == 'propose_action' and getattr(ctx, 'read_only', False):
+            raise ToolError('This is a scheduled mission: you can only look now, not propose changes.')
         if name == 'propose_action':
             args = dict(args or {})
             res = t_propose(ctx, args.pop('kind', ''), **{k: v for k, v in args.items() if v not in (None, '')})

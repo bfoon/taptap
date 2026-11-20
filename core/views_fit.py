@@ -368,3 +368,110 @@ def fit_chart_data(request):
         return JsonResponse({'ok': True, **fit_charts.data(ctx, spec)})
     except (fit_charts.ChartError, ValueError) as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
+
+# ─────────────────────────────── Missions (core/fit_missions.py) ───────────────────────────────
+
+def _may_change_mission(request, m):
+    """The person who set it, or the Owner / an Admin."""
+    from .fit_bulk import ADMIN_PERM
+    return m.created_by_id == request.user.pk or ADMIN_PERM in _perms(request)
+
+
+def _missions_json(request, b):
+    from . import fit_missions as fm
+    from .models_fit import FitMission
+    s = _settings(b)
+    rows = []
+    for m in FitMission.objects.filter(business=b).select_related('created_by').order_by('-id')[:60]:
+        j = fm.as_json(m)
+        j['can_change'] = _may_change_mission(request, m)
+        rows.append(j)
+    order = {'waiting': 0, 'paused': 1}
+    rows.sort(key=lambda r: (order.get(r['status'], 2), r['next_at'] or '9999') if r['status'] in order else (2, ''))
+    return {'ok': True, 'missions': rows, 'allowed': s.allows('missions'), 'enabled': s.enabled,
+            'conditions': [{'key': k, 'label': v[0], 'needs': v[1]} for k, v in fm.CONDITIONS.items()],
+            'reports': [{'key': k, 'label': v[0], 'help': v[1]} for k, v in fm.REPORTS.items()]}
+
+
+@login_required
+def fit_missions_page(request):
+    """Missions: what Fit will do later by itself — list, set one (the same checks as Fit's card), pause, cancel, run now."""
+    from django.contrib import messages
+    from django.shortcuts import redirect, render
+    from . import fit_missions as fm
+    b = _biz(request)
+    if request.method == 'POST':
+        data = {k: v for k, v in request.POST.items() if k != 'csrfmiddlewaretoken' and v not in ('', None)}
+        for flag in ('tell_me', 'tell_team', 'chat_team', 'email_me', 'daily', 'every_time', 'understood'):
+            data[flag] = flag in request.POST
+        if data.get('mission_task') == 'action':
+            data['action_args'] = request.POST.get('action_args') or '{}'
+        perms = _perms(request)
+        try:
+            _, fields, *_ = fm.build(b, request.user, perms, data)
+            m = fm.create(b, request.user, fields)
+            msg = f'Mission #{m.pk} “{m.name}” is set: {fm.describe_when(m)}.'
+            if not _settings(b).allows('missions'):
+                msg += ' Note: the owner must switch on “Missions” in Fit settings, or it fails when its moment comes.'
+            from .utils import log
+            log(b, 'Fit mission', msg)
+            messages.success(request, msg)
+        except fm.MissionError as exc:
+            messages.error(request, str(exc))
+        return redirect('fit_missions_page')
+    data = _missions_json(request, b)
+    plans = sorted(b.plans.values_list('name', flat=True))
+    return render(request, 'core/fit_missions.html', {
+        'missions': data['missions'], 'allowed': data['allowed'], 'conditions': data['conditions'], 'reports': data['reports'],
+        'routers': b.routers.order_by('name'), 'plans': plans, 'can_manage_settings': _can_manage(request),
+        'team': [u for u in [b.user] + [m.user for m in b.team.filter(is_active=True).select_related('user')] if u.email]})
+
+
+@login_required
+@require_GET
+def fit_missions_data(request):
+    """The phone app's Missions list."""
+    return JsonResponse(_missions_json(request, _biz(request)))
+
+
+@login_required
+@require_POST
+def fit_mission_op(request, pk):
+    """pause · resume · cancel · run — from the page (form) or the app (JSON)."""
+    from django.contrib import messages
+    from django.shortcuts import redirect
+    from . import fit_missions as fm
+    from .models_fit import FitMission
+    b = _biz(request)
+    m = get_object_or_404(FitMission.objects.select_related('created_by', 'business'), business=b, pk=pk)
+    is_json = (request.content_type or '').startswith('application/json')
+    op = (_body(request).get('op') if is_json else request.POST.get('op')) or ''
+    ok, msg = True, ''
+    if not _may_change_mission(request, m):
+        ok, msg = False, 'Only the person who set this mission, the Owner or an Admin can change it.'
+    else:
+        try:
+            if op == 'pause':
+                fm.pause(m, request.user)
+                msg = f'“{m.name}” paused.'
+            elif op == 'resume':
+                fm.resume(m, request.user)
+                msg = f'“{m.name}” is waiting again.'
+            elif op == 'cancel':
+                fm.cancel(m, request.user)
+                msg = f'“{m.name}” cancelled.'
+            elif op == 'run':
+                ok, result = fm.run_now(m, request.user)
+                msg = f'“{m.name}”: {result}'
+            else:
+                ok, msg = False, 'Choose pause, resume, cancel or run.'
+        except fm.MissionError as exc:
+            ok, msg = False, str(exc)
+    if is_json:
+        m.refresh_from_db()
+        j = fm.as_json(m)
+        j['can_change'] = _may_change_mission(request, m)
+        return JsonResponse({'ok': ok, 'message': msg, 'mission': j}, status=200 if ok else 400)
+    (messages.success if ok else messages.error)(request, msg)
+    return redirect('fit_missions_page')

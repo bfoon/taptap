@@ -9,15 +9,18 @@ import '../app/format.dart';
 import '../app/state.dart';
 import '../calls/call_engine.dart';
 import '../calls/call_screen.dart';
+import '../data/photo_store.dart';
 import '../data/store.dart';
 import '../data/sync_engine.dart';
 import '../data/voice_store.dart';
 import '../push/push.dart';
 import '../widgets/common.dart';
+import 'missions_screen.dart';
 import 'notifications_screen.dart';
 import 'quick_sell.dart';
 import 'router_schedules_screen.dart';
 import 'routers_screen.dart';
+import 'saved_photos_screen.dart';
 import 'saved_voice_screen.dart';
 
 class MoreScreen extends StatefulWidget {
@@ -300,6 +303,27 @@ class _MoreScreenState extends State<MoreScreen> {
                     onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SavedVoiceScreen())),
                   );
                 },
+              ),
+              ValueListenableBuilder<int>(
+                valueListenable: PhotoStore.I.changes,
+                builder: (_, __, ___) {
+                  unawaited(PhotoStore.I.ready);
+                  final n = PhotoStore.I.count;
+                  return ListTile(
+                    leading: const Icon(Icons.photo_library_outlined),
+                    title: const Text('Photos on this phone'),
+                    subtitle: Text(n == 0 ? 'Chat photos are kept here until their normal time' : '$n kept · each deleted at its normal time'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SavedPhotosScreen())),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.track_changes),
+                title: const Text('Fit missions'),
+                subtitle: const Text('What Fit will do later by itself — set them by asking Fit'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MissionsScreen())),
               ),
               ListTile(
                 leading: Icon(Push.ready && app.me?['push'] == true ? Icons.notifications_active : Icons.notifications_off),

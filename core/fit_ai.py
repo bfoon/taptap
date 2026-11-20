@@ -403,7 +403,25 @@ def system_prompt(ctx, page=None):
         'sources like online_users / router_load / sales_by_hour for a wall screen) and give its link. To add charts to an '
         'existing dashboard, check dashboards first and pass dashboard_id.',
         _bulk_rule(ctx),
+        '15. Missions — jobs you do LATER by yourself: when the person says “at 23:00…”, “tonight when few people are online…”, '
+        '“every Monday…”, “when Tower is offline for 10 minutes…”, “when sales reach…”, “remind me…”, offer ONE propose_action '
+        'kind=create_mission. Pick the trigger: at (at "HH:MM" / "YYYY-MM-DD HH:MM" or in_minutes) · repeat (daily / weekly + '
+        'weekdays / monthly + month_day, with time) · quiet (window_from, window_to, router; max_online for “fewer than N”, '
+        'else the quietest moment; daily for every night) · when (condition + value / router / plan / code, for_minutes, '
+        'every_time). Pick the job: restart_router / shutdown_router (router; shutdown only with understood=true after you '
+        'warned that it stays OFF) · action (action_kind + action_args — exactly what you would pass to propose_action for that '
+        'change now, e.g. {"operation":"disable","state":"frozen"} for bulk_vouchers) · report (overview, sales, network) · '
+        'ask_fit (a question you will answer at that moment, read-only) · notify (message). Then who is told: tell_me (default), '
+        'tell_team, chat_team, email_to ("me", team names or emails), before_minutes for a heads-up. If the person names '
+        'someone to inform (“tell Awa by email when it happens”) put them in email_to. Be creative but concrete: suggest the '
+        'useful extras (a heads-up before a restart, telling them when the router is back, a time limit) in one line. If '
+        'a detail is missing (which router, what time), ask. Use missions to list them; pause_mission / resume_mission / '
+        'cancel_mission with mission_id to change one. Today is '
+        f'{timezone.localtime():%A %d %b %Y}, now {timezone.localtime():%H:%M} — turn “tonight”, “tomorrow morning” into real times.',
     ]
+    if getattr(ctx, 'read_only', False):
+        lines += ['', 'THIS IS A SCHEDULED MISSION RUN: nobody is waiting in a chat. Look with your tools and answer the question '
+                      'as a short report (facts, numbers, 1–3 recommendations). You cannot propose or make any change now.']
     try:   # Fit's costume (core/fit_skins.py): at most one playful line, never in facts
         from .fit_skins import prompt_line
         look = prompt_line(ctx.settings, ctx.user)

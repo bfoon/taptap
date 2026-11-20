@@ -1,0 +1,112 @@
+{% extends 'core/base.html' %}
+{% block title %}Missions — TapTap{% endblock %}{% block heading %}Missions{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+  <div><h2 class="section-title mb-1">🎯 Missions — Fit does it later, by itself</h2>
+    <p class="text-secondary m-0">A mission waits for its moment — a time, a timetable, the quietest moment of the night, or something that happens —
+      then does its job and tells the people you chose. Easiest: just ask Fit, e.g.
+      <i>“Tonight between 01:00 and 05:00, restart Mast when fewer than 3 people are online, and email Awa when it is back.”</i></p></div>
+  <div class="d-flex gap-2"><a class="btn btn-outline-secondary" href="{% url 'fit_monitors_page' %}"><i class="bi bi-eye"></i> Monitors</a></div>
+</div>
+{% if messages %}{% for m in messages %}<div class="alert alert-{% if m.tags == 'error' %}danger{% elif m.tags == 'success' %}success{% else %}info{% endif %} py-2 small">{{ m }}</div>{% endfor %}{% endif %}
+{% if not allowed %}<div class="alert alert-warning py-2 small"><b>Missions are not switched on.</b> You can set them, but they only run once the owner allows
+  <b>Missions</b> in Fit settings (open Fit → ⚙). A mission that changes something also needs that change's own group (e.g. <i>Router control</i> for a restart).</div>{% endif %}
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <section class="panel">
+      <h3 class="h6 fw-bold mb-2">Missions</h3>
+      {% for m in missions %}
+      <div class="border-bottom py-2 {% if m.status != 'waiting' and m.status != 'paused' %}opacity-75{% endif %}">
+        <div class="d-flex gap-3 align-items-start">
+          <span class="fs-4">{% if m.task == 'restart_router' %}🔄{% elif m.task == 'shutdown_router' %}⏻{% elif m.task == 'report' %}📊{% elif m.task == 'ask_fit' %}🤖{% elif m.task == 'action' %}⚙️{% else %}🔔{% endif %}</span>
+          <div class="flex-grow-1">
+            <b>#{{ m.id }} {{ m.name }}</b>
+            <span class="badge {% if m.status == 'waiting' %}text-bg-primary{% elif m.status == 'done' %}text-bg-success{% elif m.status == 'paused' %}text-bg-secondary{% elif m.status == 'failed' or m.status == 'missed' %}text-bg-danger{% else %}text-bg-light{% endif %}">{{ m.status_label }}</span>
+            {% if m.repeat %}<span class="badge text-bg-light">repeats</span>{% endif %}
+            {% if m.following %}<span class="badge text-bg-info">watching the router come back</span>{% endif %}
+            <small class="d-block"><b>When</b> {{ m.when_text }}</small>
+            <small class="d-block"><b>Then</b> {{ m.task_text }}</small>
+            <small class="d-block text-secondary"><b>Tells</b> {{ m.tell_text }}</small>
+            <small class="text-secondary">{% if m.status == 'waiting' and m.next_at and m.trigger != 'when' %}next: <span data-iso="{{ m.next_at }}"></span> · {% endif %}{% if m.now %}now: {{ m.now }} · {% endif %}{{ m.runs }} run{{ m.runs|pluralize }}{% if m.expires_at %} · until <span data-iso="{{ m.expires_at }}"></span>{% endif %} · by {{ m.by|default:"—" }}</small>
+            {% if m.last_result %}<div class="small mt-1">→ {{ m.last_result }}</div>{% endif %}
+            {% if m.log %}<details class="small mt-1"><summary class="text-secondary">Log</summary>
+              <ul class="list-unstyled mb-0 mt-1">{% for e in m.log %}<li class="{% if not e.ok %}text-danger{% endif %}"><span class="text-secondary" data-iso="{{ e.at }}"></span> {{ e.text }}</li>{% endfor %}</ul></details>{% endif %}
+          </div>
+          {% if m.can_change and m.status == 'waiting' or m.can_change and m.status == 'paused' %}
+          <form method="post" action="{% url 'fit_mission_op' m.id %}" class="d-flex gap-1 flex-wrap justify-content-end">{% csrf_token %}
+            <button class="btn btn-sm btn-outline-primary" name="op" value="run" title="Do it now" onclick="return confirm('Do this mission now?')"><i class="bi bi-lightning"></i></button>
+            {% if m.status == 'waiting' %}<button class="btn btn-sm btn-outline-secondary" name="op" value="pause" title="Pause"><i class="bi bi-pause"></i></button>
+            {% else %}<button class="btn btn-sm btn-outline-success" name="op" value="resume" title="Resume"><i class="bi bi-play"></i></button>{% endif %}
+            <button class="btn btn-sm btn-outline-danger" name="op" value="cancel" title="Cancel" onclick="return confirm('Cancel this mission?')"><i class="bi bi-x-lg"></i></button>
+          </form>{% endif %}
+        </div>
+      </div>
+      {% empty %}<p class="text-secondary small mb-0">No missions yet. Ask Fit, or set one on the right.</p>{% endfor %}
+    </section>
+  </div>
+
+  <div class="col-lg-5">
+    <section class="panel">
+      <h3 class="h6 fw-bold mb-2">Set a mission</h3>
+      <form method="post" class="row g-2 small" id="misForm">{% csrf_token %}
+        <div class="col-12"><label class="form-label fw-semibold">Name</label><input class="form-control form-control-sm" name="name" maxlength="120" placeholder="optional"></div>
+        <div class="col-12"><label class="form-label fw-semibold">When</label>
+          <select class="form-select form-select-sm" name="trigger" id="misTrigger">
+            <option value="at">At a time</option><option value="repeat">On a timetable</option>
+            <option value="quiet">At the quietest moment of a window</option><option value="when">When something happens</option></select></div>
+        <div class="col-12" data-for="at"><input class="form-control form-control-sm" type="datetime-local" name="at"></div>
+        <div class="col-6" data-for="repeat"><select class="form-select form-select-sm" name="repeat"><option value="daily">Every day</option><option value="weekly">Every week</option><option value="monthly">Every month</option></select></div>
+        <div class="col-6" data-for="repeat"><input class="form-control form-control-sm" type="time" name="time" value="08:00"></div>
+        <div class="col-8" data-for="repeat"><input class="form-control form-control-sm" name="weekdays" placeholder="weekly: mon, wed, fri · weekdays"></div>
+        <div class="col-4" data-for="repeat"><input class="form-control form-control-sm" type="number" min="1" max="31" name="month_day" placeholder="monthly: day"></div>
+        <div class="col-6" data-for="quiet when"><label class="form-label">From</label><input class="form-control form-control-sm" type="time" name="window_from"></div>
+        <div class="col-6" data-for="quiet when"><label class="form-label">To</label><input class="form-control form-control-sm" type="time" name="window_to"></div>
+        <div class="col-6" data-for="quiet"><input class="form-control form-control-sm" type="number" min="0" name="max_online" placeholder="at most N online (empty = quietest)"></div>
+        <div class="col-6" data-for="quiet"><select class="form-select form-select-sm" name="otherwise"><option value="run">never that quiet → run at the end</option><option value="skip">never that quiet → skip</option></select></div>
+        <div class="col-12" data-for="quiet"><label><input class="form-check-input" type="checkbox" name="daily"> Every day</label></div>
+        <div class="col-12" data-for="when"><select class="form-select form-select-sm" name="condition" id="misCond">{% for c in conditions %}<option value="{{ c.key }}" data-needs="{{ c.needs }}">{{ c.label }}</option>{% endfor %}</select><div class="form-text" id="misNeeds"></div></div>
+        <div class="col-4" data-for="when"><input class="form-control form-control-sm" type="number" step="any" name="value" placeholder="number"></div>
+        <div class="col-4" data-for="when"><input class="form-control form-control-sm" type="number" name="for_minutes" placeholder="for min"></div>
+        <div class="col-4" data-for="when"><input class="form-control form-control-sm" name="code" placeholder="code"></div>
+        <div class="col-6" data-for="when"><input class="form-control form-control-sm" name="plan" list="misPlans" placeholder="plan"><datalist id="misPlans">{% for p in plans %}<option value="{{ p }}">{% endfor %}</datalist></div>
+        <div class="col-6" data-for="when"><label><input class="form-check-input" type="checkbox" name="every_time"> Every time it happens</label></div>
+        <div class="col-12"><label class="form-label fw-semibold">Router</label><select class="form-select form-select-sm" name="router"><option value="">All routers / not needed</option>{% for r in routers %}<option value="{{ r.pk }}">{{ r.name }}</option>{% endfor %}</select></div>
+        <div class="col-12"><label class="form-label fw-semibold">Then</label>
+          <select class="form-select form-select-sm" name="mission_task" id="misTask">
+            <option value="notify">Tell people (a message)</option><option value="restart_router">Restart the router</option>
+            <option value="shutdown_router">Shut the router down (power off)</option><option value="report">Send a report</option>
+            <option value="ask_fit">Ask Fit and send the answer</option><option value="action">A Fit change (advanced)</option></select></div>
+        <div class="col-12" data-task="notify"><textarea class="form-control form-control-sm" name="message" rows="2" maxlength="600" placeholder="The message"></textarea></div>
+        <div class="col-12" data-task="report"><select class="form-select form-select-sm" name="report">{% for r in reports %}<option value="{{ r.key }}">{{ r.label }} — {{ r.help }}</option>{% endfor %}</select></div>
+        <div class="col-12" data-task="ask_fit"><textarea class="form-control form-control-sm" name="question" rows="2" maxlength="800" placeholder="e.g. Which agents sold less this week than last week, and why?"></textarea></div>
+        <div class="col-6" data-task="action"><input class="form-control form-control-sm" name="action_kind" placeholder="kind, e.g. bulk_vouchers"></div>
+        <div class="col-6" data-task="action"><input class="form-control form-control-sm" name="action_args" placeholder='{"operation":"disable","state":"frozen"}'></div>
+        <div class="col-12" data-task="shutdown_router"><label class="text-danger"><input class="form-check-input" type="checkbox" name="understood"> I understand the router stays OFF until someone powers it on</label></div>
+        <div class="col-12"><label class="form-label fw-semibold">Tell</label>
+          <div class="d-flex flex-wrap gap-3">
+            <label><input class="form-check-input" type="checkbox" name="tell_me" checked> Me</label>
+            <label><input class="form-check-input" type="checkbox" name="tell_team"> The team (bell)</label>
+            <label><input class="form-check-input" type="checkbox" name="chat_team"> Team chat</label>
+            <label><input class="form-check-input" type="checkbox" name="email_me"> Email me</label></div></div>
+        <div class="col-12"><input class="form-control form-control-sm" name="email_to" list="misTeam" placeholder="Also email: team names or addresses, comma-separated"><datalist id="misTeam">{% for u in team %}<option value="{{ u.email }}">{{ u.get_full_name|default:u.email }}</option>{% endfor %}</datalist></div>
+        <div class="col-6"><input class="form-control form-control-sm" type="number" min="0" name="before_minutes" placeholder="heads-up min before"></div>
+        <div class="col-6"><input class="form-control form-control-sm" type="number" min="1" name="hours" placeholder="give up after (hours)"></div>
+        <div class="col-12"><button class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> Set the mission</button></div>
+      </form>
+      <script>(function(){
+        var t=document.getElementById('misTrigger'),k=document.getElementById('misTask'),c=document.getElementById('misCond'),n=document.getElementById('misNeeds');
+        var f=document.getElementById('misForm');
+        function sync(){
+          f.querySelectorAll('[data-for]').forEach(function(el){el.style.display=el.dataset.for.split(' ').indexOf(t.value)>=0?'':'none';});
+          f.querySelectorAll('[data-task]').forEach(function(el){el.style.display=el.dataset.task===k.value?'':'none';});
+          n.textContent='Uses: '+(c.options[c.selectedIndex].dataset.needs||'');
+        }
+        [t,k,c].forEach(function(e){e.addEventListener('change',sync);});sync();
+        f.addEventListener('submit',function(){var a=f.querySelector('[name=at]');if(a&&a.value)a.value=a.value.replace('T',' ');});
+        document.querySelectorAll('[data-iso]').forEach(function(el){var d=new Date(el.dataset.iso);if(!isNaN(d))el.textContent=d.toLocaleString([], {weekday:'short',day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});});
+      })();</script>
+    </section>
+  </div>
+</div>
+{% endblock %}

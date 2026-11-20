@@ -1,0 +1,11 @@
+{{ business.business_name }} · Fit mission “{{ mission }}”{% if by %} (set by {{ by }}){% endif %}
+
+{{ subject }}
+
+{% if name %}Hello {{ name }},
+
+{% endif %}{{ body }}
+{% if link %}
+Open the missions: {{ link }}{% endif %}
+
+You get this email because a TapTap mission of {{ business.business_name }} names you. Ask {{ by|default:"the business owner" }} to take you off it.

@@ -318,6 +318,13 @@ def router_schedules_task():
 
 
 @shared_task(ignore_result=True)
+def fit_missions_task():
+    """Every minute: Fit missions — heads-ups, due jobs, quiet moments, conditions, and "the router is back" (core/fit_missions.py)."""
+    from .fit_missions import tick
+    return tick()
+
+
+@shared_task(ignore_result=True)
 def investor_tick():
     """Investors: book finished days of earnings, then send the daily summaries that are due (core/investors.py)."""
     from .investors import tick
