@@ -1,6 +1,6 @@
-# TapTap update: Fit missions, photos kept on the phone, dates in chat
+# TapTap update: Fit missions, Fit email, Fit tables & workspace, photos kept on the phone, dates in chat
 
-**Migration 0127** (one new table). No new Python or app packages. Built on master **d885bd5**. The zip holds the
+**Migrations 0127 and 0128** (two new tables). No new Python or app packages. Built on master **d885bd5**. The zip holds the
 **complete files** that change, in their folders.
 
 ## 1. Fit missions — jobs Fit does later, by itself
@@ -61,6 +61,56 @@ The email has its own small template (`core/email/fit_mission.html`), not the bu
 
 A new Celery beat job runs every minute: `taptap-fit-missions` (`core.tasks.fit_missions_task`).
 
+## 1b. "Send it to my email" — Fit emails now
+
+Fit used to answer *"I don't have an email tool"*. Now it offers a **send_email** card: it writes the subject and the
+text itself (the summary it just gave, the numbers, the next steps), and the card shows **To**, **Subject** and the
+**Text** before anything is sent. Press *Take action* and it goes out.
+
+* To: **me** (the default), team members by name, or — Owner/Admin only — any address.
+* Fit's markdown is made plain for the email (bold removed, `[Open routers](/routers/)` becomes
+  *Open routers (https://taptapnetwork.com/routers/)*, using `SITE_URL`).
+* New group in Fit settings: **Email**. The owner switches it on, like every other group.
+* Later or every day / week: Fit uses a mission instead (*"email me this summary every evening at 21:00"*).
+
+## 1c. Fit tables, custom filters and the Fit workspace
+
+Ask Fit for a table — *"make a table of vouchers older than a month"*, *"frozen members on Tower"*, *"this month's sales
+of Lamin, biggest first"*, *"routers that are offline"* — and it builds a **saved, filtered table**:
+
+* **In the chat** it shows as a card: title, how many rows, the filters (*Older than 30 days · State: unused*), summary
+  chips and the first rows. **Click the card** to open the table.
+* **Its own page** `/fit/tables/<id>/`:
+  * sort by clicking any column header
+  * **Filters** panel: change any filter live (state, plan, batch, router, agent, members, age, end date, search…)
+  * **Columns** picker (18 voucher columns: price, batch, agent, age in days, devices, customer, serial…)
+  * **summary chips** that narrow the table when clicked (*Frozen 12*, *Daily 40*, *Total D12,400*)
+  * click a row to open the voucher (or the router)
+  * **CSV** download (opens in Excel)
+  * **Save these filters**, **Save as new**, **📌 Pin to workspace**, share with the team / make private, delete
+  * **Ask Fit about it** — Fit reads the table and tells you what stands out
+* **Always live:** a table keeps the question, never a copy. Each time it opens it runs again, and relative filters
+  stay relative (*older than 30 days* is always counted from today).
+* **Sources:** vouchers & members, sales, routers, customer reports.
+* **Privacy:** a table opens with the rights of the **viewer**. Someone who cannot see sales never sees a sales table,
+  even one the owner shared. A private table is only for its maker. Only the maker, the Owner or an Admin can change
+  one; anyone who can see it can *Save as new*.
+
+**Fit workspace — one click to everything Fit built:**
+
+* A new **workspace button** (⊞) in Fit's header opens a view inside the Fit panel: Tables · Dashboards · Missions ·
+  Monitors as four buttons, your tables and dashboards as clickable rows, waiting missions, and one-tap ideas
+  (*Vouchers older than a month*, *Frozen & warned*, *Members ending this week*, *Sales this month*, *Offline routers*,
+  *A live dashboard*, *Something else…*).
+* A full page `/fit/workspace/` with the same, linked from every table.
+* Any page can open Fit with a question (`data-fit-ask="…"`), as the idea buttons do.
+* Fit's new tools: `create_table` (also to change one, with `table_id`), `tables`, `table_data`. Fit suggests the next
+  step in one line: a dashboard, a weekly email mission, or a group change on exactly those vouchers.
+
+**Phone app:** a ⊞ button on the Fit screen opens the workspace. Tables open **in the app**: sortable columns, chips to
+narrow, search, pages, and a tap on a voucher opens the voucher. Dashboards open in the browser. A table card in
+Fit's chat opens the table, and a dashboard card opens the dashboard. Ideas picked in the workspace are asked to Fit.
+
 ## 2. Chat photos kept on the phone until their normal time (app 1.8.0)
 
 * Every photo sent in chat is **downloaded into the app's own private storage** as soon as it arrives while the app
@@ -90,11 +140,13 @@ Also fixed on the phone: Fit cards with facts (group changes, missions) showed t
     cd /opt/taptap
     unzip -o ~/taptap-fit-missions-photos.zip -d /tmp && cp -r /tmp/taptap/. /opt/taptap/
     docker compose build web worker vouchers live
-    docker compose run --rm web python manage.py migrate core
+    docker compose run --rm web python manage.py migrate core      # 0127 missions, 0128 tables
     docker compose up -d --force-recreate web worker vouchers live
 
-Celery beat picks up the new job when its container is recreated above. Then, as the owner: open Fit → ⚙ settings →
-switch on **Missions** (and **Router control** if missions should restart routers).
+Celery beat picks up the new job when its container is recreated above. Reload TapTap with **Ctrl+F5** (new
+`fit.js?v=tables1`, `fit.css?v=tables1`). Then, as the owner: open Fit → ⚙ settings →
+switch on **Email** and **Missions** (and **Router control** if missions should restart routers). Emails need the
+server's mail settings (`EMAIL_HOST`…) and `SITE_URL`, as for the notification emails.
 
 ## Phone app (1.8.0)
 
@@ -105,25 +157,33 @@ GitHub build (`flutter analyze`, `flutter test`, APK) is the real test.
 
 ## Tests
 
-    python manage.py test core.tests.test_fit_missions
+    python manage.py test core.tests.test_fit_missions core.tests.test_fit_tables
 
-`test_fit_missions` (16 tests): building from what the person said (relative times made real, same mission on
+`test_fit_missions` (17 tests): building from what the person said (relative times made real, same mission on
 re-check, past times / unknown conditions / un-understood shutdown refused); outside emails only for Owner/Admin;
 restart needs the network right; heads-up once, then email + team chat; missed after downtime; timetable goes on;
 quiet restart at ≤ N online with the router-back email; skip when never that quiet; quietest moment without a number,
 every day; condition every time (not twice for one outage, again after it was fine); stock condition; rights and owner
 switches checked at run time; a Fit change run by a mission (and refused when its group is off); propose + approve
 through Fit, the `missions` tool, read-only Fit cannot propose; the minute tick; the page and the app API (create,
-pause, resume, someone else refused, run now).
+pause, resume, someone else refused, run now); send_email: nothing sent before approval, refused until the owner allows
+Email, then sent to me + Lamin with the markdown made plain, outside address refused for a team member.
 
-Full suite: 874 tests. The only failures are the same 38 that fail on master (they need a Redis cache this workspace
+`test_fit_tables` (4 tests): Fit builds "old unused vouchers" (relative filter kept, oldest first, card with link and
+filter words, a bad plan explained); the page with live filters, sort, chips, columns, CSV, save, pin, the phone's JSON
+and the workspace; a sales table with a minimum amount, refused to a role without sales rights, a private table
+refused to others; an offline-routers table.
+
+Full suite: 879 tests. The only failures are the same 38 that fail on master (they need a Redis cache this workspace
 does not have).
 
 ## Files
 
-New: `core/fit_missions.py`, `core/migrations/0127_fit_missions.py`, `core/tests/test_fit_missions.py`,
+New: `core/fit_missions.py`, `core/fit_tables.py`, `core/migrations/0127_fit_missions.py`, `core/migrations/0128_fit_tables.py`,
+`core/tests/test_fit_missions.py`, `core/tests/test_fit_tables.py`, `templates/core/fit_workspace.html`, `templates/core/fit_table.html`,
+`mobile/lib/screens/fit_workspace_screen.dart`,
 `templates/core/fit_missions.html`, `templates/core/email/fit_mission.{html,txt}`, `mobile/lib/data/photo_store.dart`,
 `mobile/lib/screens/{chat_photo,saved_photos_screen,missions_screen}.dart`
 Changed: `config/settings.py`, `core/{features,fit_actions,fit_ai,fit_tools,models,models_fit,permissions,tasks,urls,views_fit}.py`,
-`templates/core/fit_monitors.html`, `mobile/lib/app/{api,format,state}.dart`,
+`templates/core/{base,fit_monitors}.html`, `static/js/fit.js`, `static/css/fit.css`, `mobile/lib/app/{api,format,state}.dart`,
 `mobile/lib/screens/{chat_screens,more_screen,fit_screen}.dart`, `mobile/pubspec.yaml`

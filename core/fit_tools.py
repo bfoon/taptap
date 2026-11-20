@@ -661,6 +661,64 @@ def t_monitor_test(ctx, monitor_id):
     return {'monitor': m.name, 'dry_run': dry_run(m), 'note': 'Nothing was sent or changed.'}
 
 
+def t_create_table(ctx, source, title='', filters=None, columns=None, sort_by='', sort_dir='', private=False, table_id=None):
+    """Save (or change) a filtered table; it shows as a clickable card in the chat and has its own page."""
+    from . import fit_tables as ft
+    from .models_fit import FitTable
+    if source not in ft.SOURCES:
+        raise ToolError('source is one of: ' + ', '.join(ft.SOURCES))
+    if not ft.can(ctx.perms, source):
+        raise ToolError(f'Your role cannot see {ft.SOURCES[source]["label"].lower()}.')
+    if isinstance(filters, str):
+        try:
+            filters = json.loads(filters or '{}')
+        except ValueError:
+            raise ToolError('filters must be an object, e.g. {"older_than_days": 30, "state": "unused"}.')
+    try:
+        f = ft.clean_filters(ctx.business, source, filters or {})
+    except ft.TableError as exc:
+        raise ToolError(str(exc))
+    cols = ft.clean_columns(source, columns)
+    srt = ft.clean_sort(source, sort_by, sort_dir)
+    if table_id:
+        t = FitTable.objects.filter(business=ctx.business, pk=table_id).first()
+        if t is None:
+            raise ToolError('There is no such table in this business.')
+        if t.created_by_id not in (None, ctx.user.pk) and 'fit.admin' not in ctx.perms:
+            raise ToolError('Only the person who made this table (or the Owner / an Admin) can change it. Make a new one instead.')
+        t.source, t.filters, t.columns, t.sort = source, f, cols, srt
+        if title:
+            t.title = str(title)[:120]
+        t.save()
+    else:
+        t = FitTable.objects.create(business=ctx.business, created_by=ctx.user, title=str(title or ft.SOURCES[source]['label'])[:120],
+                                    source=source, filters=f, columns=cols, sort=srt, shared=not private)
+    data = ft.run(ctx.business, source, f, cols, srt, per_page=ft.PREVIEW)
+    c = ft.card(t, data)
+    ctx.cards.setdefault('tables', []).append(c)
+    return {'saved': True, 'table_id': t.pk, 'title': t.title, 'rows': data['total'], 'filters': c['filters'],
+            'summary': c['chips'], 'first_rows': [dict(zip(c['columns'], r['cells'])) for r in c['rows'][:4]], 'link': c['link'],
+            'next': f'A clickable card of the table is shown. Say in one or two lines what stands out and give the link as markdown: '
+                    f'[Open {t.title}]({c["link"]}). On its page they can change the filters, sort, pick columns and download CSV.'}
+
+
+def t_tables(ctx):
+    from . import fit_tables as ft
+    return {'tables': [ft.as_json(t, ctx.user) for t in ft.visible(ctx.user, ctx.business, ctx.perms)[:30]], 'page': '/fit/workspace/'}
+
+
+def t_table_data(ctx, table_id, page=1):
+    from . import fit_tables as ft
+    from .models_fit import FitTable
+    t = next((x for x in ft.visible(ctx.user, ctx.business, ctx.perms) if x.pk == int(table_id or 0)), None)
+    if t is None:
+        raise ToolError('There is no such table that this person can see.')
+    d = ft.run(ctx.business, t.source, t.filters, t.columns, t.sort, page=page, per_page=40)
+    heads = [c['label'] for c in d['columns']]
+    return {'title': t.title, 'total': d['total'], 'page': d['page'], 'pages': d['pages'], 'summary': d['chips'],
+            'rows': [dict(zip(heads, r['cells'])) for r in d['rows']], 'link': f'/fit/tables/{t.pk}/'}
+
+
 def t_missions(ctx, include_finished=False):
     from .fit_missions import as_json
     from .models_fit import FitMission
@@ -759,6 +817,28 @@ TOOLS = {
                              'days': {'type': 'integer'}, 'hours': {'type': 'integer'}, 'router': S}, 'required': ['source']}},
                                'refresh_seconds': {'type': 'integer'}, 'dashboard_id': {'type': 'integer'}}, ['title', 'widgets'])),
     'dashboards': (None, t_dashboards, 'The saved live dashboards of this business.', _obj({})),
+    'create_table': (None, t_create_table, 'Build a saved, filtered TABLE (shown as a clickable card in the chat, with its own page '
+                     'where the person can change filters, sort, choose columns, search and download CSV). Use it whenever the '
+                     'person asks for a table, a list, a “custom filter” or a view of vouchers / sales / routers / customer reports '
+                     '(e.g. vouchers older than a month: source=vouchers, filters={"older_than_days": 30}). Filters per source — '
+                     'vouchers: state, plan, batch, router, agent, members (exclude/only), older_than_days, newer_than_days, '
+                     'created_after, created_before, ends_within_days, search · sales: days, created_after, created_before, plan, '
+                     'agent, router, method, min_amount, search · routers: status (online/offline), search · reports: status '
+                     '(open/resolved/any), days, search. Pass table_id to change an existing table.',
+                     _obj({'source': {'type': 'string', 'enum': ['vouchers', 'sales', 'routers', 'reports']}, 'title': S,
+                           'filters': {'type': 'object', 'description': 'e.g. {"older_than_days": 30, "state": "unused", "plan": "Daily"}'},
+                           'columns': {'type': 'array', 'items': {'type': 'string'}, 'description':
+                                       'vouchers: code, state, plan, kind, price, batch, router, agent, created, age_days, sold, '
+                                       'first_used, expires, devices, customer, phone, serial, note · sales: sold, code, plan, '
+                                       'amount, discount, commission, method, agent, router, customer, phone, reference · routers: '
+                                       'name, online, people, cpu, mode, last_contact, uptime, ros, error · reports: created, code, '
+                                       'status, name, phone, message, shown_error, note (empty = sensible defaults)'},
+                           'sort_by': {**S, 'description': 'a column key'}, 'sort_dir': {'type': 'string', 'enum': ['asc', 'desc']},
+                           'private': {'type': 'boolean', 'description': 'only this person sees it (default: the team)'},
+                           'table_id': {'type': 'integer'}}, ['source'])),
+    'tables': (None, t_tables, 'The saved tables this person can see (pinned first).', _obj({})),
+    'table_data': (None, t_table_data, 'Read the rows of a saved table (live) to answer questions about it.',
+                   _obj({'table_id': {'type': 'integer'}, 'page': {'type': 'integer'}}, ['table_id'])),
     'missions': (None, t_missions, 'The missions of this business (jobs Fit does later by itself: at a time, on a timetable, '
                  'at a quiet moment or when something happens), with their next time, what they do, who they tell and '
                  'their latest log.', _obj({'include_finished': {'type': 'boolean'}})),
@@ -790,7 +870,8 @@ def propose_spec(ctx):
         'report_id': {'type': 'integer', 'description': 'resolve_report'},
         'note': {**S, 'description': 'resolve_report note / track_voucher note'},
         'to': {**S, 'description': 'send_chat: "team", "support" or a colleague first name'},
-        'body': {**S, 'description': 'send_chat: the message text'},
+        'body': {**S, 'description': 'send_chat: the message text · send_email: the email text you wrote (plain text, facts from tools)'},
+        'subject': {**S, 'description': 'send_email: the email subject'},
         # monitors (create_monitor / pause_monitor / resume_monitor / delete_monitor) and free_idle_slot
         'monitor_kind': {'type': 'string', 'enum': list(MONITOR_KINDS),
                          'description': 'create_monitor: ' + '; '.join(f'{k} = {v[0]} ({v[1]})' for k, v in MONITOR_KINDS.items())},
@@ -875,8 +956,8 @@ def _mission_props():
         'tell_me': {'type': 'boolean', 'description': 'create_mission TELL: bell + phone push to this person (default true)'},
         'tell_team': {'type': 'boolean', 'description': 'create_mission TELL: bell for the whole team'},
         'chat_team': {'type': 'boolean', 'description': 'create_mission TELL: a note in the team chat room'},
-        'email_to': {**S, 'description': 'create_mission TELL: comma-separated: "me", team member names or emails (outside '
-                                         'addresses: Owner/Admin only)'},
+        'email_to': {**S, 'description': 'create_mission TELL / send_email TO: comma-separated: "me", team member names or emails '
+                                         '(outside addresses: Owner/Admin only). send_email default: me'},
         'email_me': {'type': 'boolean', 'description': 'create_mission TELL: also email this person'},
         'before_minutes': {'type': 'integer', 'description': 'create_mission TELL: heads-up this many minutes before a timed run'},
         'until': {**S, 'description': 'create_mission: give up after this time (YYYY-MM-DD HH:MM)'},
@@ -919,7 +1000,7 @@ def specs(ctx):
             'name': 'propose_action',
             'description': 'Offer a change for the person to approve (freeze/unfreeze/warn/disable/enable a voucher, add_time, '
                            'reduce_time, reset_devices, block_device, unblock_device, disconnect_session, resolve_report, '
-                           'track_voucher, send_chat, free_idle_slot, create_monitor, pause_monitor, resume_monitor, '
+                           'track_voucher, send_chat, send_email, free_idle_slot, create_monitor, pause_monitor, resume_monitor, '
                            'delete_monitor, sync, put_on_router, router_change, router_task, create_mission / pause_mission / '
                            'resume_mission / cancel_mission (a job Fit does LATER by itself), and — Owner/Admin only — bulk_vouchers for many '
                            'vouchers at once). It is NOT carried out: a card with “Take action” appears.',

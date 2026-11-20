@@ -418,6 +418,19 @@ def system_prompt(ctx, page=None):
         'a detail is missing (which router, what time), ask. Use missions to list them; pause_mission / resume_mission / '
         'cancel_mission with mission_id to change one. Today is '
         f'{timezone.localtime():%A %d %b %Y}, now {timezone.localtime():%H:%M} — turn “tonight”, “tomorrow morning” into real times.',
+        '16. Email: you CAN email. When the person says “send it to my email”, “email me this summary”, “email Awa the report”, '
+        'offer ONE propose_action kind=send_email with a clear subject and a body you write yourself in plain text from the facts '
+        'you already have in this conversation (or fetch them first) — the summary, the numbers, the next steps; full sentences, '
+        'no markdown tables. email_to: "me" (default), team member names or addresses. Never say you have no email tool. To email '
+        'something later or every day/week, use create_mission (mission_task report or ask_fit, with email_me / email_to).',
+        '17. Tables and custom filters: when the person asks for a table, a list to keep, “show me all … as a table”, “a filter for …”, '
+        'or anything they will want to open again (old vouchers, unused stock of a plan, frozen members, sales of an agent this '
+        'month, offline routers, open reports), call create_table — never type a long markdown table yourself. Pick clear '
+        'columns and a useful sort (oldest first for old vouchers, biggest first for money). The card in the chat opens the table; '
+        'answer in 1–3 lines with what stands out (numbers come from the tool) and the link. To change a table, pass table_id. '
+        'Offer the natural next step in one line: a chart or dashboard (create_dashboard), a mission that emails it every week, '
+        'or a group change on exactly those vouchers (count_vouchers + bulk_vouchers, Owner/Admin). Use table_data to read one. '
+        'Everything Fit built lives in Fit’s workspace: [Fit workspace](/fit/workspace/).',
     ]
     if getattr(ctx, 'read_only', False):
         lines += ['', 'THIS IS A SCHEDULED MISSION RUN: nobody is waiting in a chat. Look with your tools and answer the question '

@@ -219,4 +219,5 @@ urlpatterns = [
     path('fit/new/',vfit.fit_new,name='fit_new'), path('fit/dashboards/',vfit.fit_dashboards_page,name='fit_dashboards_page'), path('fit/dashboards/<int:pk>/',vfit.fit_dashboard,name='fit_dashboard'), path('fit/dashboards/<int:pk>/data/',vfit.fit_dashboard_data,name='fit_dashboard_data'), path('fit/chart/',vfit.fit_chart_data,name='fit_chart_data'),
     path('fit/monitors/',vfit.fit_monitors_page,name='fit_monitors_page'), path('fit/monitors/<int:pk>/',vfit.fit_monitor_toggle,name='fit_monitor_toggle'),
     path('fit/missions/',vfit.fit_missions_page,name='fit_missions_page'), path('fit/missions/data/',vfit.fit_missions_data,name='fit_missions_data'), path('fit/missions/<int:pk>/',vfit.fit_mission_op,name='fit_mission_op'),
+    path('fit/workspace/',vfit.fit_workspace,name='fit_workspace'), path('fit/workspace/data/',vfit.fit_workspace_data,name='fit_workspace_data'), path('fit/tables/<int:pk>/',vfit.fit_table,name='fit_table'), path('fit/tables/<int:pk>/data/',vfit.fit_table_data,name='fit_table_data'),
 ]

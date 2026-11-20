@@ -10,6 +10,7 @@ import '../data/store.dart';
 import '../data/sync_engine.dart';
 import '../widgets/charts.dart';
 import 'fit_wardrobe.dart';
+import 'fit_workspace_screen.dart';
 
 /// Fit, your AI technician — the same Fit as on the website (/fit/), so it can do exactly what it may do for you
 /// there: same tools, same permissions, same "Allowed" groups in Fit settings, same confirmations before it acts.
@@ -106,6 +107,12 @@ class FitScreenState extends State<FitScreen> {
     ));
   }
 
+  /// Fit's workspace; an idea picked there comes back as a question to ask.
+  Future<void> _workspace() async {
+    final q = await Navigator.of(context).push<String>(MaterialPageRoute(builder: (_) => const FitWorkspaceScreen()));
+    if (q != null && q.trim().isNotEmpty && mounted) ask(q);
+  }
+
   Future<void> ask(String q) async {
     q = q.trim();
     if (q.isEmpty || _thinking) return;
@@ -195,6 +202,7 @@ class FitScreenState extends State<FitScreen> {
         actions: [
           if (_state?['look'] is Map)
             IconButton(tooltip: "Fit's wardrobe — skins and masks", icon: const Icon(Icons.checkroom), onPressed: _wardrobe),
+          IconButton(tooltip: 'Fit workspace — tables, dashboards, missions', icon: const Icon(Icons.grid_view_rounded), onPressed: _workspace),
           IconButton(tooltip: 'New conversation', icon: const Icon(Icons.add_comment_outlined), onPressed: _newChat),
         ],
       ),
@@ -377,8 +385,18 @@ class _MsgView extends StatelessWidget {
         for (final d in (cards['dashboards'] as List? ?? []).cast<Map>())
           Padding(
             padding: const EdgeInsets.only(top: 10),
-            child: Card(child: ListTile(leading: const Icon(Icons.dashboard), title: Text('${d['title']}'), subtitle: const Text('Dashboard saved — open it on TapTap web'))),
+            child: Card(
+              child: ListTile(
+                leading: const Icon(Icons.dashboard),
+                title: Text('${d['title']}'),
+                subtitle: const Text('Live dashboard — tap to open it'),
+                trailing: const Icon(Icons.open_in_new, size: 18),
+                onTap: () => openOnWeb('${d['link']}'),
+              ),
+            ),
           ),
+        for (final t in (cards['tables'] as List? ?? []).cast<Map>())
+          Padding(padding: const EdgeInsets.only(top: 10), child: FitTableCard(card: t.cast<String, dynamic>())),
       ]),
     );
   }

@@ -37,6 +37,8 @@ GROUPS = {
     'reports': ('Customer reports', 'Resolve reports customers send from the sign-in page'),
     'tracking': ('Tracking', 'Follow a voucher so you are told when something happens to it'),
     'chat': ('Chat', 'Send chat messages you approved to your team or TapTap support'),
+    'email': ('Email', 'Email a summary, a report or Fit\'s answer — after you approved it — to you, team members or '
+                       '(Owner / Admin only) another address'),
     'tests': ('Network tests', 'Run ping, DNS, website, traceroute and speed tests from your routers'),
     'sync': ('Sync with routers', 'Send TapTap\'s vouchers, members, batches, plans, profiles or time limits to the '
                                   'routers, put TapTap-only vouchers on a router, or run a full router sync'),
@@ -703,6 +705,52 @@ def _do_router_task(business, p, user):
         raise FitActionError(str(exc))
 
 
+# ─────────────────────────────── email (now) ───────────────────────────────
+
+EMAIL_MAX = 8000
+
+
+def _check_send_email(business, a, user=None, perms=None):
+    """Fit writes the email (from its tool facts); the card shows who gets it and the text before anything is sent."""
+    from . import fit_missions as fm
+    if user is None:
+        raise FitActionError('An email needs the person who sends it.')
+    if perms is None:
+        who = fm.perms_for(user, business)
+        if who is None:
+            raise FitActionError('You are not in this business.')
+        perms = who[0]
+    subject = str(a.get('subject') or '').strip()[:150]
+    body = str(a.get('body') or '').strip()[:EMAIL_MAX]
+    if not subject:
+        raise FitActionError('The email needs a subject.')
+    if len(body) < 2:
+        raise FitActionError('The email needs some text (body).')
+    people = a.get('people') if isinstance(a.get('people'), list) else None
+    if people is None:
+        try:
+            people = fm._people(business, user, perms, a.get('email_to') or 'me')
+        except fm.MissionError as exc:
+            raise FitActionError(str(exc))
+    to = fm.addresses(business, people)
+    if not to:
+        raise FitActionError('Nobody to send it to: the people chosen have no email address in TapTap.')
+    preview = body if len(body) <= 600 else body[:600] + '…'
+    facts = [['To', ', '.join(f'{n} <{e}>' if n != e else e for e, n in to)], ['Subject', subject], ['Text', preview]]
+    p = {'subject': subject, 'body': body, 'people': people,
+         '_card': {'facts': facts, 'warnings': [], 'sample': [], 'more': 0, 'confirm': ''}}
+    return p, f'Email “{subject}” to {", ".join(n for _, n in to)}'[:200], '', ''
+
+
+def _do_send_email(business, p, user):
+    from . import fit_missions as fm
+    to = fm.addresses(business, p.get('people'))
+    sent = fm.send_email(business, user, to, p['subject'], fm.plain_links(p['body']), label='Fit', link='/')
+    if not sent:
+        raise FitActionError('The email could not be sent — check the email settings of the server (EMAIL_HOST).')
+    return f'Sent to {", ".join(sent)}.'
+
+
 # ─────────────────────────────── missions (core/fit_missions) ───────────────────────────────
 
 def _check_create_mission(business, a, user=None, perms=None):
@@ -835,6 +883,7 @@ KINDS = {
     'resolve_report': ('reports', ('vouchers.support', 'vouchers.view'), _check_resolve, _do_resolve, 'ok'),
     'track_voucher': ('tracking', ('vouchers.view', 'vouchers.support', 'vouchers.create', 'plans.manage'), _check_track, _do_track, 'ok'),
     'send_chat': ('chat', (), _check_chat, _do_chat, 'ok'),
+    'send_email': ('email', (), _check_send_email, _do_send_email, 'ok'),
     'create_monitor': ('monitors', MONITOR_PERMS, _check_create_monitor, _do_create_monitor, 'ok'),
     'pause_monitor': ('monitors', MONITOR_PERMS, _check_pause_monitor, _do_pause_monitor, 'ok'),
     'resume_monitor': ('monitors', MONITOR_PERMS, _check_resume_monitor, _do_resume_monitor, 'ok'),
@@ -868,7 +917,7 @@ def _validate(business, user, kind, args, perms=None):
     if not spec:
         raise FitActionError(f'Unknown action “{kind}”.')
     check = spec[2]
-    if check is _check_create_mission:
+    if check in (_check_create_mission, _check_send_email):
         return check(business, args, user, perms)
     return check(business, args, user) if check is _check_chat else check(business, args)
 

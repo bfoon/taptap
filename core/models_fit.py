@@ -215,3 +215,29 @@ class FitMission(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class FitTable(models.Model):
+    """A saved, filtered table Fit built on request (core/fit_tables.py). It keeps the question — source, filters,
+    columns, sort — never a copy of the data: each time it is opened it is run again on live data."""
+    SOURCES = [('vouchers', 'Vouchers'), ('sales', 'Sales'), ('routers', 'Routers'), ('reports', 'Customer reports')]
+
+    business = models.ForeignKey('core.Business', on_delete=models.CASCADE, related_name='fit_tables')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    title = models.CharField(max_length=120)
+    source = models.CharField(max_length=12, choices=SOURCES)
+    filters = models.JSONField(default=dict, blank=True)
+    columns = models.JSONField(default=list, blank=True)
+    sort = models.JSONField(default=dict, blank=True)
+    shared = models.BooleanField(default=True, help_text='The team sees it (each person only with their own rights)')
+    pinned = models.BooleanField(default=False, help_text='Shown first in Fit’s workspace')
+    views = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-pinned', '-updated_at']
+        indexes = [models.Index(fields=['business', '-updated_at'], name='fittable_biz_idx')]
+
+    def __str__(self):
+        return self.title

@@ -293,3 +293,35 @@ class FitMissionTests(TestCase):
         self.client.force_login(self.owner)
         r = self.client.post(f'/fit/missions/{m.pk}/', json.dumps({'op': 'run'}), content_type='application/json')
         self.assertEqual(r.json()['mission']['status'], 'done')
+
+    # ── "send it on my email": Fit emails a summary now, after the card is approved ──
+    def test_send_email_now(self):
+        ctx = fit_tools.FitContext(business=self.biz, user=self.owner, perms=self.perms, settings=self.settings)
+        names = [t['function']['name'] for t in fit_tools.specs(ctx)]
+        self.assertIn('propose_action', names)
+        res = json.loads(fit_tools.call(ctx, 'propose_action', {
+            'kind': 'send_email', 'subject': 'Network summary today', 'email_to': 'me, Lamin',
+            'body': 'Mast is online with **12** people. [Open routers](/routers/) — nothing to fix.'}))
+        self.assertTrue(res.get('proposed'), res)
+        self.assertFalse(res['owner_allows_this_group'])                    # the owner must allow "Email" first
+        self.assertEqual(len(mail.outbox), 0)                                # nothing sent before Take action
+        a = FitAction.objects.get(pk=res['action_id'])
+        ok, msg = fit_actions.run(a, self.owner, self.perms, self.settings)
+        self.assertFalse(ok)
+        self.assertIn('Email', msg)
+        FitSettings.objects.filter(pk=self.settings.pk).update(allowed=['email'])
+        self.settings.refresh_from_db()
+        a2 = FitAction.objects.get(pk=json.loads(fit_tools.call(ctx, 'propose_action', {
+            'kind': 'send_email', 'subject': 'Network summary today', 'email_to': 'me, Lamin',
+            'body': 'Mast is online with **12** people. [Open routers](/routers/) — nothing to fix.'}))['action_id'])
+        ok, msg = fit_actions.run(a2, self.owner, self.perms, self.settings)
+        self.assertTrue(ok, msg)
+        self.assertEqual(sorted(e.to[0] for e in mail.outbox), ['l@x.gm', 'o@x.gm'])
+        self.assertIn('Network summary today', mail.outbox[0].subject)
+        self.assertIn('Mast is online with 12 people', mail.outbox[0].body)     # markdown made plain
+        self.assertNotIn('**', mail.outbox[0].body)
+        # a team member cannot email outside addresses
+        lperms = fm.perms_for(self.lamin, self.biz)[0]
+        lctx = fit_tools.FitContext(business=self.biz, user=self.lamin, perms=lperms, settings=self.settings)
+        self.assertIn('error', json.loads(fit_tools.call(lctx, 'propose_action', {
+            'kind': 'send_email', 'subject': 'x', 'body': 'hello', 'email_to': 'someone@gmail.com'})))

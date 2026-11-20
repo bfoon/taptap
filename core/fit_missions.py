@@ -664,13 +664,14 @@ def describe_tell(m):
 
 # ─────────────────────────────── telling people ───────────────────────────────
 
-def _addresses(m):
+def addresses(business, people):
+    """[(email, name)] for stored recipients: team members by their current email (skipped once they left)."""
     from django.contrib.auth.models import User
     out = []
-    for e in (m.tell or {}).get('emails') or []:
+    for e in people or []:
         if e.get('user'):
             u = User.objects.filter(pk=e['user'], is_active=True).first()
-            if u is None or not u.email or perms_for(u, m.business) is None:
+            if u is None or not u.email or perms_for(u, business) is None:
                 continue                              # left the business: not told any more
             out.append((u.email, u.get_full_name() or u.first_name or u.email))
         elif e.get('email'):
@@ -678,36 +679,52 @@ def _addresses(m):
     return out
 
 
-def _email(m, subject, body, level):
+def _addresses(m):
+    return addresses(m.business, (m.tell or {}).get('emails'))
+
+
+def plain_links(text):
+    """Fit's markdown links as text a mail reader can follow: [Open voucher](/vouchers/12/) → Open voucher (https://…/vouchers/12/)."""
+    from django.conf import settings
+    site = (getattr(settings, 'SITE_URL', '') or '').rstrip('/')
+    text = re.sub(r'\[([^\]]+)\]\((/[^)\s]*)\)', lambda mm: f'{mm.group(1)} ({site}{mm.group(2)})' if site else mm.group(1), text or '')
+    return re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+
+
+def send_email(business, by, to, subject, body, level='info', label='Fit', mission='', link=None):
+    """One email per person (core/email/fit_mission.*). to: [(email, name)]. Returns the addresses it reached."""
     from django.conf import settings
     from django.core.mail import EmailMultiAlternatives, get_connection
     from django.template.loader import render_to_string
     from .notify import SEVERITY_COLOR
-    to = _addresses(m)
     if not to:
         return []
     site = (getattr(settings, 'SITE_URL', '') or '').rstrip('/')
-    b = m.business
     sent = []
     try:
         conn = get_connection(fail_silently=False)
     except Exception:
-        logger.exception('mission email connection')
+        logger.exception('Fit email connection')
         return []
     for email, name in to:
-        ctx = {'business': b, 'subject': subject, 'body': body, 'name': name, 'mission': m.name, 'link': f'{site}{PAGE}',
+        ctx = {'business': business, 'subject': subject, 'body': body, 'name': name, 'mission': mission, 'label': label,
+               'link': f'{site}{PAGE}' if link is None else (f'{site}{link}' if link.startswith('/') else link),
                'color': SEVERITY_COLOR.get({'danger': 'critical', 'warning': 'warning', 'good': 'good'}.get(level, 'info'), '#1769e0'),
-               'by': (m.created_by.get_full_name() or m.created_by.first_name or m.created_by.email) if m.created_by else ''}
+               'by': (by.get_full_name() or by.first_name or by.email) if by else ''}
         try:
-            msg = EmailMultiAlternatives(subject=f'[{b.business_name}] {subject}'[:180],
+            msg = EmailMultiAlternatives(subject=f'[{business.business_name}] {subject}'[:180],
                                          body=render_to_string('core/email/fit_mission.txt', ctx),
                                          from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', None), to=[email], connection=conn)
             msg.attach_alternative(render_to_string('core/email/fit_mission.html', ctx), 'text/html')
             msg.send()
             sent.append(email)
         except Exception as exc:                      # one bad address must not stop the others
-            logger.warning('mission %s email to %s failed: %s', m.pk, email, exc)
+            logger.warning('Fit email to %s failed: %s', email, exc)
     return sent
+
+
+def _email(m, subject, body, level):
+    return send_email(m.business, m.created_by, _addresses(m), subject, body, level=level, label='Fit mission', mission=m.name)
 
 
 def tell(m, title, body, level='info', email=True, chat=True):

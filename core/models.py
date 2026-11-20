@@ -1439,7 +1439,7 @@ from .models_router_cleanup import RouterCleanup  # noqa: E402,F401
 from .models_router_restore import RouterRestore  # noqa: E402,F401
 from .models_voucher_reports import VoucherReport  # noqa: E402,F401
 from .models_payroll import StaffPay, StaffPayout  # noqa: E402,F401
-from .models_fit import FitSettings, FitConversation, FitMessage, FitAction, FitMonitor, FitMonitorEvent, FitDashboard, FitMission  # noqa: E402,F401
+from .models_fit import FitSettings, FitConversation, FitMessage, FitAction, FitMonitor, FitMonitorEvent, FitDashboard, FitMission, FitTable  # noqa: E402,F401
 
 
 class LoginAddress(models.Model):

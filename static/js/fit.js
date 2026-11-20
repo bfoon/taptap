@@ -104,6 +104,7 @@
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
     lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
     compass: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></svg>',
+    grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6"/></svg>',
     hanger: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7.5a2 2 0 1 1 2-2"/><path d="M12 7.5v1.2L3 15.5a1.4 1.4 0 0 0 .9 2.5h16.2a1.4 1.4 0 0 0 .9-2.5L12 8.7"/></svg>',
     test: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7v5l3 2"/></svg>'
   };
@@ -332,6 +333,7 @@
       '<header class="fitp-head"><div class="fitp-ava">' + miniFace('h') + '</div>' +
         '<div class="fitp-ttl"><b>Fit</b><small>AI technician for ' + esc((S.state && S.state.business && S.state.business.name) || 'your business') + '</small></div>' +
         '<button class="fitp-ib" data-a="new" type="button" title="New conversation" aria-label="New conversation">' + ICON.plus + '</button>' +
+        '<button class="fitp-ib" data-a="work" type="button" title="Fit workspace — your tables, dashboards and missions" aria-label="Fit workspace">' + ICON.grid + '</button>' +
         '<button class="fitp-ib" data-a="howto" type="button" title="How to — Fit shows you, step by step" aria-label="How to">' + ICON.compass + '</button>' +
         '<button class="fitp-ib" data-a="look" type="button" title="Fit’s wardrobe — skins and masks" aria-label="Fit’s wardrobe">' + ICON.hanger + '</button>' +
         '<button class="fitp-ib" data-a="set" type="button" title="What Fit may do" aria-label="What Fit may do" hidden>' + ICON.gear + '</button>' +
@@ -385,7 +387,9 @@
     P.querySelector('[data-a="set"]').classList.toggle('on', S.view === 'settings');
     P.querySelector('[data-a="look"]').classList.toggle('on', S.view === 'look');
     P.querySelector('[data-a="howto"]').classList.toggle('on', S.view === 'howto');
+    P.querySelector('[data-a="work"]').classList.toggle('on', S.view === 'work');
     if (S.view === 'howto') { renderHowto(); return; }
+    if (S.view === 'work') { renderWork(); return; }
     if (S.view === 'settings') { renderSettings(); return; }
     if (S.view === 'look') { renderLook(); return; }
     b.innerHTML = '';
@@ -429,6 +433,7 @@
       (c.actions || []).forEach(function (a) { tx.appendChild(actionCard(a)); });
       (c.charts || []).forEach(function (ch) { tx.appendChild(chartCard(ch)); });
       (c.dashboards || []).forEach(function (db) { tx.appendChild(dashCard(db)); });
+      (c.tables || []).forEach(function (tb) { tx.appendChild(tableCard(tb)); });
       (c.tours || []).forEach(function (t) {
         var b = document.createElement('button'); b.type = 'button'; b.className = 'fit-tourcard'; b.dataset.tour = t.slug;
         b.innerHTML = esc(t.icon || '🧭') + ' Show me: ' + esc(t.title) + ' <small>· ' + t.steps + ' steps</small>';
@@ -492,6 +497,67 @@
       ' · refreshes every ' + db.refresh_seconds + ' s — open it</small></div>';
     if (!document.querySelector('link[href*="css/fit-dash.css"]')) chartLibsReady();
     return a;
+  }
+
+  // A saved table (core/fit_tables.py): the first rows, the total and the filters — the whole card opens the table.
+  function tableCard(tb) {
+    var a = document.createElement('a');
+    a.className = 'fit-tblcard'; a.href = safeHref(tb.link) || '#';
+    var head = '<div class="ftc-top"><span class="ftc-ic">' + esc(tb.icon || '📋') + '</span><div><b>' + esc(tb.title) + '</b><small>' +
+      esc(tb.source_label) + ' · ' + tb.total + ' row' + (tb.total === 1 ? '' : 's') + ' · live</small></div><em>Open ›</em></div>';
+    var filt = '<div class="ftc-f">' + (tb.filters || []).map(function (f) { return '<span>' + esc(f) + '</span>'; }).join('') + '</div>';
+    var chips = (tb.chips || []).length ? '<div class="ftc-chips">' + tb.chips.map(function (c) { return '<span>' + esc(c.label) + ' <b>' + esc(c.value) + '</b></span>'; }).join('') + '</div>' : '';
+    var rows = (tb.rows || []);
+    var tbl = rows.length ? '<div class="fit-tbl"><table><thead><tr>' + (tb.columns || []).map(function (c) { return '<th>' + esc(c) + '</th>'; }).join('') +
+      '</tr></thead><tbody>' + rows.map(function (r) { return '<tr>' + r.cells.map(function (c) { return '<td>' + esc(c) + '</td>'; }).join('') + '</tr>'; }).join('') +
+      '</tbody></table></div>' + (tb.total > rows.length ? '<small class="ftc-more">+ ' + (tb.total - rows.length) + ' more — open the table to filter, sort and download</small>' : '')
+      : '<small class="ftc-more">Nothing matches right now — open it to change the filters.</small>';
+    a.innerHTML = head + filt + chips + tbl;
+    return a;
+  }
+
+  // ───────── Fit's workspace: everything Fit built, one click away ─────────
+  function renderWork() {
+    var b = body();
+    P.querySelector('.fitp-chips').innerHTML = '';
+    b.innerHTML = '<div class="fit-work"><i></i><i></i><i></i><span>Opening your workspace…</span></div>';
+    api('/fit/workspace/data/').then(function (d) {
+      if (!P || S.view !== 'work') return;
+      if (!d || !d.ok) { b.innerHTML = '<p>The workspace is not available right now.</p>'; return; }
+      var L = d.links || {};
+      var h = '<div class="fit-ws"><div class="fh-hero"><h3>🗂 Your Fit workspace</h3><p>Tables with your own filters, live dashboards, missions and monitors — click to open.</p></div>' +
+        '<div class="fws-links">' +
+          '<a href="' + esc(L.workspace) + '">📋<b>Tables</b><small>' + d.tables.length + '</small></a>' +
+          '<a href="' + esc(L.dashboards) + '">📊<b>Dashboards</b><small>' + d.dashboards.length + '</small></a>' +
+          '<a href="' + esc(L.missions) + '">🎯<b>Missions</b><small>' + d.missions.length + ' waiting</small></a>' +
+          '<a href="' + esc(L.monitors) + '">👀<b>Monitors</b><small>' + d.monitors + ' on</small></a></div>';
+      if (d.tables.length) {
+        h += '<h4>📋 Tables</h4>' + d.tables.slice(0, 8).map(function (t) {
+          return '<a class="fws-row" href="' + esc(safeHref(t.link)) + '"><span>' + esc(t.icon) + '</span><div><b>' + esc(t.title) + (t.pinned ? ' 📌' : '') +
+            '</b><small>' + esc(t.source_label) + ' · ' + esc((t.filters || []).join(' · ')) + '</small></div></a>';
+        }).join('');
+      }
+      if (d.dashboards.length) {
+        h += '<h4>📊 Dashboards</h4>' + d.dashboards.slice(0, 6).map(function (x) {
+          return '<a class="fws-row" href="' + esc(safeHref(x.link)) + '"><span>📊</span><div><b>' + esc(x.title) + '</b><small>' + x.widgets + ' charts · live</small></div></a>';
+        }).join('');
+      }
+      if (d.missions.length) {
+        h += '<h4>🎯 Missions waiting</h4>' + d.missions.slice(0, 5).map(function (m) {
+          return '<a class="fws-row" href="' + esc(L.missions) + '"><span>🎯</span><div><b>' + esc(m.name) + '</b><small>' + esc(m.when_text) + '</small></div></a>';
+        }).join('');
+      }
+      h += '<h4>✨ Ask me to build one</h4><div class="fws-asks">' + [
+        ['🎟️ Vouchers older than a month', 'Make a table of vouchers older than 30 days that were never used, oldest first.'],
+        ['🧊 Frozen & warned', 'Make a table of every frozen or warned voucher with its plan and router.'],
+        ['⏳ Members ending this week', 'Make a table of members whose time ends within 7 days, soonest first.'],
+        ['💰 Sales this month', 'Make a table of this month’s sales, biggest first, with agent and payment.'],
+        ['📡 Offline routers', 'Make a table of my routers that are offline.'],
+        ['📊 A live dashboard', 'Build me a live dashboard with users online, router load and today’s sales by hour.']
+      ].map(function (x) { return '<button type="button" data-ask="' + esc(x[1]) + '">' + esc(x[0]) + '</button>'; }).join('') +
+        '<button type="button" data-prefill="Make a table of ">🪄 Something else…</button></div></div>';
+      b.innerHTML = h;
+    });
   }
 
   function actionCard(a) {
@@ -603,6 +669,19 @@
     });
   }
 
+  // Any page can open Fit with a question: <button data-fit-ask="…"> (a text ending in a space is only typed in, not sent).
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest && e.target.closest('[data-fit-ask]'); if (!t) return;
+    e.preventDefault();
+    var q = t.getAttribute('data-fit-ask') || '';
+    if (/\s$/.test(q)) {
+      open();
+      var fill = function () { var ta = P && P.querySelector('textarea'); if (ta && !ta.disabled) { ta.value = q; ta.focus(); } else if (P) setTimeout(fill, 150); };
+      setTimeout(fill, 150);
+    } else open(q);
+  });
+  window.TapFit = { open: open };
+
   function onPanelClick(e) {
     var t = e.target.closest('button, a'); if (!t) return;
     var a = t.dataset.a;
@@ -614,6 +693,11 @@
     if (a === 'set') { S.view = S.view === 'settings' ? 'chat' : 'settings'; render(); return; }
     if (a === 'look') { S.view = S.view === 'look' ? 'chat' : 'look'; render(); return; }
     if (a === 'howto') { S.view = S.view === 'howto' ? 'chat' : 'howto'; render(); return; }
+    if (a === 'work') { S.view = S.view === 'work' ? 'chat' : 'work'; render(); return; }
+    if (t.dataset.prefill !== undefined) {               // "Make a table of …": the person finishes the sentence
+      S.view = 'chat'; render();
+      var ta0 = P.querySelector('textarea'); ta0.value = t.dataset.prefill; ta0.focus(); return;
+    }
     if (t.dataset.tour) return startTour(t.dataset.tour);
     if (t.dataset.weapon) { if (window.FitTour) window.FitTour.weapon(t.dataset.weapon); renderHowto(); play('is-twirl', 1450); return; }
     if (t.dataset.scope) { S.lookScope = t.dataset.scope; renderLook(); return; }

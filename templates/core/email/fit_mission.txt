@@ -1,4 +1,4 @@
-{{ business.business_name }} · Fit mission “{{ mission }}”{% if by %} (set by {{ by }}){% endif %}
+{{ business.business_name }} · {{ label|default:"Fit" }}{% if mission %} “{{ mission }}”{% if by %} (set by {{ by }}){% endif %}{% elif by %} — sent for {{ by }}{% endif %}
 
 {{ subject }}
 
@@ -6,6 +6,6 @@
 
 {% endif %}{{ body }}
 {% if link %}
-Open the missions: {{ link }}{% endif %}
+{% if mission %}Open the missions{% else %}Open TapTap{% endif %}: {{ link }}{% endif %}
 
-You get this email because a TapTap mission of {{ business.business_name }} names you. Ask {{ by|default:"the business owner" }} to take you off it.
+{% if mission %}You get this email because a TapTap mission of {{ business.business_name }} names you. Ask {{ by|default:"the business owner" }} to take you off it.{% else %}Sent by Fit, TapTap's assistant, on request.{% endif %}

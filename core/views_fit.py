@@ -475,3 +475,190 @@ def fit_mission_op(request, pk):
         return JsonResponse({'ok': ok, 'message': msg, 'mission': j}, status=200 if ok else 400)
     (messages.success if ok else messages.error)(request, msg)
     return redirect('fit_missions_page')
+
+
+# ─────────────────────────────── Fit workspace and tables (core/fit_tables.py) ───────────────────────────────
+
+def _workspace(request, b):
+    from . import fit_missions as fm, fit_tables as ft
+    from .models_fit import FitDashboard, FitMission, FitMonitor
+    perms = _perms(request)
+    tables = [ft.as_json(t, request.user) for t in ft.visible(request.user, b, perms)[:40]]
+    dashes = [{'id': d.pk, 'title': d.title, 'link': f'/fit/dashboards/{d.pk}/', 'widgets': len(d.widgets or []),
+               'refresh_seconds': d.refresh_seconds} for d in FitDashboard.objects.filter(business=b)[:20]]
+    missions = [fm.as_json(m) for m in FitMission.objects.filter(business=b, status__in=('waiting', 'paused')).select_related('created_by')[:10]]
+    for m in missions:
+        m.pop('log', None)
+    return {'ok': True, 'tables': tables, 'dashboards': dashes, 'missions': missions,
+            'monitors': FitMonitor.objects.filter(business=b, active=True).count(),
+            'sources': [{'key': k, 'label': v['label'], 'icon': v['icon']} for k, v in ft.SOURCES.items() if ft.can(perms, k)],
+            'links': {'workspace': '/fit/workspace/', 'dashboards': '/fit/dashboards/', 'missions': '/fit/missions/',
+                      'monitors': '/fit/monitors/'}}
+
+
+@login_required
+def fit_workspace(request):
+    """Everything Fit built for this business: tables, dashboards, missions, monitors — one place to click."""
+    from django.shortcuts import render
+    b = _biz(request)
+    d = _workspace(request, b)
+    ideas = [
+        ('🎟️', 'Vouchers older than a month that were never used', 'Make a table of vouchers older than 30 days that were never used, oldest first.'),
+        ('🧊', 'Frozen and warned vouchers', 'Make a table of every frozen or warned voucher with its plan, router and when it was frozen.'),
+        ('⏳', 'Members whose time ends this week', 'Make a table of members whose time ends within 7 days, soonest first, with their phone.'),
+        ('💰', 'This month’s sales by agent', 'Make a table of this month’s sales, biggest first, with the agent and how they paid.'),
+        ('📡', 'Routers that are offline', 'Make a table of my routers that are offline, with their last contact.'),
+        ('📣', 'Open customer reports', 'Make a table of open customer reports, newest first.'),
+    ]
+    return render(request, 'core/fit_workspace.html', {**d, 'ideas': ideas})
+
+
+@login_required
+@require_GET
+def fit_workspace_data(request):
+    return JsonResponse(_workspace(request, _biz(request)))
+
+
+def _table_for(request, b, pk):
+    from . import fit_tables as ft
+    from .models_fit import FitTable
+    t = get_object_or_404(FitTable.objects.select_related('created_by'), business=b, pk=pk)
+    if not (t.shared or t.created_by_id == request.user.pk) or not ft.can(_perms(request), t.source):
+        raise Http404
+    return t
+
+
+def _may_change_table(request, t):
+    from .fit_bulk import ADMIN_PERM
+    return t.created_by_id in (None, request.user.pk) or ADMIN_PERM in _perms(request)
+
+
+def _live_view(request, b, t):
+    """The table as asked for in the address bar: the saved filters, or the ones just edited (f_*), the chips, columns, sort."""
+    from . import fit_tables as ft
+    g = request.GET
+    errors = []
+    if g.get('edited'):
+        raw = {k: g.get(f'f_{k}') for k in ft.SOURCES[t.source]['filters'] if g.get(f'f_{k}') not in (None, '')}
+    else:
+        raw = dict(t.filters or {})
+        for k in ft.SOURCES[t.source]['filters']:
+            if g.get(f'f_{k}') not in (None, ''):
+                raw[k] = g.get(f'f_{k}')
+    try:
+        filters = ft.clean_filters(b, t.source, raw)
+    except ft.TableError as exc:
+        errors.append(str(exc))
+        filters = dict(t.filters or {})
+    cols = ft.clean_columns(t.source, g.get('cols') or t.columns)
+    sort = ft.clean_sort(t.source, g.get('sort') or (t.sort or {}).get('by', ''), g.get('dir') or (t.sort or {}).get('dir', ''))
+    changed = filters != (t.filters or {}) or cols != list(t.columns or []) or sort != (t.sort or {})
+    return filters, cols, sort, changed, errors
+
+
+@login_required
+def fit_table(request, pk):
+    """One table: live filters, columns, sort, search, pages, CSV, chips, save / save as / pin / share / delete."""
+    from urllib.parse import urlencode
+    from django.contrib import messages
+    from django.http import HttpResponse
+    from django.shortcuts import redirect, render
+    from . import fit_tables as ft
+    from .models_fit import FitTable
+    b = _biz(request)
+    t = _table_for(request, b, pk)
+    if request.method == 'POST':
+        op = request.POST.get('op') or ''
+        if op != 'save_as' and not _may_change_table(request, t):
+            messages.error(request, 'Only the person who made this table, the Owner or an Admin can change it. Use “Save as new”.')
+            return redirect('fit_table', pk=t.pk)
+        if op in ('save', 'save_as'):
+            try:
+                f = ft.clean_filters(b, t.source, json.loads(request.POST.get('filters') or '{}'))
+                cols = ft.clean_columns(t.source, request.POST.get('cols') or t.columns)
+                srt = ft.clean_sort(t.source, request.POST.get('sort') or '', request.POST.get('dir') or '')
+            except (ValueError, ft.TableError) as exc:
+                messages.error(request, str(exc))
+                return redirect('fit_table', pk=t.pk)
+            if op == 'save':
+                t.filters, t.columns, t.sort = f, cols, srt
+                t.save()
+                messages.success(request, f'“{t.title}” saved with these filters.')
+            else:
+                n = FitTable.objects.create(business=b, created_by=request.user, title=(request.POST.get('title') or f'{t.title} (copy)')[:120],
+                                            source=t.source, filters=f, columns=cols, sort=srt, shared=t.shared)
+                messages.success(request, f'Saved as a new table: “{n.title}”.')
+                return redirect('fit_table', pk=n.pk)
+        elif op == 'rename' and request.POST.get('title', '').strip():
+            t.title = request.POST['title'].strip()[:120]
+            t.save(update_fields=['title', 'updated_at'])
+        elif op in ('pin', 'unpin'):
+            t.pinned = op == 'pin'
+            t.save(update_fields=['pinned', 'updated_at'])
+        elif op in ('share', 'private'):
+            t.shared = op == 'share'
+            t.save(update_fields=['shared', 'updated_at'])
+        elif op == 'delete':
+            title = t.title
+            t.delete()
+            messages.success(request, f'“{title}” deleted.')
+            return redirect('fit_workspace')
+        return redirect('fit_table', pk=t.pk)
+    filters, cols, sort, changed, errors = _live_view(request, b, t)
+    if request.GET.get('format') == 'csv':
+        r = HttpResponse(ft.csv_bytes(b, t.source, filters, cols, sort), content_type='text/csv; charset=utf-8')
+        safe = ''.join(ch if ch.isalnum() or ch in '-_' else '-' for ch in t.title)[:60] or 'table'
+        r['Content-Disposition'] = f'attachment; filename="{safe}-{timezone.localdate():%Y-%m-%d}.csv"'
+        return r
+    data = ft.run(b, t.source, filters, cols, sort, page=request.GET.get('page') or 1,
+                  per_page=request.GET.get('per') or ft.PER_PAGE)
+    FitTable.objects.filter(pk=t.pk).update(views=t.views + 1)
+
+    def q(**over):
+        base = {'edited': '1', **{f'f_{k}': (', '.join(v) if isinstance(v, list) else v) for k, v in filters.items()},
+                'cols': ','.join(cols), 'sort': sort['by'], 'dir': sort['dir']}
+        for k, v in over.items():
+            if v is None:
+                base.pop(k, None)
+            else:
+                base[k] = v
+        return '?' + urlencode(base)
+    spec = ft.SOURCES[t.source]
+    heads = [{**c, 'href': q(sort=c['key'], dir='desc' if sort['by'] == c['key'] and sort['dir'] == 'asc' else 'asc'),
+              'on': sort['by'] == c['key'], 'dir': sort['dir']} for c in data['columns']]
+    chips = []
+    for c in data['chips']:
+        href = None
+        if c.get('filter'):
+            k, v = next(iter(c['filter'].items()))
+            href = q(**{f'f_{k}': v, 'page': None})
+        chips.append({**c, 'href': href})
+    form = []
+    for k, help_text in spec['filters'].items():
+        v = filters.get(k, '')
+        form.append({'key': k, 'label': k.replace('_', ' ').capitalize(), 'help': help_text,
+                     'value': ', '.join(v) if isinstance(v, list) else v})
+    from .fit_bulk import STATES
+    return render(request, 'core/fit_table.html', {
+        't': t, 'data': data, 'heads': heads, 'chips': chips, 'form': form, 'states': STATES, 'errors': errors,
+        'changed': changed, 'can_change': _may_change_table(request, t), 'filters_json': json.dumps(filters),
+        'filter_words': ft.describe_filters(t.source, filters), 'all_columns': [{'key': k, 'label': v[0], 'on': k in cols}
+                                                                                 for k, v in spec['columns'].items()],
+        'cols': ','.join(cols), 'sort': sort, 'csv': q(format='csv'), 'prev': q(page=data['page'] - 1) if data['page'] > 1 else '',
+        'next': q(page=data['page'] + 1) if data['page'] < data['pages'] else '', 'reset': f'/fit/tables/{t.pk}/',
+        'ask': f'Look at my table “{t.title}” (table_id {t.pk}) and tell me what stands out and what I should do.'})
+
+
+@login_required
+@require_GET
+def fit_table_data(request, pk):
+    """The phone app's view of a table (same filters / sort / page parameters as the page)."""
+    from . import fit_tables as ft
+    b = _biz(request)
+    t = _table_for(request, b, pk)
+    filters, cols, sort, changed, errors = _live_view(request, b, t)
+    d = ft.run(b, t.source, filters, cols, sort, page=request.GET.get('page') or 1, per_page=request.GET.get('per') or 40)
+    d.pop('_all', None)
+    d.pop('_cols', None)
+    return JsonResponse({'ok': True, 'table': ft.as_json(t, request.user), 'filters': ft.describe_filters(t.source, filters),
+                         'errors': errors, **d})
