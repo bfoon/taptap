@@ -505,15 +505,24 @@ def visible(user, business, perms):
 def card(t, data=None, business=None):
     """The chat card: title, total, filter chips, the first rows — the whole card opens the table."""
     data = data or run(t.business if business is None else business, t.source, t.filters, t.columns, t.sort, per_page=PREVIEW)
-    return {'id': t.pk, 'title': t.title, 'link': f'/fit/tables/{t.pk}/', 'source': t.source, 'source_label': data['source_label'],
+    return {'id': t.pk, 'title': t.title, 'link': f'/fit/tables/{t.pk}/', 'print': print_link(t), 'source': t.source,
+            'source_label': data['source_label'],
             'icon': data['icon'], 'total': data['total'], 'filters': describe_filters(t.source, t.filters),
             'columns': [c['label'] for c in data['columns']][:5],
             'rows': [{'cells': r['cells'][:5], 'link': r['link']} for r in data['rows'][:PREVIEW]],
             'chips': [{'label': c['label'], 'value': c['value']} for c in data['chips'][:4]]}
 
 
+def print_link(t, query=''):
+    """Voucher tables print as tickets with the voucher designs (core/views_studio.voucher_print ?table=)."""
+    if t.source != 'vouchers':
+        return ''
+    return f'/studio/vouchers/print/?table={t.pk}' + (f'&{query.lstrip("?")}' if query else '')
+
+
 def as_json(t, user=None):
     return {'id': t.pk, 'title': t.title, 'source': t.source, 'source_label': SOURCES[t.source]['label'], 'icon': SOURCES[t.source]['icon'],
             'filters': describe_filters(t.source, t.filters), 'pinned': t.pinned, 'shared': t.shared, 'link': f'/fit/tables/{t.pk}/',
+            'print': print_link(t),
             'by': (t.created_by.get_full_name() or t.created_by.first_name or t.created_by.email) if t.created_by else '',
             'mine': bool(user and t.created_by_id == user.pk), 'updated_at': timezone.localtime(t.updated_at).isoformat()}

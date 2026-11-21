@@ -512,6 +512,38 @@ def voucher_print(request):
         from . import batch_print          # where every voucher of the batch stands: the page can print only what is left
         qs = qs.order_by('created_at', 'pk')[:batch_print.BATCH_LIMIT]
         states, stock = batch_print.stock(batch, qs, request.GET.get('show'))
+    elif request.GET.get('table', '').isdigit():
+        # A Fit table of vouchers (core/fit_tables.py): exactly what the table shows now — its filters, or the ones
+        # just changed on its page — in its order. The stock ribbon then ticks left / sold / used / off.
+        from . import batch_print, fit_tables as ft
+        from .views_fit import _live_view, _table_for
+        tbl = _table_for(request, business, int(request.GET['table']))
+        if tbl.source != 'vouchers':
+            raise Http404
+        filters, cols, sort, _, _ = _live_view(request, business, tbl)
+        found = ft.run(business, 'vouchers', filters, cols, sort, per_page=1)['_all']
+        ids = [r['_id'] for r in found if r.get('kind') != 'Member'][:batch_print.BATCH_LIMIT]
+        members_left_out = sum(1 for r in found if r.get('kind') == 'Member')
+        pos = {pk: i for i, pk in enumerate(ids)}
+        rows = voucher_print_rows(business, qs.filter(pk__in=ids))
+        by_code = {v.code: v for v in business.vouchers.filter(pk__in=ids).only('pk', 'code', 'status', 'sold_at', 'used_at')}
+        rows.sort(key=lambda r: pos.get(by_code[r['code']].pk, 0) if r['code'] in by_code else 0)
+        states = {c: batch_print.state_of(v.status, v.sold_at, v.used_at) for c, v in by_code.items()}
+        counts = {k: 0 for k in batch_print.STATES}
+        for st in states.values():
+            counts[st] += 1
+        stock = {'batch': tbl.title, 'holder': '', 'total': len(rows), 'counts': counts, 'labels': batch_print.LABELS,
+                 'show': batch_print.parse_show(request.GET.get('show')), 'whole': 'whole table',
+                 'printed': timezone.localtime().strftime('%d %b %Y %H:%M'), 'table': tbl.pk,
+                 'filters': ft.describe_filters('vouchers', filters), 'members_left_out': members_left_out}
+        for row in rows:
+            row['state'] = states.get(row['code'], 'left')
+        return render(request, 'core/studio/voucher_print.html', {
+            'title': tbl.title, 'design': dsg, 'designs': business.voucher_designs.all(), 'config_json': _safe_json(config),
+            'rows_json': _safe_json(rows), 'business_json': _safe_json(business_ctx(business)), 'count': len(rows),
+            'sample': False, 'papers_json': _safe_json({k: list(v) for k, v in PAPERS.items()}),
+            'ads_json': _safe_json(ads_for(business, 'voucher')), 'query': request.GET.urlencode(),
+            'sample_len': portal_code_length(business), 'stock': stock, 'stock_json': _safe_json(stock)})
     elif request.GET.get('ids'):
         ids = [int(x) for x in request.GET['ids'].split(',') if x.strip().isdigit()][:1000]; qs = qs.filter(pk__in=ids); title = f'{len(ids)} selected vouchers'
     elif request.GET.get('agent'):

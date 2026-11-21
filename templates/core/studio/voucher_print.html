@@ -110,8 +110,9 @@
   function drawStock(){
     var c=STOCK.counts, on=ORDER.filter(function(s){return picked[s];}), n=chosen().length, bar=$('stockBar'), chips=$('stockChips');
     rows=chosen();
-    var what=on.length===ORDER.length?'whole batch':on.length===1&&picked.left?'what is left':on.map(function(s){return STOCK.labels[s].toLowerCase();}).join(' + ');
-    document.querySelector('.bar h1').textContent=TITLE0+' — '+(on.length===ORDER.length?'whole batch':n+' of '+STOCK.total+(on.length===1&&picked.left?' left':''));
+    var WHOLE=STOCK.whole||'whole batch';
+    var what=on.length===ORDER.length?WHOLE:on.length===1&&picked.left?'what is left':on.map(function(s){return STOCK.labels[s].toLowerCase();}).join(' + ');
+    document.querySelector('.bar h1').textContent=TITLE0+' — '+(on.length===ORDER.length?WHOLE:n+' of '+STOCK.total+(on.length===1&&picked.left?' left':''));
     $('stockTitle').textContent='Printing '+what+': '+n+' of '+STOCK.total+' voucher'+(STOCK.total===1?'':'s')+(STOCK.holder?' · held by '+STOCK.holder:'');
     bar.innerHTML='';chips.innerHTML='';
     ORDER.forEach(function(s){
@@ -122,11 +123,12 @@
       chips.appendChild(b);
     });
     var quick=document.createElement('span');quick.className='stock-quick';
-    [['Only what is left',['left']],['Whole batch',ORDER]].forEach(function(q){var b=document.createElement('button');b.type='button';b.textContent=q[0];b.onclick=function(){pick(q[1]);};quick.appendChild(b);});
+    [['Only what is left',['left']],[WHOLE.charAt(0).toUpperCase()+WHOLE.slice(1),ORDER]].forEach(function(q){var b=document.createElement('button');b.type='button';b.textContent=q[0];b.onclick=function(){pick(q[1]);};quick.appendChild(b);});
     chips.appendChild(quick);
     var rg=ranges(rows), foot=$('stockFoot');
     foot.innerHTML=!n?'Nothing is ticked. Tap a group above to put it on the sheets.'
       :(rg.length?'Serials on these sheets: <code>'+esc(rg.slice(0,14).join(', '))+(rg.length>14?' … and '+(rg.length-14)+' more ranges':'')+'</code><br>':'')
+       +(STOCK.filters?'From your Fit table: <b>'+esc(STOCK.filters.join(' · '))+'</b>'+(STOCK.members_left_out?' — '+STOCK.members_left_out+' member'+(STOCK.members_left_out===1?' is':'s are')+' left out (members sign in with their username and password)':'')+'<br>':'')
        +(others().length?'Already printed this batch? Choose the layout <b>Pull list</b> to print the '+others().length+' codes to cross off the old sheets instead of printing new ones.':'');
   }
   function slipCell(cw,ch){

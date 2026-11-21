@@ -109,3 +109,32 @@ class FitTableTests(TestCase):
         res = json.loads(fit_tools.call(self.ctx, 'create_table', {'source': 'routers', 'filters': {'status': 'offline'}}))
         self.assertEqual(res['rows'], 1)
         self.assertEqual(res['first_rows'][0]['Router'], 'Tower')
+
+    def test_voucher_table_prints_as_tickets(self):
+        Voucher.objects.create(business=self.biz, code='MEMB1', plan_name='Daily', status='active', login_type='member')
+        res = json.loads(fit_tools.call(self.ctx, 'create_table', {'source': 'vouchers', 'title': 'Old unused',
+                                                                    'filters': {'older_than_days': 30, 'state': 'unused'}}))
+        self.assertEqual(res['print_as_tickets'], f'/studio/vouchers/print/?table={res["table_id"]}')
+        self.assertIn('[Print as tickets]', res['next'])
+        self.client.force_login(self.owner)
+        r = self.client.get(res['print_as_tickets'])
+        self.assertEqual(r.status_code, 200)
+        rows = json.loads(r.context['rows_json'])
+        self.assertEqual([x['code'] for x in rows], ['OLD0', 'OLD2'])          # the table's order (oldest first)
+        stock = json.loads(r.context['stock_json'])
+        self.assertEqual(stock['whole'], 'whole table')
+        self.assertEqual(stock['counts']['left'], 2)
+        # the page's live filters travel to the printer, members are left out
+        r = self.client.get(f'/studio/vouchers/print/?table={res["table_id"]}&edited=1&f_plan=Daily')
+        codes = [x['code'] for x in json.loads(r.context['rows_json'])]
+        self.assertNotIn('MEMB1', codes)
+        self.assertEqual(json.loads(r.context['stock_json'])['members_left_out'], 1)
+        # the table page offers it, with "only what is left" and choosing by hand
+        page = self.client.get(f'/fit/tables/{res["table_id"]}/')
+        self.assertTrue(page.context['can_print'])
+        self.assertIn('f_state=stock', page.context['print_stock_url'])
+        self.assertContains(page, 'Choose the vouchers to print')
+        # a sales table has no print button
+        sales = FitTable.objects.create(business=self.biz, created_by=self.owner, title='S', source='sales')
+        self.assertFalse(self.client.get(f'/fit/tables/{sales.pk}/').context['can_print'])
+        self.assertEqual(self.client.get(f'/studio/vouchers/print/?table={sales.pk}').status_code, 404)

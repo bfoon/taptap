@@ -435,3 +435,7 @@ html[data-theme="dark"] .fitt-b { background: #2a313c; color: #e4eaf2; } html[da
 .fws-asks { display: flex; flex-wrap: wrap; gap: 6px; }
 .fws-asks button { border: 1px dashed var(--f-line); background: transparent; color: inherit; border-radius: 99px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
 .fws-asks button:hover { border-style: solid; background: rgba(23, 105, 224, .08); }
+
+.ftc-acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ftc-acts a { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 99px; border: 1px solid var(--f-line); text-decoration: none; color: inherit; }
+.ftc-acts a:hover { background: rgba(23, 105, 224, .08); }

@@ -231,6 +231,9 @@ class _FitTableScreenState extends State<FitTableScreen> {
       appBar: AppBar(
         title: Text('${t['title'] ?? widget.title}'),
         actions: [
+          if ('${t['print'] ?? ''}'.isNotEmpty)
+            IconButton(tooltip: 'Print these vouchers as tickets', icon: const Icon(Icons.print_outlined),
+                onPressed: () => openOnWeb('${t['print']}')),
           IconButton(tooltip: 'Open on the web (filters, columns, CSV)', icon: const Icon(Icons.open_in_browser),
               onPressed: () => openOnWeb('/fit/tables/${widget.id}/')),
         ],
@@ -416,6 +419,15 @@ class FitTableCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Text('+ ${total - rows.length} more — tap to open the table', style: TextStyle(fontSize: 11.5, color: cs.onSurfaceVariant)),
+              ),
+            if ('${card['print'] ?? ''}'.isNotEmpty && total > 0)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => openOnWeb('${card['print']}'),
+                  icon: const Icon(Icons.print_outlined, size: 18),
+                  label: Text('Print $total as tickets'),
+                ),
               ),
           ]),
         ),

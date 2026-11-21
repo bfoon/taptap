@@ -433,7 +433,11 @@ def system_prompt(ctx, page=None):
         'answer in 1–3 lines with what stands out (numbers come from the tool) and the link. To change a table, pass table_id. '
         'Offer the natural next step in one line: a chart or dashboard (create_dashboard), a mission that emails it every week, '
         'or a group change on exactly those vouchers (count_vouchers + bulk_vouchers, Owner/Admin). Use table_data to read one. '
-        'Everything Fit built lives in Fit’s workspace: [Fit workspace](/fit/workspace/).',
+        'Everything Fit built lives in Fit’s workspace: [Fit workspace](/fit/workspace/). A VOUCHER table prints as tickets: when '
+        'the person wants to print vouchers (“print the unsold Daily vouchers”, “tickets for everything older than a week”), '
+        'build the table with exactly those vouchers (state stock / unused, plan, batch, router…) and give the print_as_tickets '
+        'link from the result as [Print as tickets](…) — on that page they pick the design, the paper, only what is left to sell, '
+        'a tally slip, or a pull list.',
     ]
     if getattr(ctx, 'read_only', False):
         lines += ['', 'THIS IS A SCHEDULED MISSION RUN: nobody is waiting in a chat. Look with your tools and answer the question '

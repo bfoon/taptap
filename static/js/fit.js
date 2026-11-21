@@ -513,7 +513,16 @@
       '</tbody></table></div>' + (tb.total > rows.length ? '<small class="ftc-more">+ ' + (tb.total - rows.length) + ' more — open the table to filter, sort and download</small>' : '')
       : '<small class="ftc-more">Nothing matches right now — open it to change the filters.</small>';
     a.innerHTML = head + filt + chips + tbl;
-    return a;
+    var wrap = document.createElement('div');
+    wrap.className = 'fit-tblwrap';
+    wrap.appendChild(a);
+    var bar = document.createElement('div');
+    bar.className = 'ftc-acts';
+    bar.innerHTML = '<a href="' + esc(safeHref(tb.link) || '#') + '">📋 Open the table</a>' +
+      (tb.print && tb.total ? '<a href="' + esc(safeHref(tb.print)) + '" target="_blank" rel="noopener">🖨 Print ' + tb.total + ' as tickets</a>' : '') +
+      '<a href="' + esc((safeHref(tb.link) || '#') + '?format=csv') + '">⬇ CSV</a>';
+    wrap.appendChild(bar);
+    return wrap;
   }
 
   // ───────── Fit's workspace: everything Fit built, one click away ─────────

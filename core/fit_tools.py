@@ -698,8 +698,11 @@ def t_create_table(ctx, source, title='', filters=None, columns=None, sort_by=''
     ctx.cards.setdefault('tables', []).append(c)
     return {'saved': True, 'table_id': t.pk, 'title': t.title, 'rows': data['total'], 'filters': c['filters'],
             'summary': c['chips'], 'first_rows': [dict(zip(c['columns'], r['cells'])) for r in c['rows'][:4]], 'link': c['link'],
+            'print_as_tickets': c['print'] or None,
             'next': f'A clickable card of the table is shown. Say in one or two lines what stands out and give the link as markdown: '
-                    f'[Open {t.title}]({c["link"]}). On its page they can change the filters, sort, pick columns and download CSV.'}
+                    f'[Open {t.title}]({c["link"]}). On its page they can change the filters, sort, pick columns and download CSV.'
+                    + (f' These vouchers print as tickets with the business’s voucher design: [Print as tickets]({c["print"]}).'
+                       if c['print'] else '')}
 
 
 def t_tables(ctx):

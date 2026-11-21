@@ -646,7 +646,10 @@ def fit_table(request, pk):
                                                                                  for k, v in spec['columns'].items()],
         'cols': ','.join(cols), 'sort': sort, 'csv': q(format='csv'), 'prev': q(page=data['page'] - 1) if data['page'] > 1 else '',
         'next': q(page=data['page'] + 1) if data['page'] < data['pages'] else '', 'reset': f'/fit/tables/{t.pk}/',
-        'ask': f'Look at my table “{t.title}” (table_id {t.pk}) and tell me what stands out and what I should do.'})
+        'ask': f'Look at my table “{t.title}” (table_id {t.pk}) and tell me what stands out and what I should do.',
+        # voucher tables print as tickets (core/views_studio.voucher_print ?table=): the view as it is now, or only the stock
+        'can_print': t.source == 'vouchers' and 'vouchers.create' in _perms(request),
+        'print_url': ft.print_link(t, q()), 'print_stock_url': ft.print_link(t, q(f_state='stock', show='left'))})
 
 
 @login_required

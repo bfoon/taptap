@@ -27,6 +27,14 @@
   <div class="d-flex gap-2 flex-wrap">
     <a class="btn btn-sm btn-outline-secondary" href="{% url 'fit_workspace' %}"><i class="bi bi-grid"></i> Workspace</a>
     <button type="button" class="btn btn-sm btn-outline-primary" data-fit-ask="{{ ask }}"><i class="bi bi-robot"></i> Ask Fit about it</button>
+    {% if can_print %}<div class="btn-group">
+      <a class="btn btn-sm btn-primary" href="{{ print_url }}" target="_blank" rel="noopener"><i class="bi bi-printer"></i> Print as tickets ({{ data.total }})</a>
+      <button type="button" class="btn btn-sm btn-primary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-label="More print choices"></button>
+      <ul class="dropdown-menu dropdown-menu-end">
+        <li><a class="dropdown-item" href="{{ print_url }}" target="_blank" rel="noopener">Everything in this table</a></li>
+        <li><a class="dropdown-item" href="{{ print_stock_url }}" target="_blank" rel="noopener">Only what is left to sell (in stock)</a></li>
+        <li><button class="dropdown-item" type="button" id="ftbPickMode">Choose the vouchers to print…</button></li>
+      </ul></div>{% endif %}
     <a class="btn btn-sm btn-outline-secondary" href="{{ csv }}"><i class="bi bi-download"></i> CSV</a>
     <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#ftbFilters"><i class="bi bi-funnel"></i> Filters</button>
     <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#ftbCols"><i class="bi bi-layout-three-columns"></i> Columns</button>
@@ -69,17 +77,22 @@
 
 <section class="panel p-0">
   <div class="table-responsive"><table class="table table-sm align-middle mb-0 ftb-table small">
-    <thead><tr>{% for h in heads %}<th class="{% if h.on %}on{% endif %} {% if h.kind == 'money' or h.kind == 'num' %}text-end{% endif %}"><a href="{{ h.href }}">{{ h.label }}{% if h.on %} {% if h.dir == 'asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>{% endfor %}</tr></thead>
-    <tbody>{% for r in data.rows %}<tr {% if r.link %}data-href="{{ r.link }}"{% endif %}>{% for c in r.cells %}<td>{{ c }}</td>{% endfor %}</tr>
+    <thead><tr>{% if can_print %}<th class="ftb-pick" style="display:none;width:28px"><input class="form-check-input" type="checkbox" id="ftbAll" title="All on this page"></th>{% endif %}{% for h in heads %}<th class="{% if h.on %}on{% endif %} {% if h.kind == 'money' or h.kind == 'num' %}text-end{% endif %}"><a href="{{ h.href }}">{{ h.label }}{% if h.on %} {% if h.dir == 'asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>{% endfor %}</tr></thead>
+    <tbody>{% for r in data.rows %}<tr {% if r.link %}data-href="{{ r.link }}"{% endif %} data-id="{{ r.id }}">{% if can_print %}<td class="ftb-pick" style="display:none"><input class="form-check-input" type="checkbox" value="{{ r.id }}"></td>{% endif %}{% for c in r.cells %}<td>{{ c }}</td>{% endfor %}</tr>
     {% empty %}<tr><td class="text-secondary p-3" colspan="{{ heads|length }}">Nothing matches right now.</td></tr>{% endfor %}</tbody>
   </table></div>
 </section>
+{% if can_print %}<div id="ftbPickBar" class="alert alert-primary py-2 px-3 mt-2 d-none d-flex flex-wrap gap-2 align-items-center small">
+  <i class="bi bi-printer"></i> <span><b id="ftbPickN">0</b> chosen — tick the vouchers to print (on any page: your choice is kept while you page through).</span>
+  <a class="btn btn-sm btn-primary ms-auto disabled" id="ftbPickGo" target="_blank" rel="noopener" href="#">Print the chosen ones</a>
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="ftbPickClear">Clear</button>
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="ftbPickDone">Done</button></div>{% endif %}
 <div class="d-flex justify-content-between align-items-center mt-2 small text-secondary">
   <span>Page {{ data.page }} of {{ data.pages }} · {{ data.total }} row{{ data.total|pluralize }}</span>
   <span class="d-flex gap-2">{% if prev %}<a class="btn btn-sm btn-outline-secondary" href="{{ prev }}">‹ Previous</a>{% endif %}{% if next %}<a class="btn btn-sm btn-outline-secondary" href="{{ next }}">Next ›</a>{% endif %}</span>
 </div>
 <script>(function(){
-  var kinds=[{% for h in heads %}'{{ h.kind }}'{% if not forloop.last %},{% endif %}{% endfor %}];
+  var kinds=[{% if can_print %}'pick',{% endif %}{% for h in heads %}'{{ h.kind }}'{% if not forloop.last %},{% endif %}{% endfor %}];
   document.querySelectorAll('.ftb-table tbody tr').forEach(function(tr){
     tr.querySelectorAll('td').forEach(function(td,i){var k=kinds[i];
       if(k==='money'||k==='num')td.classList.add('text-end');
@@ -87,8 +100,27 @@
         var t=td.textContent.toLowerCase();s.classList.add(/frozen/.test(t)?'frozen':/warn/.test(t)?'warned':/disabled/.test(t)?'disabled':/ran out|expired/.test(t)?'expired':/in use/.test(t)?'used':/not used|unused/.test(t)?'unused':/offline/.test(t)?'offline':/online/.test(t)?'online':/open/.test(t)?'open':/resolved/.test(t)?'resolved':'x');
         td.textContent='';td.appendChild(s);}
     });
-    if(tr.dataset.href)tr.addEventListener('click',function(e){if(e.target.closest('a,button'))return;location.href=tr.dataset.href;});
+    if(tr.dataset.href)tr.addEventListener('click',function(e){if(e.target.closest('a,button,input,.ftb-pick'))return;
+      if(picking){var cb=tr.querySelector('.ftb-pick input');if(cb){cb.checked=!cb.checked;toggle(cb);}return;}
+      location.href=tr.dataset.href;});
   });
+  // Choose the vouchers to print: the choice is kept (per table) while paging, and goes to the ticket printer as ids.
+  var picking=false, KEY='ftb:pick:{{ t.pk }}', chosen={};
+  try{chosen=JSON.parse(sessionStorage.getItem(KEY)||'{}');}catch(e){chosen={};}
+  var bar=document.getElementById('ftbPickBar');
+  function save(){try{sessionStorage.setItem(KEY,JSON.stringify(chosen));}catch(e){}}
+  function count(){var ids=Object.keys(chosen);var n=document.getElementById('ftbPickN');if(!n)return;n.textContent=ids.length;
+    var go=document.getElementById('ftbPickGo');go.classList.toggle('disabled',!ids.length);go.href='{% url "voucher_print" %}?ids='+ids.slice(0,1000).join(',');}
+  function toggle(cb){if(cb.checked)chosen[cb.value]=1;else delete chosen[cb.value];save();count();}
+  function mode(on){picking=on;document.querySelectorAll('.ftb-pick').forEach(function(x){x.style.display=on?'':'none';});
+    if(bar)bar.classList.toggle('d-none',!on);try{sessionStorage.setItem(KEY+':on',on?'1':'');}catch(e){}count();}
+  document.querySelectorAll('.ftb-pick input[value]').forEach(function(cb){cb.checked=!!chosen[cb.value];cb.addEventListener('change',function(){toggle(cb);});});
+  var all=document.getElementById('ftbAll');
+  if(all)all.addEventListener('change',function(){document.querySelectorAll('.ftb-pick input[value]').forEach(function(cb){cb.checked=all.checked;toggle(cb);});});
+  var pm=document.getElementById('ftbPickMode');if(pm)pm.addEventListener('click',function(){mode(true);});
+  var pd=document.getElementById('ftbPickDone');if(pd)pd.addEventListener('click',function(){mode(false);});
+  var pc=document.getElementById('ftbPickClear');if(pc)pc.addEventListener('click',function(){chosen={};save();document.querySelectorAll('.ftb-pick input').forEach(function(cb){cb.checked=false;});count();});
+  try{if(sessionStorage.getItem(KEY+':on'))mode(true);}catch(e){}
   var cf=document.getElementById('ftbColForm');
   if(cf)cf.addEventListener('submit',function(){document.getElementById('ftbColsVal').value=Array.from(cf.querySelectorAll('input[type=checkbox]:checked')).map(function(x){return x.value;}).join(',');});
 })();</script>
