@@ -1,0 +1,703 @@
+diff --git a/APPLY-share-the-load-fix.md b/APPLY-share-the-load-fix.md
+new file mode 100644
+index 0000000..c3cbc25
+--- /dev/null
++++ b/APPLY-share-the-load-fix.md
+@@ -0,0 +1,38 @@
++# TapTap update — "Share the load" takes the second line off Standby
++
++Built on 965212b. No database migration.
++
++    cd /opt/taptap
++    unzip -o ~/taptap-share-fix.zip -d /tmp && cp -r /tmp/taptap/* /opt/taptap/
++    docker compose build web worker vouchers live
++    docker compose up -d --force-recreate web worker vouchers live
++
++Then on Router control → Live load balancing press **Share the load with it** on ether5 once more
++(or Internet lines → step 3 → Apply). It switches off the router's own steering rules (see below) this time.
++
++## What kept ether5 on Standby
++1. **Hand-made steering on the router.** TapTap K has its own marks / routing rules sending customers into its own
++   table `starlink2` (out of ether1 only). They come first in the firewall and mark every new connection; TapTap's
++   sharing only shares connections nobody has marked yet, so nothing moved. Now, when TapTap runs two or more lines,
++   it switches those rules off (comment marked `~tt-wan-off`). The safety timer, Undo, and the undo script put them back.
++   Rules for one destination (a VPN, an office network) and every TapTap rule are left alone.
++   The Internet lines preview says how many it will switch off.
++2. **The card misread TapTap's sharing.** Each line's routing table also lists the other lines as fallbacks; the card
++   credited every table to the first line, so ether5 always showed "plan 0% · Standby".
++3. **The card read an old copy.** The live view reads marking rules from TapTap's stored copy of the router, which was
++   not refreshed after the change. It is now re-read right after an apply (live routers) and once a TapTap Link change
++   is confirmed or undone.
++
++## New on the card
++* A standby line says **why** (backup line / no sharing rule / its health check does not answer through it).
++* **Try another health check** when a line's check address (e.g. 8.8.8.8) does not answer through it — some 4G
++  providers block it, and then RouterOS treats the line as dead. TapTap picks another address and shares again.
++* A warning names any hand-made steering rules it finds.
++
++Also fixed: a hand-made rule with no comment would not have been switched back on by Undo.
++
++Changed: core/line_hub.py, core/routeros_analysis.py, core/views_wan.py, core/wan.py, core/wan_link.py,
++static/css/netviz.css, static/js/netviz-lb.js, templates/core/router_control.html, templates/core/topology.html.
++New: core/tests/test_share_load.py.
++
++Tests: `python manage.py test core.tests.test_share_load` (7). Full `core` suite: no new failures.
+diff --git a/core/line_hub.py b/core/line_hub.py
+index 2232a27..8b8fbce 100644
+--- a/core/line_hub.py
++++ b/core/line_hub.py
+@@ -1504,7 +1504,7 @@ def act_revive(router, rows, line_list, data, user):
+     return f'{l["label"]}: {said}. Give the modem about 10 seconds to answer.', False, {'steps': done}
+ 
+ 
+-def share_config(setup, facts, target, line_list):
++def share_config(setup, facts, target, line_list, rotate=False):
+     """The owner's design turned into "Share the load" over every working line, with ``target`` in it."""
+     raw = dict(setup.config or {})
+     saved = {_s(l.get('interface')): dict(l) for l in raw.get('links') or [] if l.get('interface')}
+@@ -1542,8 +1542,22 @@ def share_config(setup, facts, target, line_list):
+     for iface, row in saved.items():          # static lines from the design that detection does not list
+         if iface not in seen and row.get('type') == 'static' and _ipv4(row.get('gateway')):
+             links.append({**row, 'enabled': row.get('enabled', True)})
++    if rotate:      # "Try another health check": the target's own check host does not answer through its line
++        old = _s(saved.get(target, {}).get('check'))
++        others = {_s(saved.get(l['interface'], {}).get('check')) for l in links if l['enabled'] and l['interface'] != target}
++        used.update(others | {old})
++        pick = next((h for h, _ in wan.CHECK_HOSTS if h not in used), '')
++        if not pick:
++            raise HubError('Every health-check address is already in use.')
++        used.discard(old)
++        used.add(pick)
++        saved.setdefault(target, {})['check'] = pick
++        for l in links:
++            if l['interface'] == target:
++                l['check'] = pick
+     for l in links:
+-        l['check'] = check_for(saved.get(l['interface'], l)) if l['enabled'] else (l.get('check') or '')
++        if not (rotate and l['interface'] == target):
++            l['check'] = check_for(saved.get(l['interface'], l)) if l['enabled'] else (l.get('check') or '')
+     if sum(1 for l in links if l['enabled']) < 2:
+         raise HubError('Sharing the load needs two working lines. Bring the other line online first.')
+     cfg = {**raw, 'strategy': 'balance', 'links': links, 'sticky': raw.get('sticky') or 'customer', 'health': True, 'weights': {}}
+@@ -1574,12 +1588,18 @@ def act_share(router, rows, line_list, data, user):
+         finally:
+             svc.close()
+     facts.pop('analysis', None)
+-    cfg, skipped = share_config(setup, facts, iface, line_list)
++    cfg, skipped = share_config(setup, facts, iface, line_list, rotate=bool(data.get('new_check')))
+     out, status = views_wan.apply_lines(router, setup, cfg, user, minutes=8 if on_link(router) else 5, auto_confirm=True)
+     if not out.get('success'):
+         raise HubError(out.get('message') or 'The Internet lines change did not go through.')
+     names = ', '.join(x['label'] for x in cfg['links'] if x['enabled'])
+     tail = f' Left out for now (not connected): {", ".join(skipped)}.' if skipped else ''
++    if data.get('new_check'):
++        tail += f' {l["label"]} now checks its internet with {next(x["check"] for x in cfg["links"] if x["interface"] == iface)}.'
++    steer = facts.get('steering') or []
++    if steer:
++        tail += (f' {len(steer)} hand-made steering rule(s) on the router are switched off — they sent customers past the sharing '
++                 '(Undo puts them back).')
+     if out.get('via_link'):
+         msg = (f'Sharing the load over {names}. Sent through TapTap Link with a safety timer: the router takes it at its next '
+                f'check-ins and TapTap confirms it by itself once the router stays online.{tail}')
+diff --git a/core/routeros_analysis.py b/core/routeros_analysis.py
+index 3cb79dc..5b1c0c3 100644
+--- a/core/routeros_analysis.py
++++ b/core/routeros_analysis.py
+@@ -334,7 +334,7 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
+                 'distances': [], 'active': False, 'reachable': False, 'check_gateway': '', 'source': 'static',
+                 'running': truthy(g(row, 'running', default='yes')) if row else True,
+                 'comment': str(g(row, 'comment')), 'ecmp_weight': 0, 'pcc_rules': 0, 'route_count': 0,
+-                'declared': False, 'next_hops': [], 'recursive': False,
++                'declared': False, 'next_hops': [], 'recursive': False, 'table_active': {}, 'pcc_tables': set(),
+             }
+             order.append(key)
+         return wans[key]
+@@ -362,6 +362,7 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
+             wan['distances'].append((table, distance))
+             wan['route_count'] += 1
+             wan['active'] = wan['active'] or active
++            wan['table_active'][table] = wan['table_active'].get(table, False) or active
+             wan['reachable'] = wan['reachable'] or hop['reachable']
+             wan['check_gateway'] = wan['check_gateway'] or str(g(route, 'check-gateway'))
+             wan['source'] = _route_source(route, hop['interface'], iface_rows)
+@@ -415,6 +416,11 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
+     for key, wan in wans.items():
+         for table in wan['tables']:
+             table_to_wans.setdefault(table, []).append(key)
++    # A table belongs to the line of its lowest-distance route. TapTap's per-line tables also hold the other lines
++    # as fallbacks (distance 2, 3…): before, a table went to whichever line was listed first, so with "Share the load"
++    # every sharing rule was counted for the first line and the second one showed "plan 0% · Standby".
++    for table, keys in table_to_wans.items():
++        keys.sort(key=lambda k: min((d for t, d in wans[k]['distances'] if t == table), default=999))
+ 
+     unmapped_pcc = 0
+     denominators = set()
+@@ -433,6 +439,8 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
+             target_keys = [conn_to_iface[cmark]]
+         if target_keys:
+             wans[target_keys[0]]['pcc_rules'] += 1
++            if rmark:
++                wans[target_keys[0]]['pcc_tables'].add(rmark)
+         else:
+             unmapped_pcc += 1
+ 
+@@ -517,10 +525,25 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
+             state = 'down'
+         elif not up:
+             state = 'down'
++        elif role == 'balanced' and wan['pcc_tables'] and not any(wan['table_active'].get(t) for t in wan['pcc_tables']):
++            state = 'standby'                       # its share goes to the fallback lines: its own route is waiting
+         elif role in {'balanced', 'primary', 'policy'} and wan['active']:
+             state = 'active'
+         else:
+             state = 'standby'
++        why = ''
++        if state == 'standby':
++            gw = wan['gateways'][0] if wan['gateways'] else ''
++            if role == 'balanced' or (share and not wan['active']):
++                why = (f'Its route is waiting: the health check {gw} does not answer through {wan["interface"]}, so its share of '
++                       'customers goes out through the other line.' if wan['recursive'] and gw else
++                       f'Its route is not active — the gateway {gw or ""} does not answer, so its customers use the other line.')
++            elif method == 'PCC':
++                why = 'No sharing rule sends customers to this line.'
++            elif method in ('Failover', 'Single WAN'):
++                why = 'It is the backup line: it carries customers only when the main line fails.'
++            else:
++                why = 'Customers are not sent to this line.'
+         distance = min((d for _, d in wan['distances']), default='')
+         links.append({
+             'id': wan['id'], 'interface': wan['interface'],
+@@ -534,10 +557,20 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
+             'pcc_rules': wan['pcc_rules'], 'ecmp_weight': wan['ecmp_weight'],
+             'next_hop': wan['next_hops'][0] if wan['next_hops'] else '', 'recursive': wan['recursive'],
+             'held_by': held.get(wan['interface'], ''),
+-            'route_count': wan['route_count'],
++            'route_count': wan['route_count'], 'why': why,
+         })
+ 
+     warnings = []
++    try:
++        from .wan import steering
++        theirs = steering(mangle, routing_rules)
++    except Exception:
++        theirs = []
++    if theirs and len(links) > 1:
++        names = sorted({str(g(r, 'new-routing-mark') or g(r, 'new-connection-mark') or g(r, 'table')) for _m, r in theirs} - {''})
++        warnings.append(f'{len(theirs)} hand-made rule(s) steer customers themselves' + (f' ({", ".join(names[:4])})' if names else '')
++                        + ': they mark connections before TapTap’s sharing does, so those customers stay on one line. '
++                        '“Share the load” switches them off (Undo puts them back).')
+     if unmapped_pcc:
+         warnings.append(f'{unmapped_pcc} PCC rule(s) mark traffic into a table that has no default route — that share of traffic may fall back to main.')
+     if method in {'PCC', 'Policy routing'} and filter_rules:
+diff --git a/core/tests/test_share_load.py b/core/tests/test_share_load.py
+new file mode 100644
+index 0000000..0160a19
+--- /dev/null
++++ b/core/tests/test_share_load.py
+@@ -0,0 +1,139 @@
++"""“Share the load” really shares — and the Live load-balancing card says so (Nov 2026, TapTap K: ether5 stayed on
++Standby after “Share the load”).
++
++Three things kept the second line on standby:
++* the card credited each of TapTap's per-line tables (which hold the other lines as fallbacks) to the first line,
++* hand-made steering on the router (marks / routing rules into a table such as "starlink2") marked every connection
++  before TapTap's sharing rules, which only share unmarked connections,
++* the card read the marking rules from TapTap's stored copy of the router, which was not refreshed after the change.
++"""
++from unittest import mock
++
++from django.test import TestCase
++
++from core import wan
++from core.routeros_analysis import analyze_wan
++
++FACTS = {'v7': True, 'lans': [], 'links': [
++    {'interface': 'ether1', 'type': 'dhcp', 'gateway': '192.168.1.1'},
++    {'interface': 'ether5', 'type': 'dhcp', 'gateway': '192.168.2.1'}]}
++CONFIG = {'strategy': 'balance', 'health': True, 'sticky': 'customer', 'links': [
++    {'interface': 'ether1', 'type': 'dhcp', 'gateway': '192.168.1.1', 'label': 'Starlink', 'speed': 50, 'check': '1.1.1.1'},
++    {'interface': 'ether5', 'type': 'dhcp', 'gateway': '192.168.2.1', 'label': 'QCell', 'speed': 50, 'check': '8.8.8.8'}]}
++INTERFACES = [{'name': n, 'running': 'true'} for n in ('ether1', 'ether2', 'ether5', 'bridge')]
++ADDRESSES = [{'address': '192.168.1.20/24', 'interface': 'ether1'}, {'address': '192.168.2.30/24', 'interface': 'ether5'},
++             {'address': '10.5.50.1/24', 'interface': 'bridge'}]
++# What the router had before TapTap: its own PCC into a table of its own.
++HAND = [{'id': '*H1', 'chain': 'prerouting', 'action': 'mark-connection', 'new-connection-mark': 'sl2_conn', 'passthrough': 'yes',
++         'per-connection-classifier': 'both-addresses:2/0', 'in-interface': 'bridge', 'comment': 'my starlink'},
++        {'id': '*H2', 'chain': 'prerouting', 'action': 'mark-routing', 'new-routing-mark': 'starlink2', 'connection-mark': 'sl2_conn',
++         'in-interface': 'bridge', 'passthrough': 'no', 'comment': 'my starlink'},
++        {'id': '*H3', 'chain': 'prerouting', 'action': 'mark-routing', 'new-routing-mark': 'vpn', 'dst-address': '10.77.0.0/16',
++         'comment': 'office VPN'},
++        {'id': '*H4', 'chain': 'forward', 'action': 'mark-connection', 'new-connection-mark': 'games', 'comment': 'queues'}]
++HAND_RULES = [{'id': '*U1', 'src-address': '10.5.50.0/24', 'action': 'lookup', 'table': 'starlink2', 'comment': ''},
++              {'id': '*U2', 'dst-address': '10.77.0.0/16', 'action': 'lookup', 'table': 'vpn'}]
++
++
++def router_rows(plan, own_table_up=True):
++    """The rows TapTap's plan leaves on a router, with RouterOS' "active" flags filled in."""
++    routes, mangle = [], []
++    for k, op in enumerate(plan['ops']):
++        if op['op'] != 'add':
++            continue
++        f = dict(op['fields'])
++        if op['path'] == '/ip/route':
++            table = f.get('routing-table', 'main')
++            line = 'ether5' if ('8.8.8.8' in f['gateway'] or 'ether5' in f['gateway']) else 'ether1'
++            dist = int(f.get('distance') or 1)
++            own = table in ('main', f'TT-{line}')
++            active = f['dst-address'].endswith('/32') or (dist == 1 and own)
++            if line == 'ether5' and not own_table_up and f['dst-address'] == '0.0.0.0/0':
++                active = False
++            if not own_table_up and line == 'ether1' and table == 'TT-ether5':
++                active = True                               # the fallback carries ether5's share
++            routes.append({'id': f'*R{k}', **f, 'active': 'true' if active else 'false'})
++        elif op['path'] == '/ip/firewall/mangle':
++            mangle.append({'id': f'*M{k}', **f})
++    return routes, mangle
++
++
++def analyse(routes, mangle, rules=()):
++    return analyze_wan(routes=routes, mangle=mangle, interfaces=INTERFACES, addresses=ADDRESSES, routing_rules=list(rules),
++                       dhcp_clients=[{'interface': 'ether1', 'gateway': '192.168.1.1'}, {'interface': 'ether5', 'gateway': '192.168.2.1'}])
++
++
++class TheCardReadsTapTapsSharing(TestCase):
++    def setUp(self):
++        cfg, errors, _ = wan.normalize(CONFIG, FACTS)
++        self.assertEqual(errors, [])
++        self.plan = wan.build_plan(cfg, FACTS)
++
++    def test_both_lines_carry_their_share(self):
++        routes, mangle = router_rows(self.plan)
++        lb = analyse(routes, mangle)
++        self.assertEqual(lb['method'], 'PCC')
++        links = {l['interface']: l for l in lb['wan_links']}
++        self.assertEqual((links['ether1']['expected_share'], links['ether5']['expected_share']), (50, 50))   # before: 100 / 0
++        self.assertEqual((links['ether1']['state'], links['ether5']['state']), ('active', 'active'))       # before: ether5 standby
++        self.assertEqual(links['ether5']['why'], '')
++
++    def test_a_line_whose_health_check_does_not_answer_says_why(self):
++        routes, mangle = router_rows(self.plan, own_table_up=False)
++        ether5 = next(l for l in analyse(routes, mangle)['wan_links'] if l['interface'] == 'ether5')
++        self.assertEqual(ether5['state'], 'standby')
++        self.assertIn('health check 8.8.8.8 does not answer through ether5', ether5['why'])
++
++    def test_hand_made_steering_is_named(self):
++        routes, mangle = router_rows(self.plan)
++        lb = analyse(routes, HAND + mangle, HAND_RULES)
++        self.assertTrue(any('hand-made rule(s) steer customers' in w and 'starlink2' in w for w in lb['warnings']))
++
++
++class ShareTheLoadSwitchesHandMadeSteeringOff(TestCase):
++    def test_only_rules_that_steer_internet_traffic_are_found(self):
++        found = wan.steering(HAND + [{'id': '*T', 'chain': 'prerouting', 'action': 'mark-routing', 'new-routing-mark': 'TT-ether1',
++                                      'comment': 'TapTap WAN #a · route via Starlink'}], HAND_RULES)
++        self.assertEqual(sorted(r['id'] for _m, r in found), ['*H1', '*H2', '*U1'])   # not the VPN, the queues, or TapTap's own
++
++    def test_the_plan_switches_them_off_and_every_undo_puts_them_back(self):
++        cfg, _e, _w = wan.normalize(CONFIG, FACTS)
++        plan = wan.build_plan(cfg, FACTS)
++        self.assertIn('disable_steering', [o['op'] for o in plan['ops']])
++        script = wan.render_script(plan, cfg, FACTS)
++        self.assertIn(f'comment=($c . "{wan.LINK_OFF}")', script)
++        undo = wan.render_undo({}, True)
++        self.assertIn(f'/ip firewall mangle find where comment~"{wan.LINK_OFF.strip()}"', undo)
++        self.assertIn(f'/routing rule find where comment~"{wan.LINK_OFF.strip()}"', undo)
++        single, _e, _w = wan.normalize({**CONFIG, 'strategy': 'single'}, FACTS)
++        self.assertNotIn('disable_steering', [o['op'] for o in wan.build_plan(single, FACTS)['ops']])   # one line: left alone
++
++    def test_over_the_api(self):
++        rows = {'/ip/firewall/mangle': [dict(r) for r in HAND], '/routing/rule': [dict(r) for r in HAND_RULES]}
++
++        class Res:
++            def __init__(self, path):
++                self.path = path
++
++            def get(self, **kw):
++                return rows.get(self.path, [])
++
++            def set(self, id, **kw):
++                row = next(r for r in rows[self.path] if r['id'] == id)
++                row.update({k.replace('_', '-'): v for k, v in kw.items()})
++
++        svc = mock.Mock(resource=Res)
++        wan.apply_plan(svc, {'v7': True, 'run': 'abc', 'ops': [{'op': 'disable_steering', 'group': 'clients'}]}, FACTS, {}, undo_minutes=0)
++        off = {r['id']: r for rs in rows.values() for r in rs if r.get('disabled') == 'yes'}
++        self.assertEqual(sorted(off), ['*H1', '*H2', '*U1'])
++        self.assertTrue(off['*H2']['comment'].endswith(wan.LINK_OFF))
++        self.assertEqual(wan.restore_steering(svc, True), 3)
++        self.assertEqual({r['comment'] for r in rows['/ip/firewall/mangle'] if r['id'] in ('*H1', '*H2')}, {'my starlink'})
++        self.assertFalse(any(r.get('disabled') == 'yes' for rs in rows.values() for r in rs))
++        self.assertEqual(rows['/routing/rule'][0]['comment'], '')           # a rule without a comment gets none back
++
++    def test_the_preview_says_so(self):
++        from core.views_wan import summary
++        cfg, _e, _w = wan.normalize(CONFIG, FACTS)
++        lines, _f = summary(cfg, {**FACTS, 'steering': [{'menu': 'mangle', 'mark': 'starlink2'}]})
++        self.assertTrue(any('starlink2' in x and 'switched off' in x for x in lines))
+diff --git a/core/views_wan.py b/core/views_wan.py
+index 8fc687e..8eb3cc0 100644
+--- a/core/views_wan.py
++++ b/core/views_wan.py
+@@ -88,6 +88,12 @@ def summary(cfg, facts):
+         lines.append('Health checks: ' + '; '.join(f'{l["label"]} pings {l["check"]}' for l in L) + ' — a dead ISP is noticed even when the modem is still on.')
+     if strat != 'single' and len(L) > 1:
+         lines.append('Replies always leave by the line they arrived on, so port forwards and remote access keep working.')
++        steer = facts.get('steering') or []
++        if steer:
++            marks = sorted({x.get('mark') for x in steer if x.get('mark')})
++            lines.append(f'{len(steer)} hand-made rule(s) already on the router steer customers themselves'
++                         + (f' ({", ".join(marks[:4])})' if marks else '') + ' — they would come before TapTap’s sharing. '
++                         'They are switched off; Undo puts them back.')
+     return lines, flows
+ 
+ 
+@@ -192,6 +198,32 @@ def wan_apply(request, pk):
+     return JsonResponse(out, status=status)
+ 
+ 
++LINE_SECTIONS = ('/ip/route', '/ip/firewall/mangle', '/routing/rule', '/ip/route/rule', '/ip/firewall/filter', '/ip/firewall/nat',
++                 '/ip/dhcp-client', '/routing/table')
++
++
++def refresh_sections(router, svc, paths=LINE_SECTIONS):
++    """Bring TapTap's stored copy of the menus an Internet lines change touches up to date. The live load-balancing
++    view reads marking rules and routing rules from that copy: before, after "Share the load" it kept showing the old
++    picture (Failover / Single path, the new line on Standby) until the next full sync."""
++    snap = RouterConfigSnapshot.objects.filter(router=router).first()
++    if not snap:
++        return 0
++    sections, n = dict(snap.sections or {}), 0
++    for label, sec in list(sections.items()):
++        if isinstance(sec, dict) and sec.get('path') in paths:
++            try:
++                rows = [dict(r) for r in svc.resource(sec['path']).get()]
++            except Exception:
++                continue
++            sections[label] = {**sec, 'rows': rows, 'count': len(rows), 'at': timezone.now().isoformat()}
++            n += 1
++    if n:
++        snap.sections = sections
++        snap.save(update_fields=['sections'])
++    return n
++
++
+ class _Actor:
+     def __init__(self, user):
+         self.user = user
+@@ -245,6 +277,7 @@ def apply_lines(router, setup, config, user, minutes=5, auto_confirm=False):
+         svc2 = MikroTikService(router).connect()
+         try:
+             reach = True; lines = wan.health(svc2, cfg)
++            refresh_sections(router, svc2)
+             lb = svc2.analyze_load_balancing()
+             RouterConfigSnapshot.objects.filter(router=router).update(load_balancing=lb)
+             if auto_confirm and minutes and any((h.get('ping') or {}).get('ok') for h in lines):
+diff --git a/core/wan.py b/core/wan.py
+index 6f2b0dd..f0ae93a 100644
+--- a/core/wan.py
++++ b/core/wan.py
+@@ -106,6 +106,59 @@ def dhcp_gateway(client, explicit=None, routes=()):
+     return ''
+ 
+ 
++# ═══════════════════════════ hand-made steering ═══════════════════════════
++# A router that had its own load balancing before TapTap (marks such as "starlink2", PCC rules, routing rules into its
++# own tables) keeps steering customers itself: those rules come first and mark every new connection, and TapTap's
++# sharing only shares connections nobody has marked yet — so "Share the load" changed nothing and the second line
++# stayed on standby. When TapTap runs two or more lines, these rules are switched off (marked LINK_OFF, so every
++# undo puts them back). Only rules that steer internet traffic are touched: a rule for one destination (a VPN, an
++# office network) and every TapTap rule stay as they are.
++STEER_CHAINS = {'prerouting', 'output'}
++
++
++def _row_on(row):
++    return _s(row.get('disabled')).lower() not in {'true', 'yes'} and _s(row.get('dynamic')).lower() not in {'true', 'yes'}
++
++
++def _theirs(row):
++    return 'taptap' not in _s(row.get('comment')).lower()
++
++
++def _internet_bound(row):
++    dst, lst = _s(row.get('dst-address')), _s(row.get('dst-address-list'))
++    return (not dst or dst == '0.0.0.0/0') and (not lst or lst.startswith('!'))
++
++
++def steering(mangle, rules):
++    """Hand-made rules that steer customers to a line: [(menu, row)] with menu 'mangle' or 'rule'."""
++    mangle = [dict(r) for r in mangle or []]
++    hand = [r for r in mangle if _row_on(r) and _theirs(r) and _s(r.get('chain')) in STEER_CHAINS]
++    marks = {_s(r.get('connection-mark')) for r in hand if _s(r.get('action')) == 'mark-routing' and _internet_bound(r)}
++    marks -= {'', 'no-mark'}
++    out = []
++    for r in hand:
++        action = _s(r.get('action'))
++        if action == 'mark-routing' and _internet_bound(r):
++            out.append(('mangle', r))
++        elif action == 'mark-connection' and (_s(r.get('per-connection-classifier')) or _s(r.get('new-connection-mark')) in marks):
++            out.append(('mangle', r))
++    for r in rules or []:
++        r = dict(r)
++        table = _s(r.get('table'))
++        if _row_on(r) and _theirs(r) and table and table != 'main' and _internet_bound(r) and not _s(r.get('dst-address')):
++            out.append(('rule', r))
++    return out
++
++
++def steering_text(found):
++    """One sentence for the preview."""
++    if not found:
++        return ''
++    names = sorted({_s(r.get('new-routing-mark') or r.get('new-connection-mark') or r.get('table')) for _m, r in found} - {''})
++    return (f'{len(found)} hand-made rule(s) on the router steer customers themselves' + (f' ({", ".join(names[:4])})' if names else '')
++            + ' — they come before TapTap’s sharing, so it would change nothing. They are switched off; Undo puts them back.')
++
++
+ IFACE_RE = re.compile(r'[A-Za-z0-9_.\-<>@ ]{1,60}')
+ 
+ 
+@@ -196,7 +249,13 @@ def detect(svc):
+             lan['label'] = lan['label'] + ' (HotSpot)'
+     dns_rows = svc.safe_get('/ip/dns')
+     dns_servers = split_servers(dns_rows[0].get('servers')) if dns_rows else []
++    try:
++        steer = steering(svc.safe_get('/ip/firewall/mangle'), svc.safe_get('/routing/rule' if ver[0] >= 7 else '/ip/route/rule'))
++    except Exception:
++        steer = []
+     return {'version': '.'.join(map(str, ver)), 'v7': ver[0] >= 7, 'links': links, 'lans': lans,
++            'steering': [{'menu': m, 'comment': _s(r.get('comment'))[:60], 'action': _s(r.get('action') or 'lookup'),
++                          'mark': _s(r.get('new-routing-mark') or r.get('new-connection-mark') or r.get('table'))} for m, r in steer][:20],
+             'hotspot': bool(hotspot), 'analysis': analysis, 'dns_servers': dns_servers,
+             'check_hosts': [{'ip': ip, 'label': lab} for ip, lab in CHECK_HOSTS]}
+ 
+@@ -458,6 +517,9 @@ def build_plan(cfg, facts, run=None):
+             path = '/ip/dhcp-client' if other['type'] == 'dhcp' else '/interface/pppoe-client'
+             B['clients'].append({'op': 'client', 'path': path, 'interface': other['interface'], 'fields': {'add-default-route': 'no'}, 'group': 'clients',
+                                  'note': 'not selected — stays connected but carries no customer traffic'})
++    if multi:
++        B['clients'].append({'op': 'disable_steering', 'group': 'clients',
++                             'note': 'hand-made marks / routing rules would send customers past TapTap’s lines'})
+     B['clients'].append({'op': 'disable_static_defaults', 'group': 'clients'})
+     if health:
+         # A hand-made 8.8.8.8/32 next to TapTap's would make RouterOS send the health checks out through either
+@@ -512,7 +574,7 @@ def render_script(plan, cfg, facts, business_name=''):
+     group_titles = {'lists': '2. Lists', 'tables': '3. Routing tables', 'routes': '4. Routes', 'mangle': '5. Traffic marking',
+                     'filter': '5b. Keep shared traffic out of FastTrack (otherwise one line takes it all)',
+                     'rules': '6. Network rules', 'nat': '7. NAT', 'dns': '8. DNS that never depends on one line',
+-                    'clients': '9. Hand default routes over to TapTap'}
++                    'clients': '9. Hand default routes (and any hand-made steering rules) over to TapTap'}
+     last = None
+     for op in plan['ops']:
+         g = op.get('group')
+@@ -570,6 +632,28 @@ def op_lines(op, v7, run=None):
+             else:
+                 out.append(f'/ip route disable [find where {where}]')
+         return out
++    if kind == 'disable_steering':
++        m, rule = '/ip firewall mangle', ('/routing rule' if v7 else '/ip route rule')
++        tt = '"[Tt][Aa][Pp][Tt][Aa][Pp]"'
++        # $b = 1 when the rule is for internet traffic (no destination, or only "not these destinations")
++        look = (f':local c [:tostr [{m} get $r comment]]; :local d [:tostr [{m} get $r dst-address]]; '
++                f':local l [:tostr [{m} get $r dst-address-list]]; :local b 0; '
++                ':if (([:len $d] = 0 || $d = "0.0.0.0/0") && ([:len $l] = 0 || [:pick $l 0 1] = "!")) do={ :set b 1 }; ')
++        return ['; '.join([      # one line: TapTap Link cuts a setup into parts at line ends, and $ttcm must reach the next loop
++            ':local ttcm [:toarray ""]',
++            f':foreach r in=[{m} find where action=mark-routing and disabled=no and dynamic=no] do={{ {look}'
++            f':if (!($c ~ {tt}) && $b = 1) do={{ :local k [:tostr [{m} get $r connection-mark]]; '
++            ':if ([:len $k] > 0 && $k != "no-mark") do={ :set ttcm ($ttcm, $k) } } }',
++            f':foreach r in=[{m} find where disabled=no and dynamic=no and (chain=prerouting or chain=output)] do={{ {look}'
++            f':local a [:tostr [{m} get $r action]]; :local h 0; :if (!($c ~ {tt})) do={{ '
++            ':if ($a = "mark-routing" && $b = 1) do={ :set h 1 }; '
++            f':if ($a = "mark-connection") do={{ :if ([:len [:tostr [{m} get $r per-connection-classifier]]] > 0) do={{ :set h 1 }}; '
++            f':if ([:typeof [:find $ttcm [:tostr [{m} get $r new-connection-mark]]]] = "num") do={{ :set h 1 }} }} }}; '
++            f':if ($h = 1) do={{ {m} set $r disabled=yes comment=($c . "{LINK_OFF}") }} }}',
++            f':foreach r in=[{rule} find where disabled=no] do={{ :local c [:tostr [{rule} get $r comment]]; '
++            f':local t [:tostr [{rule} get $r table]]; :if (!($c ~ {tt}) && [:len $t] > 0 && $t != "main" && '
++            f'[:len [:tostr [{rule} get $r dst-address]]] = 0) do={{ {rule} set $r disabled=yes comment=($c . "{LINK_OFF}") }} }}',
++        ])]
+     if kind == 'disable_static_defaults':
+         table = 'routing-table=main' if v7 else '!routing-mark'
+         if run:   # marked, so the Link undo can put exactly these back
+@@ -601,6 +685,11 @@ def render_undo(original, v7, guarded=True):
+         cmds.append(f'{path} set [find where {key}={q(cl["interface"])}] ' + ' '.join(f'{k}={q(v) if v != "" else chr(34) * 2}' for k, v in f.items()))
+     for rid in (original or {}).get('disabled_routes', []):
+         cmds.append(f'/ip route enable [find where .id={rid}]')
++    mark = LINK_OFF.strip()        # a rule that had no comment carries only the mark (no space before it)
++    for p in ('/ip firewall mangle', '/routing rule' if v7 else '/ip route rule'):
++        cmds.append(f':foreach r in=[{p} find where comment~"{mark}"] do={{ :local c [:tostr [{p} get $r comment]]; '
++                    f':local i [:find $c "{LINK_OFF}"]; :if ([:typeof $i] != "num") do={{ :set i [:find $c "{mark}"] }}; '
++                    f'{p} set $r disabled=no comment=[:pick $c 0 $i] }}')
+     if (original or {}).get('dns_servers') is not None:
+         cmds.append(f'/ip dns set servers={q(",".join(original["dns_servers"])) or chr(34) * 2}')
+     if guarded:
+@@ -734,6 +823,13 @@ def apply_plan(svc, plan, facts, original, undo_minutes=5, log=None):
+                 if original.get('disabled_routes') and undo_minutes:
+                     for row in _find(sched, name=UNDO_SCHEDULER):
+                         sched.set(id=row['id'], on_event=render_undo(original, v7))
++            elif kind == 'disable_steering':
++                paths = {'mangle': '/ip/firewall/mangle', 'rule': '/routing/rule' if v7 else '/ip/route/rule'}
++                found = steering(svc.resource(paths['mangle']).get(), _safe_rows(svc, paths['rule']))
++                for menu, row in found:
++                    svc.resource(paths[menu]).set(id=row['id'], disabled='yes', comment=_s(row.get('comment')) + LINK_OFF)
++                if found:
++                    done.append(steering_text(found))
+             elif kind == 'disable_static_defaults':
+                 res = svc.resource('/ip/route')
+                 for row in res.get():
+@@ -756,6 +852,33 @@ def apply_plan(svc, plan, facts, original, undo_minutes=5, log=None):
+     return {'counts': counts, 'notes': done}
+ 
+ 
++def _safe_rows(svc, path):
++    try:
++        return svc.resource(path).get()
++    except Exception:
++        return []
++
++
++def restore_steering(svc, v7):
++    """Undo over the API: the hand-made steering rules this setup switched off are switched on again."""
++    n = 0
++    for path in ('/ip/firewall/mangle', '/routing/rule' if v7 else '/ip/route/rule'):
++        try:
++            res = svc.resource(path)
++            rows = res.get()
++        except Exception:
++            continue
++        mark = LINK_OFF.strip()
++        for row in rows:
++            c = str(row.get('comment') or '')
++            if mark in c:
++                try:
++                    res.set(id=row['id'], disabled='no', comment=c.split(LINK_OFF)[0] if LINK_OFF in c else c.split(mark)[0]); n += 1
++                except Exception:
++                    pass
++    return n
++
++
+ def confirm(svc):
+     sched = svc.resource('/system/scheduler')
+     rows = _find(sched, name=UNDO_SCHEDULER)
+@@ -788,6 +911,7 @@ def undo(svc, original, v7):
+     for rid in (original or {}).get('disabled_routes', []):
+         try: routes.set(id=rid, disabled='no')
+         except Exception: pass
++    restore_steering(svc, v7)
+     return removed
+ 
+ 
+diff --git a/core/wan_link.py b/core/wan_link.py
+index 190a2f5..60159c2 100644
+--- a/core/wan_link.py
++++ b/core/wan_link.py
+@@ -168,6 +168,13 @@ def progress(router, now=None):
+         elif status in {'undone', 'failed'}:
+             setup.confirm_by = None
+         setup.save()
++        if status in {'active', 'undone'} or stage == 'undone':
++            # read the router again: the load-balancing view and Line Hub work from TapTap's copy of its menus
++            try:
++                from .linkops import refresh
++                refresh(router)
++            except Exception as exc:
++                logger.info('Internet lines: re-read after the change failed for %s: %s', router, exc)
+         return stage
+ 
+     if stage == 'confirming':
+diff --git a/static/css/netviz.css b/static/css/netviz.css
+index 4e42aa8..d918b3a 100644
+--- a/static/css/netviz.css
++++ b/static/css/netviz.css
+@@ -320,3 +320,6 @@ html[data-theme="dark"] .lbx-picks button{background:#1f2933;color:#c8d6e5}
+ html[data-theme="dark"] .lbx-act.ghost{background:#1b2a3d;color:#9cc8ff}
+ @media(prefers-reduced-motion:reduce){.lbx-act,.lbx-mission,.lbx-m-steps li,.lbx-lane.lbx-flash{animation:none!important}}
+ .lbx-acts[hidden],.lbx-mission[hidden]{display:none!important}
++.lbx-why{margin:.45rem 0 0;font-size:.72rem;line-height:1.4;color:#8a5a00;background:#fff7e6;border:1px solid #f3d38f;border-radius:8px;padding:.35rem .5rem}
++.lbx-lane.st-down .lbx-why{color:#9b2c2c;background:#fff1f1;border-color:#f3c4c4}
++html[data-theme="dark"] .lbx-why{background:#2b2410;border-color:#5c4a17;color:#f4d58a}
+diff --git a/static/js/netviz-lb.js b/static/js/netviz-lb.js
+index af9091b..b995334 100644
+--- a/static/js/netviz-lb.js
++++ b/static/js/netviz-lb.js
+@@ -147,7 +147,7 @@
+             <small><span data-k="pct">0%</span> of traffic${l.expected_share != null ? ` · plan ${l.expected_share}%` : ''}</small>
+           </div>
+           <svg class="lbx-spark" viewBox="0 0 120 28" preserveAspectRatio="none"><polyline data-k="spark" points=""/></svg>
+-          <footer>${this.footer(l)}</footer>${this.actionBar(l)}
++          <footer>${this.footer(l)}</footer>${l.why && l.state !== 'active' ? `<p class="lbx-why"><i class="bi bi-info-circle"></i> ${esc(l.why)}</p>` : ''}${this.actionBar(l)}
+           <div class="lbx-mission" hidden></div>
+         </article>`).join('');
+ 
+@@ -171,6 +171,7 @@
+       if (['down', 'held', 'broken'].includes(l.state)) b.push(['revive', 'bi-lightning-charge-fill', l.state === 'held' ? 'Put it back in use' : l.state === 'broken' ? 'Repair it' : 'Bring it online', 'primary']);
+       if (['standby', 'no-route', 'held'].includes(l.state)) b.push(['share', 'bi-shuffle', 'Share the load with it', l.state === 'held' ? 'ghost' : 'primary']);
+       if (l.state === 'down') b.push(['share', 'bi-shuffle', 'Bring online & share', 'ghost']);
++      if (l.state === 'standby' && /health check/.test(l.why || '')) { b.length = 0; b.push(['share+check', 'bi-activity', 'Try another health check', 'primary']); }
+       if (!b.length) return `<div class="lbx-acts quiet"><a href="${esc(this.cfg.designer_url)}#lineHub"><i class="bi bi-sliders"></i> Manage this line</a></div>`;
+       return `<div class="lbx-acts">${b.map(([k, ic, t, kind]) => `<button type="button" class="lbx-act ${kind}" data-act="${k}${k === 'share' && l.state === 'down' ? '+revive' : ''}"><i class="bi ${ic}"></i> ${esc(t)}</button>`).join('')}</div>`;
+     }
+@@ -190,8 +191,9 @@
+     async start(kind, id) {
+       const l = this.links().find(x => x.id === id); if (!l || (this.missions[id] && this.missions[id].busy)) return;
+       const name = l.isp || l.label || l.interface;
+-      const both = kind === 'share+revive';
+-      const q = kind === 'revive' ? `Bring ${name} online?\n\nTapTap does what it takes on the router: switches the line on, asks the modem for a fresh address, repairs its routes or puts it back in use. Customers on other lines are not touched.`
++      const both = kind === 'share+revive', newCheck = kind === 'share+check';
++      const q = newCheck ? `Give ${name} another health check?\n\nIts health check does not answer through ${l.interface}, so RouterOS treats the line as dead and sends its customers out through the other line. TapTap picks another address to check with and applies “Share the load” again (with the safety timer).`
++        : kind === 'revive' ? `Bring ${name} online?\n\nTapTap does what it takes on the router: switches the line on, asks the modem for a fresh address, repairs its routes or puts it back in use. Customers on other lines are not touched.`
+         : `Share the load with ${name}?\n\nTapTap sets the router to share customers over every working line by their speed (“Share the load”), with health checks and a safety timer, and confirms it by itself once the router is still reachable. Each customer stays on one line, so logins and calls keep working.`;
+       if (!window.confirm(q)) return;
+       const m = this.missions[id] = { kind, name, iface: l.interface, busy: true, t0: Date.now(), steps: [] };
+@@ -209,7 +211,7 @@
+         if (!both) return this.endMission(id, true, `${name} is back online.`);
+       }
+       step('plan', 'Building the plan: share by speed, one line per customer, health checks');
+-      const r = await this.post(this.cfg.action_url, { action: 'share', interface: l.interface });
++      const r = await this.post(this.cfg.action_url, { action: 'share', interface: l.interface, new_check: newCheck });
+       if (!r.ok) { step('plan', r.message, 'bad'); return this.endMission(id, false, r.message); }
+       step('plan', 'Plan built for ' + (r.lines || []).length + ' lines', 'done');
+       step('apply', r.via_link ? 'Safety timer and new routes on their way through TapTap Link' : 'Safety timer and new routes on the router', r.via_link ? 'run' : 'done');
+diff --git a/templates/core/router_control.html b/templates/core/router_control.html
+index 9521bf2..a0775af 100644
+--- a/templates/core/router_control.html
++++ b/templates/core/router_control.html
+@@ -3,7 +3,7 @@
+ {% block title %}{{ router.name }} Control Center — TapTap{% endblock %}
+ {% block heading %}MikroTik Control Center{% endblock %}
+ {% block extra_head %}
+-<link href="{% static 'css/netviz.css' %}?v=11" rel="stylesheet">
++<link href="{% static 'css/netviz.css' %}?v=12" rel="stylesheet">
+ <link href="{% static 'css/control-designer.css' %}?v=1" rel="stylesheet">
+ <link href="{% static 'css/control-studio-skin.css' %}?v=2" rel="stylesheet">
+ <link href="{% static 'css/router-clock.css' %}?v=1" rel="stylesheet">
+@@ -442,7 +442,7 @@
+ {% endblock %}
+ 
+ {% block scripts %}
+-<script src="{% static 'js/netviz-lb.js' %}?v=11"></script>
++<script src="{% static 'js/netviz-lb.js' %}?v=12"></script>
+ <script>
+ (function(){
+   const csrf=document.querySelector('#csrf-holder [name=csrfmiddlewaretoken]').value;
+diff --git a/templates/core/topology.html b/templates/core/topology.html
+index cdc6c25..2e16317 100644
+--- a/templates/core/topology.html
++++ b/templates/core/topology.html
+@@ -2,7 +2,7 @@
+ {% load static taptap_extras %}
+ {% block title %}Live Topology — TapTap{% endblock %}
+ {% block heading %}Live Network Topology{% endblock %}
+-{% block extra_head %}<link href="{% static 'css/netviz.css' %}?v=11" rel="stylesheet"><link href="{% static 'css/topology-detail.css' %}?v=2" rel="stylesheet"><link href="{% static 'css/ports.css' %}?v=2" rel="stylesheet"><link href="{% static 'css/topology-health.css' %}?v=1" rel="stylesheet">{% endblock %}
++{% block extra_head %}<link href="{% static 'css/netviz.css' %}?v=12" rel="stylesheet"><link href="{% static 'css/topology-detail.css' %}?v=2" rel="stylesheet"><link href="{% static 'css/ports.css' %}?v=2" rel="stylesheet"><link href="{% static 'css/topology-health.css' %}?v=1" rel="stylesheet">{% endblock %}
+ {% block content %}
+ <form class="d-none">{% csrf_token %}</form>
+ <div class="page-actions topology-actions">
+@@ -169,7 +169,7 @@
+ {{ detail|json_script:"topology-detail" }}
+ {% endblock %}
+ {% block scripts %}
+-<script src="{% static 'js/netviz-lb.js' %}?v=11"></script>
++<script src="{% static 'js/netviz-lb.js' %}?v=12"></script>
+ <script src="{% static 'js/netviz-topology.js' %}?v=8"></script>
+ <script src="{% static 'js/topology-detail.js' %}?v=2"></script>
+ <script src="{% static 'js/topology-health.js' %}?v=1" data-resource-url="{% url 'router_resource_api' 0 %}" data-link-url="{% url 'router_link_status' 0 %}" data-reboot-url="{% url 'router_reboot' 0 %}"></script>
