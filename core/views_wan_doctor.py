@@ -186,18 +186,9 @@ def doctor_fix(request, pk):
     if err:
         return err
     try:
-        lines = doc.lines_for(svc, _setup(router))
-        if iface not in {l['interface'] for l in lines}:
-            return JsonResponse({'success': False, 'message': f'{iface} is not one of this router’s internet lines.'}, status=400)
-        if step in {'turn_on', 'turn_off'}:
-            message = doc.turn_line(svc, iface, step == 'turn_on', lines)
-        elif step in {'use', 'unuse'}:
-            message = doc.set_in_use(svc, iface, step == 'use', lines)
-        elif step == 'rewire':
-            line = next(l for l in lines if l['interface'] == iface)
-            message = wan_wiring.repair(svc, line, lines)
-        else:
-            message = doc.fix(svc, iface, step)
+        message = api_step(svc, router, iface, step)
+    except LookupError as exc:
+        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
     except (doc.DoctorError, wan_wiring.WiringError) as exc:
         return JsonResponse({'success': False, 'message': str(exc)}, status=400)
     except Exception as exc:
@@ -208,6 +199,21 @@ def doctor_fix(request, pk):
     _audit(request, router, f'doctor_{step}', {'interface': iface})
     log(router.business, 'Internet Line Change' if step in {'turn_on', 'turn_off', 'use', 'unuse', 'rewire'} else 'Internet Doctor Fix', f'{router.name}: {message}', router=router)
     return JsonResponse({'success': True, 'message': message})
+
+
+def api_step(svc, router, iface, step):
+    """One Internet Doctor step over a live connection (the Doctor card, Line Hub's "Bring it online"). → message."""
+    lines = doc.lines_for(svc, _setup(router))
+    if iface not in {l['interface'] for l in lines}:
+        raise LookupError(f'{iface} is not one of this router’s internet lines.')
+    if step in {'turn_on', 'turn_off'}:
+        return doc.turn_line(svc, iface, step == 'turn_on', lines)
+    if step in {'use', 'unuse'}:
+        return doc.set_in_use(svc, iface, step == 'use', lines)
+    if step == 'rewire':
+        line = next(l for l in lines if l['interface'] == iface)
+        return wan_wiring.repair(svc, line, lines)
+    return doc.fix(svc, iface, step)
 
 
 @login_required

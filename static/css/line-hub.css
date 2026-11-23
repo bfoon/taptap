@@ -296,3 +296,5 @@ html[data-theme="dark"] .lb-empty{border-color:#2c3b4d}
 html[data-theme="dark"] .lb-pins,html[data-theme="dark"] .lb-pin{border-color:#2c3b4d}
 html[data-theme="dark"] .lh-modal-body{color:#cbd5e1}
 html[data-theme="dark"] .lh-state-pill{background:#14382a;color:#7ee2b2}
+
+.lh-big{font-weight:800;padding:.6rem;border-radius:12px;box-shadow:0 8px 20px #1769e030}

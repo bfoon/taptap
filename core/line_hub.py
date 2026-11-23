@@ -538,6 +538,7 @@ OPS = {
     '/ip/dhcp-server/network': ({'set'}, {'dns-server'}),
     '/interface/list': ({'ensure'}, {'name', 'comment'}),
     '/interface/list/member': ({'add', 'remove'}, {'list', 'interface', 'comment'}),
+    '/interface': ({'enable'}, set()),
 }
 WHERE_KEYS = {'chain', 'action', 'out-interface', 'interface', 'name', 'address', 'list', 'comment', 'comment^', 'dst-address'}
 # remove is only allowed on TapTap Line Hub's own rows — except a line's own DHCP / PPPoE client
@@ -1414,7 +1415,183 @@ def act_link(router, rows, line_list, data, user):
     return (f'TapTap Link and Tunnel now go through {l["label"]}. If that line stops, they move to the others by themselves. {msg}'), via
 
 
-ACTIONS = {'delete': act_delete, 'add': act_add, 'edit': act_edit, 'nat': act_nat, 'firewall': act_firewall, 'rule': act_rule,
+# ─────────── bring a line online / share the load with it (Live load balancing, gateway drawer) ───────────
+
+REVIVE_LABELS = {'port_on': 'Switching the port on', 'turn_on': 'Switching the line on', 'refresh': 'Asking the modem for a fresh address',
+                 'redial': 'Dialling the provider again', 'rewire': 'Repairing its routes', 'use': 'Putting it back in use'}
+
+
+def revive_plan(l, hint=''):
+    """The steps that bring one line back, in order — from what TapTap knows about it."""
+    if l['missing']:
+        raise HubError(f'The port of “{l["interface"]}” no longer exists, so this line can never come back. Delete it instead.')
+    steps = []
+    if l['port_off']:
+        steps.append('port_on')
+    if l['client_off']:
+        steps.append('turn_on')
+    elif not l['up']:
+        if l['type'] == 'dhcp':
+            steps.append('refresh')
+        elif l['type'] == 'pppoe':
+            steps.append('redial')
+        elif not l['port_off']:
+            raise HubError(f'{l["label"]} has no link on {l["interface"]}: TapTap cannot fix a cable or a modem that is off. '
+                           'Check the modem’s power and the cable, then try again.')
+    if hint == 'broken':
+        steps.append('rewire')
+    if l['use'] == 'out' and l['has_routes']:
+        steps.append('use')
+    return steps
+
+
+def act_revive(router, rows, line_list, data, user):
+    iface = _s(data.get('interface'))
+    l = _line(line_list, iface)
+    steps = revive_plan(l, _s(data.get('state')))
+    if not steps:
+        if l['up'] and l['use'] in IN_USE:
+            return f'{l["label"]} is already online.', False, {'steps': []}
+        raise HubError(f'{l["label"]} is connected, but no route sends customers through it yet. Press “Share the load with it”.')
+    request = data.get('_request')
+    done, via_link = [], on_link(router)
+    svc = None
+    try:
+        if not via_link:
+            from .mikrotik import MikroTikService
+            try:
+                svc = MikroTikService(router).connect()
+            except Exception as exc:
+                if getattr(router, 'connection_mode', 'api') != 'agent':
+                    raise HubError(f'Could not reach {router.name}: {exc}')
+                via_link = True
+        for step in steps:
+            label = REVIVE_LABELS[step]
+            try:
+                if step in ('port_on', 'redial'):
+                    ops = ([{'v': 'enable', 'p': '/interface', 'w': {'name': iface}}] if step == 'port_on' else
+                           [{'v': 'set', 'p': '/interface/pppoe-client', 'w': {'name': iface}, 'f': {'disabled': 'yes'}},
+                            {'v': 'set', 'p': '/interface/pppoe-client', 'w': {'name': iface}, 'f': {'disabled': 'no'}}])
+                    if via_link:
+                        link_send(router, {'kind': 'ops', 'ops': check_ops(ops)}, f'{label}: {iface}', user)
+                        msg = 'sent'
+                    else:
+                        api_run(svc, check_ops(ops))
+                        msg = 'done'
+                elif via_link:
+                    from .views_wan_doctor import _link_fix
+                    resp = _link_fix(request, router, iface, step)
+                    out = json.loads(resp.content)
+                    if not out.get('success'):
+                        raise HubError(out.get('message') or 'TapTap Link refused it.')
+                    msg = 'sent'
+                else:
+                    from .views_wan_doctor import api_step
+                    msg = api_step(svc, router, iface, step)
+                done.append({'key': step, 'label': label, 'ok': True, 'message': msg})
+            except Exception as exc:
+                done.append({'key': step, 'label': label, 'ok': False, 'message': str(exc)})
+                raise HubError(f'{label} did not work: {exc}')
+    finally:
+        if svc is not None:
+            try:
+                svc.close()
+            except Exception:
+                pass
+    said = ', then '.join(REVIVE_LABELS[s].lower() for s in steps)
+    if via_link:
+        return f'{l["label"]}: {said} — sent through TapTap Link, the router does it at its next check-in.', True, {'steps': done}
+    return f'{l["label"]}: {said}. Give the modem about 10 seconds to answer.', False, {'steps': done}
+
+
+def share_config(setup, facts, target, line_list):
+    """The owner's design turned into "Share the load" over every working line, with ``target`` in it."""
+    raw = dict(setup.config or {})
+    saved = {_s(l.get('interface')): dict(l) for l in raw.get('links') or [] if l.get('interface')}
+    known = {l['interface']: l for l in line_list}
+    used, links, skipped = set(), [], []
+
+    def check_for(row):
+        c = _s(row.get('check'))
+        if c and c not in used:
+            used.add(c)
+            return c
+        c = next((h for h, _ in wan.CHECK_HOSTS if h not in used), wan.CHECK_HOSTS[0][0])
+        used.add(c)
+        return c
+
+    seen = set()
+    for f in facts.get('links') or []:
+        iface = _s(f.get('interface'))
+        if not iface or f.get('missing') or iface in seen:
+            continue
+        seen.add(iface)
+        s_row, live = saved.get(iface, {}), known.get(iface, {})
+        gw = _s(s_row.get('gateway')) if f.get('type') == 'static' else _s(f.get('gateway'))
+        gw = gw or _s(f.get('gateway'))
+        wanted = iface == target or (s_row.get('enabled', True) if s_row else f.get('type') in ('dhcp', 'pppoe'))
+        working = (f.get('type') == 'pppoe' or bool(_ipv4(gw))) and (not live or (live.get('up') and not live.get('client_off')))
+        if wanted and not working:
+            if iface == target:
+                raise HubError(f'{live.get("label") or iface} has no address from its modem yet. Bring it online first, then share the load.')
+            skipped.append(live.get('label') or iface)
+        links.append({'interface': iface, 'type': f.get('type') or 'static', 'gateway': gw,
+                      'label': _s(s_row.get('label')) or live.get('label') or _s(f.get('label')) or iface,
+                      'speed': s_row.get('speed') or live.get('speed') or (20 if f.get('lte') else 50),
+                      'check': '', 'enabled': bool(wanted and working)})
+    for iface, row in saved.items():          # static lines from the design that detection does not list
+        if iface not in seen and row.get('type') == 'static' and _ipv4(row.get('gateway')):
+            links.append({**row, 'enabled': row.get('enabled', True)})
+    for l in links:
+        l['check'] = check_for(saved.get(l['interface'], l)) if l['enabled'] else (l.get('check') or '')
+    if sum(1 for l in links if l['enabled']) < 2:
+        raise HubError('Sharing the load needs two working lines. Bring the other line online first.')
+    cfg = {**raw, 'strategy': 'balance', 'links': links, 'sticky': raw.get('sticky') or 'customer', 'health': True, 'weights': {}}
+    return cfg, skipped
+
+
+def act_share(router, rows, line_list, data, user):
+    from . import views_wan
+    from .linkops import SnapshotService
+    iface = _s(data.get('interface'))
+    l = _line(line_list, iface)
+    if l['missing']:
+        raise HubError('This line’s port no longer exists.')
+    setup = _setup(router)
+    from .wan_link import pending
+    if setup.status == 'pending' or pending(router):
+        raise HubError('An Internet lines change is still on its way to the router — wait for it to finish (a minute or two).')
+    if on_link(router):
+        facts = wan.detect(SnapshotService(router))
+    else:
+        from .mikrotik import MikroTikService
+        try:
+            svc = MikroTikService(router).connect()
+        except Exception as exc:
+            raise HubError(f'Could not reach {router.name}: {exc}')
+        try:
+            facts = wan.detect(svc)
+        finally:
+            svc.close()
+    facts.pop('analysis', None)
+    cfg, skipped = share_config(setup, facts, iface, line_list)
+    out, status = views_wan.apply_lines(router, setup, cfg, user, minutes=8 if on_link(router) else 5, auto_confirm=True)
+    if not out.get('success'):
+        raise HubError(out.get('message') or 'The Internet lines change did not go through.')
+    names = ', '.join(x['label'] for x in cfg['links'] if x['enabled'])
+    tail = f' Left out for now (not connected): {", ".join(skipped)}.' if skipped else ''
+    if out.get('via_link'):
+        msg = (f'Sharing the load over {names}. Sent through TapTap Link with a safety timer: the router takes it at its next '
+               f'check-ins and TapTap confirms it by itself once the router stays online.{tail}')
+    elif out.get('auto_confirmed'):
+        msg = f'Customers are now shared over {names}. TapTap reached the router again and the lines answer, so it is confirmed.{tail}'
+    else:
+        msg = (f'Sharing the load over {names} is on the router, but TapTap could not confirm it yet — the router undoes it by '
+               f'itself in 5 minutes unless you press “Keep” on the Internet lines page.{tail}')
+    return msg, bool(out.get('via_link')), {'watch': 'wan', 'wan_status': out.get('status'), 'lines': [x['interface'] for x in cfg['links'] if x['enabled']]}
+
+
+ACTIONS = {'revive': act_revive, 'share': act_share, 'delete': act_delete, 'add': act_add, 'edit': act_edit, 'nat': act_nat, 'firewall': act_firewall, 'rule': act_rule,
            'dhcp': act_dhcp, 'link': act_link}
 
 
@@ -1611,13 +1788,15 @@ def hub_action(request, pk):
                 raise HubError('TapTap’s copy of this router’s ' + ' and '.join(stale) + ' is out of date, so it cannot tell safely '
                                'which line customers use. Press “Refresh from router” and try again in a minute.')
         line_list = lines(router, rows, _setup(router))
-        message, via_link = fn(router, rows, line_list, data, request.user)
+        data['_request'] = request
+        res = fn(router, rows, line_list, data, request.user)
+        message, via_link, extra = (res + ({},))[:3] if len(res) == 2 else res
     except HubError as exc:
-        _audit(request, router, f'hub_{action}', {k: v for k, v in data.items() if k != 'password'}, False, str(exc))
+        _audit(request, router, f'hub_{action}', {k: v for k, v in data.items() if k not in ('password', '_request')}, False, str(exc))
         raise
     finally:
         rows.close()
-    safe = {k: v for k, v in data.items() if k != 'password'}
+    safe = {k: v for k, v in data.items() if k not in ('password', '_request')}
     _audit(request, router, f'hub_{action}', safe)
     _log(router, message.split(' Sent through')[0].split(' Done on')[0][:300])
     if via_link:
@@ -1626,7 +1805,7 @@ def hub_action(request, pk):
             refresh(router, request.user)
         except Exception:
             pass
-    return JsonResponse({'ok': True, 'message': message, 'via_link': via_link, 'config': _setup(router).config or {}})
+    return JsonResponse({'ok': True, 'message': message, 'via_link': via_link, 'config': _setup(router).config or {}, **extra})
 
 
 @login_required
@@ -1701,6 +1880,7 @@ def install():
         from . import agent
         agent.SAFE_KINDS.add(LINK_KIND)
         agent.DEFAULT_EXPIRY.setdefault(LINK_KIND, 30)
+        getattr(agent, 'ACK_RETRY', set()).add(LINK_KIND)
         original = agent.command_body
 
         @wraps(original)

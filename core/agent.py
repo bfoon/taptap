@@ -729,9 +729,19 @@ def advanced_enrollment_script(router, token, request=None):
 '''
 
 
+# Commands whose answer is tried several times: they change the internet lines (Config Studio, Line Hub, Internet
+# lines, Internet Doctor), so the router's own internet can blink right when it reports back. Before, the one try
+# failed, and the answer was lost — or worse, the failed "ok" fell through to report "fail" for a command that worked.
+ACK_RETRY = set()
+
+
 def _ack(url, cmd, status, check, result=''):
     q = f'{url}/api/agent/v1/ack?c={cmd.pk}&n={nonce(cmd)}&s={status}' + (f'&r={quote(result)}' if result else '')
-    return f'/tool fetch url={rs(q)} output=none check-certificate={check} duration=8s idle-timeout=5s'
+    fetch = f'/tool fetch url={rs(q)} output=none check-certificate={check} duration=8s idle-timeout=5s'
+    if cmd.kind not in ACK_RETRY:
+        return fetch
+    return (f':local tta 0; :for tti from=1 to=5 do={{ :if ($tta = 0) do={{ :do {{ {fetch}; :set tta 1 }} '
+            f'on-error={{ :delay 3s }} }} }}')
 
 
 PROFILE_KINDS = ('hotspot_users', 'hotspot_users_limit', 'hotspot_users_time', 'hotspot_users_heal', 'hotspot_users_profile', 'hotspot_user_profile')
@@ -1594,6 +1604,11 @@ def handle_poll(agent, data, ip, url):
         wan_progress(router, now)
     except Exception as exc:
         logger.info('wan link progress %s: %s', router, exc)
+    try:   # a Config Studio change: ask the router where it stands when an answer went missing, keep it by itself
+        from .config_studio import link_progress as studio_progress
+        studio_progress(router, now)
+    except Exception as exc:
+        logger.info('studio link progress %s: %s', router, exc)
     rows = parse_sessions(data.get('act', ''))
     try:
         from .linklive import ingest_counters, store_sessions

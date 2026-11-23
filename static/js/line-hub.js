@@ -252,6 +252,8 @@
     } else {
       h += '<div class="lh-dr-stats"><div><b>' + (l.users || 0) + '</b><span>customers</span></div><div><b>' + bps(r.rx_bps) + '</b><span>download</span></div><div><b>' + bps(r.tx_bps) + '</b><span>upload</span></div>' +
         '<div><b>' + (l.real || 0) + '%</b><span>of customers' + (l.share != null ? ' · designed ' + l.share + '%' : '') + '</span></div></div>' +
+        ((!l.up || l.client_off || l.port_off || (l.use === 'out' && l.has_routes)) ? '<button type="button" class="btn btn-danger w-100 mb-2 lh-big" data-revive><i class="bi bi-lightning-charge-fill"></i> Bring ' + esc(l.label) + ' online</button>' : '') +
+        (l.up && !l.client_off && (l.use === 'standby' || l.use === 'out' || !l.selected || S.st.setup.strategy !== 'balance') ? '<button type="button" class="btn btn-primary w-100 mb-2 lh-big" data-share><i class="bi bi-shuffle"></i> Share the load with ' + esc(l.label) + '</button>' : '') +
         '<h4>Switches</h4><div class="lh-sws">' +
         sw('power', !l.client_off, 'Line switched on', l.switchable ? 'Turns the ' + l.type.toUpperCase() + ' client on or off' : 'Static lines are switched by their port', !l.switchable) +
         sw('use', l.use !== 'out', 'Customers use this line', l.use === 'out' ? 'Out of use — it stays connected so you can test it' : 'Take it out of use to move everyone to the other lines', l.client_off || (!l.has_routes && l.use === 'out' && l.type !== 'dhcp')) +
@@ -313,6 +315,17 @@
       fd.forEach(function (v, k) { if (v !== '') p[k] = v; });
       act(p, { btn: form.querySelector('button'), lines: true });
     });
+    var rv = q('[data-revive]');
+    if (rv) rv.onclick = function () {
+      confirmThen({ title: 'Bring ' + l.label + ' online?', icon: 'bi-lightning-charge-fill', text: 'TapTap does what it takes: switches it on, asks the modem for a fresh address, or puts it back in use. Other lines are not touched.', ok: 'Bring it online' },
+        { action: 'revive', interface: l.interface }, { btn: rv });
+    };
+    var shb = q('[data-share]');
+    if (shb) shb.onclick = function () {
+      confirmThen({ title: 'Share the load with ' + l.label + '?', icon: 'bi-shuffle', ok: 'Share the load',
+        html: '<p>Customers are shared over every working line by speed, one line per customer, with health checks.</p><p class="small text-secondary mb-0">A safety timer goes on the router first; TapTap confirms it by itself once the router is still reachable — otherwise the router undoes it.</p>' },
+        { action: 'share', interface: l.interface }, { btn: shb, lines: true });
+    };
     var dz = q('[data-design]'); if (dz) dz.onclick = function () { closeDrawer(); var c = document.querySelector('.line-card[data-if="' + (window.CSS && CSS.escape ? CSS.escape(l.interface) : l.interface) + '"]') || document.getElementById('step1'); if (c) { c.scrollIntoView({ behavior: 'smooth', block: 'center' }); c.classList.add('lh-flash'); setTimeout(function () { c.classList.remove('lh-flash'); }, 1800); } };
     var mn = q('[data-main]'); if (mn) mn.onclick = function () { closeDrawer(); document.dispatchEvent(new CustomEvent('tt:wan-main', { detail: { interface: l.interface } })); };
     var sel = function () { return [].map.call(card.querySelectorAll('[data-pk]:checked'), function (c) { return JSON.parse(c.dataset.pk); }); };

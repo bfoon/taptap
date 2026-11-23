@@ -240,5 +240,6 @@ def install():
     agent.SAFE_KINDS.add(LINK_KIND)
     agent.NEVER_RESEND.add(LINK_KIND)        # a part re-run would add every route twice: fail and undo instead
     agent.ACK_WAIT.setdefault(LINK_KIND, 180)
+    getattr(agent, 'ACK_RETRY', set()).add(LINK_KIND)       # the answer survives the internet blinking during the change
     agent.command_body = _wrap_command_body(agent.command_body)
     _INSTALLED = True

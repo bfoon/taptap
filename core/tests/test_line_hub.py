@@ -438,3 +438,75 @@ class OverTheApi(Base):
         self.assertEqual(log[0], 'sched-added')
         self.assertIn("set /ip/firewall/filter {'id': '*F2', 'disabled': 'yes'}", log)
         self.assertEqual(log[-1], 'remove /system/scheduler *S')              # TapTap reached the router again: timer gone
+
+
+# ═══════════════════════ bring a line online / share the load with it ═══════════════════════
+class ReviveAndShare(Base):
+    def act(self, **data):
+        return self.post(f'/routers/{self.router.pk}/internet/hub/action/', data)
+
+    def line(self, **over):
+        base = {'interface': 'ether5', 'label': 'QCell', 'type': 'dhcp', 'missing': False, 'port_off': False, 'client_off': False,
+                'up': True, 'use': 'managed', 'has_routes': True}
+        return {**base, **over}
+
+    def test_the_plan_follows_what_is_wrong(self):
+        self.assertEqual(hub.revive_plan(self.line(client_off=True)), ['turn_on'])
+        self.assertEqual(hub.revive_plan(self.line(up=False)), ['refresh'])
+        self.assertEqual(hub.revive_plan(self.line(up=False, type='pppoe')), ['redial'])
+        self.assertEqual(hub.revive_plan(self.line(port_off=True, up=False)), ['port_on', 'refresh'])
+        self.assertEqual(hub.revive_plan(self.line(use='out')), ['use'])
+        self.assertEqual(hub.revive_plan(self.line(), 'broken'), ['rewire'])
+        with self.assertRaises(hub.HubError):
+            hub.revive_plan(self.line(missing=True))
+        with self.assertRaises(hub.HubError):                       # a static line without link: a cable / modem problem
+            hub.revive_plan(self.line(type='static', up=False))
+
+    def test_bringing_a_switched_off_line_online_through_link(self):
+        clients = [dict(c) for c in DHCP_CLIENTS]
+        clients[1]['disabled'] = 'true'
+        self.snapshot(**{'/ip/dhcp-client': clients})
+        r = self.act(action='revive', interface='ether5')
+        self.assertTrue(r.json()['ok'], r.content)
+        self.assertEqual([s['key'] for s in r.json()['steps']], ['turn_on'])
+        cmd = AgentCommand.objects.filter(router=self.router, kind='wan_doctor').last()
+        self.assertEqual(cmd.params['step'], 'turn_on')
+        self.assertIn('/ip dhcp-client set [find where interface="ether5"] disabled=no', agent.command_body(cmd))
+
+    def test_a_port_switched_off_is_switched_on(self):
+        ifaces = [dict(i, disabled='true', running='false') if i['name'] == 'ether5' else i for i in IFACES]
+        self.snapshot(**{'/interface': ifaces})
+        r = self.act(action='revive', interface='ether5')
+        self.assertTrue(r.json()['ok'], r.content)
+        bodies = [agent.command_body(c) for c in AgentCommand.objects.filter(router=self.router, kind=hub.LINK_KIND)]
+        self.assertIn('/interface enable [find where name="ether5"]', bodies[0])
+
+    def test_sharing_the_load_with_a_standby_line_through_link(self):
+        self.snapshot()
+        r = self.act(action='share', interface='ether5')
+        self.assertTrue(r.json()['ok'], r.content)
+        self.assertTrue(r.json()['via_link'])
+        self.setup.refresh_from_db()
+        self.assertEqual(self.setup.config['strategy'], 'balance')
+        self.assertEqual({l['interface']: l['enabled'] for l in self.setup.config['links']}, {'ether1': True, 'ether5': True})
+        self.assertEqual(self.setup.status, 'pending')                                     # confirms by itself (core/wan_link.py)
+        steps = [c.params['step'] for c in AgentCommand.objects.filter(router=self.router, kind='wan_lines').order_by('pk')]
+        self.assertEqual(steps[0], 'arm')                                                   # the safety timer first
+        self.assertIn('per-connection-classifier', ' '.join(agent.command_body(c) for c in AgentCommand.objects.filter(router=self.router, kind='wan_lines')))
+        r = self.act(action='share', interface='ether5')                                    # one change at a time
+        self.assertEqual(r.status_code, 400)
+
+    def test_a_line_without_an_address_cannot_be_shared_yet(self):
+        clients = [dict(c) for c in DHCP_CLIENTS]
+        clients[1].update(status='searching...', address='', gateway='')
+        self.snapshot(**{'/ip/dhcp-client': clients})
+        r = self.act(action='share', interface='ether5')
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('Bring it online first', r.json()['message'])
+
+    def test_the_load_balancing_card_gets_the_action_urls(self):
+        from core.views import _lb_config
+        req = mock.Mock(tt_perms={'network.manage'})
+        cfg = _lb_config(self.router, request=req)
+        self.assertEqual(cfg['action_url'], f'/routers/{self.router.pk}/internet/hub/action/')
+        self.assertFalse(_lb_config(self.router, request=mock.Mock(tt_perms=set()))['action_url'])

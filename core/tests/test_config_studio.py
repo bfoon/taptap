@@ -156,6 +156,45 @@ class TileTests(TestCase):
         self.assertNotIn('s3cret', tiles.describe(board(('wan_pppoe', {'port': 'ether1', 'user': 'u', 'password': 's3cret'}))[0]))
 
 
+class InternetLineTests(TestCase):
+    """The Internet line tiles on a router whose routes RouterOS 7 writes as "192.168.1.1@starlink2" (Nov 2026)."""
+    STATE = {
+        '/interface': [{'name': n, 'type': 'ether'} for n in ('ether1', 'ether2', 'ether5', 'bridge')],
+        '/ip/address': [{'address': '172.16.0.1/24', 'interface': 'bridge'}],
+        '/ip/dhcp-client': [{'interface': 'ether1', 'address': '192.168.1.20/24', 'add-default-route': 'no', 'status': 'bound'},
+                            {'interface': 'ether5', 'address': '192.168.2.30/24', 'add-default-route': 'no', 'status': 'bound'}],
+        '/ip/route': [{'dst-address': '1.1.1.1/32', 'gateway': '192.168.1.1%ether1'},
+                      {'dst-address': '0.0.0.0/0', 'gateway': '1.1.1.1', 'distance': '1', 'active': 'true'},
+                      {'dst-address': '0.0.0.0/0', 'gateway': '192.168.1.1@starlink2', 'distance': '1', 'routing-table': 'starlink2'},
+                      {'dst-address': '0.0.0.0/0', 'gateway': '192.168.1.1@starlink2', 'distance': '3'},
+                      {'dst-address': '8.8.8.8/32', 'gateway': '192.168.2.1%ether5'},
+                      {'dst-address': '0.0.0.0/0', 'gateway': '8.8.8.8', 'distance': '2', 'active': 'false'}],
+        '/ip/firewall/nat': [{'chain': 'srcnat', 'action': 'masquerade', 'out-interface': 'ether1'}],
+    }
+
+    def test_table_gateways_and_check_hosts_lead_to_real_ports(self):
+        self.assertEqual(sim.VirtualRouter(self.STATE).wan_interfaces(), ['ether1', 'ether5'])
+
+    def test_sharing_a_line_is_not_reported_as_without_nat(self):
+        b = board(('wan_dhcp', {'port': 'ether1', 'share': 'yes'}), ('wan_dhcp', {'port': 'ether5', 'share': 'yes'}))
+        ops, problems = tiles.compile_board(b, CTX)
+        res = sim.examine(self.STATE, ops, b)
+        self.assertEqual([(t['title'][-6:], t['pass']) for t in res['tests']], [('ether1', True), ('ether5', True)])
+        self.assertFalse([f for f in res['findings'] if 'without NAT' in f['text']])
+
+    def test_a_line_run_by_internet_lines_keeps_its_taptap_routes(self):
+        ctx = {**CTX, 'wan_managed': ['ether1']}
+        ops, _ = tiles.compile_board(board(('wan_dhcp', {'port': 'ether1'}), ('wan_dhcp', {'port': 'ether5'})), ctx)
+        clients = {o['find']['interface']: o['values'] for o in ops if o['resource'] == '/ip/dhcp-client'}
+        self.assertEqual(clients['ether1']['add-default-route'], 'no')     # no second default route next to TapTap's
+        self.assertEqual(clients['ether5']['add-default-route'], 'yes')
+
+    def test_taptap_links_own_lists_are_not_menus(self):
+        ops, problems = tiles.compile_board(board(('custom', {'menu': '/ip/dhcp-client/gateways', 'match': 'interface="*2"',
+                                                              'set': 'chain=forward'})), CTX)
+        self.assertIn('read-only list', problems[0]['message'])
+
+
 class VirtualRouterTests(TestCase):
     def run_board(self, b, base='default', **kw):
         ops, problems = tiles.compile_board(b, CTX)
@@ -335,64 +374,188 @@ class LinkDeployTests(Base):
         cs.deploy_link(d, self.state)
         return d
 
-    def test_one_piece_at_a_time_timer_first(self):
+    def answer_step(self, step, status='ok', result=''):
+        cmd = [c for c in self.cmds() if c.params.get('step') == step][-1]
+        self.assertTrue(agent.handle_ack(cmd.pk, agent.nonce(cmd), status, result), step)
+        return cmd
+
+    def answer_all(self, d):
+        for step in d.link_parts['order']:
+            self.answer_step(step)
+
+    def lose(self, *steps):
+        """The router ran these (or not) but no answer reached TapTap: the Link queue gave up on them."""
+        AgentCommand.objects.filter(router=self.r, kind=cs.LINK_KIND, params__step__in=list(steps)).update(
+            status='failed', result='No answer from the router', done_at=timezone.now())
+
+    def test_the_whole_chain_goes_at_once_timer_first_each_step_guarded(self):
         d = self.start()
-        self.assertEqual([c.params['step'] for c in self.cmds()], ['arm'])
-        body = agent.command_body(self.cmds()[0])
-        self.assertIn(f'/system scheduler add name={cs.UNDO_SCHEDULER} interval=5m', body)
-        self.assertIn('TapTap-Studio', agent.wrap(self.cmds()[0], 'https://t.example', ''))
         order = d.link_parts['order']
-        self.assertGreater(len(order), 2)
+        self.assertEqual([c.params['step'] for c in self.cmds()], order)            # all queued at once — no waiting
+        self.assertTrue(order[0].startswith('u'))
+        self.assertLess(order.index('arm'), order.index('p0'))                      # the undo timer before any change
+        arm = agent.command_body([c for c in self.cmds() if c.params['step'] == 'arm'][0])
+        self.assertIn(f'/system scheduler add name={cs.UNDO_SCHEDULER} interval=8m', arm)     # at least 8 min on Link
+        self.assertIn(':if ($s >= ', arm)                                           # skipped when already done
+        self.assertIn('an earlier step did not run', arm)                           # refused when out of order
+        wrapped = agent.wrap(self.cmds()[-1], 'https://t.example', '')
+        self.assertIn(':for tti from=1 to=5', wrapped)                              # the answer is retried
         for step in order:
-            self.assertEqual(self.cmds()[-1].params['step'], step)
             d.refresh_from_db()
             self.assertEqual(d.status, 'sending')
-            self.answer()
+            self.answer_step(step)
         d.refresh_from_db()
         self.assertEqual(d.status, 'applied')
         self.assertIsNotNone(d.undo_until)
         cs.keep(d)
         self.assertIn('already undone', agent.command_body(self.cmds()[-1]))
-        self.answer()
+        self.answer_step('keep')
         d.refresh_from_db()
         self.assertEqual(d.status, 'kept')
 
     def test_the_browser_cannot_choose_what_a_link_command_runs(self):
         d = self.start()
         cmd = self.cmds()[0]
-        cmd.params = {'deploy': d.pk, 'step': 'order'}
-        with self.assertRaises(ValueError):
-            cs.link_body(cmd)
-        cmd.params = {'deploy': d.pk + 99, 'step': 'p0'}
-        with self.assertRaises(ValueError):
-            cs.link_body(cmd)
+        for bad in ({'deploy': d.pk, 'step': 'order'}, {'deploy': d.pk, 'step': 'steps'}, {'deploy': d.pk + 99, 'step': 'p0'}):
+            cmd.params = bad
+            with self.assertRaises(ValueError):
+                cs.link_body(cmd)
         with self.assertRaises(ValueError):                            # a board cannot smuggle a script kind through the queue
             agent.queue(self.r, 'script', {'source': '/system reboot'})
 
     def test_a_refused_piece_stops_and_undoes(self):
         d = self.start()
-        self.answer()            # timer armed
-        self.answer()            # p0 in
-        self.answer('fail', 'no such item')
+        order = d.link_parts['order']
+        for step in order[:order.index('p0') + 1]:
+            self.answer_step(step)
+        self.answer_step('p1', 'fail', 'no such item')
         d.refresh_from_db()
         self.assertEqual(d.status, 'failed')
         self.assertIn('no such item', d.error)
+        later = [c for c in self.cmds() if c.params['step'] in order[order.index('p1') + 1:]]
+        self.assertTrue(all(c.status == 'cancelled' for c in later))                # the rest never runs
         self.assertEqual(self.cmds()[-1].params['step'], 'undo')
-        self.assertTrue(agent.command_body(self.cmds()[-1]).startswith(f'/system scheduler remove [find where name="{cs.UNDO_SCHEDULER}"]'))
-        self.answer()
+        self.assertIn(f'/system script run {cs.UNDO_SCRIPT}', agent.command_body(self.cmds()[-1]))
+        for step in d.link_parts['undo_order']:
+            self.answer_step(step)
         d.refresh_from_db()
         self.assertEqual(d.status, 'failed')
-        self.assertIn('were undone', d.error)
+        self.assertIn('taken back', d.error)
+
+    def test_lost_answers_are_resolved_by_asking_the_router(self):
+        d = self.start()
+        order = d.link_parts['order']
+        for step in order[:-2]:
+            self.answer_step(step)
+        self.lose(*order[-2:])                         # the internet blinked: two answers never arrived
+        cs.progress(RouterStudioDeploy.objects.get(pk=d.pk))
+        d.refresh_from_db()
+        self.assertEqual((d.status, self.cmds()[-1].params['step']), ('sending', 'check'))
+        self.assertIn(f'!= {len(order) - 1})', agent.command_body(self.cmds()[-1]))
+        self.answer_step('check')
+        d.refresh_from_db()
+        self.assertEqual(d.status, 'applied')
+
+    def test_a_broken_chain_is_sent_once_more_then_taken_back(self):
+        d = self.start()
+        self.lose(*d.link_parts['order'])
+        cs.progress(RouterStudioDeploy.objects.get(pk=d.pk))
+        self.answer_step('check', 'fail', 'stopped at step 2')
+        d.refresh_from_db()
+        self.assertEqual((d.status, d.link_parts['round']), ('sending', 2))          # a fresh round with a fresh marker
+        self.assertIn('ttS%dr2' % d.pk, agent.command_body(self.cmds()[-1]))
+        self.lose(*d.link_parts['order'])
+        cs.progress(RouterStudioDeploy.objects.get(pk=d.pk))
+        self.answer_step('check', 'fail')
+        d.refresh_from_db()
+        self.assertEqual(d.status, 'failed')
+        self.assertIn('2 times', d.error)
+        self.assertEqual(self.cmds()[-1].params['step'], 'undo')
+
+    def test_it_never_loops_for_ever(self):
+        d = self.start()
+        d.link_parts['started_at'] = (timezone.now() - timedelta(minutes=cs.DEADLINE + 1)).isoformat()
+        d.save()
+        cs.progress(d)
+        d.refresh_from_db()
+        self.assertEqual(d.status, 'failed')
+        self.assertIn('did not get the change through', d.error)
+        self.assertFalse(AgentCommand.objects.filter(router=self.r, kind=cs.LINK_KIND, status='queued',
+                                                     params__step__startswith='p').exists())
+
+    def test_a_change_stuck_with_the_old_version_stops_blocking(self):
+        d = self.deploy_for(board(('dns', {'servers': '1.1.1.1'})))
+        RouterStudioDeploy.objects.filter(pk=d.pk).update(status='sending', transport='TapTap Link', link_parts={'order': ['arm', 'p0']},
+                                                          created_at=timezone.now() - timedelta(hours=2))
+        d.refresh_from_db()
+        cs.progress(d)
+        d.refresh_from_db()
+        self.assertEqual(d.status, 'failed')
+        self.assertIn('never finished', d.error)
+
+    def test_keep_by_itself_once_the_router_stays_online(self):
+        d = self.deploy_for(board(*[(t['type'], t['params']) for t in cs.KITS[1]['tiles']]))
+        cs.deploy_link(d, self.state, auto_keep=True)
+        self.answer_all(d)
+        d.refresh_from_db()
+        self.assertEqual(d.status, 'applied')
+        cs.progress(d)
+        self.assertFalse(any(c.params['step'] == 'keep' for c in self.cmds()))     # not before the router proved itself
+        RouterAgent.objects.filter(router=self.r).update(last_seen_at=d.applied_at + timedelta(seconds=cs.KEEP_AFTER + 5))
+        cs.link_progress(self.r)                                                     # what every check-in runs
+        self.answer_step('keep')
+        d.refresh_from_db()
+        self.assertEqual(d.status, 'kept')
+
+    def test_a_lost_keep_answer_is_checked_not_assumed_undone(self):
+        d = self.start()
+        self.answer_all(d)
+        d.refresh_from_db()
+        cs.keep(d)
+        self.lose('keep')
+        RouterStudioDeploy.objects.filter(pk=d.pk).update(undo_until=timezone.now() - timedelta(minutes=1))
+        d.refresh_from_db()
+        cs.settle(d)
+        self.assertEqual(self.cmds()[-1].params['step'], 'kcheck')
+        d.refresh_from_db()
+        self.assertEqual(d.status, 'applied')                                        # not "undone" on a guess
+        self.answer_step('kcheck')
+        d.refresh_from_db()
+        self.assertEqual(d.status, 'kept')
 
     def test_keep_too_late_is_reported_as_undone(self):
         d = self.start()
-        for _ in d.link_parts['order']:
-            self.answer()
+        self.answer_all(d)
         d.refresh_from_db()
         cs.keep(d)
-        self.answer('fail')
+        self.answer_step('keep', 'fail')
         d.refresh_from_db()
         self.assertEqual((d.status, d.undone_by), ('undone', 'router'))
+
+    def test_stop_while_on_its_way(self):
+        d = self.start()
+        out = self.post('config_studio_action', {'action': 'stop'}, d.pk).json()
+        self.assertTrue(out['ok'], out)
+        self.assertEqual(out['deploy']['status'], 'failed')
+        self.assertIn('Nothing had reached the router', out['deploy']['error'])
+        self.assertFalse(AgentCommand.objects.filter(router=self.r, kind=cs.LINK_KIND, status='queued').exists())
+
+    def test_the_page_shows_every_step(self):
+        d = self.start()
+        self.answer_step(d.link_parts['order'][0])
+        tl = cs.deploy_json(RouterStudioDeploy.objects.get(pk=d.pk))['timeline']
+        self.assertEqual(tl['steps'][0], {'key': 'undo', 'label': 'Undo plan onto the router', 'state': 'wait'})
+        self.assertTrue(any(x['key'] == 'arm' for x in tl['steps']))
+        self.assertIn('checks in', tl['note'])
+
+    def test_deploy_through_link_makes_its_own_backup_first(self):
+        self.post('config_studio_check', {'tiles': [{'id': 'a', 'type': 'dns', 'params': {'servers': '1.1.1.1'}}]})
+        out = self.post('config_studio_deploy', {'undo_minutes': 5}).json()
+        self.assertTrue(out['ok'], out)
+        d = RouterStudioDeploy.objects.get()
+        self.assertEqual(d.link_parts['order'][0], 'backup')
+        self.assertIn('/system backup save name="taptap-studio-', d.link_parts['steps']['backup'])
+        self.assertEqual(d.backup.name, d.link_parts['backup_name'])
 
 
 @override_settings(AUTH_EMAIL_OTP=False)
@@ -431,13 +594,15 @@ class ViewTests(Base):
         r = self.post('config_studio_deploy')
         self.assertEqual((r.status_code, r.json()['needs']), (409, 'DEPLOY ANYWAY'))               # would lock TapTap out
         self.post('config_studio_check', {'tiles': [{'id': 'a', 'type': 'dns', 'params': {'servers': '1.1.1.1'}}]})
-        r = self.post('config_studio_deploy')
-        self.assertEqual((r.status_code, r.json().get('needs_backup')), (409, True))
         self.assertEqual(RouterStudioDeploy.objects.count(), 0)
-        RouterBackup.objects.create(router=self.r, name='b1', backup_file='b1.backup')
         svc = FakeService(self.state)
-        with mock.patch('core.mikrotik.MikroTikService.connect', return_value=svc), mock.patch('core.config_studio._reread'):
-            out = self.post('config_studio_deploy', {'undo_minutes': 3}).json()
+        made = RouterBackup.objects.create(router=self.r, name='auto', backup_file='auto.backup')
+        made.created_at = timezone.now() - timedelta(hours=3)        # an old backup does not count …
+        made.save()
+        with mock.patch('core.mikrotik.MikroTikService.connect', return_value=svc), mock.patch('core.config_studio._reread'), \
+                mock.patch('core.config_studio.start_backup', side_effect=lambda *a, **k: RouterBackup.objects.create(router=self.r, name='b1', backup_file='b1.backup')) as sb:
+            out = self.post('config_studio_deploy', {'undo_minutes': 3, 'auto_keep': False}).json()
+        self.assertTrue(sb.called)                                    # … so a fresh one is made by itself first
         self.assertTrue(out['ok'], out)
         self.assertEqual((out['deploy']['status'], out['deploy']['undo_minutes']), ('applied', 3))
         self.assertGreater(out['deploy']['seconds_left'], 150)

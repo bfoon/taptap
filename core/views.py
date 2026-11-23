@@ -818,7 +818,10 @@ def _lb_config(router,snapshot=None,request=None):
     return {'router_id':router.id,'router_name':router.name,'router_ip':router.ip_address or ('TapTap Link' if router.connection_mode=='agent' else ''),'status':router.status,
             'dom_id':f'lb-cfg-{router.id}','telemetry_url':reverse('router_telemetry',args=[router.id]),'load_balancing':lb,
             'name_url':reverse('router_wan_name',args=[router.id]) if can_name else '','isp_suggestions':ISP_SUGGESTIONS,'isp_quick':ISP_QUICK,
-            'designer_url':reverse('wan_designer',args=[router.id])}
+            'designer_url':reverse('wan_designer',args=[router.id]),
+            # Line actions on the cards (core/line_hub.py): bring a line online, share the load with it
+            'action_url':reverse('line_hub_action',args=[router.id]) if can_name else '',
+            'wan_status_url':reverse('wan_status',args=[router.id]) if can_name else ''}
 
 
 @login_required

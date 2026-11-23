@@ -1187,6 +1187,7 @@ def install():
     try:   # TapTap Link: a "wan_doctor" command kind for routers without a live connection
         from . import agent
         agent.SAFE_KINDS.add(LINK_KIND)
+        getattr(agent, 'ACK_RETRY', set()).add(LINK_KIND)
         agent.command_body = _wrap_command_body(agent.command_body)
     except Exception as exc:
         logger.warning('Internet Doctor: Link commands not available (%s)', exc)

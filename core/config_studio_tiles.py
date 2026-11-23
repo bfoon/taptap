@@ -260,12 +260,21 @@ def b_clock(p, ctx):
             op('/system/ntp/client', 'singleton_set', {}, {'enabled': 'yes', key: server}, f'Clock set from {server}')]
 
 
+def _managed(ctx, line):
+    """True when TapTap's Internet lines run this line: its default route is TapTap's (backup / sharing / health
+    checks). A tile must then not give the line a default route of its own — that one would sit next to TapTap's
+    routes, and the backup line or the load sharing would silently stop working."""
+    return line in set((ctx or {}).get('wan_managed') or ())
+
+
 def b_wan_dhcp(p, ctx):
     port = v_name(p.get('port'), 'port')
+    managed = _managed(ctx, port)
     ops = [leave_bridge(port),
            op('/ip/dhcp-client', 'ensure', {'interface': port},
-              {'disabled': 'no', 'add-default-route': 'yes', 'use-peer-dns': 'yes', 'comment': tag('wan', port)},
-              f'Internet on {port}: address given by the provider')]
+              {'disabled': 'no', 'add-default-route': 'no' if managed else 'yes', 'use-peer-dns': 'no' if managed else 'yes',
+               'comment': tag('wan', port)},
+              f'Internet on {port}: address given by the provider' + (' (its route stays with Internet lines)' if managed else ''))]
     if v_choice(p.get('share'), 'share', ('yes', 'no'), 'yes') == 'yes':
         ops.append(nat_op('wan', port))
     return ops
@@ -274,10 +283,11 @@ def b_wan_dhcp(p, ctx):
 def b_wan_pppoe(p, ctx):
     port = v_name(p.get('port'), 'port')
     name = f'pppoe-{slug(port)}'
+    managed = _managed(ctx, name)
     ops = [leave_bridge(port),
            op('/interface/pppoe-client', 'ensure', {'name': name},
               {'interface': port, 'user': _clean(p.get('user'), 'user name', 64) or _need('user name', 'user'),
-               'password': v_secret(p.get('password')), 'add-default-route': 'yes', 'use-peer-dns': 'yes',
+               'password': v_secret(p.get('password')), 'add-default-route': 'no' if managed else 'yes', 'use-peer-dns': 'no' if managed else 'yes',
                'disabled': 'no', 'comment': tag('wan', port)}, f'Internet on {port}: PPPoE dial-up')]
     if v_choice(p.get('share'), 'share', ('yes', 'no'), 'yes') == 'yes':
         ops.append(nat_op('wan', name))
@@ -298,8 +308,10 @@ def b_wan_static(p, ctx):
     ops = [leave_bridge(port),
            op('/ip/address', 'ensure', {'address': str(addr), 'interface': port}, {'comment': mark, 'disabled': 'no'},
               f'Fixed address {addr} on {port}'),
-           op('/ip/route', 'ensure', {'comment': mark}, {'dst-address': '0.0.0.0/0', 'gateway': str(gw), 'disabled': 'no'},
-              f'Everything else goes to the provider at {gw}')]
+           ]
+    if not _managed(ctx, port):
+        ops.append(op('/ip/route', 'ensure', {'comment': mark}, {'dst-address': '0.0.0.0/0', 'gateway': str(gw), 'disabled': 'no'},
+                      f'Everything else goes to the provider at {gw}'))
     if v_choice(p.get('share'), 'share', ('yes', 'no'), 'yes') == 'yes':
         ops.append(nat_op('wan', port))
     return ops
@@ -506,6 +518,10 @@ def parse_pairs(text, field, required=False):
     return out
 
 
+# Tables TapTap Link builds itself while reading a router (core/agent_inventory.py) — they exist only in TapTap.
+PSEUDO_MENUS = {'/ip/dhcp-client/gateways'}
+
+
 def custom_menus():
     from .mikrotik import MikroTikService
     return MikroTikService.WRITE_PREFIXES
@@ -517,6 +533,9 @@ def b_custom(p, ctx):
         menu = MikroTikService.validate_resource_path(str(p.get('menu') or '').replace(' ', '/'))
     except MikroTikError:
         raise TileError('menu: write a RouterOS menu such as /ip/firewall/filter.', 'menu')
+    if menu in PSEUDO_MENUS:
+        raise TileError(f'menu: {menu} is a read-only list TapTap Link makes for itself, not a RouterOS menu — '
+                        'it cannot be changed. Use /ip/dhcp-client instead.', 'menu')
     if not any(menu == x or menu.startswith(x + '/') for x in custom_menus()):
         raise TileError(f'menu: {menu} cannot be changed from the studio. Allowed: {", ".join(custom_menus())}.', 'menu')
     find = parse_pairs(p.get('match'), 'find the row where', required=True)

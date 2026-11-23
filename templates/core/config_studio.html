@@ -2,7 +2,7 @@
 {% load static %}
 {% block title %}{{ router.name }} Config Studio — TapTap{% endblock %}
 {% block heading %}Config Studio{% endblock %}
-{% block extra_head %}<link href="{% static 'css/config-studio.css' %}?v=1" rel="stylesheet">{% endblock %}
+{% block extra_head %}<link href="{% static 'css/config-studio.css' %}?v=2" rel="stylesheet">{% endblock %}
 {% block content %}
 <div id="cs" class="cs" data-csrf="{{ csrf_token }}">
   <header class="cs-head">
@@ -130,4 +130,4 @@
 </div>
 {{ studio_boot|json_script:"csBoot" }}
 {% endblock %}
-{% block scripts %}<script src="{% static 'js/config-studio.js' %}?v=1" defer></script>{% endblock %}
+{% block scripts %}<script src="{% static 'js/config-studio.js' %}?v=2" defer></script>{% endblock %}

@@ -1,0 +1,2245 @@
+diff --git a/APPLY-studio-deploy-and-line-actions.md b/APPLY-studio-deploy-and-line-actions.md
+new file mode 100644
+index 0000000..ab09064
+--- /dev/null
++++ b/APPLY-studio-deploy-and-line-actions.md
+@@ -0,0 +1,62 @@
++# TapTap update — Config Studio deploys always finish · lines you can click and fix
++
++Built on 9169b40 (the Line Hub update). No database migration.
++
++    cd /opt/taptap
++    unzip -o ~/taptap-studio-deploy.zip -d /tmp && cp -r /tmp/taptap/* /opt/taptap/
++    docker compose build web worker vouchers live
++    docker compose up -d --force-recreate web worker vouchers live
++
++(or in a git checkout: `git apply taptap-studio-deploy.patch`)
++
++## Config Studio: deploys always finish
++**Why deploys looped on "On its way to the router… Step 1 of 2"**: every piece waited for the router's answer to the
++one before it. When an answer was lost (very likely when a board changes the internet lines — the router's own
++internet blinks just as it reports back), the Link queue gave up on the command quietly and Config Studio was never
++told. The change stayed "sending" for ever.
++
++Now:
++* The whole change is queued at once and travels as fast as the router checks in.
++* Every step checks on the router that the one before it ran (a marker kept on the router), and is skipped when it
++  is already done — so any step can safely be sent again.
++* An answer that goes missing is resolved by asking the router how far it got, never guessed. A broken chain is sent
++  once more in a fresh round; after that it is taken back. Nothing waits longer than 20 minutes.
++* The router retries its answers (5 tries) for Config Studio, Line Hub, Internet lines and Internet Doctor commands.
++  Before, a failed "ok" could even report "fail" for a command that worked.
++* A lost answer to "Keep" is checked on the router instead of being reported as "undone".
++* Live timeline on the right: every step (backup, undo plan, safety timer, each part, keep), what is happening now,
++  when the router was last heard, plus **Check now** and **Stop**.
++* **Backup is made by itself** on the router as the first step (no more "make a backup first" stop).
++* **Keep it by itself** (ticked by default): kept once the router checks in again on the new setup.
++* Undo timer through TapTap Link is at least 8 minutes (a chain of check-ins needs the time).
++
++## Config Studio: no more false red errors
++* Internet line tiles said "without NAT no answer comes back" although NAT was there: the virtual router read routes
++  like `192.168.1.1@starlink2` (RouterOS 7, gateway in another table) and TapTap's health-checked routes as port names.
++  It now finds the real port, and each Internet line tile is tested through its own line.
++* `/ip/dhcp-client/gateways` (a list TapTap Link makes for itself) can no longer be used in an expert row.
++* An Internet line tile on a line that TapTap's Internet lines already runs no longer gives it its own default
++  route — that would have sat next to TapTap's routes and quietly broken the backup line / load sharing.
++
++## Live load balancing (Router control, Topology) and the gateway drawer
++* Click a line (its card, or its node on the map).
++* **Bring it online**: TapTap works out what the line needs and does it — switches the port or the line on, asks the
++  modem for a fresh address, dials PPPoE again, repairs its routes, puts it back in use — then watches it come online.
++* **Share the load with it** (standby / unused lines): turns the router to "Share the load" over every working line by
++  speed (one line per customer, health checks), with the safety timer, and confirms by itself once TapTap still
++  reaches the router. Through TapTap Link it confirms once the router stays online. Lines that are not connected are
++  left out and named.
++* **Bring online & share** for a line that is down.
++* Each action runs as a live checklist on the card and ends with the line carrying traffic.
++
++Changed: core/agent.py, core/config_studio.py, core/config_studio_sim.py, core/config_studio_tiles.py, core/line_hub.py,
++core/views.py, core/views_wan.py, core/views_wan_doctor.py, core/wan_doctor.py, core/wan_link.py,
++core/tests/test_config_studio.py, core/tests/test_line_hub.py, static/css/config-studio.css, static/css/line-hub.css,
++static/css/netviz.css, static/js/config-studio.js, static/js/line-hub.js, static/js/netviz-lb.js,
++templates/core/config_studio.html, templates/core/router_control.html, templates/core/topology.html,
++templates/core/wan_designer.html.
++
++Tests: `python manage.py test core.tests.test_config_studio core.tests.test_line_hub` (80). Full `core` suite: no new failures.
++
++A change sent with the old version that is still stuck on "On its way" is closed by itself (as failed, with an
++explanation) the next time the page or the router checks — after that, deploy the board again.
+diff --git a/core/agent.py b/core/agent.py
+index 1c1cb92..4dbb2e1 100644
+--- a/core/agent.py
++++ b/core/agent.py
+@@ -729,9 +729,19 @@ def advanced_enrollment_script(router, token, request=None):
+ '''
+ 
+ 
++# Commands whose answer is tried several times: they change the internet lines (Config Studio, Line Hub, Internet
++# lines, Internet Doctor), so the router's own internet can blink right when it reports back. Before, the one try
++# failed, and the answer was lost — or worse, the failed "ok" fell through to report "fail" for a command that worked.
++ACK_RETRY = set()
++
++
+ def _ack(url, cmd, status, check, result=''):
+     q = f'{url}/api/agent/v1/ack?c={cmd.pk}&n={nonce(cmd)}&s={status}' + (f'&r={quote(result)}' if result else '')
+-    return f'/tool fetch url={rs(q)} output=none check-certificate={check} duration=8s idle-timeout=5s'
++    fetch = f'/tool fetch url={rs(q)} output=none check-certificate={check} duration=8s idle-timeout=5s'
++    if cmd.kind not in ACK_RETRY:
++        return fetch
++    return (f':local tta 0; :for tti from=1 to=5 do={{ :if ($tta = 0) do={{ :do {{ {fetch}; :set tta 1 }} '
++            f'on-error={{ :delay 3s }} }} }}')
+ 
+ 
+ PROFILE_KINDS = ('hotspot_users', 'hotspot_users_limit', 'hotspot_users_time', 'hotspot_users_heal', 'hotspot_users_profile', 'hotspot_user_profile')
+@@ -1594,6 +1604,11 @@ def handle_poll(agent, data, ip, url):
+         wan_progress(router, now)
+     except Exception as exc:
+         logger.info('wan link progress %s: %s', router, exc)
++    try:   # a Config Studio change: ask the router where it stands when an answer went missing, keep it by itself
++        from .config_studio import link_progress as studio_progress
++        studio_progress(router, now)
++    except Exception as exc:
++        logger.info('studio link progress %s: %s', router, exc)
+     rows = parse_sessions(data.get('act', ''))
+     try:
+         from .linklive import ingest_counters, store_sessions
+diff --git a/core/config_studio.py b/core/config_studio.py
+index dec3570..3e869c0 100644
+--- a/core/config_studio.py
++++ b/core/config_studio.py
+@@ -128,7 +128,18 @@ def ros_major(router, snap=None):
+ 
+ 
+ def context_for(router, snap=None):
+-    return {'ros_major': ros_major(router, snap or snapshot_of(router)), 'trusted': trusted_addresses()}
++    return {'ros_major': ros_major(router, snap or snapshot_of(router)), 'trusted': trusted_addresses(), 'wan_managed': managed_lines(router)}
++
++
++def managed_lines(router):
++    """Lines TapTap's Internet lines run on this router (their default routes are TapTap's)."""
++    try:
++        setup = router.wan_setup
++    except Exception:
++        return []
++    if setup.status not in ('active', 'pending'):
++        return []
++    return [str(l.get('interface')) for l in (setup.config or {}).get('links') or [] if l.get('interface') and l.get('enabled', True)]
+ 
+ 
+ def base_state(router, base='router'):
+@@ -397,8 +408,26 @@ def _reread(router, user=None):
+         pass
+ 
+ 
+-def deploy_direct(deploy, connect=None):
+-    """Apply over the RouterOS API. ``connect`` is replaced in tests."""
++def deploy_direct(deploy, connect=None, auto_keep=False):
++    """Apply over the RouterOS API. ``connect`` is replaced in tests. ``auto_keep``: once TapTap reaches the router again on a
++    fresh connection (proof the change did not cut it off), the undo timer is removed by itself."""
++    out = _deploy_direct(deploy, connect)
++    if auto_keep and out.status == 'applied':
++        from .mikrotik import MikroTikService
++        try:
++            svc = (connect or (lambda r: MikroTikService(r).connect()))(deploy.router)
++            try:
++                still = _disarm(svc)
++            finally:
++                svc.close()
++            if still:
++                return _finish(out, 'kept')
++        except Exception as exc:
++            logger.info('Config Studio #%s: keep by itself failed (%s) — waiting for Keep', deploy.pk, exc)
++    return out
++
++
++def _deploy_direct(deploy, connect=None):
+     from .mikrotik import MikroTikService
+     svc = (connect or (lambda r: MikroTikService(r).connect()))(deploy.router)
+     done = 0
+@@ -441,36 +470,176 @@ def deploy_direct(deploy, connect=None):
+             pass
+ 
+ 
+-def deploy_link(deploy, state):
+-    """Queue the first piece through TapTap Link; every answer from the router sends the next one."""
+-    before = before_state(SnapshotReader(state), deploy.plan)
+-    deploy.rollback_plan, deploy.manual_undo = rollback_plan(deploy.plan, before)
++# ───────────────────────────── TapTap Link: a chain that always ends ─────────────────────────────
++# Before (until Nov 2026) every piece waited for the router's answer to the one before it. One lost answer — common
++# when the board changes the internet lines, so the router's own internet blinks while it reports back — left the
++# change "On its way to the router… step 1 of 2" for ever: the Link queue gave up on the command quietly and Config
++# Studio was never told.
++#
++# Now every step is safe to send any number of times and checks the order by itself: the router keeps a marker
++# (:global ttS<deploy>r<round>) of the last step it finished. A step that is already done is skipped; a step whose
++# turn has not come refuses. So the whole chain is queued at once and travels as fast as the router checks in.
++# When an answer goes missing, TapTap asks the router where the marker stands ("check") instead of waiting: it then
++# knows whether everything is on the router. A broken chain is sent again once in a fresh round (all rows are
++# "make sure it is like this", so a second run changes nothing that is already right); after that the change is
++# taken back. Every change ends — applied, kept, failed or undone — within DEADLINE minutes.
++
++UNDO_SCRIPT = 'TapTap-Studio-undo-script'
++LINK_STEP_MAX = 1200          # RouterOS characters of one step (escaped for TapTap Link it stays inside one check-in)
++UNDO_PIECE = 600              # characters of the undo script per command (written inside a string: escaped twice)
++DEADLINE = 20                 # minutes a change may be "on its way" before TapTap stops waiting
++SILENT = 150                  # seconds without an answer after which a step counts as unanswered
++MAX_ROUNDS = 2
++MAX_CHECKS = 4
++KEEP_AFTER = 45               # seconds the router must stay online after the change before "keep by itself"
++LINK_MIN_UNDO = 8             # the undo timer must outlast a slow chain of check-ins
++KEPT, UNDONE = 1000, -2
++
++
++def _var(deploy, rnd=None):
++    return f'ttS{deploy.pk}r{int(rnd or (deploy.link_parts or {}).get("round") or 1)}'
++
++
++def _guard(var, i, body):
++    """Run ``body`` as step ``i`` of a chain: skipped when already done, refused when an earlier step is missing."""
++    return (f':global {var}; :local s ${var}; :if ([:typeof $s] != "num") do={{ :set s -1 }}; '
++            f':if ($s >= {i}) do={{ :log info "TapTap Studio: step {i} was already done" }} else={{ '
++            f':if ($s != {i - 1}) do={{ :error "TapTap Studio: an earlier step did not run" }}; {body}; :set {var} {i} }}')
++
++
++def _undo_source(deploy, var):
++    body = undo_script(deploy.rollback_plan)
++    return (f'{body}; :global {var} {UNDONE}; :do {{ /system scheduler remove [find where name="{UNDO_SCHEDULER}"] }} on-error={{}}; '
++            f':log warning "TapTap Studio: change #{deploy.pk} was undone"')
++
++
++def _script_steps(name, source, prefix):
++    """A RouterOS script written in pieces (one command each): (step key, text) pairs."""
++    pieces = [source[i:i + UNDO_PIECE] for i in range(0, len(source), UNDO_PIECE)] or ['']
++    out = [(f'{prefix}0', f'/system script remove [find where name="{name}"]; '
++                          f'/system script add name="{name}" policy=read,write,test source={tiles.q(pieces[0])}')]
++    for k, piece in enumerate(pieces[1:], 1):
++        out.append((f'{prefix}{k}', f'/system script set [find where name="{name}"] '
++                                    f'source=([/system script get [find where name="{name}"] source] . {tiles.q(piece)})'))
++    return out
++
++
++def link_chain(deploy, rnd, backup_name=''):
++    """{'steps': {key: RouterOS text}, 'order': [...], 'var': marker} for one round."""
++    var = _var(deploy, rnd)
++    steps, order = {}, []
++
++    def add(key, body):
++        steps[key] = _guard(var, len(order), body)
++        order.append(key)
++
++    if backup_name:
++        add('backup', f':do {{ /system backup save name="{backup_name}" dont-encrypt=yes }} on-error={{ '
++                      f':do {{ /system backup save name="{backup_name}" }} on-error={{}} }}; '
++                      f':do {{ /export file="{backup_name}" }} on-error={{}}')
+     armed = bool(deploy.undo_minutes and deploy.rollback_plan)
+-    parts = {f'p{i}': text for i, text in enumerate(tiles.chunks(deploy.plan))}
+-    order = list(parts)
+-    undo = f'/system scheduler remove [find where name="{UNDO_SCHEDULER}"]; ' + undo_script(deploy.rollback_plan)
+     if armed:
+-        parts['arm'] = arm_script(deploy)
+-        order.insert(0, 'arm')
+-    if max(len(parts.get('arm', '')), len(undo)) > LINK_SCRIPT_MAX:
+-        raise StudioError('This board is too large to send through TapTap Link in one go. Switch some tiles off, deploy, '
+-                          'then switch them on and deploy again.')
+-    parts.update(keep=KEEP_SCRIPT, undo=undo, order=order)
+-    deploy.link_parts, deploy.status, deploy.transport = parts, 'sending', 'TapTap Link'
+-    deploy.save()
+-    _queue_step(deploy, order[0])
+-    return deploy
++        for key, text in _script_steps(UNDO_SCRIPT, _undo_source(deploy, var), 'u'):
++            add(key, text)
++        add('arm', f'/system scheduler remove [find where name="{UNDO_SCHEDULER}"]; '
++                   f'/system scheduler add name={UNDO_SCHEDULER} interval={int(deploy.undo_minutes)}m policy=read,write,test '
++                   f'on-event="/system script run {UNDO_SCRIPT}" '
++                   f'comment={tiles.q(f"TapTap Studio #{deploy.pk}: automatic undo unless TapTap confirms")}')
++    for k, text in enumerate(tiles.chunks(deploy.plan, LINK_STEP_MAX)):
++        add(f'p{k}', text)
++    last = len(order) - 1
++    steps['check'] = f':global {var}; :if (${var} != {last}) do={{ :error ("TapTap Studio: the router stopped at step " . ${var}) }}'
++    steps['keep'] = (f':global {var}; :if ([:len [/system scheduler find where name="{UNDO_SCHEDULER}"]] = 0) do={{ '
++                     f':if (${var} = {KEPT}) do={{ :log info "TapTap Studio: already kept" }} else={{ :error "TapTap Studio: already undone" }} }} '
++                     f'else={{ /system scheduler remove [find where name="{UNDO_SCHEDULER}"]; :set {var} {KEPT}; '
++                     f':log info "TapTap Studio: change #{deploy.pk} confirmed" }}')
++    steps['kcheck'] = f':global {var}; :if (${var} != {KEPT}) do={{ :error "TapTap Studio: not kept" }}'
++    return {'steps': steps, 'order': order, 'var': var, 'armed': armed}
++
++
++def _undo_chain(deploy):
++    """Put the old values back: the undo script is written again (a later change may have replaced it), then run."""
++    var = f'ttS{deploy.pk}x{int((deploy.link_parts or {}).get("undos") or 0) + 1}'
++    steps, order = {}, []
++    for key, text in _script_steps(UNDO_SCRIPT, _undo_source(deploy, _var(deploy)), 'x'):
++        steps[key] = _guard(var, len(order), text)
++        order.append(key)
++    steps['undo'] = _guard(var, len(order), f'/system script run {UNDO_SCRIPT}')
++    order.append('undo')
++    return steps, order
++
++
++def _iso(dt):
++    return dt.isoformat() if dt else None
++
++
++def _parse(text):
++    from datetime import datetime
++    try:
++        return datetime.fromisoformat(text) if text else None
++    except (TypeError, ValueError):
++        return None
+ 
+ 
+-def _queue_step(deploy, step):
++def _send(deploy, step, label):
+     from .linkops import send
+-    order = [s for s in deploy.link_parts.get('order', []) if s != 'arm']
+-    label = {'arm': 'undo timer', 'keep': 'keep the change', 'undo': 'undo the change'}.get(step) \
+-        or f'part {order.index(step) + 1} of {len(order)}'
+-    send(deploy.router, LINK_KIND, {'deploy': deploy.pk, 'step': step}, label=f'Config Studio #{deploy.pk}: {label}',
+-         user=deploy.actor, minutes=30)
+-    deploy.link_step = step
+-    deploy.save(update_fields=['link_step'])
++    cmd = send(deploy.router, LINK_KIND, {'deploy': deploy.pk, 'step': step, 'round': (deploy.link_parts or {}).get('round', 1)},
++               label=f'Config Studio #{deploy.pk}: {label}', user=deploy.actor, minutes=DEADLINE + 10)
++    lp = dict(deploy.link_parts or {})
++    lp.setdefault('cmds', {})[step] = cmd.pk
++    deploy.link_parts = lp
++    return cmd
++
++
++def _urgent(router):
++    try:
++        from .agent import mark_urgent
++        mark_urgent(router, 180)
++    except Exception:
++        pass
++
++
++STEP_LABELS = {'backup': 'backup on the router', 'arm': 'undo timer', 'check': 'where does the router stand?', 'keep': 'keep the change',
++               'kcheck': 'was it kept?', 'undo': 'undo the change'}
++
++
++def step_label(step, order):
++    if step in STEP_LABELS:
++        return STEP_LABELS[step]
++    if step.startswith('p'):
++        parts = [s for s in order if s.startswith('p')]
++        return f'change, part {parts.index(step) + 1} of {len(parts)}' if step in parts else 'change'
++    if step.startswith(('u', 'x')):
++        return 'undo plan onto the router'
++    return step
++
++
++def _queue_round(deploy, rnd):
++    chain = link_chain(deploy, rnd, (deploy.link_parts or {}).get('backup_name', '') if rnd == 1 else '')
++    lp = dict(deploy.link_parts or {})
++    lp.update(round=rnd, order=chain['order'], steps=chain['steps'], var=chain['var'], armed=chain['armed'], ok=[], bad={},
++              cmds={}, check=None, checks=0, round_at=_iso(timezone.now()))
++    deploy.link_parts = lp
++    for step in chain['order']:
++        _send(deploy, step, step_label(step, chain['order']))
++    deploy.link_step = chain['order'][0]
++    deploy.save(update_fields=['link_parts', 'link_step'])
++    _urgent(deploy.router)
++
++
++def deploy_link(deploy, state, backup_name='', auto_keep=False):
++    """Queue the whole change through TapTap Link at once (see the note above)."""
++    before = before_state(SnapshotReader(state), deploy.plan)
++    deploy.rollback_plan, deploy.manual_undo = rollback_plan(deploy.plan, before)
++    if deploy.undo_minutes and deploy.rollback_plan:
++        deploy.undo_minutes = max(LINK_MIN_UNDO, int(deploy.undo_minutes))
++    deploy.status, deploy.transport = 'sending', 'TapTap Link'
++    deploy.link_parts = {'started_at': _iso(timezone.now()), 'backup_name': backup_name, 'auto_keep': bool(auto_keep)}
++    if any(len(t) > LINK_SCRIPT_MAX for t in link_chain(deploy, 1, backup_name)['steps'].values()):
++        raise StudioError('One tile is too large to send through TapTap Link. Split its list over two tiles.')
++    deploy.save()
++    _queue_round(deploy, 1)
++    return deploy
+ 
+ 
+ def link_body(cmd):
+@@ -478,65 +647,332 @@ def link_body(cmd):
+     params = cmd.params or {}
+     deploy = RouterStudioDeploy.objects.filter(pk=int(params.get('deploy') or 0), router=cmd.router).first()
+     step = str(params.get('step') or '')
+-    text = (deploy.link_parts or {}).get(step) if deploy and step != 'order' else None
++    lp = (deploy.link_parts or {}) if deploy else {}
++    text = None
++    if deploy and step not in ('order', 'steps', 'cmds'):
++        text = (lp.get('steps') or {}).get(step) or (lp.get('undo_steps') or {}).get(step)
++        if text is None and step in ('check', 'keep', 'kcheck'):
++            text = link_chain(deploy, lp.get('round', 1))['steps'][step]
+     if not isinstance(text, str) or not text:
+         raise ValueError('This Config Studio change no longer exists.')
+     return text
+ 
+ 
++def _cancel_queued(deploy):
++    from .models import AgentCommand
++    ids = list(((deploy.link_parts or {}).get('cmds') or {}).values())
++    AgentCommand.objects.filter(pk__in=ids, status='queued').update(status='cancelled', result='Not needed any more', done_at=timezone.now())
++
++
++def _start_undo(deploy, why_status=None):
++    steps, order = _undo_chain(deploy)
++    lp = dict(deploy.link_parts or {})
++    lp.update(undo_steps=steps, undo_order=order, undos=int(lp.get('undos') or 0) + 1, undo_ok=[], undo_cmds={})
++    deploy.link_parts = lp
++    from .linkops import send
++    for step in order:
++        cmd = send(deploy.router, LINK_KIND, {'deploy': deploy.pk, 'step': step}, label=f'Config Studio #{deploy.pk}: '
++                   + ('undo the change' if step == 'undo' else 'undo plan onto the router'), user=deploy.actor, minutes=DEADLINE + 10)
++        deploy.link_parts['undo_cmds'][step] = cmd.pk
++    deploy.save(update_fields=['link_parts'])
++    _urgent(deploy.router)
++
++
++def _fail_link(deploy, error, undo_it=True):
++    _cancel_queued(deploy)
++    _finish(deploy, 'failed', undone_by='failure', error=error[:1500])
++    if undo_it:
++        try:
++            _start_undo(deploy)
++        except Exception:
++            logger.exception('Config Studio: could not queue the undo')
++            if deploy.link_parts.get('armed'):
++                deploy.error = (deploy.error + ' The router undoes it by itself when its timer runs out.')[:1500]
++                deploy.save(update_fields=['error'])
++
++
++def _applied(deploy):
++    _cancel_queued(deploy)
++    now = timezone.now()
++    if (deploy.link_parts or {}).get('armed'):
++        return _finish(deploy, 'applied', applied_at=now, undo_until=now + timedelta(minutes=deploy.undo_minutes))
++    return _finish(deploy, 'kept', applied_at=now)
++
++
+ def link_ack(cmd, ok, result=''):
+     params = cmd.params or {}
+     deploy = RouterStudioDeploy.objects.filter(pk=int(params.get('deploy') or 0), router=cmd.router).first()
+     if not deploy:
+         return
+-    step, order, now = str(params.get('step') or ''), list((deploy.link_parts or {}).get('order') or []), timezone.now()
++    step, lp = str(params.get('step') or ''), dict(deploy.link_parts or {})
++    if 'steps' not in lp and 'undo_steps' not in lp:
++        return _legacy_ack(deploy, step, ok, result)
++    # the undo chain (after a failure, or asked for)
++    if step in (lp.get('undo_order') or []):
++        if ok and step not in lp.setdefault('undo_ok', []):
++            lp['undo_ok'].append(step)
++        deploy.link_parts = lp
++        deploy.save(update_fields=['link_parts'])
++        if step == 'undo':
++            if deploy.status == 'failed':
++                deploy.error = (deploy.error + (' What was already on the router was taken back.' if ok else
++                                                ' Taking it back did not complete — check the router, or restore the backup.'))[:1500]
++                deploy.save(update_fields=['error'])
++                _reread(deploy.router, deploy.actor)
++            elif ok:
++                _finish(deploy, 'undone', undone_by=deploy.undone_by or 'user')
++            else:
++                deploy.error = 'The router could not undo everything — check it, or restore the backup.'
++                deploy.save(update_fields=['error'])
++        return
++    if int(params.get('round') or lp.get('round') or 1) != int(lp.get('round') or 1) and step not in ('keep', 'kcheck'):
++        return                                       # an answer from an earlier round
+     if step == 'keep':
+         if ok:
+-            _finish(deploy, 'kept')
+-        else:
+-            _finish(deploy, 'undone', undone_by='router', error='The undo timer had already run: the router put the old setup back by itself.')
+-        return
+-    if step == 'undo':
+-        if deploy.status == 'failed':
+-            deploy.error = (deploy.error + (' The steps before it were undone.' if ok else ' The undo did not complete — check the router.'))[:1500]
+-            deploy.save(update_fields=['error'])
+-            _reread(deploy.router, deploy.actor)
+-        elif ok:
+-            _finish(deploy, 'undone', undone_by=deploy.undone_by or 'user')
+-        else:
+-            deploy.error = 'The router could not undo everything — check it, or restore the backup.'
+-            deploy.save(update_fields=['error'])
++            return _finish(deploy, 'kept')
++        lp['keep_bad'] = result or 'undone'
++        deploy.link_parts = lp
++        deploy.save(update_fields=['link_parts'])
++        return _finish(deploy, 'undone', undone_by='router', error='The undo timer had already run: the router put the old setup back by itself.')
++    if step == 'kcheck':
++        if ok:
++            return _finish(deploy, 'kept')
++        return _finish(deploy, 'undone', undone_by='router', error='The undo timer had already run: the router put the old setup back by itself.')
++    if deploy.status != 'sending':
+         return
+-    if step not in order or deploy.status != 'sending':
++    order = list(lp.get('order') or [])
++    if step == 'check':
++        if ok:
++            lp['ok'] = list(order)
++            deploy.link_parts = lp
++            deploy.save(update_fields=['link_parts'])
++            return _applied(deploy)
++        return _next_round(deploy, f'The router stopped part of the way{": " + result if result else ""}.')
++    if step not in order:
+         return
+-    if not ok:
+-        _finish(deploy, 'failed', undone_by='failure',
+-                error=f'The router refused {"the undo timer" if step == "arm" else "a part of the change"}: {result or "no reason given"}.'[:1500])
+-        if step != 'arm':          # the timer is armed and earlier parts may be in: take them back now
+-            try:
+-                _queue_step(deploy, 'undo')
+-            except Exception:
+-                logger.exception('Config Studio: could not queue the undo')
++    if ok:
++        if step not in lp['ok']:
++            lp['ok'].append(step)
++        deploy.link_step = step
++        deploy.link_parts = lp
++        deploy.save(update_fields=['link_parts', 'link_step'])
++        if all(s in lp['ok'] for s in order):
++            return _applied(deploy)
+         return
+-    if step == 'arm':
+-        deploy.undo_until = now + timedelta(minutes=deploy.undo_minutes)
+-        deploy.save(update_fields=['undo_until'])
+-    nxt = order.index(step) + 1
+-    if nxt < len(order):
++    lp.setdefault('bad', {})[step] = (result or 'refused')[:300]
++    deploy.link_parts = lp
++    deploy.save(update_fields=['link_parts'])
++    if all(s in lp['ok'] for s in order[:order.index(step)]):
++        # every step before it is confirmed: the router itself refused this one
++        what = 'the undo timer' if step in ('arm',) or step.startswith('u') else 'the backup' if step == 'backup' else 'a part of the change'
++        _fail_link(deploy, f'The router refused {what}: {result or "no reason given"}.', undo_it=step.startswith('p'))
++    # otherwise an earlier step has not answered yet: progress() asks the router where it stands
++
++
++def _legacy_ack(deploy, step, ok, result):
++    """Answers for a change sent before this update (one piece at a time)."""
++    if step == 'keep':
++        return _finish(deploy, 'kept') if ok else _finish(deploy, 'undone', undone_by='router',
++                                                          error='The undo timer had already run: the router put the old setup back by itself.')
++    if step == 'undo':
++        return _finish(deploy, 'undone', undone_by=deploy.undone_by or 'user') if ok and deploy.status != 'failed' else None
++    if deploy.status == 'sending' and not ok:
++        _finish(deploy, 'failed', undone_by='failure', error=f'The router refused a part of the change: {result or "no reason given"}.')
++
++
++def _next_round(deploy, why):
++    lp = deploy.link_parts or {}
++    rnd = int(lp.get('round') or 1)
++    if rnd >= MAX_ROUNDS:
++        return _fail_link(deploy, f'{why} TapTap sent the whole change {rnd} times without getting it all on the router, so '
++                                  'it is being taken back. Try again in a minute — if it keeps happening, the router is busy or '
++                                  'its connection to TapTap keeps dropping.')
++    _cancel_queued(deploy)
++    _queue_round(deploy, rnd + 1)
++    return deploy
++
++
++def _silent(cmd, ok_steps, step, now):
++    if cmd is None:
++        return True
++    if step in ok_steps:
++        return False
++    if cmd.status in ('failed', 'expired', 'cancelled'):
++        return True
++    if cmd.status == 'done':                   # finished without an answer reaching TapTap (never re-sent)
++        return True
++    return cmd.status == 'sent' and cmd.sent_at and (now - cmd.sent_at).total_seconds() > SILENT
++
++
++def progress(deploy, now=None):
++    """Move a TapTap Link change on when answers went missing. Called on every check-in and every page poll."""
++    if deploy.transport != 'TapTap Link' or deploy.status not in ('sending', 'applied'):
++        return deploy
++    lp = dict(deploy.link_parts or {})
++    if 'steps' not in lp:
++        # sent with the version before Nov 2026 (one piece at a time): one that never finished stops blocking new changes
++        if deploy.status == 'sending' and (timezone.now() - deploy.created_at).total_seconds() > DEADLINE * 60:
++            _finish(deploy, 'failed', undone_by='failure', error='This change never finished (a lost answer from the router, fixed in this '
++                    'update). If its undo timer was set, the router has put the old setup back. Deploy the board again.')
++        return deploy
++    from .models import AgentCommand
++    now = now or timezone.now()
++    cmds = {c.pk: c for c in AgentCommand.objects.filter(pk__in=list((lp.get('cmds') or {}).values()))}
++    by_step = {s: cmds.get(pk) for s, pk in (lp.get('cmds') or {}).items()}
++    if deploy.status == 'applied':
++        keep_cmd = by_step.get('keep')
++        if keep_cmd is None and lp.get('auto_keep') and deploy.applied_at:
++            heard = _heard(deploy.router)
++            if heard and (heard - deploy.applied_at).total_seconds() >= KEEP_AFTER:
++                _send(deploy, 'keep', 'keep the change (by itself: the router stayed online)')
++                deploy.save(update_fields=['link_parts'])
++        elif keep_cmd is not None and _silent(keep_cmd, [], 'keep', now):
++            kc = by_step.get('kcheck')
++            if kc is None or (_silent(kc, [], 'kcheck', now) and int(lp.get('kchecks') or 0) < MAX_CHECKS):
++                lp = dict(deploy.link_parts)
++                lp['kchecks'] = int(lp.get('kchecks') or 0) + 1
++                deploy.link_parts = lp
++                _send(deploy, 'kcheck', 'was it kept?')
++                deploy.save(update_fields=['link_parts'])
++        return deploy
++    started = _parse(lp.get('started_at')) or deploy.created_at
++    if (now - started).total_seconds() > DEADLINE * 60:
++        heard = _heard(deploy.router)
++        quiet = f' The router was last heard {int((now - heard).total_seconds() // 60)} min ago.' if heard else ''
++        return _fail_link(deploy, f'TapTap Link did not get the change through in {DEADLINE} minutes.{quiet} '
++                                  + ('The router puts the old setup back by itself when its undo timer runs out.' if lp.get('armed') else ''),
++                          undo_it=bool(lp.get('ok')))
++    order, ok_steps = list(lp.get('order') or []), list(lp.get('ok') or [])
++    chk = by_step.get('check')
++    if chk is not None:
++        if _silent(chk, [], 'check', now):
++            if int(lp.get('checks') or 0) >= MAX_CHECKS:
++                return _fail_link(deploy, 'The router does not answer TapTap Link any more, so TapTap cannot tell whether the change is on it.'
++                                          + (' Its undo timer puts the old setup back by itself.' if lp.get('armed') else ''), undo_it=False)
++            _ask(deploy)
++        return deploy
++    pending = [s for s in order if s not in ok_steps]
++    if not pending:
++        return _applied(deploy)
++    waiting = [s for s in pending if not _silent(by_step.get(s), ok_steps, s, now) and s not in (lp.get('bad') or {})]
++    if waiting:
++        return deploy                            # still on its way
++    _ask(deploy)                                 # every step ended, some without an answer: ask the router
++    return deploy
++
++
++def _ask(deploy):
++    lp = dict(deploy.link_parts or {})
++    lp['checks'] = int(lp.get('checks') or 0) + 1
++    deploy.link_parts = lp
++    _send(deploy, 'check', 'where does the router stand?')
++    deploy.save(update_fields=['link_parts'])
++    _urgent(deploy.router)
++
++
++def _heard(router):
++    try:
++        return router.agent.last_heard
++    except Exception:
++        return None
++
++
++def link_progress(router, now=None):
++    """Hook for every TapTap Link check-in (core/agent.py)."""
++    for d in RouterStudioDeploy.objects.filter(router=router, status__in=('sending', 'applied'), transport='TapTap Link')[:3]:
+         try:
+-            _queue_step(deploy, order[nxt])
+-        except Exception as exc:
+-            _finish(deploy, 'failed', error=f'TapTap Link stopped answering in the middle: {exc}', undone_by='failure')
+-        return
+-    if 'arm' in order:
+-        _finish(deploy, 'applied', applied_at=now)
+-    else:
+-        _finish(deploy, 'kept', applied_at=now)
++            progress(d, now)
++        except Exception:
++            logger.exception('Config Studio: progress of #%s failed', d.pk)
++
++
++def stop(deploy):
++    """The person pressed Stop while the change was on its way."""
++    if deploy.status != 'sending':
++        raise StudioError('Only a change that is still on its way can be stopped.')
++    lp = deploy.link_parts or {}
++    started = bool(lp.get('ok')) or any(
++        c.status in ('sent', 'done', 'failed') for c in _commands(lp.get('cmds')).values())
++    _fail_link(deploy, 'Stopped by you.' + (' What already reached the router is being taken back.' if started else ' Nothing had reached the router.'),
++               undo_it=started)
++    return deploy
++
++
++def nudge(deploy):
++    """"Check now": ask the router to check in at once, and where it stands if answers are missing."""
++    _urgent(deploy.router)
++    if deploy.status == 'sending' and deploy.transport == 'TapTap Link':
++        lp = deploy.link_parts or {}
++        by = _commands(lp.get('cmds'))
++        if not any(c.status == 'queued' for c in by.values()) and not (by.get('check') and by['check'].status in ('queued', 'sent')):
++            _ask(deploy)
++    return progress(deploy)
++
++
++def _commands(ids):
++    from .models import AgentCommand
++    ids = ids or {}
++    rows = {c.pk: c for c in AgentCommand.objects.filter(pk__in=list(ids.values()))}
++    return {s: rows[pk] for s, pk in ids.items() if pk in rows}
++
++
++def timeline(deploy):
++    """What the page shows: every step with its state, and a sentence about what is happening now."""
++    lp = deploy.link_parts or {}
++    if deploy.transport != 'TapTap Link' or 'order' not in lp or 'steps' not in lp:
++        return None
++    now = timezone.now()
++    by = _commands(lp.get('cmds'))
++    ok, bad, order = lp.get('ok') or [], lp.get('bad') or {}, lp.get('order') or []
++    rows, seen = [], set()
++    for step in order:
++        kind = 'backup' if step == 'backup' else 'undo' if step.startswith('u') else 'arm' if step == 'arm' else 'part'
++        if kind == 'undo':
++            if 'undo' in seen:
++                continue
++            seen.add('undo')
++            group = [s for s in order if s.startswith('u')]
++            state = 'done' if all(s in ok for s in group) else 'bad' if any(s in bad for s in group) else \
++                'run' if any(by.get(s) and by[s].status == 'sent' for s in group) else \
++                'lost' if any(_silent(by.get(s), ok, s, now) for s in group) and deploy.status == 'sending' else 'wait'
++            rows.append({'key': 'undo', 'label': 'Undo plan onto the router', 'state': state})
++            continue
++        c = by.get(step)
++        state = 'done' if step in ok else 'bad' if step in bad else 'run' if c and c.status == 'sent' else \
++            'lost' if deploy.status == 'sending' and _silent(c, ok, step, now) else 'wait'
++        label = {'backup': 'Backup on the router', 'arm': f'Safety timer ({deploy.undo_minutes} min)'}.get(step) or step_label(step, order).capitalize()
++        rows.append({'key': step, 'label': label, 'state': state})
++    if deploy.status in ('applied', 'kept') or lp.get('auto_keep'):
++        kc = by.get('keep')
++        rows.append({'key': 'keep', 'label': 'Keep it' + (' (by itself once the router stays online)' if lp.get('auto_keep') else ''),
++                     'state': 'done' if deploy.status == 'kept' else 'run' if kc and kc.status in ('queued', 'sent') else 'wait'})
++    heard = _heard(deploy.router)
++    heard_s = max(0, int((now - heard).total_seconds())) if heard else None
++    started = _parse(lp.get('started_at')) or deploy.created_at
++    note = ''
++    if deploy.status == 'sending':
++        if by.get('check') and by['check'].status in ('queued', 'sent'):
++            note = 'An answer went missing on the way — TapTap is asking the router how far it got.'
++        elif heard_s is not None and heard_s > 60:
++            note = f'Waiting for {deploy.router.name} to check in (last heard {heard_s // 60} min ago).'
++        else:
++            note = f'{deploy.router.name} takes the steps as it checks in' + (f' (last heard {heard_s} s ago)' if heard_s is not None else '') + '.'
++        if int(lp.get('round') or 1) > 1:
++            note += ' Sending it a second time — a step went missing the first time.'
++    return {'steps': rows, 'note': note, 'heard_s': heard_s, 'round': int(lp.get('round') or 1),
++            'elapsed': int((now - started).total_seconds()), 'deadline': DEADLINE * 60, 'auto_keep': bool(lp.get('auto_keep'))}
+ 
+ 
+ def settle(deploy):
+     """A change nobody kept before the timer ran out is gone: the router undid it."""
++    progress(deploy)
+     if deploy.status == 'applied' and deploy.undo_until and timezone.now() > deploy.undo_until + timedelta(seconds=20):
++        by = _commands((deploy.link_parts or {}).get('cmds')) if deploy.transport == 'TapTap Link' else {}
++        if any(c.status in ('queued', 'sent') for s, c in by.items() if s in ('keep', 'kcheck')):
++            return deploy                      # "Keep" is on its way: its answer (or the check after it) decides
++        if by.get('keep') and not by.get('kcheck'):
++            progress(deploy)
++            return deploy
+         _finish(deploy, 'undone', undone_by='router',
+                 error='Nobody pressed “Keep” in time, so the router put the old setup back by itself.')
+     return deploy
+@@ -547,7 +983,14 @@ def keep(deploy, connect=None):
+     if deploy.status != 'applied':
+         raise StudioError('This change is not waiting for “Keep” any more.')
+     if deploy.transport == 'TapTap Link':
+-        _queue_step(deploy, 'keep')
++        if 'steps' in (deploy.link_parts or {}):
++            _send(deploy, 'keep', 'keep the change')
++            deploy.save(update_fields=['link_parts'])
++            _urgent(deploy.router)
++        else:
++            from .linkops import send
++            send(deploy.router, LINK_KIND, {'deploy': deploy.pk, 'step': 'keep'}, label=f'Config Studio #{deploy.pk}: keep the change',
++                 user=deploy.actor, minutes=30)
+         return deploy
+     from .mikrotik import MikroTikService
+     svc = (connect or (lambda r: MikroTikService(r).connect()))(deploy.router)
+@@ -569,7 +1012,12 @@ def undo(deploy, connect=None):
+     if deploy.transport == 'TapTap Link':
+         deploy.undone_by = 'user'
+         deploy.save(update_fields=['undone_by'])
+-        _queue_step(deploy, 'undo')
++        if 'steps' in (deploy.link_parts or {}) or not (deploy.link_parts or {}).get('undo'):
++            _start_undo(deploy)
++        else:                                    # a change sent before this update
++            from .linkops import send
++            send(deploy.router, LINK_KIND, {'deploy': deploy.pk, 'step': 'undo'}, label=f'Config Studio #{deploy.pk}: undo the change',
++                 user=deploy.actor, minutes=30)
+         return deploy
+     from .mikrotik import MikroTikService
+     svc = (connect or (lambda r: MikroTikService(r).connect()))(deploy.router)
+@@ -635,6 +1083,7 @@ def deploy_json(d):
+             'at': (d.applied_at or d.created_at).isoformat(), 'by': (d.actor.get_full_name() or d.actor.username) if d.actor else '',
+             'steps': len(d.plan), 'manual_undo': d.manual_undo, 'can_undo': d.status in ('applied', 'kept') and bool(d.rollback_plan),
+             'progress': [order.index(d.link_step) + 1, len(order)] if d.link_step in order and d.status == 'sending' else None,
++            'timeline': timeline(d), 'auto_keep': bool((d.link_parts or {}).get('auto_keep')),
+             'tiles': [{**t, 'params': {k: ('' if k in tiles.secret_fields(t['type']) else v) for k, v in t['params'].items()}}
+                       for t in tiles.clean_board(d.tiles)]}
+ 
+@@ -826,8 +1275,8 @@ def studio_deploy(request, pk):
+     if not out['safe'] and str(data.get('confirm') or '').strip().upper() != 'DEPLOY ANYWAY':
+         return _fail('The virtual router found a serious problem. Fix it, or type DEPLOY ANYWAY to go ahead.', status=409, needs='DEPLOY ANYWAY')
+     backup = fresh_backup(router)
+-    if not backup and str(data.get('no_backup') or '').strip().upper() != 'NO BACKUP':
+-        return _fail(f'Make a backup first (one from the last {BACKUP_FRESH} minutes is needed).', status=409, needs_backup=True)
++    want_backup = not backup and str(data.get('no_backup') or '').strip().upper() != 'NO BACKUP'
++    auto_keep = data.get('auto_keep', True) not in (False, 'false', 'no', 0, '0')
+     try:
+         minutes = int(data.get('undo_minutes', 5))
+     except (TypeError, ValueError):
+@@ -843,9 +1292,24 @@ def studio_deploy(request, pk):
+             from .linkops import ensure_online
+             ensure_online(router)
+             state, _ = base_state(router, 'router')
+-            deploy_link(deploy, state)
++            name = ''
++            if want_backup:     # made on the router as the first step of the same chain: no separate wait
++                import re
++                name = re.sub(r'[^A-Za-z0-9_-]', '-', f'taptap-studio-{deploy.pk}-{timezone.localtime():%Y%m%d-%H%M}')[:60]
++                deploy.backup = RouterBackup.objects.create(router=router, name=name, backup_file=name + '.backup', export_file=name + '.rsc',
++                                                            created_by=request.user)
++                deploy.save(update_fields=['backup'])
++            deploy_link(deploy, state, backup_name=name, auto_keep=auto_keep)
+         else:
+-            deploy_direct(deploy)
++            if want_backup:
++                try:
++                    deploy.backup = start_backup(router, request.user, request)
++                    deploy.save(update_fields=['backup'])
++                except Exception as exc:              # the undo timer still protects the change
++                    logger.info('Config Studio #%s: backup before deploy failed: %s', deploy.pk, exc)
++                    deploy.manual_undo = (deploy.manual_undo or []) + [f'No backup could be made first ({str(exc)[:120]}); the undo timer still protects this change.']
++                    deploy.save(update_fields=['manual_undo'])
++            deploy_direct(deploy, auto_keep=auto_keep)
+     except Exception as exc:
+         if deploy.status in ('draft', 'sending'):
+             _finish(deploy, 'failed', error=str(exc)[:1500])
+@@ -865,6 +1329,10 @@ def studio_action(request, pk, deploy_id):
+                 keep(deploy)
+             elif action == 'undo':
+                 undo(deploy)
++            elif action == 'stop':
++                stop(deploy)
++            elif action == 'check':
++                nudge(deploy)
+             else:
+                 return _fail('Unknown action.')
+         except (StudioError, ValueError) as exc:
+@@ -912,6 +1380,8 @@ def _install_agent():
+         return
+     agent.SAFE_KINDS.add(LINK_KIND)
+     agent.DEFAULT_EXPIRY.setdefault(LINK_KIND, 30)
++    agent.ACK_WAIT.setdefault(LINK_KIND, SILENT)
++    agent.ACK_RETRY.add(LINK_KIND)            # the answer is tried again while the change makes the internet blink
+ 
+     original_body = agent.command_body
+ 
+diff --git a/core/config_studio_sim.py b/core/config_studio_sim.py
+index 8830efd..425f78d 100644
+--- a/core/config_studio_sim.py
++++ b/core/config_studio_sim.py
+@@ -217,28 +217,60 @@ class VirtualRouter:
+         return best
+ 
+     def wan_interfaces(self):
+-        """Ports the default route leaves through."""
+-        out = []
+-        for r in self.live('/ip/route'):
+-            if str(r.get('dst-address', '')) != '0.0.0.0/0' or not r.get('gateway'):
+-                continue
+-            gw = str(r.get('immediate-gw') or r.get('gateway'))
++        """Ports the default route leaves through — the active / lowest-distance one first.
++
++        RouterOS 7 writes a gateway looked up in another table as "192.168.1.1@starlink2", and TapTap's health-checked
++        lines go "through" a check host (gateway=1.1.1.1, which /32 route sends 1.1.1.1 out of a port). Before, both
++        were taken for port names: every packet test left through a port that does not exist, no NAT rule matched it,
++        and each Internet line tile showed "without NAT no answer comes back" although NAT was there."""
++        names = set(self.interfaces())
++        routes = self.live('/ip/route')
++
++        def port_of(gw, depth=0):
++            gw = str(gw or '').split(',')[0].strip()
+             if '%' in gw:
+-                out.append(gw.split('%', 1)[1])
+-                continue
++                return gw.split('%', 1)[1].split('@', 1)[0].strip()
++            gw = gw.split('@', 1)[0].strip()
++            if not gw:
++                return ''
+             try:
+-                hit = self.connected(gw.split(',')[0])
+-                if hit:
+-                    out.append(hit[1])
++                ipaddress.IPv4Address(gw)
+             except ValueError:
+-                out.append(gw)                           # the gateway is an interface name (pppoe-out1)
++                return gw if gw in names else ''            # the gateway is a port name (pppoe-out1)
++            hit = self.connected(gw)
++            if hit:
++                return hit[1]
++            if depth < 2:                                   # recursive: the /32 route of the check host decides the port
++                for r in routes:
++                    if str(r.get('dst-address', '')) == f'{gw}/32' and r.get('gateway'):
++                        port = port_of(r.get('immediate-gw') or r.get('gateway'), depth + 1)
++                        if port:
++                            return port
++            return ''
++
++        ranked = []
++        for r in routes:
++            if str(r.get('dst-address', '')) != '0.0.0.0/0' or not r.get('gateway'):
++                continue
++            table = str(r.get('routing-table') or r.get('routing-mark') or 'main')
++            if table != 'main':
++                continue
++            port = port_of(r.get('immediate-gw') or r.get('gateway'))
++            if port:
++                active = 0 if str(r.get('active', 'true')).lower() in ('true', 'yes') else 1
++                try:
++                    distance = int(r.get('distance') or 1)
++                except ValueError:
++                    distance = 1
++                ranked.append((active, distance, port))
++        out = [p for _a, _d, p in sorted(ranked, key=lambda x: (x[0], x[1]))]
+         for r in self.live('/ip/dhcp-client'):
+             if str(r.get('add-default-route', 'yes')).lower() != 'no' and r.get('interface'):
+                 out.append(r['interface'])
+         for r in self.live('/interface/pppoe-client'):
+             if yes(r.get('add-default-route', 'no')) and r.get('name'):
+                 out.append(r['name'])
+-        return list(dict.fromkeys(out))
++        return [p for p in dict.fromkeys(out) if p]
+ 
+     def list_members(self, name):
+         if name in ('all', 'static', 'dynamic'):
+@@ -262,7 +294,7 @@ class VirtualRouter:
+         return False
+ 
+     # ── one packet ──
+-    def trace(self, src_ip='', in_if='', dst='internet', proto='tcp', port=443, mac='', host='', logged_in=False):
++    def trace(self, src_ip='', in_if='', dst='internet', proto='tcp', port=443, mac='', host='', logged_in=False, via=''):
+         steps = []
+ 
+         def say(stage, text, level='ok', rule=None):
+@@ -354,6 +386,9 @@ class VirtualRouter:
+             if hit:
+                 p['out'] = hit[1]
+                 say('route', f'{p["dst"]} is on the network of {hit[1]}.')
++            elif via and via in wans:
++                p['out'] = via
++                say('route', f'Not a local address: it leaves through the internet line {via}.')
+             elif wans:
+                 p['out'] = wans[0]
+                 say('route', f'Not a local address: it leaves through the internet line {wans[0]}.')
+@@ -715,9 +750,13 @@ def examine(base_state, ops, board=(), router=None, trusted=()):
+                 find('info', f'The internet line {wan} has no address in this picture, so the open port cannot be tried here.', tid)
+         elif kind in ('wan_dhcp', 'wan_pppoe', 'wan_static'):
+             src = _any_lan(after, after.wan_interfaces())
++            line = str(p.get('port') or '')
++            if kind == 'wan_pppoe':
++                from .config_studio_tiles import slug
++                line = f'pppoe-{slug(line)}'
+             if src:
+-                test(f'A local device ({src[0]}) opens a website through the new line', 'reaches',
+-                     after.trace(src_ip=src[0], in_if=src[1], logged_in=True), tid)
++                test(f'A local device ({src[0]}) opens a website through {line or "the new line"}', 'reaches',
++                     after.trace(src_ip=src[0], in_if=src[1], logged_in=True, via=line), tid)
+     for t in tests:
+         if not t['pass'] and not t.get('lifeline'):
+             find('bad' if t['want'] == 'reaches' else 'warn',
+diff --git a/core/config_studio_tiles.py b/core/config_studio_tiles.py
+index 4d47452..875d88c 100644
+--- a/core/config_studio_tiles.py
++++ b/core/config_studio_tiles.py
+@@ -260,12 +260,21 @@ def b_clock(p, ctx):
+             op('/system/ntp/client', 'singleton_set', {}, {'enabled': 'yes', key: server}, f'Clock set from {server}')]
+ 
+ 
++def _managed(ctx, line):
++    """True when TapTap's Internet lines run this line: its default route is TapTap's (backup / sharing / health
++    checks). A tile must then not give the line a default route of its own — that one would sit next to TapTap's
++    routes, and the backup line or the load sharing would silently stop working."""
++    return line in set((ctx or {}).get('wan_managed') or ())
++
++
+ def b_wan_dhcp(p, ctx):
+     port = v_name(p.get('port'), 'port')
++    managed = _managed(ctx, port)
+     ops = [leave_bridge(port),
+            op('/ip/dhcp-client', 'ensure', {'interface': port},
+-              {'disabled': 'no', 'add-default-route': 'yes', 'use-peer-dns': 'yes', 'comment': tag('wan', port)},
+-              f'Internet on {port}: address given by the provider')]
++              {'disabled': 'no', 'add-default-route': 'no' if managed else 'yes', 'use-peer-dns': 'no' if managed else 'yes',
++               'comment': tag('wan', port)},
++              f'Internet on {port}: address given by the provider' + (' (its route stays with Internet lines)' if managed else ''))]
+     if v_choice(p.get('share'), 'share', ('yes', 'no'), 'yes') == 'yes':
+         ops.append(nat_op('wan', port))
+     return ops
+@@ -274,10 +283,11 @@ def b_wan_dhcp(p, ctx):
+ def b_wan_pppoe(p, ctx):
+     port = v_name(p.get('port'), 'port')
+     name = f'pppoe-{slug(port)}'
++    managed = _managed(ctx, name)
+     ops = [leave_bridge(port),
+            op('/interface/pppoe-client', 'ensure', {'name': name},
+               {'interface': port, 'user': _clean(p.get('user'), 'user name', 64) or _need('user name', 'user'),
+-               'password': v_secret(p.get('password')), 'add-default-route': 'yes', 'use-peer-dns': 'yes',
++               'password': v_secret(p.get('password')), 'add-default-route': 'no' if managed else 'yes', 'use-peer-dns': 'no' if managed else 'yes',
+                'disabled': 'no', 'comment': tag('wan', port)}, f'Internet on {port}: PPPoE dial-up')]
+     if v_choice(p.get('share'), 'share', ('yes', 'no'), 'yes') == 'yes':
+         ops.append(nat_op('wan', name))
+@@ -298,8 +308,10 @@ def b_wan_static(p, ctx):
+     ops = [leave_bridge(port),
+            op('/ip/address', 'ensure', {'address': str(addr), 'interface': port}, {'comment': mark, 'disabled': 'no'},
+               f'Fixed address {addr} on {port}'),
+-           op('/ip/route', 'ensure', {'comment': mark}, {'dst-address': '0.0.0.0/0', 'gateway': str(gw), 'disabled': 'no'},
+-              f'Everything else goes to the provider at {gw}')]
++           ]
++    if not _managed(ctx, port):
++        ops.append(op('/ip/route', 'ensure', {'comment': mark}, {'dst-address': '0.0.0.0/0', 'gateway': str(gw), 'disabled': 'no'},
++                      f'Everything else goes to the provider at {gw}'))
+     if v_choice(p.get('share'), 'share', ('yes', 'no'), 'yes') == 'yes':
+         ops.append(nat_op('wan', port))
+     return ops
+@@ -506,6 +518,10 @@ def parse_pairs(text, field, required=False):
+     return out
+ 
+ 
++# Tables TapTap Link builds itself while reading a router (core/agent_inventory.py) — they exist only in TapTap.
++PSEUDO_MENUS = {'/ip/dhcp-client/gateways'}
++
++
+ def custom_menus():
+     from .mikrotik import MikroTikService
+     return MikroTikService.WRITE_PREFIXES
+@@ -517,6 +533,9 @@ def b_custom(p, ctx):
+         menu = MikroTikService.validate_resource_path(str(p.get('menu') or '').replace(' ', '/'))
+     except MikroTikError:
+         raise TileError('menu: write a RouterOS menu such as /ip/firewall/filter.', 'menu')
++    if menu in PSEUDO_MENUS:
++        raise TileError(f'menu: {menu} is a read-only list TapTap Link makes for itself, not a RouterOS menu — '
++                        'it cannot be changed. Use /ip/dhcp-client instead.', 'menu')
+     if not any(menu == x or menu.startswith(x + '/') for x in custom_menus()):
+         raise TileError(f'menu: {menu} cannot be changed from the studio. Allowed: {", ".join(custom_menus())}.', 'menu')
+     find = parse_pairs(p.get('match'), 'find the row where', required=True)
+diff --git a/core/line_hub.py b/core/line_hub.py
+index cf28051..2232a27 100644
+--- a/core/line_hub.py
++++ b/core/line_hub.py
+@@ -538,6 +538,7 @@ OPS = {
+     '/ip/dhcp-server/network': ({'set'}, {'dns-server'}),
+     '/interface/list': ({'ensure'}, {'name', 'comment'}),
+     '/interface/list/member': ({'add', 'remove'}, {'list', 'interface', 'comment'}),
++    '/interface': ({'enable'}, set()),
+ }
+ WHERE_KEYS = {'chain', 'action', 'out-interface', 'interface', 'name', 'address', 'list', 'comment', 'comment^', 'dst-address'}
+ # remove is only allowed on TapTap Line Hub's own rows — except a line's own DHCP / PPPoE client
+@@ -1414,7 +1415,183 @@ def act_link(router, rows, line_list, data, user):
+     return (f'TapTap Link and Tunnel now go through {l["label"]}. If that line stops, they move to the others by themselves. {msg}'), via
+ 
+ 
+-ACTIONS = {'delete': act_delete, 'add': act_add, 'edit': act_edit, 'nat': act_nat, 'firewall': act_firewall, 'rule': act_rule,
++# ─────────── bring a line online / share the load with it (Live load balancing, gateway drawer) ───────────
++
++REVIVE_LABELS = {'port_on': 'Switching the port on', 'turn_on': 'Switching the line on', 'refresh': 'Asking the modem for a fresh address',
++                 'redial': 'Dialling the provider again', 'rewire': 'Repairing its routes', 'use': 'Putting it back in use'}
++
++
++def revive_plan(l, hint=''):
++    """The steps that bring one line back, in order — from what TapTap knows about it."""
++    if l['missing']:
++        raise HubError(f'The port of “{l["interface"]}” no longer exists, so this line can never come back. Delete it instead.')
++    steps = []
++    if l['port_off']:
++        steps.append('port_on')
++    if l['client_off']:
++        steps.append('turn_on')
++    elif not l['up']:
++        if l['type'] == 'dhcp':
++            steps.append('refresh')
++        elif l['type'] == 'pppoe':
++            steps.append('redial')
++        elif not l['port_off']:
++            raise HubError(f'{l["label"]} has no link on {l["interface"]}: TapTap cannot fix a cable or a modem that is off. '
++                           'Check the modem’s power and the cable, then try again.')
++    if hint == 'broken':
++        steps.append('rewire')
++    if l['use'] == 'out' and l['has_routes']:
++        steps.append('use')
++    return steps
++
++
++def act_revive(router, rows, line_list, data, user):
++    iface = _s(data.get('interface'))
++    l = _line(line_list, iface)
++    steps = revive_plan(l, _s(data.get('state')))
++    if not steps:
++        if l['up'] and l['use'] in IN_USE:
++            return f'{l["label"]} is already online.', False, {'steps': []}
++        raise HubError(f'{l["label"]} is connected, but no route sends customers through it yet. Press “Share the load with it”.')
++    request = data.get('_request')
++    done, via_link = [], on_link(router)
++    svc = None
++    try:
++        if not via_link:
++            from .mikrotik import MikroTikService
++            try:
++                svc = MikroTikService(router).connect()
++            except Exception as exc:
++                if getattr(router, 'connection_mode', 'api') != 'agent':
++                    raise HubError(f'Could not reach {router.name}: {exc}')
++                via_link = True
++        for step in steps:
++            label = REVIVE_LABELS[step]
++            try:
++                if step in ('port_on', 'redial'):
++                    ops = ([{'v': 'enable', 'p': '/interface', 'w': {'name': iface}}] if step == 'port_on' else
++                           [{'v': 'set', 'p': '/interface/pppoe-client', 'w': {'name': iface}, 'f': {'disabled': 'yes'}},
++                            {'v': 'set', 'p': '/interface/pppoe-client', 'w': {'name': iface}, 'f': {'disabled': 'no'}}])
++                    if via_link:
++                        link_send(router, {'kind': 'ops', 'ops': check_ops(ops)}, f'{label}: {iface}', user)
++                        msg = 'sent'
++                    else:
++                        api_run(svc, check_ops(ops))
++                        msg = 'done'
++                elif via_link:
++                    from .views_wan_doctor import _link_fix
++                    resp = _link_fix(request, router, iface, step)
++                    out = json.loads(resp.content)
++                    if not out.get('success'):
++                        raise HubError(out.get('message') or 'TapTap Link refused it.')
++                    msg = 'sent'
++                else:
++                    from .views_wan_doctor import api_step
++                    msg = api_step(svc, router, iface, step)
++                done.append({'key': step, 'label': label, 'ok': True, 'message': msg})
++            except Exception as exc:
++                done.append({'key': step, 'label': label, 'ok': False, 'message': str(exc)})
++                raise HubError(f'{label} did not work: {exc}')
++    finally:
++        if svc is not None:
++            try:
++                svc.close()
++            except Exception:
++                pass
++    said = ', then '.join(REVIVE_LABELS[s].lower() for s in steps)
++    if via_link:
++        return f'{l["label"]}: {said} — sent through TapTap Link, the router does it at its next check-in.', True, {'steps': done}
++    return f'{l["label"]}: {said}. Give the modem about 10 seconds to answer.', False, {'steps': done}
++
++
++def share_config(setup, facts, target, line_list):
++    """The owner's design turned into "Share the load" over every working line, with ``target`` in it."""
++    raw = dict(setup.config or {})
++    saved = {_s(l.get('interface')): dict(l) for l in raw.get('links') or [] if l.get('interface')}
++    known = {l['interface']: l for l in line_list}
++    used, links, skipped = set(), [], []
++
++    def check_for(row):
++        c = _s(row.get('check'))
++        if c and c not in used:
++            used.add(c)
++            return c
++        c = next((h for h, _ in wan.CHECK_HOSTS if h not in used), wan.CHECK_HOSTS[0][0])
++        used.add(c)
++        return c
++
++    seen = set()
++    for f in facts.get('links') or []:
++        iface = _s(f.get('interface'))
++        if not iface or f.get('missing') or iface in seen:
++            continue
++        seen.add(iface)
++        s_row, live = saved.get(iface, {}), known.get(iface, {})
++        gw = _s(s_row.get('gateway')) if f.get('type') == 'static' else _s(f.get('gateway'))
++        gw = gw or _s(f.get('gateway'))
++        wanted = iface == target or (s_row.get('enabled', True) if s_row else f.get('type') in ('dhcp', 'pppoe'))
++        working = (f.get('type') == 'pppoe' or bool(_ipv4(gw))) and (not live or (live.get('up') and not live.get('client_off')))
++        if wanted and not working:
++            if iface == target:
++                raise HubError(f'{live.get("label") or iface} has no address from its modem yet. Bring it online first, then share the load.')
++            skipped.append(live.get('label') or iface)
++        links.append({'interface': iface, 'type': f.get('type') or 'static', 'gateway': gw,
++                      'label': _s(s_row.get('label')) or live.get('label') or _s(f.get('label')) or iface,
++                      'speed': s_row.get('speed') or live.get('speed') or (20 if f.get('lte') else 50),
++                      'check': '', 'enabled': bool(wanted and working)})
++    for iface, row in saved.items():          # static lines from the design that detection does not list
++        if iface not in seen and row.get('type') == 'static' and _ipv4(row.get('gateway')):
++            links.append({**row, 'enabled': row.get('enabled', True)})
++    for l in links:
++        l['check'] = check_for(saved.get(l['interface'], l)) if l['enabled'] else (l.get('check') or '')
++    if sum(1 for l in links if l['enabled']) < 2:
++        raise HubError('Sharing the load needs two working lines. Bring the other line online first.')
++    cfg = {**raw, 'strategy': 'balance', 'links': links, 'sticky': raw.get('sticky') or 'customer', 'health': True, 'weights': {}}
++    return cfg, skipped
++
++
++def act_share(router, rows, line_list, data, user):
++    from . import views_wan
++    from .linkops import SnapshotService
++    iface = _s(data.get('interface'))
++    l = _line(line_list, iface)
++    if l['missing']:
++        raise HubError('This line’s port no longer exists.')
++    setup = _setup(router)
++    from .wan_link import pending
++    if setup.status == 'pending' or pending(router):
++        raise HubError('An Internet lines change is still on its way to the router — wait for it to finish (a minute or two).')
++    if on_link(router):
++        facts = wan.detect(SnapshotService(router))
++    else:
++        from .mikrotik import MikroTikService
++        try:
++            svc = MikroTikService(router).connect()
++        except Exception as exc:
++            raise HubError(f'Could not reach {router.name}: {exc}')
++        try:
++            facts = wan.detect(svc)
++        finally:
++            svc.close()
++    facts.pop('analysis', None)
++    cfg, skipped = share_config(setup, facts, iface, line_list)
++    out, status = views_wan.apply_lines(router, setup, cfg, user, minutes=8 if on_link(router) else 5, auto_confirm=True)
++    if not out.get('success'):
++        raise HubError(out.get('message') or 'The Internet lines change did not go through.')
++    names = ', '.join(x['label'] for x in cfg['links'] if x['enabled'])
++    tail = f' Left out for now (not connected): {", ".join(skipped)}.' if skipped else ''
++    if out.get('via_link'):
++        msg = (f'Sharing the load over {names}. Sent through TapTap Link with a safety timer: the router takes it at its next '
++               f'check-ins and TapTap confirms it by itself once the router stays online.{tail}')
++    elif out.get('auto_confirmed'):
++        msg = f'Customers are now shared over {names}. TapTap reached the router again and the lines answer, so it is confirmed.{tail}'
++    else:
++        msg = (f'Sharing the load over {names} is on the router, but TapTap could not confirm it yet — the router undoes it by '
++               f'itself in 5 minutes unless you press “Keep” on the Internet lines page.{tail}')
++    return msg, bool(out.get('via_link')), {'watch': 'wan', 'wan_status': out.get('status'), 'lines': [x['interface'] for x in cfg['links'] if x['enabled']]}
++
++
++ACTIONS = {'revive': act_revive, 'share': act_share, 'delete': act_delete, 'add': act_add, 'edit': act_edit, 'nat': act_nat, 'firewall': act_firewall, 'rule': act_rule,
+            'dhcp': act_dhcp, 'link': act_link}
+ 
+ 
+@@ -1611,13 +1788,15 @@ def hub_action(request, pk):
+                 raise HubError('TapTap’s copy of this router’s ' + ' and '.join(stale) + ' is out of date, so it cannot tell safely '
+                                'which line customers use. Press “Refresh from router” and try again in a minute.')
+         line_list = lines(router, rows, _setup(router))
+-        message, via_link = fn(router, rows, line_list, data, request.user)
++        data['_request'] = request
++        res = fn(router, rows, line_list, data, request.user)
++        message, via_link, extra = (res + ({},))[:3] if len(res) == 2 else res
+     except HubError as exc:
+-        _audit(request, router, f'hub_{action}', {k: v for k, v in data.items() if k != 'password'}, False, str(exc))
++        _audit(request, router, f'hub_{action}', {k: v for k, v in data.items() if k not in ('password', '_request')}, False, str(exc))
+         raise
+     finally:
+         rows.close()
+-    safe = {k: v for k, v in data.items() if k != 'password'}
++    safe = {k: v for k, v in data.items() if k not in ('password', '_request')}
+     _audit(request, router, f'hub_{action}', safe)
+     _log(router, message.split(' Sent through')[0].split(' Done on')[0][:300])
+     if via_link:
+@@ -1626,7 +1805,7 @@ def hub_action(request, pk):
+             refresh(router, request.user)
+         except Exception:
+             pass
+-    return JsonResponse({'ok': True, 'message': message, 'via_link': via_link, 'config': _setup(router).config or {}})
++    return JsonResponse({'ok': True, 'message': message, 'via_link': via_link, 'config': _setup(router).config or {}, **extra})
+ 
+ 
+ @login_required
+@@ -1701,6 +1880,7 @@ def install():
+         from . import agent
+         agent.SAFE_KINDS.add(LINK_KIND)
+         agent.DEFAULT_EXPIRY.setdefault(LINK_KIND, 30)
++        getattr(agent, 'ACK_RETRY', set()).add(LINK_KIND)
+         original = agent.command_body
+ 
+         @wraps(original)
+diff --git a/core/tests/test_config_studio.py b/core/tests/test_config_studio.py
+index 7a5669d..dcaab01 100644
+--- a/core/tests/test_config_studio.py
++++ b/core/tests/test_config_studio.py
+@@ -156,6 +156,45 @@ class TileTests(TestCase):
+         self.assertNotIn('s3cret', tiles.describe(board(('wan_pppoe', {'port': 'ether1', 'user': 'u', 'password': 's3cret'}))[0]))
+ 
+ 
++class InternetLineTests(TestCase):
++    """The Internet line tiles on a router whose routes RouterOS 7 writes as "192.168.1.1@starlink2" (Nov 2026)."""
++    STATE = {
++        '/interface': [{'name': n, 'type': 'ether'} for n in ('ether1', 'ether2', 'ether5', 'bridge')],
++        '/ip/address': [{'address': '172.16.0.1/24', 'interface': 'bridge'}],
++        '/ip/dhcp-client': [{'interface': 'ether1', 'address': '192.168.1.20/24', 'add-default-route': 'no', 'status': 'bound'},
++                            {'interface': 'ether5', 'address': '192.168.2.30/24', 'add-default-route': 'no', 'status': 'bound'}],
++        '/ip/route': [{'dst-address': '1.1.1.1/32', 'gateway': '192.168.1.1%ether1'},
++                      {'dst-address': '0.0.0.0/0', 'gateway': '1.1.1.1', 'distance': '1', 'active': 'true'},
++                      {'dst-address': '0.0.0.0/0', 'gateway': '192.168.1.1@starlink2', 'distance': '1', 'routing-table': 'starlink2'},
++                      {'dst-address': '0.0.0.0/0', 'gateway': '192.168.1.1@starlink2', 'distance': '3'},
++                      {'dst-address': '8.8.8.8/32', 'gateway': '192.168.2.1%ether5'},
++                      {'dst-address': '0.0.0.0/0', 'gateway': '8.8.8.8', 'distance': '2', 'active': 'false'}],
++        '/ip/firewall/nat': [{'chain': 'srcnat', 'action': 'masquerade', 'out-interface': 'ether1'}],
++    }
++
++    def test_table_gateways_and_check_hosts_lead_to_real_ports(self):
++        self.assertEqual(sim.VirtualRouter(self.STATE).wan_interfaces(), ['ether1', 'ether5'])
++
++    def test_sharing_a_line_is_not_reported_as_without_nat(self):
++        b = board(('wan_dhcp', {'port': 'ether1', 'share': 'yes'}), ('wan_dhcp', {'port': 'ether5', 'share': 'yes'}))
++        ops, problems = tiles.compile_board(b, CTX)
++        res = sim.examine(self.STATE, ops, b)
++        self.assertEqual([(t['title'][-6:], t['pass']) for t in res['tests']], [('ether1', True), ('ether5', True)])
++        self.assertFalse([f for f in res['findings'] if 'without NAT' in f['text']])
++
++    def test_a_line_run_by_internet_lines_keeps_its_taptap_routes(self):
++        ctx = {**CTX, 'wan_managed': ['ether1']}
++        ops, _ = tiles.compile_board(board(('wan_dhcp', {'port': 'ether1'}), ('wan_dhcp', {'port': 'ether5'})), ctx)
++        clients = {o['find']['interface']: o['values'] for o in ops if o['resource'] == '/ip/dhcp-client'}
++        self.assertEqual(clients['ether1']['add-default-route'], 'no')     # no second default route next to TapTap's
++        self.assertEqual(clients['ether5']['add-default-route'], 'yes')
++
++    def test_taptap_links_own_lists_are_not_menus(self):
++        ops, problems = tiles.compile_board(board(('custom', {'menu': '/ip/dhcp-client/gateways', 'match': 'interface="*2"',
++                                                              'set': 'chain=forward'})), CTX)
++        self.assertIn('read-only list', problems[0]['message'])
++
++
+ class VirtualRouterTests(TestCase):
+     def run_board(self, b, base='default', **kw):
+         ops, problems = tiles.compile_board(b, CTX)
+@@ -335,65 +374,189 @@ class LinkDeployTests(Base):
+         cs.deploy_link(d, self.state)
+         return d
+ 
+-    def test_one_piece_at_a_time_timer_first(self):
++    def answer_step(self, step, status='ok', result=''):
++        cmd = [c for c in self.cmds() if c.params.get('step') == step][-1]
++        self.assertTrue(agent.handle_ack(cmd.pk, agent.nonce(cmd), status, result), step)
++        return cmd
++
++    def answer_all(self, d):
++        for step in d.link_parts['order']:
++            self.answer_step(step)
++
++    def lose(self, *steps):
++        """The router ran these (or not) but no answer reached TapTap: the Link queue gave up on them."""
++        AgentCommand.objects.filter(router=self.r, kind=cs.LINK_KIND, params__step__in=list(steps)).update(
++            status='failed', result='No answer from the router', done_at=timezone.now())
++
++    def test_the_whole_chain_goes_at_once_timer_first_each_step_guarded(self):
+         d = self.start()
+-        self.assertEqual([c.params['step'] for c in self.cmds()], ['arm'])
+-        body = agent.command_body(self.cmds()[0])
+-        self.assertIn(f'/system scheduler add name={cs.UNDO_SCHEDULER} interval=5m', body)
+-        self.assertIn('TapTap-Studio', agent.wrap(self.cmds()[0], 'https://t.example', ''))
+         order = d.link_parts['order']
+-        self.assertGreater(len(order), 2)
++        self.assertEqual([c.params['step'] for c in self.cmds()], order)            # all queued at once — no waiting
++        self.assertTrue(order[0].startswith('u'))
++        self.assertLess(order.index('arm'), order.index('p0'))                      # the undo timer before any change
++        arm = agent.command_body([c for c in self.cmds() if c.params['step'] == 'arm'][0])
++        self.assertIn(f'/system scheduler add name={cs.UNDO_SCHEDULER} interval=8m', arm)     # at least 8 min on Link
++        self.assertIn(':if ($s >= ', arm)                                           # skipped when already done
++        self.assertIn('an earlier step did not run', arm)                           # refused when out of order
++        wrapped = agent.wrap(self.cmds()[-1], 'https://t.example', '')
++        self.assertIn(':for tti from=1 to=5', wrapped)                              # the answer is retried
+         for step in order:
+-            self.assertEqual(self.cmds()[-1].params['step'], step)
+             d.refresh_from_db()
+             self.assertEqual(d.status, 'sending')
+-            self.answer()
++            self.answer_step(step)
+         d.refresh_from_db()
+         self.assertEqual(d.status, 'applied')
+         self.assertIsNotNone(d.undo_until)
+         cs.keep(d)
+         self.assertIn('already undone', agent.command_body(self.cmds()[-1]))
+-        self.answer()
++        self.answer_step('keep')
+         d.refresh_from_db()
+         self.assertEqual(d.status, 'kept')
+ 
+     def test_the_browser_cannot_choose_what_a_link_command_runs(self):
+         d = self.start()
+         cmd = self.cmds()[0]
+-        cmd.params = {'deploy': d.pk, 'step': 'order'}
+-        with self.assertRaises(ValueError):
+-            cs.link_body(cmd)
+-        cmd.params = {'deploy': d.pk + 99, 'step': 'p0'}
+-        with self.assertRaises(ValueError):
+-            cs.link_body(cmd)
++        for bad in ({'deploy': d.pk, 'step': 'order'}, {'deploy': d.pk, 'step': 'steps'}, {'deploy': d.pk + 99, 'step': 'p0'}):
++            cmd.params = bad
++            with self.assertRaises(ValueError):
++                cs.link_body(cmd)
+         with self.assertRaises(ValueError):                            # a board cannot smuggle a script kind through the queue
+             agent.queue(self.r, 'script', {'source': '/system reboot'})
+ 
+     def test_a_refused_piece_stops_and_undoes(self):
+         d = self.start()
+-        self.answer()            # timer armed
+-        self.answer()            # p0 in
+-        self.answer('fail', 'no such item')
++        order = d.link_parts['order']
++        for step in order[:order.index('p0') + 1]:
++            self.answer_step(step)
++        self.answer_step('p1', 'fail', 'no such item')
+         d.refresh_from_db()
+         self.assertEqual(d.status, 'failed')
+         self.assertIn('no such item', d.error)
++        later = [c for c in self.cmds() if c.params['step'] in order[order.index('p1') + 1:]]
++        self.assertTrue(all(c.status == 'cancelled' for c in later))                # the rest never runs
++        self.assertEqual(self.cmds()[-1].params['step'], 'undo')
++        self.assertIn(f'/system script run {cs.UNDO_SCRIPT}', agent.command_body(self.cmds()[-1]))
++        for step in d.link_parts['undo_order']:
++            self.answer_step(step)
++        d.refresh_from_db()
++        self.assertEqual(d.status, 'failed')
++        self.assertIn('taken back', d.error)
++
++    def test_lost_answers_are_resolved_by_asking_the_router(self):
++        d = self.start()
++        order = d.link_parts['order']
++        for step in order[:-2]:
++            self.answer_step(step)
++        self.lose(*order[-2:])                         # the internet blinked: two answers never arrived
++        cs.progress(RouterStudioDeploy.objects.get(pk=d.pk))
++        d.refresh_from_db()
++        self.assertEqual((d.status, self.cmds()[-1].params['step']), ('sending', 'check'))
++        self.assertIn(f'!= {len(order) - 1})', agent.command_body(self.cmds()[-1]))
++        self.answer_step('check')
++        d.refresh_from_db()
++        self.assertEqual(d.status, 'applied')
++
++    def test_a_broken_chain_is_sent_once_more_then_taken_back(self):
++        d = self.start()
++        self.lose(*d.link_parts['order'])
++        cs.progress(RouterStudioDeploy.objects.get(pk=d.pk))
++        self.answer_step('check', 'fail', 'stopped at step 2')
++        d.refresh_from_db()
++        self.assertEqual((d.status, d.link_parts['round']), ('sending', 2))          # a fresh round with a fresh marker
++        self.assertIn('ttS%dr2' % d.pk, agent.command_body(self.cmds()[-1]))
++        self.lose(*d.link_parts['order'])
++        cs.progress(RouterStudioDeploy.objects.get(pk=d.pk))
++        self.answer_step('check', 'fail')
++        d.refresh_from_db()
++        self.assertEqual(d.status, 'failed')
++        self.assertIn('2 times', d.error)
+         self.assertEqual(self.cmds()[-1].params['step'], 'undo')
+-        self.assertTrue(agent.command_body(self.cmds()[-1]).startswith(f'/system scheduler remove [find where name="{cs.UNDO_SCHEDULER}"]'))
+-        self.answer()
++
++    def test_it_never_loops_for_ever(self):
++        d = self.start()
++        d.link_parts['started_at'] = (timezone.now() - timedelta(minutes=cs.DEADLINE + 1)).isoformat()
++        d.save()
++        cs.progress(d)
++        d.refresh_from_db()
++        self.assertEqual(d.status, 'failed')
++        self.assertIn('did not get the change through', d.error)
++        self.assertFalse(AgentCommand.objects.filter(router=self.r, kind=cs.LINK_KIND, status='queued',
++                                                     params__step__startswith='p').exists())
++
++    def test_a_change_stuck_with_the_old_version_stops_blocking(self):
++        d = self.deploy_for(board(('dns', {'servers': '1.1.1.1'})))
++        RouterStudioDeploy.objects.filter(pk=d.pk).update(status='sending', transport='TapTap Link', link_parts={'order': ['arm', 'p0']},
++                                                          created_at=timezone.now() - timedelta(hours=2))
++        d.refresh_from_db()
++        cs.progress(d)
+         d.refresh_from_db()
+         self.assertEqual(d.status, 'failed')
+-        self.assertIn('were undone', d.error)
++        self.assertIn('never finished', d.error)
++
++    def test_keep_by_itself_once_the_router_stays_online(self):
++        d = self.deploy_for(board(*[(t['type'], t['params']) for t in cs.KITS[1]['tiles']]))
++        cs.deploy_link(d, self.state, auto_keep=True)
++        self.answer_all(d)
++        d.refresh_from_db()
++        self.assertEqual(d.status, 'applied')
++        cs.progress(d)
++        self.assertFalse(any(c.params['step'] == 'keep' for c in self.cmds()))     # not before the router proved itself
++        RouterAgent.objects.filter(router=self.r).update(last_seen_at=d.applied_at + timedelta(seconds=cs.KEEP_AFTER + 5))
++        cs.link_progress(self.r)                                                     # what every check-in runs
++        self.answer_step('keep')
++        d.refresh_from_db()
++        self.assertEqual(d.status, 'kept')
++
++    def test_a_lost_keep_answer_is_checked_not_assumed_undone(self):
++        d = self.start()
++        self.answer_all(d)
++        d.refresh_from_db()
++        cs.keep(d)
++        self.lose('keep')
++        RouterStudioDeploy.objects.filter(pk=d.pk).update(undo_until=timezone.now() - timedelta(minutes=1))
++        d.refresh_from_db()
++        cs.settle(d)
++        self.assertEqual(self.cmds()[-1].params['step'], 'kcheck')
++        d.refresh_from_db()
++        self.assertEqual(d.status, 'applied')                                        # not "undone" on a guess
++        self.answer_step('kcheck')
++        d.refresh_from_db()
++        self.assertEqual(d.status, 'kept')
+ 
+     def test_keep_too_late_is_reported_as_undone(self):
+         d = self.start()
+-        for _ in d.link_parts['order']:
+-            self.answer()
++        self.answer_all(d)
+         d.refresh_from_db()
+         cs.keep(d)
+-        self.answer('fail')
++        self.answer_step('keep', 'fail')
+         d.refresh_from_db()
+         self.assertEqual((d.status, d.undone_by), ('undone', 'router'))
+ 
++    def test_stop_while_on_its_way(self):
++        d = self.start()
++        out = self.post('config_studio_action', {'action': 'stop'}, d.pk).json()
++        self.assertTrue(out['ok'], out)
++        self.assertEqual(out['deploy']['status'], 'failed')
++        self.assertIn('Nothing had reached the router', out['deploy']['error'])
++        self.assertFalse(AgentCommand.objects.filter(router=self.r, kind=cs.LINK_KIND, status='queued').exists())
++
++    def test_the_page_shows_every_step(self):
++        d = self.start()
++        self.answer_step(d.link_parts['order'][0])
++        tl = cs.deploy_json(RouterStudioDeploy.objects.get(pk=d.pk))['timeline']
++        self.assertEqual(tl['steps'][0], {'key': 'undo', 'label': 'Undo plan onto the router', 'state': 'wait'})
++        self.assertTrue(any(x['key'] == 'arm' for x in tl['steps']))
++        self.assertIn('checks in', tl['note'])
++
++    def test_deploy_through_link_makes_its_own_backup_first(self):
++        self.post('config_studio_check', {'tiles': [{'id': 'a', 'type': 'dns', 'params': {'servers': '1.1.1.1'}}]})
++        out = self.post('config_studio_deploy', {'undo_minutes': 5}).json()
++        self.assertTrue(out['ok'], out)
++        d = RouterStudioDeploy.objects.get()
++        self.assertEqual(d.link_parts['order'][0], 'backup')
++        self.assertIn('/system backup save name="taptap-studio-', d.link_parts['steps']['backup'])
++        self.assertEqual(d.backup.name, d.link_parts['backup_name'])
++
+ 
+ @override_settings(AUTH_EMAIL_OTP=False)
+ class ViewTests(Base):
+@@ -431,13 +594,15 @@ class ViewTests(Base):
+         r = self.post('config_studio_deploy')
+         self.assertEqual((r.status_code, r.json()['needs']), (409, 'DEPLOY ANYWAY'))               # would lock TapTap out
+         self.post('config_studio_check', {'tiles': [{'id': 'a', 'type': 'dns', 'params': {'servers': '1.1.1.1'}}]})
+-        r = self.post('config_studio_deploy')
+-        self.assertEqual((r.status_code, r.json().get('needs_backup')), (409, True))
+         self.assertEqual(RouterStudioDeploy.objects.count(), 0)
+-        RouterBackup.objects.create(router=self.r, name='b1', backup_file='b1.backup')
+         svc = FakeService(self.state)
+-        with mock.patch('core.mikrotik.MikroTikService.connect', return_value=svc), mock.patch('core.config_studio._reread'):
+-            out = self.post('config_studio_deploy', {'undo_minutes': 3}).json()
++        made = RouterBackup.objects.create(router=self.r, name='auto', backup_file='auto.backup')
++        made.created_at = timezone.now() - timedelta(hours=3)        # an old backup does not count …
++        made.save()
++        with mock.patch('core.mikrotik.MikroTikService.connect', return_value=svc), mock.patch('core.config_studio._reread'), \
++                mock.patch('core.config_studio.start_backup', side_effect=lambda *a, **k: RouterBackup.objects.create(router=self.r, name='b1', backup_file='b1.backup')) as sb:
++            out = self.post('config_studio_deploy', {'undo_minutes': 3, 'auto_keep': False}).json()
++        self.assertTrue(sb.called)                                    # … so a fresh one is made by itself first
+         self.assertTrue(out['ok'], out)
+         self.assertEqual((out['deploy']['status'], out['deploy']['undo_minutes']), ('applied', 3))
+         self.assertGreater(out['deploy']['seconds_left'], 150)
+diff --git a/core/tests/test_line_hub.py b/core/tests/test_line_hub.py
+index 836cd44..cad3371 100644
+--- a/core/tests/test_line_hub.py
++++ b/core/tests/test_line_hub.py
+@@ -438,3 +438,75 @@ class OverTheApi(Base):
+         self.assertEqual(log[0], 'sched-added')
+         self.assertIn("set /ip/firewall/filter {'id': '*F2', 'disabled': 'yes'}", log)
+         self.assertEqual(log[-1], 'remove /system/scheduler *S')              # TapTap reached the router again: timer gone
++
++
++# ═══════════════════════ bring a line online / share the load with it ═══════════════════════
++class ReviveAndShare(Base):
++    def act(self, **data):
++        return self.post(f'/routers/{self.router.pk}/internet/hub/action/', data)
++
++    def line(self, **over):
++        base = {'interface': 'ether5', 'label': 'QCell', 'type': 'dhcp', 'missing': False, 'port_off': False, 'client_off': False,
++                'up': True, 'use': 'managed', 'has_routes': True}
++        return {**base, **over}
++
++    def test_the_plan_follows_what_is_wrong(self):
++        self.assertEqual(hub.revive_plan(self.line(client_off=True)), ['turn_on'])
++        self.assertEqual(hub.revive_plan(self.line(up=False)), ['refresh'])
++        self.assertEqual(hub.revive_plan(self.line(up=False, type='pppoe')), ['redial'])
++        self.assertEqual(hub.revive_plan(self.line(port_off=True, up=False)), ['port_on', 'refresh'])
++        self.assertEqual(hub.revive_plan(self.line(use='out')), ['use'])
++        self.assertEqual(hub.revive_plan(self.line(), 'broken'), ['rewire'])
++        with self.assertRaises(hub.HubError):
++            hub.revive_plan(self.line(missing=True))
++        with self.assertRaises(hub.HubError):                       # a static line without link: a cable / modem problem
++            hub.revive_plan(self.line(type='static', up=False))
++
++    def test_bringing_a_switched_off_line_online_through_link(self):
++        clients = [dict(c) for c in DHCP_CLIENTS]
++        clients[1]['disabled'] = 'true'
++        self.snapshot(**{'/ip/dhcp-client': clients})
++        r = self.act(action='revive', interface='ether5')
++        self.assertTrue(r.json()['ok'], r.content)
++        self.assertEqual([s['key'] for s in r.json()['steps']], ['turn_on'])
++        cmd = AgentCommand.objects.filter(router=self.router, kind='wan_doctor').last()
++        self.assertEqual(cmd.params['step'], 'turn_on')
++        self.assertIn('/ip dhcp-client set [find where interface="ether5"] disabled=no', agent.command_body(cmd))
++
++    def test_a_port_switched_off_is_switched_on(self):
++        ifaces = [dict(i, disabled='true', running='false') if i['name'] == 'ether5' else i for i in IFACES]
++        self.snapshot(**{'/interface': ifaces})
++        r = self.act(action='revive', interface='ether5')
++        self.assertTrue(r.json()['ok'], r.content)
++        bodies = [agent.command_body(c) for c in AgentCommand.objects.filter(router=self.router, kind=hub.LINK_KIND)]
++        self.assertIn('/interface enable [find where name="ether5"]', bodies[0])
++
++    def test_sharing_the_load_with_a_standby_line_through_link(self):
++        self.snapshot()
++        r = self.act(action='share', interface='ether5')
++        self.assertTrue(r.json()['ok'], r.content)
++        self.assertTrue(r.json()['via_link'])
++        self.setup.refresh_from_db()
++        self.assertEqual(self.setup.config['strategy'], 'balance')
++        self.assertEqual({l['interface']: l['enabled'] for l in self.setup.config['links']}, {'ether1': True, 'ether5': True})
++        self.assertEqual(self.setup.status, 'pending')                                     # confirms by itself (core/wan_link.py)
++        steps = [c.params['step'] for c in AgentCommand.objects.filter(router=self.router, kind='wan_lines').order_by('pk')]
++        self.assertEqual(steps[0], 'arm')                                                   # the safety timer first
++        self.assertIn('per-connection-classifier', ' '.join(agent.command_body(c) for c in AgentCommand.objects.filter(router=self.router, kind='wan_lines')))
++        r = self.act(action='share', interface='ether5')                                    # one change at a time
++        self.assertEqual(r.status_code, 400)
++
++    def test_a_line_without_an_address_cannot_be_shared_yet(self):
++        clients = [dict(c) for c in DHCP_CLIENTS]
++        clients[1].update(status='searching...', address='', gateway='')
++        self.snapshot(**{'/ip/dhcp-client': clients})
++        r = self.act(action='share', interface='ether5')
++        self.assertEqual(r.status_code, 400)
++        self.assertIn('Bring it online first', r.json()['message'])
++
++    def test_the_load_balancing_card_gets_the_action_urls(self):
++        from core.views import _lb_config
++        req = mock.Mock(tt_perms={'network.manage'})
++        cfg = _lb_config(self.router, request=req)
++        self.assertEqual(cfg['action_url'], f'/routers/{self.router.pk}/internet/hub/action/')
++        self.assertFalse(_lb_config(self.router, request=mock.Mock(tt_perms=set()))['action_url'])
+diff --git a/core/views.py b/core/views.py
+index fb0365d..4d4e2a5 100644
+--- a/core/views.py
++++ b/core/views.py
+@@ -818,7 +818,10 @@ def _lb_config(router,snapshot=None,request=None):
+     return {'router_id':router.id,'router_name':router.name,'router_ip':router.ip_address or ('TapTap Link' if router.connection_mode=='agent' else ''),'status':router.status,
+             'dom_id':f'lb-cfg-{router.id}','telemetry_url':reverse('router_telemetry',args=[router.id]),'load_balancing':lb,
+             'name_url':reverse('router_wan_name',args=[router.id]) if can_name else '','isp_suggestions':ISP_SUGGESTIONS,'isp_quick':ISP_QUICK,
+-            'designer_url':reverse('wan_designer',args=[router.id])}
++            'designer_url':reverse('wan_designer',args=[router.id]),
++            # Line actions on the cards (core/line_hub.py): bring a line online, share the load with it
++            'action_url':reverse('line_hub_action',args=[router.id]) if can_name else '',
++            'wan_status_url':reverse('wan_status',args=[router.id]) if can_name else ''}
+ 
+ 
+ @login_required
+diff --git a/core/views_wan.py b/core/views_wan.py
+index f3f7991..8fc687e 100644
+--- a/core/views_wan.py
++++ b/core/views_wan.py
+@@ -188,22 +188,40 @@ def _audit(request, router, op, fields, ok=True, error=''):
+ def wan_apply(request, pk):
+     router = _router(request, pk); setup = _setup(router); data = _body(request)
+     minutes = 0 if data.get('undo_minutes') in (0, '0') else max(2, min(15, int(data.get('undo_minutes') or 5)))
++    out, status = apply_lines(router, setup, data.get('config'), request.user, minutes)
++    return JsonResponse(out, status=status)
++
++
++class _Actor:
++    def __init__(self, user):
++        self.user = user
++
++
++def apply_lines(router, setup, config, user, minutes=5, auto_confirm=False):
++    """Apply an Internet lines design (the designer's Apply, and Line Hub's "Share the load"). → (JSON dict, HTTP status).
++
++    ``auto_confirm``: over a live connection the safety timer is removed by itself once TapTap reaches the router again
++    on a fresh connection AND at least one line answers its health check; otherwise the timer stays and undoes the
++    change. Through TapTap Link the change always confirms itself once the router stays online (core/wan_link.py)."""
++    request = _Actor(user)
++    data = {'config': config}
+     if router.connection_mode == 'agent' and not minutes:
+         # Over TapTap Tunnel a bad WAN change can cut the tunnel itself, so the
+         # on-router safety timer is mandatory: it undoes the change unless TapTap
+         # can confirm through the tunnel afterwards.
+         minutes = 5
+     if _on_link(router):
+-        return _apply_via_link(request, router, setup, data, minutes)
++        resp = _apply_via_link(request, router, setup, data, minutes)
++        return json.loads(resp.content), resp.status_code
+     try:
+         svc = MikroTikService(router).connect()
+     except Exception as exc:
+-        return JsonResponse({'success': False, 'message': f'Could not reach {router.name}: {exc}'}, status=502)
++        return {'success': False, 'message': f'Could not reach {router.name}: {exc}'}, 502
+     try:
+         facts = wan.detect(svc); facts.pop('analysis', None)
+         cfg, errors, warnings = wan.normalize(data.get('config') or setup.config or {}, facts)
+         if errors:
+-            return JsonResponse({'success': False, 'message': ' '.join(errors)}, status=400)
++            return {'success': False, 'message': ' '.join(errors)}, 400
+         # Keep the very first "before" state across re-applies, so undo always returns to the owner's own setup.
+         original = setup.original if setup.original and setup.status in {'pending', 'active'} else wan.capture_original(svc, cfg, facts)
+         plan = wan.build_plan(cfg, facts)
+@@ -211,34 +229,38 @@ def wan_apply(request, pk):
+     except wan.WanError as exc:
+         setup.status = 'failed'; setup.last_result = {'error': str(exc)}; setup.save()
+         _audit(request, router, 'apply', {'strategy': (data.get('config') or {}).get('strategy')}, False, str(exc))
+-        return JsonResponse({'success': False, 'message': str(exc)}, status=500)
++        return {'success': False, 'message': str(exc)}, 500
+     except Exception as exc:
+-        return JsonResponse({'success': False, 'message': f'Unexpected error: {exc}'}, status=500)
++        return {'success': False, 'message': f'Unexpected error: {exc}'}, 500
+     finally:
+         svc.close()
+ 
+     now = timezone.now()
+     setup.config = data.get('config') or setup.config; setup.facts = facts; setup.original = original; setup.run_id = plan['run']
+-    setup.status = 'pending' if minutes else 'active'; setup.applied_at = now; setup.applied_by = request.user
++    setup.status = 'pending' if minutes else 'active'; setup.applied_at = now; setup.applied_by = user
+     setup.confirm_by = now + timedelta(minutes=minutes) if minutes else None; setup.confirmed_at = None if minutes else now
+     # Re-connect on a fresh session: proves TapTap can still reach the router through the new routing.
+-    reach, lines = False, []
++    reach, lines, confirmed = False, [], False
+     try:
+         svc2 = MikroTikService(router).connect()
+         try:
+             reach = True; lines = wan.health(svc2, cfg)
+             lb = svc2.analyze_load_balancing()
+             RouterConfigSnapshot.objects.filter(router=router).update(load_balancing=lb)
++            if auto_confirm and minutes and any((h.get('ping') or {}).get('ok') for h in lines):
++                confirmed = wan.confirm(svc2)
+         finally:
+             svc2.close()
+     except Exception as exc:
+         lines = [{'error': str(exc)}]
+-    setup.last_result = {**result, 'reachable_after': reach, 'health': lines, 'warnings': warnings}
++    if confirmed:
++        setup.status, setup.confirmed_at, setup.confirm_by = 'active', timezone.now(), None
++    setup.last_result = {**result, 'reachable_after': reach, 'health': lines, 'warnings': warnings, 'auto_confirmed': confirmed}
+     setup.save()
+     _audit(request, router, 'apply', {'strategy': cfg['strategy'], 'lines': [l['interface'] for l in cfg['links']], 'run': plan['run'], 'undo_minutes': minutes})
+     log(router.business, 'Internet Lines Applied', f'{router.name}: {wan.STRATEGIES[cfg["strategy"]]} on ' + ', '.join(l['label'] for l in cfg['links']), router=router)
+-    return JsonResponse({'success': True, 'status': setup.status, 'confirm_by': setup.confirm_by.isoformat() if setup.confirm_by else None,
+-                         'reachable_after': reach, 'health': lines, 'counts': result['counts'], 'notes': result['notes']})
++    return {'success': True, 'status': setup.status, 'confirm_by': setup.confirm_by.isoformat() if setup.confirm_by else None,
++            'reachable_after': reach, 'health': lines, 'counts': result['counts'], 'notes': result['notes'], 'auto_confirmed': confirmed}, 200
+ 
+ 
+ def _apply_via_link(request, router, setup, data, minutes):
+diff --git a/core/views_wan_doctor.py b/core/views_wan_doctor.py
+index 238d536..b587978 100644
+--- a/core/views_wan_doctor.py
++++ b/core/views_wan_doctor.py
+@@ -186,18 +186,9 @@ def doctor_fix(request, pk):
+     if err:
+         return err
+     try:
+-        lines = doc.lines_for(svc, _setup(router))
+-        if iface not in {l['interface'] for l in lines}:
+-            return JsonResponse({'success': False, 'message': f'{iface} is not one of this router’s internet lines.'}, status=400)
+-        if step in {'turn_on', 'turn_off'}:
+-            message = doc.turn_line(svc, iface, step == 'turn_on', lines)
+-        elif step in {'use', 'unuse'}:
+-            message = doc.set_in_use(svc, iface, step == 'use', lines)
+-        elif step == 'rewire':
+-            line = next(l for l in lines if l['interface'] == iface)
+-            message = wan_wiring.repair(svc, line, lines)
+-        else:
+-            message = doc.fix(svc, iface, step)
++        message = api_step(svc, router, iface, step)
++    except LookupError as exc:
++        return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+     except (doc.DoctorError, wan_wiring.WiringError) as exc:
+         return JsonResponse({'success': False, 'message': str(exc)}, status=400)
+     except Exception as exc:
+@@ -210,6 +201,21 @@ def doctor_fix(request, pk):
+     return JsonResponse({'success': True, 'message': message})
+ 
+ 
++def api_step(svc, router, iface, step):
++    """One Internet Doctor step over a live connection (the Doctor card, Line Hub's "Bring it online"). → message."""
++    lines = doc.lines_for(svc, _setup(router))
++    if iface not in {l['interface'] for l in lines}:
++        raise LookupError(f'{iface} is not one of this router’s internet lines.')
++    if step in {'turn_on', 'turn_off'}:
++        return doc.turn_line(svc, iface, step == 'turn_on', lines)
++    if step in {'use', 'unuse'}:
++        return doc.set_in_use(svc, iface, step == 'use', lines)
++    if step == 'rewire':
++        line = next(l for l in lines if l['interface'] == iface)
++        return wan_wiring.repair(svc, line, lines)
++    return doc.fix(svc, iface, step)
++
++
+ @login_required
+ def doctor_script(request, pk):
+     """.rsc to install or remove the Doctor by hand (works for TapTap Link routers too)."""
+diff --git a/core/wan_doctor.py b/core/wan_doctor.py
+index fd7777e..9f3fc47 100644
+--- a/core/wan_doctor.py
++++ b/core/wan_doctor.py
+@@ -1187,6 +1187,7 @@ def install():
+     try:   # TapTap Link: a "wan_doctor" command kind for routers without a live connection
+         from . import agent
+         agent.SAFE_KINDS.add(LINK_KIND)
++        getattr(agent, 'ACK_RETRY', set()).add(LINK_KIND)
+         agent.command_body = _wrap_command_body(agent.command_body)
+     except Exception as exc:
+         logger.warning('Internet Doctor: Link commands not available (%s)', exc)
+diff --git a/core/wan_link.py b/core/wan_link.py
+index 9fd2334..190a2f5 100644
+--- a/core/wan_link.py
++++ b/core/wan_link.py
+@@ -240,5 +240,6 @@ def install():
+     agent.SAFE_KINDS.add(LINK_KIND)
+     agent.NEVER_RESEND.add(LINK_KIND)        # a part re-run would add every route twice: fail and undo instead
+     agent.ACK_WAIT.setdefault(LINK_KIND, 180)
++    getattr(agent, 'ACK_RETRY', set()).add(LINK_KIND)       # the answer survives the internet blinking during the change
+     agent.command_body = _wrap_command_body(agent.command_body)
+     _INSTALLED = True
+diff --git a/static/css/config-studio.css b/static/css/config-studio.css
+index f3f6352..adc86c1 100644
+--- a/static/css/config-studio.css
++++ b/static/css/config-studio.css
+@@ -145,3 +145,24 @@
+ 
+ @media(max-width:1250px){.cs-grid{grid-template-columns:220px minmax(0,1fr)}.cs-side{grid-column:1/-1;position:static;max-height:none;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}}
+ @media(max-width:800px){.cs-grid{grid-template-columns:1fr}.cs-shelf{position:static;max-height:300px}.cs-menus{grid-template-columns:1fr}.cs-menu-list{max-height:180px}.cs-tile{grid-template-columns:16px 30px minmax(0,1fr)}.cs-tile-tools{grid-column:1/-1;justify-content:flex-end;opacity:1}.cs-legend{margin-left:0}.cs-sentence{font-size:.92rem}}
++
++/* deploy timeline (TapTap Link) */
++.cs-live.cs-tl{display:block}
++.cs-tl-head{display:flex;gap:10px;align-items:center}
++.cs-tl-bar{height:6px;border-radius:99px;background:rgba(13,110,253,.15);margin:10px 0 8px;overflow:hidden}
++.cs-tl-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#0d6efd,#20c997);transition:width .8s cubic-bezier(.2,.8,.2,1);
++  background-size:200% 100%;animation:csFlow 1.6s linear infinite}
++@keyframes csFlow{to{background-position:-200% 0}}
++.cs-tl-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
++.cs-tl-steps li{display:grid;grid-template-columns:18px 1fr auto;gap:8px;align-items:center;font-size:.76rem;padding:3px 6px;border-radius:8px;transition:background .3s}
++.cs-tl-steps li em{font-style:normal;font-size:.66rem;opacity:.65}
++.cs-tl-steps li.st-done i{color:#198754}.cs-tl-steps li.st-bad i{color:#dc3545}.cs-tl-steps li.st-lost i{color:#d98a00}
++.cs-tl-steps li.st-wait{opacity:.6}.cs-tl-steps li.st-run{background:rgba(13,110,253,.08)}
++.cs-tl-steps li.st-run i{color:#0d6efd;display:inline-block;animation:csSpin 1s linear infinite}
++.cs-tl-steps li.st-done{animation:csLand .5s ease}
++@keyframes csSpin{to{transform:rotate(360deg)}}
++@keyframes csLand{40%{background:rgba(25,135,84,.15)}}
++.cs-tl-foot{display:block;margin-top:8px;font-size:.68rem;opacity:.7}
++.cs-autokeep{display:flex;gap:8px;align-items:flex-start;border:1px solid rgba(25,135,84,.35);background:rgba(25,135,84,.06);border-radius:10px;padding:8px 10px;margin-top:6px;font-size:.82rem}
++.cs-autokeep input{margin-top:3px}.cs-autokeep small{opacity:.75}
++@media(prefers-reduced-motion:reduce){.cs-tl-bar i,.cs-tl-steps li.st-run i{animation:none}}
+diff --git a/static/css/line-hub.css b/static/css/line-hub.css
+index c633206..d3f125c 100644
+--- a/static/css/line-hub.css
++++ b/static/css/line-hub.css
+@@ -296,3 +296,5 @@ html[data-theme="dark"] .lb-empty{border-color:#2c3b4d}
+ html[data-theme="dark"] .lb-pins,html[data-theme="dark"] .lb-pin{border-color:#2c3b4d}
+ html[data-theme="dark"] .lh-modal-body{color:#cbd5e1}
+ html[data-theme="dark"] .lh-state-pill{background:#14382a;color:#7ee2b2}
++
++.lh-big{font-weight:800;padding:.6rem;border-radius:12px;box-shadow:0 8px 20px #1769e030}
+diff --git a/static/css/netviz.css b/static/css/netviz.css
+index 8cb3094..4e42aa8 100644
+--- a/static/css/netviz.css
++++ b/static/css/netviz.css
+@@ -287,3 +287,36 @@ html[data-theme="dark"] .lbx-picks button{background:#1f2933;color:#c8d6e5}
+ .lbx-isp.st-broken rect{stroke:#e5484d;stroke-dasharray:4 3}
+ .lbx-lane.st-broken .lbx-dot{background:var(--bad,#e5484d)}
+ .lbx-lane.st-broken header em{color:#b4232a}
++
++/* line actions on the load-balancing cards (bring online / share the load) */
++.lbx-click{cursor:pointer;outline:none}
++.lbx-click rect{transition:stroke .2s,filter .2s}
++.lbx-click:hover rect,.lbx-click:focus-visible rect{stroke:#7cc0ff;filter:drop-shadow(0 0 8px #5aa1ffaa)}
++.lbx-acts{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.6rem}
++.lbx-acts.quiet a{font-size:.72rem;font-weight:700;color:var(--primary,#1769e0);text-decoration:none}
++.lbx-act{border:0;border-radius:10px;padding:.42rem .75rem;font-size:.78rem;font-weight:800;display:inline-flex;gap:.4rem;align-items:center;cursor:pointer;
++  transition:transform .15s,box-shadow .2s,background .2s}
++.lbx-act.primary{color:#fff;background:linear-gradient(135deg,#1769e0,#14a3e2);box-shadow:0 6px 16px #1769e040}
++.lbx-act.primary:hover{transform:translateY(-1px);box-shadow:0 10px 22px #1769e055}
++.lbx-act.ghost{background:#eef4ff;color:#1d4ed8}.lbx-act.ghost:hover{background:#dfeaff}
++.lbx-act:focus-visible{outline:2px solid #1769e0;outline-offset:2px}
++.lbx-lane.st-down .lbx-act.primary{background:linear-gradient(135deg,#e5484d,#f59e0b);box-shadow:0 6px 16px #e5484d40;animation:lbxCall 2.4s ease-in-out infinite}
++@keyframes lbxCall{50%{box-shadow:0 6px 22px #e5484d70}}
++.lbx-lane.lbx-flash{animation:lbxFlash 1.4s ease}
++@keyframes lbxFlash{0%,50%{box-shadow:0 0 0 4px #5aa1ff66}100%{box-shadow:0 0 0 0 transparent}}
++.lbx-lane.lbx-on-mission{border-color:#9cc8ff;box-shadow:0 0 0 3px #1769e01a}
++.lbx-mission{margin-top:.6rem;border-radius:12px;background:linear-gradient(160deg,#0b2237,#10314f);color:#dce9f8;padding:.65rem .75rem;animation:lbxIn .35s ease}
++@keyframes lbxIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
++.lbx-m-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:.35rem}.lbx-m-head b{font-size:.82rem;color:#fff}.lbx-m-head small{font-size:.66rem;color:#8fa9c4;font-variant-numeric:tabular-nums}
++.lbx-m-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.25rem}
++.lbx-m-steps li{display:grid;grid-template-columns:16px 1fr;gap:.45rem;align-items:start;font-size:.74rem;line-height:1.35;animation:lbxIn .3s ease}
++.lbx-m-steps li.st-run i{color:#9cc8ff;display:inline-block;animation:lbxSpin 1s linear infinite}
++.lbx-m-steps li.st-done i{color:#3ddc97}.lbx-m-steps li.st-bad i{color:#ff7a90}.lbx-m-steps li.st-bad span{color:#ffd6d6}
++@keyframes lbxSpin{to{transform:rotate(360deg)}}
++.lbx-m-end{margin:.5rem 0 .3rem;font-size:.74rem;border-radius:8px;padding:.4rem .55rem}.lbx-m-end.ok{background:#3ddc9722;color:#c9f7e2}.lbx-m-end.bad{background:#ff5d6c22;color:#ffd6d6}
++.lbx-m-close{border:0;background:#ffffff18;color:#dce9f8;border-radius:8px;font-size:.7rem;font-weight:700;padding:.2rem .6rem}
++.lbx-isp.lbx-won rect{animation:lbxWon 1.6s ease}
++@keyframes lbxWon{0%{stroke:#3ddc97;filter:drop-shadow(0 0 0 #3ddc97)}40%{stroke:#3ddc97;filter:drop-shadow(0 0 16px #3ddc97)}100%{filter:none}}
++html[data-theme="dark"] .lbx-act.ghost{background:#1b2a3d;color:#9cc8ff}
++@media(prefers-reduced-motion:reduce){.lbx-act,.lbx-mission,.lbx-m-steps li,.lbx-lane.lbx-flash{animation:none!important}}
++.lbx-acts[hidden],.lbx-mission[hidden]{display:none!important}
+diff --git a/static/js/config-studio.js b/static/js/config-studio.js
+index fb1fd5f..438d9e8 100644
+--- a/static/js/config-studio.js
++++ b/static/js/config-studio.js
+@@ -417,11 +417,12 @@
+     step('csStepLab', !on || res.needs_read ? '' : bad ? 'bad' : warn ? 'warn' : 'ok', res.needs_read ? 'Read the router first.' : !on ? 'Tests run by themselves as you build.'
+       : (tests.length ? passed + ' of ' + tests.length + ' packets behave as they should' : 'No packet tests for these tiles') + (bad ? ' · ' + bad + ' problem(s)' : '') + (warn ? ' · ' + warn + ' warning(s)' : ''));
+     var b = st.backup, fresh = b && b.fresh;
+-    step('csStepBackup', fresh ? 'ok' : '', b ? b.name + ' · ' + ago(b.at) + (b.state ? ' · ' + b.state : '') + (fresh ? '' : ' — older than ' + boot.backup_fresh + ' min, make a new one') : 'No backup yet. One is needed before a deploy.');
++    step('csStepBackup', fresh ? 'ok' : '', fresh ? b.name + ' · ' + ago(b.at) + (b.state ? ' · ' + b.state : '')
++      : 'Made by itself on the router as the first step of the deploy' + (b ? ' (the last one, ' + ago(b.at) + ', is older than ' + boot.backup_fresh + ' min)' : '') + '. You can also make one now.');
+     var ready = on && !problems && changing && !lab && !res.needs_read && !active;
+     step('csStepDeploy', '', lab ? 'This is a practice router. Choose “' + boot.router + ' as it is now” at the top to deploy.' : active ? 'A change is in progress (below).'
+       : !on ? 'Nothing to deploy yet.' : !changing && !problems ? 'The router already has everything on this board.'
+-      : 'Goes over ' + (st.transport || '…') + '. The undo timer is set on the router first.' + (st.online === false ? ' ' + st.offline_reason : ''));
++      : 'Goes over ' + (st.transport || '…') + '. The undo timer is set on the router first' + (st.transport === 'TapTap Link' ? ' (at least 8 minutes through TapTap Link)' : '') + '.' + (st.online === false ? ' ' + st.offline_reason : ''));
+     $('csDeploy').disabled = !ready || S.busy;
+     $('csBackup').disabled = S.busy || lab;
+     drawLive(active);
+@@ -446,8 +447,26 @@
+     clearInterval(S.tick);
+     if (!d) return;
+     if (d.status === 'sending') {
+-      box.appendChild(h('div', { class: 'cs-live sending' }, h('span', { class: 'cs-spin' }), h('div', null, h('b', { text: 'On its way to the router…' }),
+-        h('small', { text: d.progress ? 'Step ' + d.progress[0] + ' of ' + d.progress[1] + ' through TapTap Link' : 'Applying ' + d.steps + ' rows' }))));
++      var tl = d.timeline;
++      if (!tl) {
++        box.appendChild(h('div', { class: 'cs-live sending' }, h('span', { class: 'cs-spin' }), h('div', null, h('b', { text: 'On its way to the router…' }),
++          h('small', { text: d.progress ? 'Step ' + d.progress[0] + ' of ' + d.progress[1] + ' through TapTap Link' : 'Applying ' + d.steps + ' rows' }))));
++        return;
++      }
++      var doneN = tl.steps.filter(function (x) { return x.state === 'done'; }).length, pct = Math.round(doneN * 100 / Math.max(1, tl.steps.length));
++      var ICONS = { done: 'bi-check-circle-fill', run: 'bi-arrow-repeat', wait: 'bi-circle', lost: 'bi-question-circle-fill', bad: 'bi-x-circle-fill' };
++      var WORD = { done: 'done', run: 'on the router now', wait: 'waiting its turn', lost: 'answer missing — asking the router', bad: 'refused' };
++      box.appendChild(h('div', { class: 'cs-live sending cs-tl' },
++        h('div', { class: 'cs-tl-head' }, h('span', { class: 'cs-spin' }), h('div', null, h('b', { text: 'On its way to the router — ' + doneN + ' of ' + tl.steps.length + ' steps' }),
++          h('small', { text: tl.note }))),
++        h('div', { class: 'cs-tl-bar', role: 'progressbar', 'aria-valuenow': String(pct), 'aria-valuemin': '0', 'aria-valuemax': '100' }, h('i', { style: 'width:' + pct + '%' })),
++        h('ol', { class: 'cs-tl-steps' }, tl.steps.map(function (x) {
++          return h('li', { class: 'st-' + x.state, title: WORD[x.state] || '' }, h('i', { class: 'bi ' + (ICONS[x.state] || 'bi-circle') }), h('span', { text: x.label }), h('em', { text: WORD[x.state] || '' }));
++        })),
++        h('small', { class: 'cs-tl-foot', text: 'TapTap stops waiting after ' + Math.round(tl.deadline / 60) + ' min (' + Math.floor(tl.elapsed / 60) + ':' + ('0' + tl.elapsed % 60).slice(-2) + ' so far). Every step checks on the router that the one before it ran, and can safely be sent again.' }),
++        h('div', { class: 'cs-live-btns' },
++          h('button', { type: 'button', class: 'btn btn-sm btn-outline-primary', onclick: function () { act(d, 'check'); } }, icon('bi-lightning'), ' Check now'),
++          h('button', { type: 'button', class: 'btn btn-sm btn-outline-danger', onclick: function () { act(d, 'stop'); } }, icon('bi-stop-circle'), ' Stop'))));
+       return;
+     }
+     var left = d.seconds_left, clock = h('b', { class: 'cs-clock' });
+@@ -455,19 +474,23 @@
+     paint();
+     S.tick = setInterval(function () { left = Math.max(0, left - 1); paint(); if (!left) { clearInterval(S.tick); loadState(); } }, 1000);
+     box.appendChild(h('div', { class: 'cs-live applied' },
+-      h('div', null, h('b', { text: 'It is on the router. Does everything still work?' }),
+-        h('small', null, 'If nobody presses Keep, the router puts the old setup back in ', clock, '.')),
++      h('div', null, h('b', { text: d.auto_keep ? 'It is on the router — keeping it by itself once the router stays online.' : 'It is on the router. Does everything still work?' }),
++        h('small', null, d.auto_keep ? 'TapTap keeps it as soon as the router checks in again on the new setup. If it never does, the router puts the old setup back in '
++          : 'If nobody presses Keep, the router puts the old setup back in ', clock, '.')),
+       h('div', { class: 'cs-live-btns' },
+         h('button', { type: 'button', class: 'btn btn-success', onclick: function () { act(d, 'keep'); } }, icon('bi-check-lg'), ' Keep it'),
+         h('button', { type: 'button', class: 'btn btn-outline-danger', onclick: function () { act(d, 'undo'); } }, icon('bi-arrow-counterclockwise'), ' Undo now'))));
+   }
+   function act(d, action) {
+     if (action === 'undo' && !window.confirm('Put the router back as it was before change #' + d.id + '?')) return;
++    if (action === 'stop' && !window.confirm('Stop change #' + d.id + '? Whatever already reached the router is taken back.')) return;
+     S.busy = true; drawLaunch();
+     api(URLS.action.replace(/0\/$/, d.id + '/'), { action: action }).then(function (r) {
+       S.busy = false;
+-      if (!r.ok) toast(r.message, 'bad'); else toast(action === 'keep' ? (r.deploy.status === 'kept' ? 'Kept. The undo timer is off.' : 'Sent — the router confirms in a few seconds.') : 'Undo sent.', 'ok');
+-      loadState(); check(0);
++      var said = { keep: r.deploy && r.deploy.status === 'kept' ? 'Kept. The undo timer is off.' : 'Sent — the router confirms in a few seconds.',
++                   undo: 'Undo sent.', stop: 'Stopped.', check: 'Asked the router to check in now.' };
++      if (!r.ok) toast(r.message, 'bad'); else toast(said[action] || 'Done.', 'ok');
++      loadState(); if (action !== 'check') check(0);
+     });
+   }
+   function modal(title, body, go, action) {
+@@ -480,23 +503,23 @@
+     var res = S.result || {}, c = res.counts || {}, st = S.state || {};
+     var bad = (res.findings || []).filter(function (f) { return f.level === 'bad'; });
+     var word = h('input', { class: 'form-control', placeholder: 'DEPLOY ANYWAY', 'aria-label': 'Type DEPLOY ANYWAY' });
+-    var nob = h('input', { class: 'form-control', placeholder: 'NO BACKUP', 'aria-label': 'Type NO BACKUP' });
+     var fresh = st.backup && st.backup.fresh, minutes = parseInt($('csUndo').value, 10);
++    var autoKeep = h('input', { type: 'checkbox', checked: 'checked', id: 'csAutoKeep' });
+     var body = h('div', null,
+       h('p', null, 'This puts ', h('b', { text: (c.new || 0) + ' new, ' + (c.changed || 0) + ' changed and ' + (c.removed || 0) + ' removed row(s)' }), ' on ', h('b', { text: boot.router }), ' over ' + (st.transport || 'the router connection') + '.'),
+       h('ul', { class: 'cs-modal-list' },
+-        h('li', null, fresh ? 'Backup “' + st.backup.name + '” was made ' + ago(st.backup.at) + '.' : 'There is no fresh backup.'),
+-        h('li', null, minutes ? 'The router undoes the change by itself after ' + minutes + ' minutes unless you press Keep.' : 'No undo timer: the change stays even if it cuts the router off.'),
+-        h('li', null, 'If the router refuses a row, the rows before it are taken back.')),
++        h('li', null, fresh ? 'Backup “' + st.backup.name + '” was made ' + ago(st.backup.at) + '.' : 'A backup is made on the router first, by itself.'),
++        h('li', null, minutes ? 'The router undoes the change by itself after ' + Math.max(minutes, st.transport === 'TapTap Link' ? 8 : minutes) + ' minutes unless it is kept.' : 'No undo timer: the change stays even if it cuts the router off.'),
++        h('li', null, 'If the router refuses a row, what was already applied is taken back. A step whose answer gets lost is checked on the router, never guessed.')),
++      minutes ? h('label', { class: 'cs-autokeep' }, autoKeep, h('span', null, h('b', { text: 'Keep it by itself' }), h('small', { text: ' once the router checks in again on the new setup. Untick to check things yourself and press Keep.' }))) : null,
+       bad.length ? h('div', { class: 'alert alert-danger' }, h('b', { text: 'The virtual router found ' + bad.length + ' serious problem(s):' }),
+         h('ul', null, bad.slice(0, 4).map(function (f) { return h('li', { text: f.text }); })), 'To go ahead anyway, type DEPLOY ANYWAY:', word) : null,
+-      !fresh ? h('div', { class: 'alert alert-warning' }, 'Close this and press “Back up now” first. To deploy without a backup, type NO BACKUP:', nob) : null,
+       extra ? h('div', { class: 'alert alert-danger', text: extra }) : null);
+     modal('Deploy to ' + boot.router + '?', body, 'Deploy now', function () {
+       S.busy = true; drawLaunch();
+-      api(URLS.deploy, { undo_minutes: minutes, confirm: word.value, no_backup: nob.value }).then(function (r) {
++      api(URLS.deploy, { undo_minutes: minutes, confirm: word.value, auto_keep: !minutes || autoKeep.checked }).then(function (r) {
+         S.busy = false;
+-        if (r.deploy) { toast(r.ok ? (r.deploy.status === 'sending' ? 'Sent through TapTap Link. Watch the steps on the right.' : 'It is on the router. Check that everything works, then press Keep.') : r.message, r.ok ? 'ok' : 'bad'); }
++        if (r.deploy) { toast(r.ok ? (r.deploy.status === 'sending' ? 'Sent through TapTap Link. Watch the steps on the right.' : r.deploy.status === 'kept' ? 'Done — it is on the router and kept.' : 'It is on the router. Check that everything works, then press Keep.') : r.message, r.ok ? 'ok' : 'bad'); }
+         else if (r.needs || r.needs_backup) { deploy(r.message); }
+         else toast(r.message, 'bad');
+         loadState(); check(0);
+diff --git a/static/js/line-hub.js b/static/js/line-hub.js
+index 9f1a513..df1b627 100644
+--- a/static/js/line-hub.js
++++ b/static/js/line-hub.js
+@@ -252,6 +252,8 @@
+     } else {
+       h += '<div class="lh-dr-stats"><div><b>' + (l.users || 0) + '</b><span>customers</span></div><div><b>' + bps(r.rx_bps) + '</b><span>download</span></div><div><b>' + bps(r.tx_bps) + '</b><span>upload</span></div>' +
+         '<div><b>' + (l.real || 0) + '%</b><span>of customers' + (l.share != null ? ' · designed ' + l.share + '%' : '') + '</span></div></div>' +
++        ((!l.up || l.client_off || l.port_off || (l.use === 'out' && l.has_routes)) ? '<button type="button" class="btn btn-danger w-100 mb-2 lh-big" data-revive><i class="bi bi-lightning-charge-fill"></i> Bring ' + esc(l.label) + ' online</button>' : '') +
++        (l.up && !l.client_off && (l.use === 'standby' || l.use === 'out' || !l.selected || S.st.setup.strategy !== 'balance') ? '<button type="button" class="btn btn-primary w-100 mb-2 lh-big" data-share><i class="bi bi-shuffle"></i> Share the load with ' + esc(l.label) + '</button>' : '') +
+         '<h4>Switches</h4><div class="lh-sws">' +
+         sw('power', !l.client_off, 'Line switched on', l.switchable ? 'Turns the ' + l.type.toUpperCase() + ' client on or off' : 'Static lines are switched by their port', !l.switchable) +
+         sw('use', l.use !== 'out', 'Customers use this line', l.use === 'out' ? 'Out of use — it stays connected so you can test it' : 'Take it out of use to move everyone to the other lines', l.client_off || (!l.has_routes && l.use === 'out' && l.type !== 'dhcp')) +
+@@ -313,6 +315,17 @@
+       fd.forEach(function (v, k) { if (v !== '') p[k] = v; });
+       act(p, { btn: form.querySelector('button'), lines: true });
+     });
++    var rv = q('[data-revive]');
++    if (rv) rv.onclick = function () {
++      confirmThen({ title: 'Bring ' + l.label + ' online?', icon: 'bi-lightning-charge-fill', text: 'TapTap does what it takes: switches it on, asks the modem for a fresh address, or puts it back in use. Other lines are not touched.', ok: 'Bring it online' },
++        { action: 'revive', interface: l.interface }, { btn: rv });
++    };
++    var shb = q('[data-share]');
++    if (shb) shb.onclick = function () {
++      confirmThen({ title: 'Share the load with ' + l.label + '?', icon: 'bi-shuffle', ok: 'Share the load',
++        html: '<p>Customers are shared over every working line by speed, one line per customer, with health checks.</p><p class="small text-secondary mb-0">A safety timer goes on the router first; TapTap confirms it by itself once the router is still reachable — otherwise the router undoes it.</p>' },
++        { action: 'share', interface: l.interface }, { btn: shb, lines: true });
++    };
+     var dz = q('[data-design]'); if (dz) dz.onclick = function () { closeDrawer(); var c = document.querySelector('.line-card[data-if="' + (window.CSS && CSS.escape ? CSS.escape(l.interface) : l.interface) + '"]') || document.getElementById('step1'); if (c) { c.scrollIntoView({ behavior: 'smooth', block: 'center' }); c.classList.add('lh-flash'); setTimeout(function () { c.classList.remove('lh-flash'); }, 1800); } };
+     var mn = q('[data-main]'); if (mn) mn.onclick = function () { closeDrawer(); document.dispatchEvent(new CustomEvent('tt:wan-main', { detail: { interface: l.interface } })); };
+     var sel = function () { return [].map.call(card.querySelectorAll('[data-pk]:checked'), function (c) { return JSON.parse(c.dataset.pk); }); };
+diff --git a/static/js/netviz-lb.js b/static/js/netviz-lb.js
+index dfb48d2..af9091b 100644
+--- a/static/js/netviz-lb.js
++++ b/static/js/netviz-lb.js
+@@ -50,7 +50,7 @@
+     constructor(root, cfg) {
+       this.root = root; this.cfg = cfg; this.lb = cfg.load_balancing || {};
+       this.traffic = {}; this.history = {}; this.totals = {}; this.events = []; this.particles = [];
+-      this.fail = 0; this.compact = root.hasAttribute('data-compact');
++      this.fail = 0; this.compact = root.hasAttribute('data-compact'); this.missions = {};
+       this.build(); this.draw();
+       this.poll();
+       if (!reduceMotion) requestAnimationFrame(t => this.tick(t));
+@@ -106,6 +106,12 @@
+         const t2 = s('text', { x: 0, y: 13, 'text-anchor': 'middle', class: 'lbx-isp-sub' }); t2.textContent = STATE_TEXT[l.state] || l.state || '';
+         g.appendChild(t1); g.appendChild(t2);
+         if (l.state === 'down') { const x = s('text', { x: 58, y: -12, class: 'lbx-x', 'text-anchor': 'middle' }); x.textContent = '✕'; g.appendChild(x); }
++        if (this.canAct(l)) {
++          g.classList.add('lbx-click'); g.setAttribute('tabindex', '0'); g.setAttribute('role', 'button');
++          g.setAttribute('aria-label', `${l.label || l.interface}: ${STATE_TEXT[l.state] || l.state} — open its actions`);
++          const go = () => this.focusLane(l.id);
++          g.addEventListener('click', go); g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
++        }
+         gNodes.appendChild(g);
+         this.paths[l.id] = { el: base, glow, link: l, len: 0, acc: { d: 0, u: 0 }, isp: g };
+       });
+@@ -141,10 +147,13 @@
+             <small><span data-k="pct">0%</span> of traffic${l.expected_share != null ? ` · plan ${l.expected_share}%` : ''}</small>
+           </div>
+           <svg class="lbx-spark" viewBox="0 0 120 28" preserveAspectRatio="none"><polyline data-k="spark" points=""/></svg>
+-          <footer>${this.footer(l)}</footer>${this.fixLink(l)}
++          <footer>${this.footer(l)}</footer>${this.actionBar(l)}
++          <div class="lbx-mission" hidden></div>
+         </article>`).join('');
+ 
+       lanes.querySelectorAll('[data-rename]').forEach(b => b.addEventListener('click', () => this.openNamer(b.closest('.lbx-lane'))));
++      lanes.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); this.start(b.dataset.act, b.closest('.lbx-lane').dataset.id); }));
++      Object.keys(this.missions).forEach(id => this.paintMission(id));
+ 
+       const facts = this.root.querySelector('.lbx-facts');
+       facts.innerHTML = [
+@@ -154,6 +163,110 @@
+       this.paintTraffic();
+     }
+ 
++    // ---------------- line actions: bring it online, share the load with it ----------------
++    canAct(l) { return !!(this.cfg.action_url && l.interface); }
++    actionBar(l) {
++      if (!this.canAct(l)) return this.fixLink(l);
++      const b = [];
++      if (['down', 'held', 'broken'].includes(l.state)) b.push(['revive', 'bi-lightning-charge-fill', l.state === 'held' ? 'Put it back in use' : l.state === 'broken' ? 'Repair it' : 'Bring it online', 'primary']);
++      if (['standby', 'no-route', 'held'].includes(l.state)) b.push(['share', 'bi-shuffle', 'Share the load with it', l.state === 'held' ? 'ghost' : 'primary']);
++      if (l.state === 'down') b.push(['share', 'bi-shuffle', 'Bring online & share', 'ghost']);
++      if (!b.length) return `<div class="lbx-acts quiet"><a href="${esc(this.cfg.designer_url)}#lineHub"><i class="bi bi-sliders"></i> Manage this line</a></div>`;
++      return `<div class="lbx-acts">${b.map(([k, ic, t, kind]) => `<button type="button" class="lbx-act ${kind}" data-act="${k}${k === 'share' && l.state === 'down' ? '+revive' : ''}"><i class="bi ${ic}"></i> ${esc(t)}</button>`).join('')}</div>`;
++    }
++    focusLane(id) {
++      const card = this.root.querySelector(`.lbx-lane[data-id="${CSS.escape(id)}"]`); if (!card) return;
++      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
++      card.classList.remove('lbx-flash'); void card.offsetWidth; card.classList.add('lbx-flash');
++      const btn = card.querySelector('[data-act]'); if (btn) setTimeout(() => btn.focus({ preventScroll: true }), 400);
++    }
++    async post(url, body) {
++      try {
++        const res = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() }, body: JSON.stringify(body) });
++        const d = await res.json().catch(() => ({ ok: false, message: `TapTap answered ${res.status}.` }));
++        d.ok = d.ok !== undefined ? d.ok : !!d.success; return d;
++      } catch (e) { return { ok: false, message: 'TapTap could not be reached.' }; }
++    }
++    async start(kind, id) {
++      const l = this.links().find(x => x.id === id); if (!l || (this.missions[id] && this.missions[id].busy)) return;
++      const name = l.isp || l.label || l.interface;
++      const both = kind === 'share+revive';
++      const q = kind === 'revive' ? `Bring ${name} online?\n\nTapTap does what it takes on the router: switches the line on, asks the modem for a fresh address, repairs its routes or puts it back in use. Customers on other lines are not touched.`
++        : `Share the load with ${name}?\n\nTapTap sets the router to share customers over every working line by their speed (“Share the load”), with health checks and a safety timer, and confirms it by itself once the router is still reachable. Each customer stays on one line, so logins and calls keep working.`;
++      if (!window.confirm(q)) return;
++      const m = this.missions[id] = { kind, name, iface: l.interface, busy: true, t0: Date.now(), steps: [] };
++      const step = (key, label, state = 'run') => { const s = m.steps.find(x => x.key === key); if (s) Object.assign(s, { label, state }); else m.steps.push({ key, label, state }); this.paintMission(id); };
++      if (kind === 'revive' || both) {
++        step('ask', `Working out what ${name} needs`);
++        const r = await this.post(this.cfg.action_url, { action: 'revive', interface: l.interface, state: l.state });
++        if (!r.ok) { step('ask', r.message, 'bad'); return this.endMission(id, false, r.message); }
++        step('ask', `Plan for ${name}`, 'done');
++        (r.steps || []).forEach(s => step(s.key, s.label + (r.via_link ? ' — sent through TapTap Link' : ''), s.ok ? 'done' : 'bad'));
++        step('watch', `Watching ${name} come online`);
++        const up = await this.watch(l.interface, st => st !== 'down' && st !== 'broken' && (kind === 'revive' ? st !== 'held' : true), r.via_link ? 150 : 75);
++        step('watch', up ? `${name} is online` : `${name} has not come online yet`, up ? 'done' : 'bad');
++        if (!up) return this.endMission(id, false, `${name} did not come online. Check the modem’s power and cable, or open the Internet Doctor.`);
++        if (!both) return this.endMission(id, true, `${name} is back online.`);
++      }
++      step('plan', 'Building the plan: share by speed, one line per customer, health checks');
++      const r = await this.post(this.cfg.action_url, { action: 'share', interface: l.interface });
++      if (!r.ok) { step('plan', r.message, 'bad'); return this.endMission(id, false, r.message); }
++      step('plan', 'Plan built for ' + (r.lines || []).length + ' lines', 'done');
++      step('apply', r.via_link ? 'Safety timer and new routes on their way through TapTap Link' : 'Safety timer and new routes on the router', r.via_link ? 'run' : 'done');
++      step('confirm', 'Confirming TapTap still reaches the router');
++      let ok = !!(r.wan_status === 'active');
++      if (!ok && this.cfg.wan_status_url) ok = await this.waitWan(id, step, r.via_link ? 600 : 330);
++      step('apply', 'Safety timer and new routes are on the router', 'done');
++      step('confirm', ok ? 'Confirmed — the safety timer is off' : 'Not confirmed: the router put its earlier setup back', ok ? 'done' : 'bad');
++      if (!ok) return this.endMission(id, false, r.message);
++      step('flow', `Waiting for traffic on ${name}`);
++      const flowing = await this.watch(l.interface, st => st === 'active', 90);
++      step('flow', flowing ? `${name} is carrying customers` : `${name} is in the sharing — new customers land on it as they connect`, 'done');
++      this.endMission(id, true, r.message);
++    }
++    async watch(iface, good, seconds) {
++      const until = Date.now() + seconds * 1000;
++      while (Date.now() < until) {
++        const now = this.links().filter(x => x.interface === iface).map(x => x.state);
++        if (now.length && now.some(good)) return true;
++        await new Promise(res => setTimeout(res, 3000));
++      }
++      return false;
++    }
++    async waitWan(id, step, seconds) {
++      const until = Date.now() + seconds * 1000;
++      while (Date.now() < until) {
++        try {
++          const d = await (await fetch(this.cfg.wan_status_url, { credentials: 'same-origin', cache: 'no-store' })).json();
++          if (d.status === 'active') return true;
++          if (d.status === 'undone' || d.status === 'failed') return false;
++          if (d.message) step('confirm', d.message);
++        } catch (e) { /* the router may be busy switching lines: try again */ }
++        await new Promise(res => setTimeout(res, 5000));
++      }
++      return false;
++    }
++    endMission(id, ok, text) {
++      const m = this.missions[id]; if (!m) return;
++      m.busy = false; m.ok = ok; m.text = text; this.paintMission(id);
++      const p = this.paths && this.paths[id];
++      if (ok && p && p.isp) { p.isp.classList.remove('lbx-won'); void p.isp.getBBox(); p.isp.classList.add('lbx-won'); }
++      clearTimeout(m.close); m.close = setTimeout(() => { if (this.missions[id] === m && !m.busy) { delete this.missions[id]; this.paintMission(id); } }, ok ? 12000 : 30000);
++    }
++    paintMission(id) {
++      const card = this.root.querySelector(`.lbx-lane[data-id="${CSS.escape(id)}"]`); if (!card) return;
++      const box = card.querySelector('.lbx-mission'), bar = card.querySelector('.lbx-acts'), m = this.missions[id];
++      card.classList.toggle('lbx-on-mission', !!m);
++      if (!m) { box.hidden = true; box.innerHTML = ''; if (bar) bar.hidden = false; return; }
++      if (bar) bar.hidden = true; box.hidden = false;
++      const ICON = { run: 'bi-arrow-repeat', done: 'bi-check-circle-fill', bad: 'bi-x-circle-fill' };
++      const secs = Math.round((Date.now() - m.t0) / 1000);
++      box.innerHTML = `<div class="lbx-m-head"><b>${m.busy ? (m.kind === 'revive' ? 'Bringing ' : 'Sharing the load with ') + esc(m.name) + '…' : m.ok ? 'Done' : 'Stopped'}</b><small>${secs}s</small></div>
++        <ol class="lbx-m-steps">${m.steps.map(s => `<li class="st-${s.state}"><i class="bi ${ICON[s.state]}"></i><span>${esc(s.label)}</span></li>`).join('')}</ol>
++        ${m.text && !m.busy ? `<p class="lbx-m-end ${m.ok ? 'ok' : 'bad'}">${esc(m.text)}</p><button type="button" class="lbx-m-close">Close</button>` : ''}`;
++      const c = box.querySelector('.lbx-m-close'); if (c) c.onclick = () => { delete this.missions[id]; this.paintMission(id); };
++    }
++
+     fixLink(l) {
+       const url = this.cfg.designer_url;
+       if (!url || !['no-route', 'held', 'broken'].includes(l.state)) return '';
+diff --git a/templates/core/config_studio.html b/templates/core/config_studio.html
+index e36e67a..f54774d 100644
+--- a/templates/core/config_studio.html
++++ b/templates/core/config_studio.html
+@@ -2,7 +2,7 @@
+ {% load static %}
+ {% block title %}{{ router.name }} Config Studio — TapTap{% endblock %}
+ {% block heading %}Config Studio{% endblock %}
+-{% block extra_head %}<link href="{% static 'css/config-studio.css' %}?v=1" rel="stylesheet">{% endblock %}
++{% block extra_head %}<link href="{% static 'css/config-studio.css' %}?v=2" rel="stylesheet">{% endblock %}
+ {% block content %}
+ <div id="cs" class="cs" data-csrf="{{ csrf_token }}">
+   <header class="cs-head">
+@@ -130,4 +130,4 @@
+ </div>
+ {{ studio_boot|json_script:"csBoot" }}
+ {% endblock %}
+-{% block scripts %}<script src="{% static 'js/config-studio.js' %}?v=1" defer></script>{% endblock %}
++{% block scripts %}<script src="{% static 'js/config-studio.js' %}?v=2" defer></script>{% endblock %}
+diff --git a/templates/core/router_control.html b/templates/core/router_control.html
+index 5a8cc7b..9521bf2 100644
+--- a/templates/core/router_control.html
++++ b/templates/core/router_control.html
+@@ -3,7 +3,7 @@
+ {% block title %}{{ router.name }} Control Center — TapTap{% endblock %}
+ {% block heading %}MikroTik Control Center{% endblock %}
+ {% block extra_head %}
+-<link href="{% static 'css/netviz.css' %}?v=10" rel="stylesheet">
++<link href="{% static 'css/netviz.css' %}?v=11" rel="stylesheet">
+ <link href="{% static 'css/control-designer.css' %}?v=1" rel="stylesheet">
+ <link href="{% static 'css/control-studio-skin.css' %}?v=2" rel="stylesheet">
+ <link href="{% static 'css/router-clock.css' %}?v=1" rel="stylesheet">
+@@ -442,7 +442,7 @@
+ {% endblock %}
+ 
+ {% block scripts %}
+-<script src="{% static 'js/netviz-lb.js' %}?v=10"></script>
++<script src="{% static 'js/netviz-lb.js' %}?v=11"></script>
+ <script>
+ (function(){
+   const csrf=document.querySelector('#csrf-holder [name=csrfmiddlewaretoken]').value;
+diff --git a/templates/core/topology.html b/templates/core/topology.html
+index a799926..cdc6c25 100644
+--- a/templates/core/topology.html
++++ b/templates/core/topology.html
+@@ -2,7 +2,7 @@
+ {% load static taptap_extras %}
+ {% block title %}Live Topology — TapTap{% endblock %}
+ {% block heading %}Live Network Topology{% endblock %}
+-{% block extra_head %}<link href="{% static 'css/netviz.css' %}?v=10" rel="stylesheet"><link href="{% static 'css/topology-detail.css' %}?v=2" rel="stylesheet"><link href="{% static 'css/ports.css' %}?v=2" rel="stylesheet"><link href="{% static 'css/topology-health.css' %}?v=1" rel="stylesheet">{% endblock %}
++{% block extra_head %}<link href="{% static 'css/netviz.css' %}?v=11" rel="stylesheet"><link href="{% static 'css/topology-detail.css' %}?v=2" rel="stylesheet"><link href="{% static 'css/ports.css' %}?v=2" rel="stylesheet"><link href="{% static 'css/topology-health.css' %}?v=1" rel="stylesheet">{% endblock %}
+ {% block content %}
+ <form class="d-none">{% csrf_token %}</form>
+ <div class="page-actions topology-actions">
+@@ -169,7 +169,7 @@
+ {{ detail|json_script:"topology-detail" }}
+ {% endblock %}
+ {% block scripts %}
+-<script src="{% static 'js/netviz-lb.js' %}?v=10"></script>
++<script src="{% static 'js/netviz-lb.js' %}?v=11"></script>
+ <script src="{% static 'js/netviz-topology.js' %}?v=8"></script>
+ <script src="{% static 'js/topology-detail.js' %}?v=2"></script>
+ <script src="{% static 'js/topology-health.js' %}?v=1" data-resource-url="{% url 'router_resource_api' 0 %}" data-link-url="{% url 'router_link_status' 0 %}" data-reboot-url="{% url 'router_reboot' 0 %}"></script>
+diff --git a/templates/core/wan_designer.html b/templates/core/wan_designer.html
+index 3946dd0..59eb5be 100644
+--- a/templates/core/wan_designer.html
++++ b/templates/core/wan_designer.html
+@@ -1,6 +1,6 @@
+ {% extends 'core/base.html' %}{% load static %}
+ {% block title %}Internet lines — {{ router.name }}{% endblock %}{% block heading %}Internet lines · {{ router.name }}{% endblock %}
+-{% block extra_head %}<link href="{% static 'css/wan.css' %}" rel="stylesheet"><link href="{% static 'css/wan-doctor.css' %}?v=3" rel="stylesheet"><link href="{% static 'css/line-hub.css' %}?v=1" rel="stylesheet">{% endblock %}
++{% block extra_head %}<link href="{% static 'css/wan.css' %}" rel="stylesheet"><link href="{% static 'css/wan-doctor.css' %}?v=3" rel="stylesheet"><link href="{% static 'css/line-hub.css' %}?v=2" rel="stylesheet">{% endblock %}
+ {% block content %}
+ <div class="wan-now"><span class="pill" id="nowMethod">{{ current.method|default:'Checking…' }}</span><p id="nowDesc">{{ current.description|default:'Reading how this router reaches the internet right now.' }}</p>
+   <a class="btn btn-sm btn-light" href="{% url 'router_control' router.id %}"><i class="bi bi-sliders"></i> Router control</a></div>
+@@ -67,4 +67,4 @@
+ <script id="doctorUrls" type="application/json">{"status":"{% url 'wan_doctor_status' router.id %}","check":"{% url 'wan_doctor_check' router.id %}","install":"{% url 'wan_doctor_install' router.id %}","remove":"{% url 'wan_doctor_remove' router.id %}","fix":"{% url 'wan_doctor_fix' router.id %}","router":"{{ router.name|escapejs }}"}</script>
+ <script id="lhUrls" type="application/json">{"state":"{% url 'line_hub' router.id %}","pulse":"{% url 'line_hub_pulse' router.id %}","action":"{% url 'line_hub_action' router.id %}","move":"{% url 'line_hub_move' router.id %}","doctor":"{% url 'wan_doctor_fix' router.id %}","router":"{{ router.name|escapejs }}","router_id":{{ router.id }}}</script>
+ {% endblock %}
+-{% block scripts %}<script src="{% static 'js/wan-designer.js' %}?v=3"></script><script src="{% static 'js/wan-doctor.js' %}?v=3"></script><script src="{% static 'js/line-board.js' %}?v=1"></script><script src="{% static 'js/line-hub.js' %}?v=1"></script>{% endblock %}
++{% block scripts %}<script src="{% static 'js/wan-designer.js' %}?v=3"></script><script src="{% static 'js/wan-doctor.js' %}?v=3"></script><script src="{% static 'js/line-board.js' %}?v=1"></script><script src="{% static 'js/line-hub.js' %}?v=2"></script>{% endblock %}

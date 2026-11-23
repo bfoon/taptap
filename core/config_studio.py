@@ -128,7 +128,18 @@ def ros_major(router, snap=None):
 
 
 def context_for(router, snap=None):
-    return {'ros_major': ros_major(router, snap or snapshot_of(router)), 'trusted': trusted_addresses()}
+    return {'ros_major': ros_major(router, snap or snapshot_of(router)), 'trusted': trusted_addresses(), 'wan_managed': managed_lines(router)}
+
+
+def managed_lines(router):
+    """Lines TapTap's Internet lines run on this router (their default routes are TapTap's)."""
+    try:
+        setup = router.wan_setup
+    except Exception:
+        return []
+    if setup.status not in ('active', 'pending'):
+        return []
+    return [str(l.get('interface')) for l in (setup.config or {}).get('links') or [] if l.get('interface') and l.get('enabled', True)]
 
 
 def base_state(router, base='router'):
@@ -397,8 +408,26 @@ def _reread(router, user=None):
         pass
 
 
-def deploy_direct(deploy, connect=None):
-    """Apply over the RouterOS API. ``connect`` is replaced in tests."""
+def deploy_direct(deploy, connect=None, auto_keep=False):
+    """Apply over the RouterOS API. ``connect`` is replaced in tests. ``auto_keep``: once TapTap reaches the router again on a
+    fresh connection (proof the change did not cut it off), the undo timer is removed by itself."""
+    out = _deploy_direct(deploy, connect)
+    if auto_keep and out.status == 'applied':
+        from .mikrotik import MikroTikService
+        try:
+            svc = (connect or (lambda r: MikroTikService(r).connect()))(deploy.router)
+            try:
+                still = _disarm(svc)
+            finally:
+                svc.close()
+            if still:
+                return _finish(out, 'kept')
+        except Exception as exc:
+            logger.info('Config Studio #%s: keep by itself failed (%s) — waiting for Keep', deploy.pk, exc)
+    return out
+
+
+def _deploy_direct(deploy, connect=None):
     from .mikrotik import MikroTikService
     svc = (connect or (lambda r: MikroTikService(r).connect()))(deploy.router)
     done = 0
@@ -441,36 +470,176 @@ def deploy_direct(deploy, connect=None):
             pass
 
 
-def deploy_link(deploy, state):
-    """Queue the first piece through TapTap Link; every answer from the router sends the next one."""
+# ───────────────────────────── TapTap Link: a chain that always ends ─────────────────────────────
+# Before (until Nov 2026) every piece waited for the router's answer to the one before it. One lost answer — common
+# when the board changes the internet lines, so the router's own internet blinks while it reports back — left the
+# change "On its way to the router… step 1 of 2" for ever: the Link queue gave up on the command quietly and Config
+# Studio was never told.
+#
+# Now every step is safe to send any number of times and checks the order by itself: the router keeps a marker
+# (:global ttS<deploy>r<round>) of the last step it finished. A step that is already done is skipped; a step whose
+# turn has not come refuses. So the whole chain is queued at once and travels as fast as the router checks in.
+# When an answer goes missing, TapTap asks the router where the marker stands ("check") instead of waiting: it then
+# knows whether everything is on the router. A broken chain is sent again once in a fresh round (all rows are
+# "make sure it is like this", so a second run changes nothing that is already right); after that the change is
+# taken back. Every change ends — applied, kept, failed or undone — within DEADLINE minutes.
+
+UNDO_SCRIPT = 'TapTap-Studio-undo-script'
+LINK_STEP_MAX = 1200          # RouterOS characters of one step (escaped for TapTap Link it stays inside one check-in)
+UNDO_PIECE = 600              # characters of the undo script per command (written inside a string: escaped twice)
+DEADLINE = 20                 # minutes a change may be "on its way" before TapTap stops waiting
+SILENT = 150                  # seconds without an answer after which a step counts as unanswered
+MAX_ROUNDS = 2
+MAX_CHECKS = 4
+KEEP_AFTER = 45               # seconds the router must stay online after the change before "keep by itself"
+LINK_MIN_UNDO = 8             # the undo timer must outlast a slow chain of check-ins
+KEPT, UNDONE = 1000, -2
+
+
+def _var(deploy, rnd=None):
+    return f'ttS{deploy.pk}r{int(rnd or (deploy.link_parts or {}).get("round") or 1)}'
+
+
+def _guard(var, i, body):
+    """Run ``body`` as step ``i`` of a chain: skipped when already done, refused when an earlier step is missing."""
+    return (f':global {var}; :local s ${var}; :if ([:typeof $s] != "num") do={{ :set s -1 }}; '
+            f':if ($s >= {i}) do={{ :log info "TapTap Studio: step {i} was already done" }} else={{ '
+            f':if ($s != {i - 1}) do={{ :error "TapTap Studio: an earlier step did not run" }}; {body}; :set {var} {i} }}')
+
+
+def _undo_source(deploy, var):
+    body = undo_script(deploy.rollback_plan)
+    return (f'{body}; :global {var} {UNDONE}; :do {{ /system scheduler remove [find where name="{UNDO_SCHEDULER}"] }} on-error={{}}; '
+            f':log warning "TapTap Studio: change #{deploy.pk} was undone"')
+
+
+def _script_steps(name, source, prefix):
+    """A RouterOS script written in pieces (one command each): (step key, text) pairs."""
+    pieces = [source[i:i + UNDO_PIECE] for i in range(0, len(source), UNDO_PIECE)] or ['']
+    out = [(f'{prefix}0', f'/system script remove [find where name="{name}"]; '
+                          f'/system script add name="{name}" policy=read,write,test source={tiles.q(pieces[0])}')]
+    for k, piece in enumerate(pieces[1:], 1):
+        out.append((f'{prefix}{k}', f'/system script set [find where name="{name}"] '
+                                    f'source=([/system script get [find where name="{name}"] source] . {tiles.q(piece)})'))
+    return out
+
+
+def link_chain(deploy, rnd, backup_name=''):
+    """{'steps': {key: RouterOS text}, 'order': [...], 'var': marker} for one round."""
+    var = _var(deploy, rnd)
+    steps, order = {}, []
+
+    def add(key, body):
+        steps[key] = _guard(var, len(order), body)
+        order.append(key)
+
+    if backup_name:
+        add('backup', f':do {{ /system backup save name="{backup_name}" dont-encrypt=yes }} on-error={{ '
+                      f':do {{ /system backup save name="{backup_name}" }} on-error={{}} }}; '
+                      f':do {{ /export file="{backup_name}" }} on-error={{}}')
+    armed = bool(deploy.undo_minutes and deploy.rollback_plan)
+    if armed:
+        for key, text in _script_steps(UNDO_SCRIPT, _undo_source(deploy, var), 'u'):
+            add(key, text)
+        add('arm', f'/system scheduler remove [find where name="{UNDO_SCHEDULER}"]; '
+                   f'/system scheduler add name={UNDO_SCHEDULER} interval={int(deploy.undo_minutes)}m policy=read,write,test '
+                   f'on-event="/system script run {UNDO_SCRIPT}" '
+                   f'comment={tiles.q(f"TapTap Studio #{deploy.pk}: automatic undo unless TapTap confirms")}')
+    for k, text in enumerate(tiles.chunks(deploy.plan, LINK_STEP_MAX)):
+        add(f'p{k}', text)
+    last = len(order) - 1
+    steps['check'] = f':global {var}; :if (${var} != {last}) do={{ :error ("TapTap Studio: the router stopped at step " . ${var}) }}'
+    steps['keep'] = (f':global {var}; :if ([:len [/system scheduler find where name="{UNDO_SCHEDULER}"]] = 0) do={{ '
+                     f':if (${var} = {KEPT}) do={{ :log info "TapTap Studio: already kept" }} else={{ :error "TapTap Studio: already undone" }} }} '
+                     f'else={{ /system scheduler remove [find where name="{UNDO_SCHEDULER}"]; :set {var} {KEPT}; '
+                     f':log info "TapTap Studio: change #{deploy.pk} confirmed" }}')
+    steps['kcheck'] = f':global {var}; :if (${var} != {KEPT}) do={{ :error "TapTap Studio: not kept" }}'
+    return {'steps': steps, 'order': order, 'var': var, 'armed': armed}
+
+
+def _undo_chain(deploy):
+    """Put the old values back: the undo script is written again (a later change may have replaced it), then run."""
+    var = f'ttS{deploy.pk}x{int((deploy.link_parts or {}).get("undos") or 0) + 1}'
+    steps, order = {}, []
+    for key, text in _script_steps(UNDO_SCRIPT, _undo_source(deploy, _var(deploy)), 'x'):
+        steps[key] = _guard(var, len(order), text)
+        order.append(key)
+    steps['undo'] = _guard(var, len(order), f'/system script run {UNDO_SCRIPT}')
+    order.append('undo')
+    return steps, order
+
+
+def _iso(dt):
+    return dt.isoformat() if dt else None
+
+
+def _parse(text):
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(text) if text else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _send(deploy, step, label):
+    from .linkops import send
+    cmd = send(deploy.router, LINK_KIND, {'deploy': deploy.pk, 'step': step, 'round': (deploy.link_parts or {}).get('round', 1)},
+               label=f'Config Studio #{deploy.pk}: {label}', user=deploy.actor, minutes=DEADLINE + 10)
+    lp = dict(deploy.link_parts or {})
+    lp.setdefault('cmds', {})[step] = cmd.pk
+    deploy.link_parts = lp
+    return cmd
+
+
+def _urgent(router):
+    try:
+        from .agent import mark_urgent
+        mark_urgent(router, 180)
+    except Exception:
+        pass
+
+
+STEP_LABELS = {'backup': 'backup on the router', 'arm': 'undo timer', 'check': 'where does the router stand?', 'keep': 'keep the change',
+               'kcheck': 'was it kept?', 'undo': 'undo the change'}
+
+
+def step_label(step, order):
+    if step in STEP_LABELS:
+        return STEP_LABELS[step]
+    if step.startswith('p'):
+        parts = [s for s in order if s.startswith('p')]
+        return f'change, part {parts.index(step) + 1} of {len(parts)}' if step in parts else 'change'
+    if step.startswith(('u', 'x')):
+        return 'undo plan onto the router'
+    return step
+
+
+def _queue_round(deploy, rnd):
+    chain = link_chain(deploy, rnd, (deploy.link_parts or {}).get('backup_name', '') if rnd == 1 else '')
+    lp = dict(deploy.link_parts or {})
+    lp.update(round=rnd, order=chain['order'], steps=chain['steps'], var=chain['var'], armed=chain['armed'], ok=[], bad={},
+              cmds={}, check=None, checks=0, round_at=_iso(timezone.now()))
+    deploy.link_parts = lp
+    for step in chain['order']:
+        _send(deploy, step, step_label(step, chain['order']))
+    deploy.link_step = chain['order'][0]
+    deploy.save(update_fields=['link_parts', 'link_step'])
+    _urgent(deploy.router)
+
+
+def deploy_link(deploy, state, backup_name='', auto_keep=False):
+    """Queue the whole change through TapTap Link at once (see the note above)."""
     before = before_state(SnapshotReader(state), deploy.plan)
     deploy.rollback_plan, deploy.manual_undo = rollback_plan(deploy.plan, before)
-    armed = bool(deploy.undo_minutes and deploy.rollback_plan)
-    parts = {f'p{i}': text for i, text in enumerate(tiles.chunks(deploy.plan))}
-    order = list(parts)
-    undo = f'/system scheduler remove [find where name="{UNDO_SCHEDULER}"]; ' + undo_script(deploy.rollback_plan)
-    if armed:
-        parts['arm'] = arm_script(deploy)
-        order.insert(0, 'arm')
-    if max(len(parts.get('arm', '')), len(undo)) > LINK_SCRIPT_MAX:
-        raise StudioError('This board is too large to send through TapTap Link in one go. Switch some tiles off, deploy, '
-                          'then switch them on and deploy again.')
-    parts.update(keep=KEEP_SCRIPT, undo=undo, order=order)
-    deploy.link_parts, deploy.status, deploy.transport = parts, 'sending', 'TapTap Link'
+    if deploy.undo_minutes and deploy.rollback_plan:
+        deploy.undo_minutes = max(LINK_MIN_UNDO, int(deploy.undo_minutes))
+    deploy.status, deploy.transport = 'sending', 'TapTap Link'
+    deploy.link_parts = {'started_at': _iso(timezone.now()), 'backup_name': backup_name, 'auto_keep': bool(auto_keep)}
+    if any(len(t) > LINK_SCRIPT_MAX for t in link_chain(deploy, 1, backup_name)['steps'].values()):
+        raise StudioError('One tile is too large to send through TapTap Link. Split its list over two tiles.')
     deploy.save()
-    _queue_step(deploy, order[0])
+    _queue_round(deploy, 1)
     return deploy
-
-
-def _queue_step(deploy, step):
-    from .linkops import send
-    order = [s for s in deploy.link_parts.get('order', []) if s != 'arm']
-    label = {'arm': 'undo timer', 'keep': 'keep the change', 'undo': 'undo the change'}.get(step) \
-        or f'part {order.index(step) + 1} of {len(order)}'
-    send(deploy.router, LINK_KIND, {'deploy': deploy.pk, 'step': step}, label=f'Config Studio #{deploy.pk}: {label}',
-         user=deploy.actor, minutes=30)
-    deploy.link_step = step
-    deploy.save(update_fields=['link_step'])
 
 
 def link_body(cmd):
@@ -478,10 +647,56 @@ def link_body(cmd):
     params = cmd.params or {}
     deploy = RouterStudioDeploy.objects.filter(pk=int(params.get('deploy') or 0), router=cmd.router).first()
     step = str(params.get('step') or '')
-    text = (deploy.link_parts or {}).get(step) if deploy and step != 'order' else None
+    lp = (deploy.link_parts or {}) if deploy else {}
+    text = None
+    if deploy and step not in ('order', 'steps', 'cmds'):
+        text = (lp.get('steps') or {}).get(step) or (lp.get('undo_steps') or {}).get(step)
+        if text is None and step in ('check', 'keep', 'kcheck'):
+            text = link_chain(deploy, lp.get('round', 1))['steps'][step]
     if not isinstance(text, str) or not text:
         raise ValueError('This Config Studio change no longer exists.')
     return text
+
+
+def _cancel_queued(deploy):
+    from .models import AgentCommand
+    ids = list(((deploy.link_parts or {}).get('cmds') or {}).values())
+    AgentCommand.objects.filter(pk__in=ids, status='queued').update(status='cancelled', result='Not needed any more', done_at=timezone.now())
+
+
+def _start_undo(deploy, why_status=None):
+    steps, order = _undo_chain(deploy)
+    lp = dict(deploy.link_parts or {})
+    lp.update(undo_steps=steps, undo_order=order, undos=int(lp.get('undos') or 0) + 1, undo_ok=[], undo_cmds={})
+    deploy.link_parts = lp
+    from .linkops import send
+    for step in order:
+        cmd = send(deploy.router, LINK_KIND, {'deploy': deploy.pk, 'step': step}, label=f'Config Studio #{deploy.pk}: '
+                   + ('undo the change' if step == 'undo' else 'undo plan onto the router'), user=deploy.actor, minutes=DEADLINE + 10)
+        deploy.link_parts['undo_cmds'][step] = cmd.pk
+    deploy.save(update_fields=['link_parts'])
+    _urgent(deploy.router)
+
+
+def _fail_link(deploy, error, undo_it=True):
+    _cancel_queued(deploy)
+    _finish(deploy, 'failed', undone_by='failure', error=error[:1500])
+    if undo_it:
+        try:
+            _start_undo(deploy)
+        except Exception:
+            logger.exception('Config Studio: could not queue the undo')
+            if deploy.link_parts.get('armed'):
+                deploy.error = (deploy.error + ' The router undoes it by itself when its timer runs out.')[:1500]
+                deploy.save(update_fields=['error'])
+
+
+def _applied(deploy):
+    _cancel_queued(deploy)
+    now = timezone.now()
+    if (deploy.link_parts or {}).get('armed'):
+        return _finish(deploy, 'applied', applied_at=now, undo_until=now + timedelta(minutes=deploy.undo_minutes))
+    return _finish(deploy, 'kept', applied_at=now)
 
 
 def link_ack(cmd, ok, result=''):
@@ -489,54 +704,275 @@ def link_ack(cmd, ok, result=''):
     deploy = RouterStudioDeploy.objects.filter(pk=int(params.get('deploy') or 0), router=cmd.router).first()
     if not deploy:
         return
-    step, order, now = str(params.get('step') or ''), list((deploy.link_parts or {}).get('order') or []), timezone.now()
+    step, lp = str(params.get('step') or ''), dict(deploy.link_parts or {})
+    if 'steps' not in lp and 'undo_steps' not in lp:
+        return _legacy_ack(deploy, step, ok, result)
+    # the undo chain (after a failure, or asked for)
+    if step in (lp.get('undo_order') or []):
+        if ok and step not in lp.setdefault('undo_ok', []):
+            lp['undo_ok'].append(step)
+        deploy.link_parts = lp
+        deploy.save(update_fields=['link_parts'])
+        if step == 'undo':
+            if deploy.status == 'failed':
+                deploy.error = (deploy.error + (' What was already on the router was taken back.' if ok else
+                                                ' Taking it back did not complete — check the router, or restore the backup.'))[:1500]
+                deploy.save(update_fields=['error'])
+                _reread(deploy.router, deploy.actor)
+            elif ok:
+                _finish(deploy, 'undone', undone_by=deploy.undone_by or 'user')
+            else:
+                deploy.error = 'The router could not undo everything — check it, or restore the backup.'
+                deploy.save(update_fields=['error'])
+        return
+    if int(params.get('round') or lp.get('round') or 1) != int(lp.get('round') or 1) and step not in ('keep', 'kcheck'):
+        return                                       # an answer from an earlier round
     if step == 'keep':
         if ok:
-            _finish(deploy, 'kept')
-        else:
-            _finish(deploy, 'undone', undone_by='router', error='The undo timer had already run: the router put the old setup back by itself.')
+            return _finish(deploy, 'kept')
+        lp['keep_bad'] = result or 'undone'
+        deploy.link_parts = lp
+        deploy.save(update_fields=['link_parts'])
+        return _finish(deploy, 'undone', undone_by='router', error='The undo timer had already run: the router put the old setup back by itself.')
+    if step == 'kcheck':
+        if ok:
+            return _finish(deploy, 'kept')
+        return _finish(deploy, 'undone', undone_by='router', error='The undo timer had already run: the router put the old setup back by itself.')
+    if deploy.status != 'sending':
         return
+    order = list(lp.get('order') or [])
+    if step == 'check':
+        if ok:
+            lp['ok'] = list(order)
+            deploy.link_parts = lp
+            deploy.save(update_fields=['link_parts'])
+            return _applied(deploy)
+        return _next_round(deploy, f'The router stopped part of the way{": " + result if result else ""}.')
+    if step not in order:
+        return
+    if ok:
+        if step not in lp['ok']:
+            lp['ok'].append(step)
+        deploy.link_step = step
+        deploy.link_parts = lp
+        deploy.save(update_fields=['link_parts', 'link_step'])
+        if all(s in lp['ok'] for s in order):
+            return _applied(deploy)
+        return
+    lp.setdefault('bad', {})[step] = (result or 'refused')[:300]
+    deploy.link_parts = lp
+    deploy.save(update_fields=['link_parts'])
+    if all(s in lp['ok'] for s in order[:order.index(step)]):
+        # every step before it is confirmed: the router itself refused this one
+        what = 'the undo timer' if step in ('arm',) or step.startswith('u') else 'the backup' if step == 'backup' else 'a part of the change'
+        _fail_link(deploy, f'The router refused {what}: {result or "no reason given"}.', undo_it=step.startswith('p'))
+    # otherwise an earlier step has not answered yet: progress() asks the router where it stands
+
+
+def _legacy_ack(deploy, step, ok, result):
+    """Answers for a change sent before this update (one piece at a time)."""
+    if step == 'keep':
+        return _finish(deploy, 'kept') if ok else _finish(deploy, 'undone', undone_by='router',
+                                                          error='The undo timer had already run: the router put the old setup back by itself.')
     if step == 'undo':
-        if deploy.status == 'failed':
-            deploy.error = (deploy.error + (' The steps before it were undone.' if ok else ' The undo did not complete — check the router.'))[:1500]
-            deploy.save(update_fields=['error'])
-            _reread(deploy.router, deploy.actor)
-        elif ok:
-            _finish(deploy, 'undone', undone_by=deploy.undone_by or 'user')
-        else:
-            deploy.error = 'The router could not undo everything — check it, or restore the backup.'
-            deploy.save(update_fields=['error'])
-        return
-    if step not in order or deploy.status != 'sending':
-        return
-    if not ok:
-        _finish(deploy, 'failed', undone_by='failure',
-                error=f'The router refused {"the undo timer" if step == "arm" else "a part of the change"}: {result or "no reason given"}.'[:1500])
-        if step != 'arm':          # the timer is armed and earlier parts may be in: take them back now
-            try:
-                _queue_step(deploy, 'undo')
-            except Exception:
-                logger.exception('Config Studio: could not queue the undo')
-        return
-    if step == 'arm':
-        deploy.undo_until = now + timedelta(minutes=deploy.undo_minutes)
-        deploy.save(update_fields=['undo_until'])
-    nxt = order.index(step) + 1
-    if nxt < len(order):
+        return _finish(deploy, 'undone', undone_by=deploy.undone_by or 'user') if ok and deploy.status != 'failed' else None
+    if deploy.status == 'sending' and not ok:
+        _finish(deploy, 'failed', undone_by='failure', error=f'The router refused a part of the change: {result or "no reason given"}.')
+
+
+def _next_round(deploy, why):
+    lp = deploy.link_parts or {}
+    rnd = int(lp.get('round') or 1)
+    if rnd >= MAX_ROUNDS:
+        return _fail_link(deploy, f'{why} TapTap sent the whole change {rnd} times without getting it all on the router, so '
+                                  'it is being taken back. Try again in a minute — if it keeps happening, the router is busy or '
+                                  'its connection to TapTap keeps dropping.')
+    _cancel_queued(deploy)
+    _queue_round(deploy, rnd + 1)
+    return deploy
+
+
+def _silent(cmd, ok_steps, step, now):
+    if cmd is None:
+        return True
+    if step in ok_steps:
+        return False
+    if cmd.status in ('failed', 'expired', 'cancelled'):
+        return True
+    if cmd.status == 'done':                   # finished without an answer reaching TapTap (never re-sent)
+        return True
+    return cmd.status == 'sent' and cmd.sent_at and (now - cmd.sent_at).total_seconds() > SILENT
+
+
+def progress(deploy, now=None):
+    """Move a TapTap Link change on when answers went missing. Called on every check-in and every page poll."""
+    if deploy.transport != 'TapTap Link' or deploy.status not in ('sending', 'applied'):
+        return deploy
+    lp = dict(deploy.link_parts or {})
+    if 'steps' not in lp:
+        # sent with the version before Nov 2026 (one piece at a time): one that never finished stops blocking new changes
+        if deploy.status == 'sending' and (timezone.now() - deploy.created_at).total_seconds() > DEADLINE * 60:
+            _finish(deploy, 'failed', undone_by='failure', error='This change never finished (a lost answer from the router, fixed in this '
+                    'update). If its undo timer was set, the router has put the old setup back. Deploy the board again.')
+        return deploy
+    from .models import AgentCommand
+    now = now or timezone.now()
+    cmds = {c.pk: c for c in AgentCommand.objects.filter(pk__in=list((lp.get('cmds') or {}).values()))}
+    by_step = {s: cmds.get(pk) for s, pk in (lp.get('cmds') or {}).items()}
+    if deploy.status == 'applied':
+        keep_cmd = by_step.get('keep')
+        if keep_cmd is None and lp.get('auto_keep') and deploy.applied_at:
+            heard = _heard(deploy.router)
+            if heard and (heard - deploy.applied_at).total_seconds() >= KEEP_AFTER:
+                _send(deploy, 'keep', 'keep the change (by itself: the router stayed online)')
+                deploy.save(update_fields=['link_parts'])
+        elif keep_cmd is not None and _silent(keep_cmd, [], 'keep', now):
+            kc = by_step.get('kcheck')
+            if kc is None or (_silent(kc, [], 'kcheck', now) and int(lp.get('kchecks') or 0) < MAX_CHECKS):
+                lp = dict(deploy.link_parts)
+                lp['kchecks'] = int(lp.get('kchecks') or 0) + 1
+                deploy.link_parts = lp
+                _send(deploy, 'kcheck', 'was it kept?')
+                deploy.save(update_fields=['link_parts'])
+        return deploy
+    started = _parse(lp.get('started_at')) or deploy.created_at
+    if (now - started).total_seconds() > DEADLINE * 60:
+        heard = _heard(deploy.router)
+        quiet = f' The router was last heard {int((now - heard).total_seconds() // 60)} min ago.' if heard else ''
+        return _fail_link(deploy, f'TapTap Link did not get the change through in {DEADLINE} minutes.{quiet} '
+                                  + ('The router puts the old setup back by itself when its undo timer runs out.' if lp.get('armed') else ''),
+                          undo_it=bool(lp.get('ok')))
+    order, ok_steps = list(lp.get('order') or []), list(lp.get('ok') or [])
+    chk = by_step.get('check')
+    if chk is not None:
+        if _silent(chk, [], 'check', now):
+            if int(lp.get('checks') or 0) >= MAX_CHECKS:
+                return _fail_link(deploy, 'The router does not answer TapTap Link any more, so TapTap cannot tell whether the change is on it.'
+                                          + (' Its undo timer puts the old setup back by itself.' if lp.get('armed') else ''), undo_it=False)
+            _ask(deploy)
+        return deploy
+    pending = [s for s in order if s not in ok_steps]
+    if not pending:
+        return _applied(deploy)
+    waiting = [s for s in pending if not _silent(by_step.get(s), ok_steps, s, now) and s not in (lp.get('bad') or {})]
+    if waiting:
+        return deploy                            # still on its way
+    _ask(deploy)                                 # every step ended, some without an answer: ask the router
+    return deploy
+
+
+def _ask(deploy):
+    lp = dict(deploy.link_parts or {})
+    lp['checks'] = int(lp.get('checks') or 0) + 1
+    deploy.link_parts = lp
+    _send(deploy, 'check', 'where does the router stand?')
+    deploy.save(update_fields=['link_parts'])
+    _urgent(deploy.router)
+
+
+def _heard(router):
+    try:
+        return router.agent.last_heard
+    except Exception:
+        return None
+
+
+def link_progress(router, now=None):
+    """Hook for every TapTap Link check-in (core/agent.py)."""
+    for d in RouterStudioDeploy.objects.filter(router=router, status__in=('sending', 'applied'), transport='TapTap Link')[:3]:
         try:
-            _queue_step(deploy, order[nxt])
-        except Exception as exc:
-            _finish(deploy, 'failed', error=f'TapTap Link stopped answering in the middle: {exc}', undone_by='failure')
-        return
-    if 'arm' in order:
-        _finish(deploy, 'applied', applied_at=now)
-    else:
-        _finish(deploy, 'kept', applied_at=now)
+            progress(d, now)
+        except Exception:
+            logger.exception('Config Studio: progress of #%s failed', d.pk)
+
+
+def stop(deploy):
+    """The person pressed Stop while the change was on its way."""
+    if deploy.status != 'sending':
+        raise StudioError('Only a change that is still on its way can be stopped.')
+    lp = deploy.link_parts or {}
+    started = bool(lp.get('ok')) or any(
+        c.status in ('sent', 'done', 'failed') for c in _commands(lp.get('cmds')).values())
+    _fail_link(deploy, 'Stopped by you.' + (' What already reached the router is being taken back.' if started else ' Nothing had reached the router.'),
+               undo_it=started)
+    return deploy
+
+
+def nudge(deploy):
+    """"Check now": ask the router to check in at once, and where it stands if answers are missing."""
+    _urgent(deploy.router)
+    if deploy.status == 'sending' and deploy.transport == 'TapTap Link':
+        lp = deploy.link_parts or {}
+        by = _commands(lp.get('cmds'))
+        if not any(c.status == 'queued' for c in by.values()) and not (by.get('check') and by['check'].status in ('queued', 'sent')):
+            _ask(deploy)
+    return progress(deploy)
+
+
+def _commands(ids):
+    from .models import AgentCommand
+    ids = ids or {}
+    rows = {c.pk: c for c in AgentCommand.objects.filter(pk__in=list(ids.values()))}
+    return {s: rows[pk] for s, pk in ids.items() if pk in rows}
+
+
+def timeline(deploy):
+    """What the page shows: every step with its state, and a sentence about what is happening now."""
+    lp = deploy.link_parts or {}
+    if deploy.transport != 'TapTap Link' or 'order' not in lp or 'steps' not in lp:
+        return None
+    now = timezone.now()
+    by = _commands(lp.get('cmds'))
+    ok, bad, order = lp.get('ok') or [], lp.get('bad') or {}, lp.get('order') or []
+    rows, seen = [], set()
+    for step in order:
+        kind = 'backup' if step == 'backup' else 'undo' if step.startswith('u') else 'arm' if step == 'arm' else 'part'
+        if kind == 'undo':
+            if 'undo' in seen:
+                continue
+            seen.add('undo')
+            group = [s for s in order if s.startswith('u')]
+            state = 'done' if all(s in ok for s in group) else 'bad' if any(s in bad for s in group) else \
+                'run' if any(by.get(s) and by[s].status == 'sent' for s in group) else \
+                'lost' if any(_silent(by.get(s), ok, s, now) for s in group) and deploy.status == 'sending' else 'wait'
+            rows.append({'key': 'undo', 'label': 'Undo plan onto the router', 'state': state})
+            continue
+        c = by.get(step)
+        state = 'done' if step in ok else 'bad' if step in bad else 'run' if c and c.status == 'sent' else \
+            'lost' if deploy.status == 'sending' and _silent(c, ok, step, now) else 'wait'
+        label = {'backup': 'Backup on the router', 'arm': f'Safety timer ({deploy.undo_minutes} min)'}.get(step) or step_label(step, order).capitalize()
+        rows.append({'key': step, 'label': label, 'state': state})
+    if deploy.status in ('applied', 'kept') or lp.get('auto_keep'):
+        kc = by.get('keep')
+        rows.append({'key': 'keep', 'label': 'Keep it' + (' (by itself once the router stays online)' if lp.get('auto_keep') else ''),
+                     'state': 'done' if deploy.status == 'kept' else 'run' if kc and kc.status in ('queued', 'sent') else 'wait'})
+    heard = _heard(deploy.router)
+    heard_s = max(0, int((now - heard).total_seconds())) if heard else None
+    started = _parse(lp.get('started_at')) or deploy.created_at
+    note = ''
+    if deploy.status == 'sending':
+        if by.get('check') and by['check'].status in ('queued', 'sent'):
+            note = 'An answer went missing on the way — TapTap is asking the router how far it got.'
+        elif heard_s is not None and heard_s > 60:
+            note = f'Waiting for {deploy.router.name} to check in (last heard {heard_s // 60} min ago).'
+        else:
+            note = f'{deploy.router.name} takes the steps as it checks in' + (f' (last heard {heard_s} s ago)' if heard_s is not None else '') + '.'
+        if int(lp.get('round') or 1) > 1:
+            note += ' Sending it a second time — a step went missing the first time.'
+    return {'steps': rows, 'note': note, 'heard_s': heard_s, 'round': int(lp.get('round') or 1),
+            'elapsed': int((now - started).total_seconds()), 'deadline': DEADLINE * 60, 'auto_keep': bool(lp.get('auto_keep'))}
 
 
 def settle(deploy):
     """A change nobody kept before the timer ran out is gone: the router undid it."""
+    progress(deploy)
     if deploy.status == 'applied' and deploy.undo_until and timezone.now() > deploy.undo_until + timedelta(seconds=20):
+        by = _commands((deploy.link_parts or {}).get('cmds')) if deploy.transport == 'TapTap Link' else {}
+        if any(c.status in ('queued', 'sent') for s, c in by.items() if s in ('keep', 'kcheck')):
+            return deploy                      # "Keep" is on its way: its answer (or the check after it) decides
+        if by.get('keep') and not by.get('kcheck'):
+            progress(deploy)
+            return deploy
         _finish(deploy, 'undone', undone_by='router',
                 error='Nobody pressed “Keep” in time, so the router put the old setup back by itself.')
     return deploy
@@ -547,7 +983,14 @@ def keep(deploy, connect=None):
     if deploy.status != 'applied':
         raise StudioError('This change is not waiting for “Keep” any more.')
     if deploy.transport == 'TapTap Link':
-        _queue_step(deploy, 'keep')
+        if 'steps' in (deploy.link_parts or {}):
+            _send(deploy, 'keep', 'keep the change')
+            deploy.save(update_fields=['link_parts'])
+            _urgent(deploy.router)
+        else:
+            from .linkops import send
+            send(deploy.router, LINK_KIND, {'deploy': deploy.pk, 'step': 'keep'}, label=f'Config Studio #{deploy.pk}: keep the change',
+                 user=deploy.actor, minutes=30)
         return deploy
     from .mikrotik import MikroTikService
     svc = (connect or (lambda r: MikroTikService(r).connect()))(deploy.router)
@@ -569,7 +1012,12 @@ def undo(deploy, connect=None):
     if deploy.transport == 'TapTap Link':
         deploy.undone_by = 'user'
         deploy.save(update_fields=['undone_by'])
-        _queue_step(deploy, 'undo')
+        if 'steps' in (deploy.link_parts or {}) or not (deploy.link_parts or {}).get('undo'):
+            _start_undo(deploy)
+        else:                                    # a change sent before this update
+            from .linkops import send
+            send(deploy.router, LINK_KIND, {'deploy': deploy.pk, 'step': 'undo'}, label=f'Config Studio #{deploy.pk}: undo the change',
+                 user=deploy.actor, minutes=30)
         return deploy
     from .mikrotik import MikroTikService
     svc = (connect or (lambda r: MikroTikService(r).connect()))(deploy.router)
@@ -635,6 +1083,7 @@ def deploy_json(d):
             'at': (d.applied_at or d.created_at).isoformat(), 'by': (d.actor.get_full_name() or d.actor.username) if d.actor else '',
             'steps': len(d.plan), 'manual_undo': d.manual_undo, 'can_undo': d.status in ('applied', 'kept') and bool(d.rollback_plan),
             'progress': [order.index(d.link_step) + 1, len(order)] if d.link_step in order and d.status == 'sending' else None,
+            'timeline': timeline(d), 'auto_keep': bool((d.link_parts or {}).get('auto_keep')),
             'tiles': [{**t, 'params': {k: ('' if k in tiles.secret_fields(t['type']) else v) for k, v in t['params'].items()}}
                       for t in tiles.clean_board(d.tiles)]}
 
@@ -826,8 +1275,8 @@ def studio_deploy(request, pk):
     if not out['safe'] and str(data.get('confirm') or '').strip().upper() != 'DEPLOY ANYWAY':
         return _fail('The virtual router found a serious problem. Fix it, or type DEPLOY ANYWAY to go ahead.', status=409, needs='DEPLOY ANYWAY')
     backup = fresh_backup(router)
-    if not backup and str(data.get('no_backup') or '').strip().upper() != 'NO BACKUP':
-        return _fail(f'Make a backup first (one from the last {BACKUP_FRESH} minutes is needed).', status=409, needs_backup=True)
+    want_backup = not backup and str(data.get('no_backup') or '').strip().upper() != 'NO BACKUP'
+    auto_keep = data.get('auto_keep', True) not in (False, 'false', 'no', 0, '0')
     try:
         minutes = int(data.get('undo_minutes', 5))
     except (TypeError, ValueError):
@@ -843,9 +1292,24 @@ def studio_deploy(request, pk):
             from .linkops import ensure_online
             ensure_online(router)
             state, _ = base_state(router, 'router')
-            deploy_link(deploy, state)
+            name = ''
+            if want_backup:     # made on the router as the first step of the same chain: no separate wait
+                import re
+                name = re.sub(r'[^A-Za-z0-9_-]', '-', f'taptap-studio-{deploy.pk}-{timezone.localtime():%Y%m%d-%H%M}')[:60]
+                deploy.backup = RouterBackup.objects.create(router=router, name=name, backup_file=name + '.backup', export_file=name + '.rsc',
+                                                            created_by=request.user)
+                deploy.save(update_fields=['backup'])
+            deploy_link(deploy, state, backup_name=name, auto_keep=auto_keep)
         else:
-            deploy_direct(deploy)
+            if want_backup:
+                try:
+                    deploy.backup = start_backup(router, request.user, request)
+                    deploy.save(update_fields=['backup'])
+                except Exception as exc:              # the undo timer still protects the change
+                    logger.info('Config Studio #%s: backup before deploy failed: %s', deploy.pk, exc)
+                    deploy.manual_undo = (deploy.manual_undo or []) + [f'No backup could be made first ({str(exc)[:120]}); the undo timer still protects this change.']
+                    deploy.save(update_fields=['manual_undo'])
+            deploy_direct(deploy, auto_keep=auto_keep)
     except Exception as exc:
         if deploy.status in ('draft', 'sending'):
             _finish(deploy, 'failed', error=str(exc)[:1500])
@@ -865,6 +1329,10 @@ def studio_action(request, pk, deploy_id):
                 keep(deploy)
             elif action == 'undo':
                 undo(deploy)
+            elif action == 'stop':
+                stop(deploy)
+            elif action == 'check':
+                nudge(deploy)
             else:
                 return _fail('Unknown action.')
         except (StudioError, ValueError) as exc:
@@ -912,6 +1380,8 @@ def _install_agent():
         return
     agent.SAFE_KINDS.add(LINK_KIND)
     agent.DEFAULT_EXPIRY.setdefault(LINK_KIND, 30)
+    agent.ACK_WAIT.setdefault(LINK_KIND, SILENT)
+    agent.ACK_RETRY.add(LINK_KIND)            # the answer is tried again while the change makes the internet blink
 
     original_body = agent.command_body
 

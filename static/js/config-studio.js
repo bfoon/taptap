@@ -417,11 +417,12 @@
     step('csStepLab', !on || res.needs_read ? '' : bad ? 'bad' : warn ? 'warn' : 'ok', res.needs_read ? 'Read the router first.' : !on ? 'Tests run by themselves as you build.'
       : (tests.length ? passed + ' of ' + tests.length + ' packets behave as they should' : 'No packet tests for these tiles') + (bad ? ' · ' + bad + ' problem(s)' : '') + (warn ? ' · ' + warn + ' warning(s)' : ''));
     var b = st.backup, fresh = b && b.fresh;
-    step('csStepBackup', fresh ? 'ok' : '', b ? b.name + ' · ' + ago(b.at) + (b.state ? ' · ' + b.state : '') + (fresh ? '' : ' — older than ' + boot.backup_fresh + ' min, make a new one') : 'No backup yet. One is needed before a deploy.');
+    step('csStepBackup', fresh ? 'ok' : '', fresh ? b.name + ' · ' + ago(b.at) + (b.state ? ' · ' + b.state : '')
+      : 'Made by itself on the router as the first step of the deploy' + (b ? ' (the last one, ' + ago(b.at) + ', is older than ' + boot.backup_fresh + ' min)' : '') + '. You can also make one now.');
     var ready = on && !problems && changing && !lab && !res.needs_read && !active;
     step('csStepDeploy', '', lab ? 'This is a practice router. Choose “' + boot.router + ' as it is now” at the top to deploy.' : active ? 'A change is in progress (below).'
       : !on ? 'Nothing to deploy yet.' : !changing && !problems ? 'The router already has everything on this board.'
-      : 'Goes over ' + (st.transport || '…') + '. The undo timer is set on the router first.' + (st.online === false ? ' ' + st.offline_reason : ''));
+      : 'Goes over ' + (st.transport || '…') + '. The undo timer is set on the router first' + (st.transport === 'TapTap Link' ? ' (at least 8 minutes through TapTap Link)' : '') + '.' + (st.online === false ? ' ' + st.offline_reason : ''));
     $('csDeploy').disabled = !ready || S.busy;
     $('csBackup').disabled = S.busy || lab;
     drawLive(active);
@@ -446,8 +447,26 @@
     clearInterval(S.tick);
     if (!d) return;
     if (d.status === 'sending') {
-      box.appendChild(h('div', { class: 'cs-live sending' }, h('span', { class: 'cs-spin' }), h('div', null, h('b', { text: 'On its way to the router…' }),
-        h('small', { text: d.progress ? 'Step ' + d.progress[0] + ' of ' + d.progress[1] + ' through TapTap Link' : 'Applying ' + d.steps + ' rows' }))));
+      var tl = d.timeline;
+      if (!tl) {
+        box.appendChild(h('div', { class: 'cs-live sending' }, h('span', { class: 'cs-spin' }), h('div', null, h('b', { text: 'On its way to the router…' }),
+          h('small', { text: d.progress ? 'Step ' + d.progress[0] + ' of ' + d.progress[1] + ' through TapTap Link' : 'Applying ' + d.steps + ' rows' }))));
+        return;
+      }
+      var doneN = tl.steps.filter(function (x) { return x.state === 'done'; }).length, pct = Math.round(doneN * 100 / Math.max(1, tl.steps.length));
+      var ICONS = { done: 'bi-check-circle-fill', run: 'bi-arrow-repeat', wait: 'bi-circle', lost: 'bi-question-circle-fill', bad: 'bi-x-circle-fill' };
+      var WORD = { done: 'done', run: 'on the router now', wait: 'waiting its turn', lost: 'answer missing — asking the router', bad: 'refused' };
+      box.appendChild(h('div', { class: 'cs-live sending cs-tl' },
+        h('div', { class: 'cs-tl-head' }, h('span', { class: 'cs-spin' }), h('div', null, h('b', { text: 'On its way to the router — ' + doneN + ' of ' + tl.steps.length + ' steps' }),
+          h('small', { text: tl.note }))),
+        h('div', { class: 'cs-tl-bar', role: 'progressbar', 'aria-valuenow': String(pct), 'aria-valuemin': '0', 'aria-valuemax': '100' }, h('i', { style: 'width:' + pct + '%' })),
+        h('ol', { class: 'cs-tl-steps' }, tl.steps.map(function (x) {
+          return h('li', { class: 'st-' + x.state, title: WORD[x.state] || '' }, h('i', { class: 'bi ' + (ICONS[x.state] || 'bi-circle') }), h('span', { text: x.label }), h('em', { text: WORD[x.state] || '' }));
+        })),
+        h('small', { class: 'cs-tl-foot', text: 'TapTap stops waiting after ' + Math.round(tl.deadline / 60) + ' min (' + Math.floor(tl.elapsed / 60) + ':' + ('0' + tl.elapsed % 60).slice(-2) + ' so far). Every step checks on the router that the one before it ran, and can safely be sent again.' }),
+        h('div', { class: 'cs-live-btns' },
+          h('button', { type: 'button', class: 'btn btn-sm btn-outline-primary', onclick: function () { act(d, 'check'); } }, icon('bi-lightning'), ' Check now'),
+          h('button', { type: 'button', class: 'btn btn-sm btn-outline-danger', onclick: function () { act(d, 'stop'); } }, icon('bi-stop-circle'), ' Stop'))));
       return;
     }
     var left = d.seconds_left, clock = h('b', { class: 'cs-clock' });
@@ -455,19 +474,23 @@
     paint();
     S.tick = setInterval(function () { left = Math.max(0, left - 1); paint(); if (!left) { clearInterval(S.tick); loadState(); } }, 1000);
     box.appendChild(h('div', { class: 'cs-live applied' },
-      h('div', null, h('b', { text: 'It is on the router. Does everything still work?' }),
-        h('small', null, 'If nobody presses Keep, the router puts the old setup back in ', clock, '.')),
+      h('div', null, h('b', { text: d.auto_keep ? 'It is on the router — keeping it by itself once the router stays online.' : 'It is on the router. Does everything still work?' }),
+        h('small', null, d.auto_keep ? 'TapTap keeps it as soon as the router checks in again on the new setup. If it never does, the router puts the old setup back in '
+          : 'If nobody presses Keep, the router puts the old setup back in ', clock, '.')),
       h('div', { class: 'cs-live-btns' },
         h('button', { type: 'button', class: 'btn btn-success', onclick: function () { act(d, 'keep'); } }, icon('bi-check-lg'), ' Keep it'),
         h('button', { type: 'button', class: 'btn btn-outline-danger', onclick: function () { act(d, 'undo'); } }, icon('bi-arrow-counterclockwise'), ' Undo now'))));
   }
   function act(d, action) {
     if (action === 'undo' && !window.confirm('Put the router back as it was before change #' + d.id + '?')) return;
+    if (action === 'stop' && !window.confirm('Stop change #' + d.id + '? Whatever already reached the router is taken back.')) return;
     S.busy = true; drawLaunch();
     api(URLS.action.replace(/0\/$/, d.id + '/'), { action: action }).then(function (r) {
       S.busy = false;
-      if (!r.ok) toast(r.message, 'bad'); else toast(action === 'keep' ? (r.deploy.status === 'kept' ? 'Kept. The undo timer is off.' : 'Sent — the router confirms in a few seconds.') : 'Undo sent.', 'ok');
-      loadState(); check(0);
+      var said = { keep: r.deploy && r.deploy.status === 'kept' ? 'Kept. The undo timer is off.' : 'Sent — the router confirms in a few seconds.',
+                   undo: 'Undo sent.', stop: 'Stopped.', check: 'Asked the router to check in now.' };
+      if (!r.ok) toast(r.message, 'bad'); else toast(said[action] || 'Done.', 'ok');
+      loadState(); if (action !== 'check') check(0);
     });
   }
   function modal(title, body, go, action) {
@@ -480,23 +503,23 @@
     var res = S.result || {}, c = res.counts || {}, st = S.state || {};
     var bad = (res.findings || []).filter(function (f) { return f.level === 'bad'; });
     var word = h('input', { class: 'form-control', placeholder: 'DEPLOY ANYWAY', 'aria-label': 'Type DEPLOY ANYWAY' });
-    var nob = h('input', { class: 'form-control', placeholder: 'NO BACKUP', 'aria-label': 'Type NO BACKUP' });
     var fresh = st.backup && st.backup.fresh, minutes = parseInt($('csUndo').value, 10);
+    var autoKeep = h('input', { type: 'checkbox', checked: 'checked', id: 'csAutoKeep' });
     var body = h('div', null,
       h('p', null, 'This puts ', h('b', { text: (c.new || 0) + ' new, ' + (c.changed || 0) + ' changed and ' + (c.removed || 0) + ' removed row(s)' }), ' on ', h('b', { text: boot.router }), ' over ' + (st.transport || 'the router connection') + '.'),
       h('ul', { class: 'cs-modal-list' },
-        h('li', null, fresh ? 'Backup “' + st.backup.name + '” was made ' + ago(st.backup.at) + '.' : 'There is no fresh backup.'),
-        h('li', null, minutes ? 'The router undoes the change by itself after ' + minutes + ' minutes unless you press Keep.' : 'No undo timer: the change stays even if it cuts the router off.'),
-        h('li', null, 'If the router refuses a row, the rows before it are taken back.')),
+        h('li', null, fresh ? 'Backup “' + st.backup.name + '” was made ' + ago(st.backup.at) + '.' : 'A backup is made on the router first, by itself.'),
+        h('li', null, minutes ? 'The router undoes the change by itself after ' + Math.max(minutes, st.transport === 'TapTap Link' ? 8 : minutes) + ' minutes unless it is kept.' : 'No undo timer: the change stays even if it cuts the router off.'),
+        h('li', null, 'If the router refuses a row, what was already applied is taken back. A step whose answer gets lost is checked on the router, never guessed.')),
+      minutes ? h('label', { class: 'cs-autokeep' }, autoKeep, h('span', null, h('b', { text: 'Keep it by itself' }), h('small', { text: ' once the router checks in again on the new setup. Untick to check things yourself and press Keep.' }))) : null,
       bad.length ? h('div', { class: 'alert alert-danger' }, h('b', { text: 'The virtual router found ' + bad.length + ' serious problem(s):' }),
         h('ul', null, bad.slice(0, 4).map(function (f) { return h('li', { text: f.text }); })), 'To go ahead anyway, type DEPLOY ANYWAY:', word) : null,
-      !fresh ? h('div', { class: 'alert alert-warning' }, 'Close this and press “Back up now” first. To deploy without a backup, type NO BACKUP:', nob) : null,
       extra ? h('div', { class: 'alert alert-danger', text: extra }) : null);
     modal('Deploy to ' + boot.router + '?', body, 'Deploy now', function () {
       S.busy = true; drawLaunch();
-      api(URLS.deploy, { undo_minutes: minutes, confirm: word.value, no_backup: nob.value }).then(function (r) {
+      api(URLS.deploy, { undo_minutes: minutes, confirm: word.value, auto_keep: !minutes || autoKeep.checked }).then(function (r) {
         S.busy = false;
-        if (r.deploy) { toast(r.ok ? (r.deploy.status === 'sending' ? 'Sent through TapTap Link. Watch the steps on the right.' : 'It is on the router. Check that everything works, then press Keep.') : r.message, r.ok ? 'ok' : 'bad'); }
+        if (r.deploy) { toast(r.ok ? (r.deploy.status === 'sending' ? 'Sent through TapTap Link. Watch the steps on the right.' : r.deploy.status === 'kept' ? 'Done — it is on the router and kept.' : 'It is on the router. Check that everything works, then press Keep.') : r.message, r.ok ? 'ok' : 'bad'); }
         else if (r.needs || r.needs_backup) { deploy(r.message); }
         else toast(r.message, 'bad');
         loadState(); check(0);

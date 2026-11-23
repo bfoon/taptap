@@ -50,7 +50,7 @@
     constructor(root, cfg) {
       this.root = root; this.cfg = cfg; this.lb = cfg.load_balancing || {};
       this.traffic = {}; this.history = {}; this.totals = {}; this.events = []; this.particles = [];
-      this.fail = 0; this.compact = root.hasAttribute('data-compact');
+      this.fail = 0; this.compact = root.hasAttribute('data-compact'); this.missions = {};
       this.build(); this.draw();
       this.poll();
       if (!reduceMotion) requestAnimationFrame(t => this.tick(t));
@@ -106,6 +106,12 @@
         const t2 = s('text', { x: 0, y: 13, 'text-anchor': 'middle', class: 'lbx-isp-sub' }); t2.textContent = STATE_TEXT[l.state] || l.state || '';
         g.appendChild(t1); g.appendChild(t2);
         if (l.state === 'down') { const x = s('text', { x: 58, y: -12, class: 'lbx-x', 'text-anchor': 'middle' }); x.textContent = '✕'; g.appendChild(x); }
+        if (this.canAct(l)) {
+          g.classList.add('lbx-click'); g.setAttribute('tabindex', '0'); g.setAttribute('role', 'button');
+          g.setAttribute('aria-label', `${l.label || l.interface}: ${STATE_TEXT[l.state] || l.state} — open its actions`);
+          const go = () => this.focusLane(l.id);
+          g.addEventListener('click', go); g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+        }
         gNodes.appendChild(g);
         this.paths[l.id] = { el: base, glow, link: l, len: 0, acc: { d: 0, u: 0 }, isp: g };
       });
@@ -141,10 +147,13 @@
             <small><span data-k="pct">0%</span> of traffic${l.expected_share != null ? ` · plan ${l.expected_share}%` : ''}</small>
           </div>
           <svg class="lbx-spark" viewBox="0 0 120 28" preserveAspectRatio="none"><polyline data-k="spark" points=""/></svg>
-          <footer>${this.footer(l)}</footer>${this.fixLink(l)}
+          <footer>${this.footer(l)}</footer>${this.actionBar(l)}
+          <div class="lbx-mission" hidden></div>
         </article>`).join('');
 
       lanes.querySelectorAll('[data-rename]').forEach(b => b.addEventListener('click', () => this.openNamer(b.closest('.lbx-lane'))));
+      lanes.querySelectorAll('[data-act]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); this.start(b.dataset.act, b.closest('.lbx-lane').dataset.id); }));
+      Object.keys(this.missions).forEach(id => this.paintMission(id));
 
       const facts = this.root.querySelector('.lbx-facts');
       facts.innerHTML = [
@@ -152,6 +161,110 @@
         ['Routing rules', lb.routing_rule_count], ['Bonds', lb.bond_count]
       ].filter(([, v]) => v).map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('') + (lb.warnings || []).map(w => `<p class="lbx-warn"><i class="bi bi-exclamation-triangle"></i> ${esc(w)}</p>`).join('');
       this.paintTraffic();
+    }
+
+    // ---------------- line actions: bring it online, share the load with it ----------------
+    canAct(l) { return !!(this.cfg.action_url && l.interface); }
+    actionBar(l) {
+      if (!this.canAct(l)) return this.fixLink(l);
+      const b = [];
+      if (['down', 'held', 'broken'].includes(l.state)) b.push(['revive', 'bi-lightning-charge-fill', l.state === 'held' ? 'Put it back in use' : l.state === 'broken' ? 'Repair it' : 'Bring it online', 'primary']);
+      if (['standby', 'no-route', 'held'].includes(l.state)) b.push(['share', 'bi-shuffle', 'Share the load with it', l.state === 'held' ? 'ghost' : 'primary']);
+      if (l.state === 'down') b.push(['share', 'bi-shuffle', 'Bring online & share', 'ghost']);
+      if (!b.length) return `<div class="lbx-acts quiet"><a href="${esc(this.cfg.designer_url)}#lineHub"><i class="bi bi-sliders"></i> Manage this line</a></div>`;
+      return `<div class="lbx-acts">${b.map(([k, ic, t, kind]) => `<button type="button" class="lbx-act ${kind}" data-act="${k}${k === 'share' && l.state === 'down' ? '+revive' : ''}"><i class="bi ${ic}"></i> ${esc(t)}</button>`).join('')}</div>`;
+    }
+    focusLane(id) {
+      const card = this.root.querySelector(`.lbx-lane[data-id="${CSS.escape(id)}"]`); if (!card) return;
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.classList.remove('lbx-flash'); void card.offsetWidth; card.classList.add('lbx-flash');
+      const btn = card.querySelector('[data-act]'); if (btn) setTimeout(() => btn.focus({ preventScroll: true }), 400);
+    }
+    async post(url, body) {
+      try {
+        const res = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() }, body: JSON.stringify(body) });
+        const d = await res.json().catch(() => ({ ok: false, message: `TapTap answered ${res.status}.` }));
+        d.ok = d.ok !== undefined ? d.ok : !!d.success; return d;
+      } catch (e) { return { ok: false, message: 'TapTap could not be reached.' }; }
+    }
+    async start(kind, id) {
+      const l = this.links().find(x => x.id === id); if (!l || (this.missions[id] && this.missions[id].busy)) return;
+      const name = l.isp || l.label || l.interface;
+      const both = kind === 'share+revive';
+      const q = kind === 'revive' ? `Bring ${name} online?\n\nTapTap does what it takes on the router: switches the line on, asks the modem for a fresh address, repairs its routes or puts it back in use. Customers on other lines are not touched.`
+        : `Share the load with ${name}?\n\nTapTap sets the router to share customers over every working line by their speed (“Share the load”), with health checks and a safety timer, and confirms it by itself once the router is still reachable. Each customer stays on one line, so logins and calls keep working.`;
+      if (!window.confirm(q)) return;
+      const m = this.missions[id] = { kind, name, iface: l.interface, busy: true, t0: Date.now(), steps: [] };
+      const step = (key, label, state = 'run') => { const s = m.steps.find(x => x.key === key); if (s) Object.assign(s, { label, state }); else m.steps.push({ key, label, state }); this.paintMission(id); };
+      if (kind === 'revive' || both) {
+        step('ask', `Working out what ${name} needs`);
+        const r = await this.post(this.cfg.action_url, { action: 'revive', interface: l.interface, state: l.state });
+        if (!r.ok) { step('ask', r.message, 'bad'); return this.endMission(id, false, r.message); }
+        step('ask', `Plan for ${name}`, 'done');
+        (r.steps || []).forEach(s => step(s.key, s.label + (r.via_link ? ' — sent through TapTap Link' : ''), s.ok ? 'done' : 'bad'));
+        step('watch', `Watching ${name} come online`);
+        const up = await this.watch(l.interface, st => st !== 'down' && st !== 'broken' && (kind === 'revive' ? st !== 'held' : true), r.via_link ? 150 : 75);
+        step('watch', up ? `${name} is online` : `${name} has not come online yet`, up ? 'done' : 'bad');
+        if (!up) return this.endMission(id, false, `${name} did not come online. Check the modem’s power and cable, or open the Internet Doctor.`);
+        if (!both) return this.endMission(id, true, `${name} is back online.`);
+      }
+      step('plan', 'Building the plan: share by speed, one line per customer, health checks');
+      const r = await this.post(this.cfg.action_url, { action: 'share', interface: l.interface });
+      if (!r.ok) { step('plan', r.message, 'bad'); return this.endMission(id, false, r.message); }
+      step('plan', 'Plan built for ' + (r.lines || []).length + ' lines', 'done');
+      step('apply', r.via_link ? 'Safety timer and new routes on their way through TapTap Link' : 'Safety timer and new routes on the router', r.via_link ? 'run' : 'done');
+      step('confirm', 'Confirming TapTap still reaches the router');
+      let ok = !!(r.wan_status === 'active');
+      if (!ok && this.cfg.wan_status_url) ok = await this.waitWan(id, step, r.via_link ? 600 : 330);
+      step('apply', 'Safety timer and new routes are on the router', 'done');
+      step('confirm', ok ? 'Confirmed — the safety timer is off' : 'Not confirmed: the router put its earlier setup back', ok ? 'done' : 'bad');
+      if (!ok) return this.endMission(id, false, r.message);
+      step('flow', `Waiting for traffic on ${name}`);
+      const flowing = await this.watch(l.interface, st => st === 'active', 90);
+      step('flow', flowing ? `${name} is carrying customers` : `${name} is in the sharing — new customers land on it as they connect`, 'done');
+      this.endMission(id, true, r.message);
+    }
+    async watch(iface, good, seconds) {
+      const until = Date.now() + seconds * 1000;
+      while (Date.now() < until) {
+        const now = this.links().filter(x => x.interface === iface).map(x => x.state);
+        if (now.length && now.some(good)) return true;
+        await new Promise(res => setTimeout(res, 3000));
+      }
+      return false;
+    }
+    async waitWan(id, step, seconds) {
+      const until = Date.now() + seconds * 1000;
+      while (Date.now() < until) {
+        try {
+          const d = await (await fetch(this.cfg.wan_status_url, { credentials: 'same-origin', cache: 'no-store' })).json();
+          if (d.status === 'active') return true;
+          if (d.status === 'undone' || d.status === 'failed') return false;
+          if (d.message) step('confirm', d.message);
+        } catch (e) { /* the router may be busy switching lines: try again */ }
+        await new Promise(res => setTimeout(res, 5000));
+      }
+      return false;
+    }
+    endMission(id, ok, text) {
+      const m = this.missions[id]; if (!m) return;
+      m.busy = false; m.ok = ok; m.text = text; this.paintMission(id);
+      const p = this.paths && this.paths[id];
+      if (ok && p && p.isp) { p.isp.classList.remove('lbx-won'); void p.isp.getBBox(); p.isp.classList.add('lbx-won'); }
+      clearTimeout(m.close); m.close = setTimeout(() => { if (this.missions[id] === m && !m.busy) { delete this.missions[id]; this.paintMission(id); } }, ok ? 12000 : 30000);
+    }
+    paintMission(id) {
+      const card = this.root.querySelector(`.lbx-lane[data-id="${CSS.escape(id)}"]`); if (!card) return;
+      const box = card.querySelector('.lbx-mission'), bar = card.querySelector('.lbx-acts'), m = this.missions[id];
+      card.classList.toggle('lbx-on-mission', !!m);
+      if (!m) { box.hidden = true; box.innerHTML = ''; if (bar) bar.hidden = false; return; }
+      if (bar) bar.hidden = true; box.hidden = false;
+      const ICON = { run: 'bi-arrow-repeat', done: 'bi-check-circle-fill', bad: 'bi-x-circle-fill' };
+      const secs = Math.round((Date.now() - m.t0) / 1000);
+      box.innerHTML = `<div class="lbx-m-head"><b>${m.busy ? (m.kind === 'revive' ? 'Bringing ' : 'Sharing the load with ') + esc(m.name) + '…' : m.ok ? 'Done' : 'Stopped'}</b><small>${secs}s</small></div>
+        <ol class="lbx-m-steps">${m.steps.map(s => `<li class="st-${s.state}"><i class="bi ${ICON[s.state]}"></i><span>${esc(s.label)}</span></li>`).join('')}</ol>
+        ${m.text && !m.busy ? `<p class="lbx-m-end ${m.ok ? 'ok' : 'bad'}">${esc(m.text)}</p><button type="button" class="lbx-m-close">Close</button>` : ''}`;
+      const c = box.querySelector('.lbx-m-close'); if (c) c.onclick = () => { delete this.missions[id]; this.paintMission(id); };
     }
 
     fixLink(l) {

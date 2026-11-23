@@ -217,28 +217,60 @@ class VirtualRouter:
         return best
 
     def wan_interfaces(self):
-        """Ports the default route leaves through."""
-        out = []
-        for r in self.live('/ip/route'):
+        """Ports the default route leaves through — the active / lowest-distance one first.
+
+        RouterOS 7 writes a gateway looked up in another table as "192.168.1.1@starlink2", and TapTap's health-checked
+        lines go "through" a check host (gateway=1.1.1.1, which /32 route sends 1.1.1.1 out of a port). Before, both
+        were taken for port names: every packet test left through a port that does not exist, no NAT rule matched it,
+        and each Internet line tile showed "without NAT no answer comes back" although NAT was there."""
+        names = set(self.interfaces())
+        routes = self.live('/ip/route')
+
+        def port_of(gw, depth=0):
+            gw = str(gw or '').split(',')[0].strip()
+            if '%' in gw:
+                return gw.split('%', 1)[1].split('@', 1)[0].strip()
+            gw = gw.split('@', 1)[0].strip()
+            if not gw:
+                return ''
+            try:
+                ipaddress.IPv4Address(gw)
+            except ValueError:
+                return gw if gw in names else ''            # the gateway is a port name (pppoe-out1)
+            hit = self.connected(gw)
+            if hit:
+                return hit[1]
+            if depth < 2:                                   # recursive: the /32 route of the check host decides the port
+                for r in routes:
+                    if str(r.get('dst-address', '')) == f'{gw}/32' and r.get('gateway'):
+                        port = port_of(r.get('immediate-gw') or r.get('gateway'), depth + 1)
+                        if port:
+                            return port
+            return ''
+
+        ranked = []
+        for r in routes:
             if str(r.get('dst-address', '')) != '0.0.0.0/0' or not r.get('gateway'):
                 continue
-            gw = str(r.get('immediate-gw') or r.get('gateway'))
-            if '%' in gw:
-                out.append(gw.split('%', 1)[1])
+            table = str(r.get('routing-table') or r.get('routing-mark') or 'main')
+            if table != 'main':
                 continue
-            try:
-                hit = self.connected(gw.split(',')[0])
-                if hit:
-                    out.append(hit[1])
-            except ValueError:
-                out.append(gw)                           # the gateway is an interface name (pppoe-out1)
+            port = port_of(r.get('immediate-gw') or r.get('gateway'))
+            if port:
+                active = 0 if str(r.get('active', 'true')).lower() in ('true', 'yes') else 1
+                try:
+                    distance = int(r.get('distance') or 1)
+                except ValueError:
+                    distance = 1
+                ranked.append((active, distance, port))
+        out = [p for _a, _d, p in sorted(ranked, key=lambda x: (x[0], x[1]))]
         for r in self.live('/ip/dhcp-client'):
             if str(r.get('add-default-route', 'yes')).lower() != 'no' and r.get('interface'):
                 out.append(r['interface'])
         for r in self.live('/interface/pppoe-client'):
             if yes(r.get('add-default-route', 'no')) and r.get('name'):
                 out.append(r['name'])
-        return list(dict.fromkeys(out))
+        return [p for p in dict.fromkeys(out) if p]
 
     def list_members(self, name):
         if name in ('all', 'static', 'dynamic'):
@@ -262,7 +294,7 @@ class VirtualRouter:
         return False
 
     # ── one packet ──
-    def trace(self, src_ip='', in_if='', dst='internet', proto='tcp', port=443, mac='', host='', logged_in=False):
+    def trace(self, src_ip='', in_if='', dst='internet', proto='tcp', port=443, mac='', host='', logged_in=False, via=''):
         steps = []
 
         def say(stage, text, level='ok', rule=None):
@@ -354,6 +386,9 @@ class VirtualRouter:
             if hit:
                 p['out'] = hit[1]
                 say('route', f'{p["dst"]} is on the network of {hit[1]}.')
+            elif via and via in wans:
+                p['out'] = via
+                say('route', f'Not a local address: it leaves through the internet line {via}.')
             elif wans:
                 p['out'] = wans[0]
                 say('route', f'Not a local address: it leaves through the internet line {wans[0]}.')
@@ -715,9 +750,13 @@ def examine(base_state, ops, board=(), router=None, trusted=()):
                 find('info', f'The internet line {wan} has no address in this picture, so the open port cannot be tried here.', tid)
         elif kind in ('wan_dhcp', 'wan_pppoe', 'wan_static'):
             src = _any_lan(after, after.wan_interfaces())
+            line = str(p.get('port') or '')
+            if kind == 'wan_pppoe':
+                from .config_studio_tiles import slug
+                line = f'pppoe-{slug(line)}'
             if src:
-                test(f'A local device ({src[0]}) opens a website through the new line', 'reaches',
-                     after.trace(src_ip=src[0], in_if=src[1], logged_in=True), tid)
+                test(f'A local device ({src[0]}) opens a website through {line or "the new line"}', 'reaches',
+                     after.trace(src_ip=src[0], in_if=src[1], logged_in=True, via=line), tid)
     for t in tests:
         if not t['pass'] and not t.get('lifeline'):
             find('bad' if t['want'] == 'reaches' else 'warn',

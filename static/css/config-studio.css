@@ -145,3 +145,24 @@
 
 @media(max-width:1250px){.cs-grid{grid-template-columns:220px minmax(0,1fr)}.cs-side{grid-column:1/-1;position:static;max-height:none;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}}
 @media(max-width:800px){.cs-grid{grid-template-columns:1fr}.cs-shelf{position:static;max-height:300px}.cs-menus{grid-template-columns:1fr}.cs-menu-list{max-height:180px}.cs-tile{grid-template-columns:16px 30px minmax(0,1fr)}.cs-tile-tools{grid-column:1/-1;justify-content:flex-end;opacity:1}.cs-legend{margin-left:0}.cs-sentence{font-size:.92rem}}
+
+/* deploy timeline (TapTap Link) */
+.cs-live.cs-tl{display:block}
+.cs-tl-head{display:flex;gap:10px;align-items:center}
+.cs-tl-bar{height:6px;border-radius:99px;background:rgba(13,110,253,.15);margin:10px 0 8px;overflow:hidden}
+.cs-tl-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#0d6efd,#20c997);transition:width .8s cubic-bezier(.2,.8,.2,1);
+  background-size:200% 100%;animation:csFlow 1.6s linear infinite}
+@keyframes csFlow{to{background-position:-200% 0}}
+.cs-tl-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.cs-tl-steps li{display:grid;grid-template-columns:18px 1fr auto;gap:8px;align-items:center;font-size:.76rem;padding:3px 6px;border-radius:8px;transition:background .3s}
+.cs-tl-steps li em{font-style:normal;font-size:.66rem;opacity:.65}
+.cs-tl-steps li.st-done i{color:#198754}.cs-tl-steps li.st-bad i{color:#dc3545}.cs-tl-steps li.st-lost i{color:#d98a00}
+.cs-tl-steps li.st-wait{opacity:.6}.cs-tl-steps li.st-run{background:rgba(13,110,253,.08)}
+.cs-tl-steps li.st-run i{color:#0d6efd;display:inline-block;animation:csSpin 1s linear infinite}
+.cs-tl-steps li.st-done{animation:csLand .5s ease}
+@keyframes csSpin{to{transform:rotate(360deg)}}
+@keyframes csLand{40%{background:rgba(25,135,84,.15)}}
+.cs-tl-foot{display:block;margin-top:8px;font-size:.68rem;opacity:.7}
+.cs-autokeep{display:flex;gap:8px;align-items:flex-start;border:1px solid rgba(25,135,84,.35);background:rgba(25,135,84,.06);border-radius:10px;padding:8px 10px;margin-top:6px;font-size:.82rem}
+.cs-autokeep input{margin-top:3px}.cs-autokeep small{opacity:.75}
+@media(prefers-reduced-motion:reduce){.cs-tl-bar i,.cs-tl-steps li.st-run i{animation:none}}

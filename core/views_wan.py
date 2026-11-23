@@ -188,22 +188,40 @@ def _audit(request, router, op, fields, ok=True, error=''):
 def wan_apply(request, pk):
     router = _router(request, pk); setup = _setup(router); data = _body(request)
     minutes = 0 if data.get('undo_minutes') in (0, '0') else max(2, min(15, int(data.get('undo_minutes') or 5)))
+    out, status = apply_lines(router, setup, data.get('config'), request.user, minutes)
+    return JsonResponse(out, status=status)
+
+
+class _Actor:
+    def __init__(self, user):
+        self.user = user
+
+
+def apply_lines(router, setup, config, user, minutes=5, auto_confirm=False):
+    """Apply an Internet lines design (the designer's Apply, and Line Hub's "Share the load"). → (JSON dict, HTTP status).
+
+    ``auto_confirm``: over a live connection the safety timer is removed by itself once TapTap reaches the router again
+    on a fresh connection AND at least one line answers its health check; otherwise the timer stays and undoes the
+    change. Through TapTap Link the change always confirms itself once the router stays online (core/wan_link.py)."""
+    request = _Actor(user)
+    data = {'config': config}
     if router.connection_mode == 'agent' and not minutes:
         # Over TapTap Tunnel a bad WAN change can cut the tunnel itself, so the
         # on-router safety timer is mandatory: it undoes the change unless TapTap
         # can confirm through the tunnel afterwards.
         minutes = 5
     if _on_link(router):
-        return _apply_via_link(request, router, setup, data, minutes)
+        resp = _apply_via_link(request, router, setup, data, minutes)
+        return json.loads(resp.content), resp.status_code
     try:
         svc = MikroTikService(router).connect()
     except Exception as exc:
-        return JsonResponse({'success': False, 'message': f'Could not reach {router.name}: {exc}'}, status=502)
+        return {'success': False, 'message': f'Could not reach {router.name}: {exc}'}, 502
     try:
         facts = wan.detect(svc); facts.pop('analysis', None)
         cfg, errors, warnings = wan.normalize(data.get('config') or setup.config or {}, facts)
         if errors:
-            return JsonResponse({'success': False, 'message': ' '.join(errors)}, status=400)
+            return {'success': False, 'message': ' '.join(errors)}, 400
         # Keep the very first "before" state across re-applies, so undo always returns to the owner's own setup.
         original = setup.original if setup.original and setup.status in {'pending', 'active'} else wan.capture_original(svc, cfg, facts)
         plan = wan.build_plan(cfg, facts)
@@ -211,34 +229,38 @@ def wan_apply(request, pk):
     except wan.WanError as exc:
         setup.status = 'failed'; setup.last_result = {'error': str(exc)}; setup.save()
         _audit(request, router, 'apply', {'strategy': (data.get('config') or {}).get('strategy')}, False, str(exc))
-        return JsonResponse({'success': False, 'message': str(exc)}, status=500)
+        return {'success': False, 'message': str(exc)}, 500
     except Exception as exc:
-        return JsonResponse({'success': False, 'message': f'Unexpected error: {exc}'}, status=500)
+        return {'success': False, 'message': f'Unexpected error: {exc}'}, 500
     finally:
         svc.close()
 
     now = timezone.now()
     setup.config = data.get('config') or setup.config; setup.facts = facts; setup.original = original; setup.run_id = plan['run']
-    setup.status = 'pending' if minutes else 'active'; setup.applied_at = now; setup.applied_by = request.user
+    setup.status = 'pending' if minutes else 'active'; setup.applied_at = now; setup.applied_by = user
     setup.confirm_by = now + timedelta(minutes=minutes) if minutes else None; setup.confirmed_at = None if minutes else now
     # Re-connect on a fresh session: proves TapTap can still reach the router through the new routing.
-    reach, lines = False, []
+    reach, lines, confirmed = False, [], False
     try:
         svc2 = MikroTikService(router).connect()
         try:
             reach = True; lines = wan.health(svc2, cfg)
             lb = svc2.analyze_load_balancing()
             RouterConfigSnapshot.objects.filter(router=router).update(load_balancing=lb)
+            if auto_confirm and minutes and any((h.get('ping') or {}).get('ok') for h in lines):
+                confirmed = wan.confirm(svc2)
         finally:
             svc2.close()
     except Exception as exc:
         lines = [{'error': str(exc)}]
-    setup.last_result = {**result, 'reachable_after': reach, 'health': lines, 'warnings': warnings}
+    if confirmed:
+        setup.status, setup.confirmed_at, setup.confirm_by = 'active', timezone.now(), None
+    setup.last_result = {**result, 'reachable_after': reach, 'health': lines, 'warnings': warnings, 'auto_confirmed': confirmed}
     setup.save()
     _audit(request, router, 'apply', {'strategy': cfg['strategy'], 'lines': [l['interface'] for l in cfg['links']], 'run': plan['run'], 'undo_minutes': minutes})
     log(router.business, 'Internet Lines Applied', f'{router.name}: {wan.STRATEGIES[cfg["strategy"]]} on ' + ', '.join(l['label'] for l in cfg['links']), router=router)
-    return JsonResponse({'success': True, 'status': setup.status, 'confirm_by': setup.confirm_by.isoformat() if setup.confirm_by else None,
-                         'reachable_after': reach, 'health': lines, 'counts': result['counts'], 'notes': result['notes']})
+    return {'success': True, 'status': setup.status, 'confirm_by': setup.confirm_by.isoformat() if setup.confirm_by else None,
+            'reachable_after': reach, 'health': lines, 'counts': result['counts'], 'notes': result['notes'], 'auto_confirmed': confirmed}, 200
 
 
 def _apply_via_link(request, router, setup, data, minutes):
