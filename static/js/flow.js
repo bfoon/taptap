@@ -7,7 +7,7 @@
 (function () {
   'use strict';
   var U = { lab: '/flow/lab/', run: '/flow/lab/run/', verdict: '/flow/lab/verdict/', live: '/flow/live/', test: '/flow/test/', line: '/flow/line/',
-            lines: '/flow/lines/', idle: '/flow/idle/', slow: '/flow/slow/', scan: '/flow/slow/scan/', dhcp: '/flow/dhcp/' };
+            lines: '/flow/lines/boards/', move: '/flow/lines/move/', idle: '/flow/idle/', slow: '/flow/slow/', scan: '/flow/slow/scan/', dhcp: '/flow/dhcp/' };
   var ICON = { bad: 'bi-x-octagon-fill', warn: 'bi-exclamation-triangle-fill', ok: 'bi-check-circle-fill', info: 'bi-info-circle-fill' };
 
   // ─────────── helpers ───────────
@@ -612,53 +612,32 @@
   };
 
   Tabs.prototype.lines = function (pane, d) {
+    // Line Board (static/js/line-board.js): customers grouped by the line they really use; drag one or many to another line.
     var self = this, body = pane.querySelector('.fl-body');
-    body.innerHTML = (d.setup ? '<div class="fl-warnline"><i class="bi bi-tools"></i> ' + esc(d.setup) + '</div>' : '') + d.routers.map(function (r) {
-      if (!r.multi) return '<section class="panel ln-router"><div class="ln-head"><h3><i class="bi bi-router"></i> ' + esc(r.router) + '</h3><a class="btn btn-sm btn-outline-primary" href="' + esc(r.design_url) + '"><i class="bi bi-diagram-3"></i> Internet lines</a></div>' +
-        '<p class="fl-note mb-0">' + esc(r.why) + '</p></section>';
-      var lines = r.lines.map(function (l, li) {
-        var other = r.lines[(li + 1) % r.lines.length];
-        return '<div class="ln-line"><h4><i class="bi bi-signpost-split"></i> ' + esc(l.label) + '</h4>' +
-          '<div class="ln-fig"><div><b>' + l.customers + '</b><span>customers now</span></div><div><b>' + esc(l.down) + '</b><span>download</span></div><div><b>' + esc(l.up) + '</b><span>upload</span></div></div>' +
-          '<div class="ln-share" title="Bar: share of customers now. Mark: the share you designed."><i style="width:' + l.real + '%"></i><u style="left:calc(' + l.share + '% - 1px)"></u></div>' +
-          '<small class="fl-note">' + l.real + '% of customers now · designed for ' + l.share + '%</small>' +
-          '<ul class="ln-people">' + (l.people.length ? l.people.map(function (p) {
-            return '<li><span><b class="fl-code">' + esc(p.code) + '</b> <small>' + esc(p.ip) + ' · ↓ ' + esc(p.down) + (p.mixed ? ' · partly' : '') + '</small></span>' +
-              '<span class="d-flex gap-1">' + (d.can_switch ? '<button type="button" class="btn btn-sm btn-outline-primary py-0" title="Move to ' + esc(other.label) + '" data-move="' + attr({ router: r.router_id, ip: p.ip, mac: p.mac, code: p.code, mark: other.mark, label: other.label, current: l.mark }) + '"><i class="bi bi-arrow-right-circle"></i> ' + esc(other.label) + '</button>' : '') +
-              '<button type="button" class="btn btn-sm btn-light py-0" title="Connection lab" data-lab-open="' + attr({ router: r.router_id, ip: p.ip, mac: p.mac, code: p.code }) + '"><i class="bi bi-activity"></i></button></span></li>';
-          }).join('') : '<li class="fl-note">Nobody seen on this line in the last minute.</li>') + '</ul></div>';
-      }).join('');
-      var pins = r.pins.length ? '<div class="ln-pins"><b><i class="bi bi-pin-angle-fill"></i> Switched by hand (' + r.pins.length + ')</b>' + r.pins.map(function (p) {
-        return '<div class="ln-pin"><span><b class="fl-code">' + esc(p.code || p.mac || p.ip) + '</b> kept on <b>' + esc(p.label) + '</b>' + (p.from ? ' <small class="text-secondary">(was ' + esc(p.from) + ')</small>' : '') +
-          ' <small class="text-secondary">· ' + esc(ago(p.since)) + (p.by ? ' by ' + esc(p.by) : '') + (p.confirmed ? '' : ' · waiting for the router') + '</small></span>' +
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-auto="' + attr({ router: r.router_id, ip: p.ip, mac: p.mac, code: p.code }) + '"><i class="bi bi-arrow-counterclockwise"></i> Back to automatic</button></div>';
-      }).join('') + '</div>' : '';
-      return '<section class="panel ln-router" data-router="' + r.router_id + '"><div class="ln-head"><div><h3><i class="bi bi-router"></i> ' + esc(r.router) + '</h3><small class="fl-note">' + esc(r.via) + ' · ' + r.placed + ' of ' + r.online + ' customers placed on a line' +
-        (r.seen_at ? ' · sampled ' + esc(ago(r.seen_at)) : ' · waiting for the first traffic sample (up to a minute)') + '</small></div>' +
-        '<a class="btn btn-sm btn-outline-primary" href="' + esc(r.design_url) + '"><i class="bi bi-diagram-3"></i> Change the sharing</a></div>' +
-        (r.stale ? stale([r.router]) : '') + '<div class="ln-grid">' + lines + '</div>' + pins + '<div class="ln-out mt-2"></div>' +
-        (!r.sticky ? '<p class="fl-note mt-2 mb-0">This router shares connection by connection: each customer is shown on the line most of their connections use.</p>' : '') + '</section>';
-    }).join('') || '<div class="fl-empty">No router yet.</div>';
-    function act(btn, body2, question) {
-      var sec = btn.closest('.ln-router'), out = sec.querySelector('.ln-out');
-      if (question && !window.confirm(question)) return;
-      [].forEach.call(sec.querySelectorAll('button'), function (b) { b.disabled = true; });
-      out.innerHTML = '<div class="dh-res wait"><span class="spinner-border spinner-border-sm"></span> Sending to the router…</div>';
-      api(U.line, body2).then(function (r) {
-        if (!r.ok) { out.innerHTML = '<div class="dh-res bad">' + esc(r.message) + '</div>'; [].forEach.call(sec.querySelectorAll('button'), function (b) { b.disabled = false; }); return; }
-        follow(r.test).then(function (t) {
-          self.lineNote = t.status === 'done' ? '<div class="dh-res ' + (t.result.failed_step ? 'bad' : 'ok') + '"><b>' + esc(body2.code || body2.ip) + ': ' + esc(t.result.title) + '</b><br>' + esc(t.result.note || '') + '</div>' : '<div class="dh-res bad">' + esc(failText(t)) + '</div>';
-          self.lineNoteFor = body2.router; self.load('lines', true);
+    if (!window.TTBoard) { body.innerHTML = '<div class="alert alert-warning">The line board did not load — reload the page.</div>'; return; }
+    this.boards = this.boards || {};
+    var keep = {};
+    if (!d.routers.length) { body.innerHTML = '<div class="fl-empty">No router yet.</div>'; this.boards = {}; return; }
+    d.routers.forEach(function (r) {
+      keep[r.router_id] = 1;
+      var sec = body.querySelector('.ln-router[data-router="' + r.router_id + '"]');
+      if (!sec || !self.boards[r.router_id]) {
+        if (!body.querySelector('.ln-router')) body.innerHTML = '';
+        sec = document.createElement('section');
+        sec.className = 'panel ln-router'; sec.setAttribute('data-router', r.router_id);
+        sec.innerHTML = '<div class="ln-head"><div><h3><i class="bi bi-router"></i> ' + esc(r.router) + '</h3><small class="fl-note">' + esc(r.via || '') + '</small></div>' +
+          '<a class="btn btn-sm btn-outline-primary" href="' + esc(r.design_url) + '"><i class="bi bi-diagram-3"></i> Gateways &amp; sharing</a></div><div class="ln-board"></div>';
+        body.appendChild(sec);
+        self.boards[r.router_id] = TTBoard.mount(sec.querySelector('.ln-board'), {
+          move: function (payload) { return api(U.move, Object.assign({ router: r.router_id }, payload)); },
+          onDone: function () { setTimeout(function () { self.load('lines', true); }, 3500); setTimeout(function () { self.load('lines', true); }, 12000); }
         });
-      });
-    }
-    [].forEach.call(body.querySelectorAll('[data-move]'), function (b) {
-      b.addEventListener('click', function () { var p = JSON.parse(b.getAttribute('data-move')); act(b, Object.assign({ action: 'switch' }, p), 'Move ' + (p.code || p.ip) + ' to ' + p.label + '?\n\nIts open connections are closed so it changes line at once.'); });
+      }
+      self.boards[r.router_id].render(r);
     });
-    [].forEach.call(body.querySelectorAll('[data-auto]'), function (b) {
-      b.addEventListener('click', function () { act(b, Object.assign({ action: 'auto' }, JSON.parse(b.getAttribute('data-auto')))); });
+    Object.keys(this.boards).forEach(function (id) {
+      if (!keep[id]) { var s = body.querySelector('.ln-router[data-router="' + id + '"]'); if (s) s.remove(); delete self.boards[id]; }
     });
-    if (this.lineNote) { var o = body.querySelector('.ln-router[data-router="' + this.lineNoteFor + '"] .ln-out') || body.querySelector('.ln-out'); if (o) o.innerHTML = this.lineNote; this.lineNote = ''; }
   };
 
   // ─────────── mount ───────────

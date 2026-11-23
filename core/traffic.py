@@ -297,7 +297,7 @@ def _dns_map(router, svc):
 def _connections(svc):
     res = svc.resource('/ip/firewall/connection')
     try:
-        rows = res.call('print', {'.proplist': '.id,src-address,dst-address,reply-src-address,protocol,orig-bytes,repl-bytes,connection-mark'})
+        rows = res.call('print', {'.proplist': '.id,src-address,dst-address,reply-src-address,reply-dst-address,protocol,orig-bytes,repl-bytes,connection-mark'})
         if rows is not None:
             return rows
     except Exception:
@@ -435,6 +435,7 @@ def ingest_connections(router, conns, dns, now):
     per_dev = defaultdict(lambda: [0, 0])     # (client ip, app, category, domain) → [down, up]
     busy = defaultdict(int)                    # busy connections per customer (Internet sharing signal)
     lanes = defaultdict(lambda: defaultdict(int))   # client ip → {connection mark: connections} (core/line_steer.py)
+    nat = defaultdict(lambda: defaultdict(int))     # client ip → {address it leaves from: connections} (core/line_hub.py)
     for c in conns:
         cid = str(c.get('id') or c.get('.id') or '')
         src_ip, _ = _split_addr(c.get('src-address'))
@@ -445,6 +446,9 @@ def ingest_connections(router, conns, dns, now):
         mark = str(c.get('connection-mark') or '')
         if mark:
             lanes[src_ip][mark] += 1
+        out_ip = _split_addr(c.get('reply-dst-address'))[0]
+        if out_ip and out_ip != src_ip:
+            nat[src_ip][out_ip] += 1                # masqueraded: the reply comes back to the internet line's own address
         up, down = _int(c.get('orig-bytes')), _int(c.get('repl-bytes'))
         if up + down < 1024:
             continue
@@ -469,6 +473,11 @@ def ingest_connections(router, conns, dns, now):
     try:
         from .line_steer import note_marks
         note_marks(router, lanes, now)
+    except Exception:
+        pass
+    try:
+        from .line_hub import note_nat
+        note_nat(router, nat, now)
     except Exception:
         pass
     if not agg:

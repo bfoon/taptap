@@ -162,7 +162,7 @@ def resolve_gateways(route, networks=None, dhcp_gateways=None, interfaces=None, 
             continue
         if '%' in piece:
             ip, iface = piece.split('%', 1)
-            immediate_map[ip.strip()] = iface.strip()
+            immediate_map[ip.split('@', 1)[0].strip()] = iface.split('@', 1)[0].strip()
         else:
             immediate_map.setdefault('*', piece)
     status_map = {}
@@ -171,7 +171,7 @@ def resolve_gateways(route, networks=None, dhcp_gateways=None, interfaces=None, 
         if match:
             via, last = match.group(3) or '', match.group(4) or ''
             iface = last or ('' if is_ip(via) else via)      # "recursive via 192.168.8.1 ether3" → ether3
-            status_map[match.group(1)] = (iface, match.group(2).lower() != 'unreachable')
+            status_map[match.group(1).split('@', 1)[0]] = (iface, match.group(2).lower() != 'unreachable')
 
     # ``reachable`` means "not known to be dead". An inactive v7 backup route is
     # normal in failover, so only an explicit 'unreachable' or a down interface
@@ -181,6 +181,11 @@ def resolve_gateways(route, networks=None, dhcp_gateways=None, interfaces=None, 
     if not pieces and immediate_map:
         pieces = list(immediate_map.keys())
     for piece in pieces:
+        # RouterOS 7 writes a gateway looked up in another table as "192.168.1.1@starlink2". The part after "@" is a
+        # routing table, not a port: before, the whole text was taken for an interface name and Internet lines showed
+        # a line called "192.168.1.1@starlink2" that could never be applied.
+        if '@' in piece:
+            piece = piece.split('@', 1)[0].strip()
         ip, iface = piece, ''
         if '%' in piece:
             ip, iface = [x.strip() for x in piece.split('%', 1)]

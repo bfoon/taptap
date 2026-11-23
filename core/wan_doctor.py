@@ -731,8 +731,10 @@ def line_routes(svc, iface):
     """TapTap's routes for one line: its health-check /32 routes and its default routes.
     Works for current Internet Lines routes ('TapTap WAN …') and older ones ('TapTap <label> pinned')."""
     rows = svc.resource('/ip/route').get()
+    # A PPPoE line's check route goes straight to the port (gateway=pppoe-out1, no "%"): before, such a line was never
+    # recognised, so it always looked "out of use" and "Put in use" said it had no TapTap routes.
     checks = [r for r in rows if _managed(r) and _s(r.get('dst-address')).endswith('/32')
-              and _s(r.get('gateway')).endswith('%' + iface)]
+              and (_s(r.get('gateway')).endswith('%' + iface) or _s(r.get('gateway')) == iface)]
     hosts = {_s(r.get('dst-address')).split('/')[0] for r in checks}
     defaults = [r for r in rows if _managed(r) and _s(r.get('dst-address')) == '0.0.0.0/0'
                 and (_s(r.get('gateway')) in hosts or _s(r.get('gateway')).endswith('%' + iface) or _s(r.get('gateway')) == iface)]
@@ -912,7 +914,7 @@ def link_body(p):
     match = (f':local g [:tostr [/ip route get $r gateway]]; :if (([:typeof [:find $hosts $g]] = "num") || '
              f'($g ~ ("%" . {q} . "\\$")) || ($g = {q})) do={{ ')
     hosts = (f':local hosts [:toarray ""]; :foreach r in=[/ip route find where dynamic=no and comment~"^TapTap" and '
-             f'!(comment~"^TapTap Doctor") and dst-address~"/32" and gateway~("%" . {q} . "\\$")] do={{ '
+             f'!(comment~"^TapTap Doctor") and dst-address~"/32" and gateway~("(^|%)" . {q} . "\\$")] do={{ '
              + ('/ip route set $r disabled=no; ' if step == 'use' else '')
              + ':local d [:tostr [/ip route get $r dst-address]]; :set hosts ($hosts, [:pick $d 0 [:find $d "/"]]) }')
     if step == 'use':

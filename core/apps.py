@@ -81,6 +81,7 @@ class CoreConfig(AppConfig):
         _install_optional("router_assign")
         _install_optional("wan_doctor")      # Internet Doctor: hooks Internet Lines apply/undo/script and adds a Fit tool
         _install_optional("wan_link")          # Internet lines through TapTap Link, with an on-router undo timer
+        _install_optional("line_hub")          # Line Hub: every gateway, who is on which line, moves, NAT / firewall / DHCP / TapTap's line
         _install_optional("voucher_fastlane")   # voucher changes reach the router at once; newest Link command wins; real reset
         _install_optional("member_sync")        # members too: catches QuerySet.update() changes; exact member sender
         _install_optional("voucher_ready")      # login guarantee: voucher on the router before the login; refused logins heal; retries

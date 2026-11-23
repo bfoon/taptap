@@ -5,6 +5,7 @@
 {% block extra_head %}
 <link href="{% static 'css/traffic.css' %}?v=3" rel="stylesheet">
 <link href="{% static 'css/flow.css' %}?v=4" rel="stylesheet">
+<link href="{% static 'css/line-hub.css' %}?v=1" rel="stylesheet">
 
 {% endblock %}
 {% block content %}
@@ -33,7 +34,7 @@
 
 <div data-pane="lines" hidden>
   <section class="panel mb-3"><div class="panel-head"><div><h3>Who is on which internet line</h3>
-    <p>For a router that shares customers over several lines, the share you designed next to the share that is really there — and one click to move a customer to another line.</p></div></div>
+    <p>Every customer online, on the line their traffic really leaves through — with the share you designed next to the share that is really there. Drag one customer, or tick many, onto another line to move them.</p></div></div>
     <div class="fl-body"></div></section>
 </div>
 
@@ -159,7 +160,8 @@
 <script src="{% static 'vendor/chart.umd.min.js' %}"></script>
 <script src="{% static 'js/cdn-spread.js' %}" defer></script>
 <script src="{% static 'js/lanes.js' %}?v=1" defer></script>
-<script src="{% static 'js/flow.js' %}?v=4" defer></script>
+<script src="{% static 'js/line-board.js' %}?v=1" defer></script>
+<script src="{% static 'js/flow.js' %}?v=5" defer></script>
 <script src="{% static 'js/traffic-live.js' %}?v=3" data-data-url="{% url 'traffic_data' %}?{{ query }}" data-now-url="{% url 'traffic_now' %}{% if sel_router %}?router={{ sel_router }}{% endif %}"></script>
 
 {% endblock %}

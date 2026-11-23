@@ -24,10 +24,11 @@
       S.lines = d.facts.links.map(function (l, i) {
         var s = byIf[l.interface] || {};
         return { interface: l.interface, type: l.type, gateway: l.type === 'static' ? (s.gateway || l.gateway) : l.gateway, label: s.label || l.label || (l.lte ? '4G / LTE' : l.interface),
-                 speed: s.speed || (l.lte ? 20 : 50), check: s.check || HOSTS[i % HOSTS.length][0], enabled: saved.links ? !!byIf[l.interface] : (l.type !== 'static' || !!l.gateway),
-                 running: l.running, status: l.status, detected: true };
+                 speed: s.speed || (l.lte ? 20 : 50), check: s.check || HOSTS[i % HOSTS.length][0],
+                 enabled: l.missing ? false : saved.links ? (!!byIf[l.interface] && byIf[l.interface].enabled !== false) : (l.type !== 'static' || !!l.gateway),
+                 running: l.running, status: l.status, detected: true, missing: !!l.missing };
       });
-      (saved.links || []).forEach(function (l) { if (!S.lines.some(function (x) { return x.interface === l.interface; })) S.lines.push(Object.assign({ enabled: true, detected: false }, l)); });
+      (saved.links || []).forEach(function (l) { if (!S.lines.some(function (x) { return x.interface === l.interface; })) S.lines.push(Object.assign({ detected: false }, l, { enabled: l.enabled !== false })); });
       if (saved.links) { var order = saved.links.map(function (l) { return l.interface; }); S.lines.sort(function (a, b) { var ia = order.indexOf(a.interface), ib = order.indexOf(b.interface); return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib); }); }
       if (!S.splits.length) S.splits = (d.facts.lans || []).map(function (n) { return { network: n.network, label: n.label, interface: '' }; });
       renderAll();
@@ -51,7 +52,11 @@
       var st = l.detected === false ? '' : (l.running && (l.type !== 'dhcp' || /bound/i.test(l.status || '')) ? 'up' : (l.type === 'static' && l.running ? 'up' : 'down'));
       var hostOpts = HOSTS.map(function (h) { return '<option value="' + h[0] + '"' + (l.check === h[0] ? ' selected' : '') + '>' + h[0] + ' · ' + h[1] + '</option>'; }).join('');
       if (l.check && !HOSTS.some(function (h) { return h[0] === l.check; })) hostOpts += '<option selected>' + esc(l.check) + '</option>';
-      return '<div class="line-card ' + (l.enabled ? 'on' : 'off') + '" data-i="' + i + '"><div class="tog"><input type="checkbox" data-f="enabled"' + (l.enabled ? ' checked' : '') + ' aria-label="Use ' + esc(l.label) + '"></div>' +
+      if (l.missing) return '<div class="line-card off missing" data-i="' + i + '" data-if="' + esc(l.interface) + '"><div class="tog"><input type="checkbox" disabled aria-label="Port missing"></div>' +
+        '<div class="top"><b class="px-1">' + esc(l.interface) + '</b><span class="typ">' + ({ dhcp: 'DHCP', pppoe: 'PPPoE', static: 'Static' }[l.type]) + '</span><span class="dot down"></span><small class="text-danger fw-bold">port missing</small></div>' +
+        '<div class="small text-secondary mt-1">A client left behind on a port that no longer exists. It can never carry customers. ' +
+        '<button type="button" class="btn btn-link btn-sm p-0 text-danger align-baseline" data-hubdel="' + esc(l.interface) + '"><i class="bi bi-trash3"></i> Delete it</button></div></div>';
+      return '<div class="line-card ' + (l.enabled ? 'on' : 'off') + '" data-i="' + i + '" data-if="' + esc(l.interface) + '"><div class="tog"><input type="checkbox" data-f="enabled"' + (l.enabled ? ' checked' : '') + ' aria-label="Use ' + esc(l.label) + '"></div>' +
         '<div class="top"><input class="nm" data-f="label" value="' + esc(l.label) + '" list="isps" aria-label="Line name">' +
         (l.detected === false ? '<input class="form-control form-control-sm" style="max-width:140px" data-f="interface" value="' + esc(l.interface) + '" placeholder="interface e.g. ether2" aria-label="Interface">' +
           '<select class="form-select form-select-sm" style="max-width:110px" data-f="type" aria-label="Type"><option value="static"' + (l.type === 'static' ? ' selected' : '') + '>Static</option><option value="dhcp"' + (l.type === 'dhcp' ? ' selected' : '') + '>DHCP</option><option value="pppoe"' + (l.type === 'pppoe' ? ' selected' : '') + '>PPPoE</option></select>' +
@@ -72,10 +77,26 @@
         });
       });
       var rm = $('[data-rm]', card); if (rm) rm.onclick = function () { S.lines.splice(+card.dataset.i, 1); renderAll(); };
+      var hd = $('[data-hubdel]', card); if (hd) hd.onclick = function () { document.dispatchEvent(new CustomEvent('tt:hub-open', { detail: { interface: hd.dataset.hubdel } })); };
     });
   }
   $('#addLine').onclick = function () { var used = S.lines.map(function (l) { return l.check; }); S.lines.push({ interface: '', type: 'static', gateway: '', label: 'New line', speed: 20, enabled: true, detected: false, check: (HOSTS.filter(function (h) { return used.indexOf(h[0]) < 0; })[0] || HOSTS[0])[0] }); renderAll(); };
   $('#redetect').onclick = detect;
+  document.addEventListener('tt:wan-redetect', function (e) {
+    var d = (e && e.detail) || {};
+    if (d.config && d.config.links) { saved = d.config; }
+    else if (d.removed && saved.links) { saved.links = saved.links.filter(function (l) { return l.interface !== d.removed; }); }
+    if (d.removed) { S.lines = S.lines.filter(function (l) { return l.interface !== d.removed; }); delete S.weights[d.removed]; }
+    detect();
+  });
+  document.addEventListener('tt:wan-main', function (e) {
+    var id = e.detail && e.detail.interface, i = S.lines.findIndex(function (l) { return l.interface === id; });
+    if (i < 0) return;
+    var l = S.lines.splice(i, 1)[0]; l.enabled = true; S.lines.unshift(l);
+    if (S.strategy !== 'balance' && S.strategy !== 'ecmp' && S.strategy !== 'split') S.strategy = 'failover';
+    S.touchedStrategy = true; renderAll();
+    var st = document.getElementById('step3'); if (st) { st.scrollIntoView({ behavior: 'smooth', block: 'start' }); st.classList.add('lh-flash'); setTimeout(function () { st.classList.remove('lh-flash'); }, 1800); }
+  });
   $('#health').onchange = function () { S.health = this.checked; preview(); };
 
   function enabled() { return S.lines.filter(function (l) { return l.enabled; }); }

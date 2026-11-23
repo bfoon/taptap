@@ -87,7 +87,7 @@ def dhcp_gateway(client, explicit=None, routes=()):
     route, a TapTap route written for this port (…%ether1 / gw=ether1;), and the DHCP server address."""
     iface = _s(client.get('interface'))
     for v in (client.get('gateway'), (explicit or {}).get('gateway')):
-        v = _s(v).split('%')[0]
+        v = _s(v).split('%')[0].split('@')[0]
         if _is_ip(v):
             return v
     for r in routes or ():
@@ -104,6 +104,19 @@ def dhcp_gateway(client, explicit=None, routes=()):
         if _is_ip(_s(v)):
             return _s(v)
     return ''
+
+
+IFACE_RE = re.compile(r'[A-Za-z0-9_.\-<>@ ]{1,60}')
+
+
+def is_orphan(iface, interfaces=None):
+    """A DHCP / PPPoE client whose port no longer exists. RouterOS then shows the port as "*2" (its old id).
+    Such a client can never carry traffic; Internet lines offers to delete it instead of failing with
+    "“*2” is not a valid interface name"."""
+    iface = _s(iface)
+    if re.fullmatch(r'\*[0-9A-Fa-f]{1,8}', iface):
+        return True
+    return bool(interfaces) and iface not in interfaces
 
 
 def safe_name(iface):
@@ -127,13 +140,17 @@ def detect(svc):
     def add(iface, kind, gateway, status='', address='', client=None):
         if not iface or iface in seen:
             return
+        missing = kind in {'dhcp', 'pppoe'} and is_orphan(iface, interfaces)
+        if not missing and (not IFACE_RE.fullmatch(iface) or (kind == 'static' and interfaces and iface not in interfaces)):
+            return                       # not a port (e.g. a route gateway that could not be resolved to a port)
         seen.add(iface)
         client = client or {}
         row = interfaces.get(iface, {})
         role = roles.get(iface)
         links.append({
-            'interface': iface, 'type': kind, 'gateway': gateway, 'status': status, 'address': address,
-            'running': _s(row.get('running', 'true')).lower() in {'true', 'yes'},
+            'interface': iface, 'type': kind, 'gateway': gateway, 'status': 'port missing' if missing else status, 'address': address,
+            'missing': missing,
+            'running': False if missing else _s(row.get('running', 'true')).lower() in {'true', 'yes'},
             'label': (role.label if role and role.label else '') or _s(row.get('comment')) or ('4G / LTE' if iface in lte else ''),
             'lte': iface in lte,
             # current client settings, so an undo script can be produced even without API access later
@@ -221,7 +238,9 @@ def normalize(cfg, facts):
         if not raw.get('enabled', True):
             continue
         iface = _s(raw.get('interface'))
-        if not iface or not re.fullmatch(r'[A-Za-z0-9_.\-<>@ ]{1,60}', iface):
+        if iface and is_orphan(iface):
+            errors.append(f'“{iface}” is a DHCP client whose port no longer exists — untick it, or delete it from the line card.'); continue
+        if not iface or not IFACE_RE.fullmatch(iface):
             errors.append(f'“{iface or "?"}” is not a valid interface name.'); continue
         kind = raw.get('type') if raw.get('type') in {'dhcp', 'static', 'pppoe'} else 'static'
         gw = _s(raw.get('gateway'))
@@ -302,7 +321,10 @@ def build_plan(cfg, facts, run=None):
     multi = len(links) > 1 and strategy != 'single'
     B = {k: [] for k in ('lists', 'tables', 'routes', 'mangle', 'filter', 'rules', 'nat', 'clients')}
     table_of = lambda l: f'TT-{l["id"]}'
-    use_tables = strategy in {'balance', 'split'}
+    # Every line's own table carries the other lines as fallbacks (not only with "Share the load"): a customer moved
+    # to a line by hand (core/line_steer.py, Line Hub) is routed through that line's table, and must keep the internet
+    # through another line when theirs fails instead of losing it until someone moves them back.
+    use_tables = strategy in {'balance', 'split', 'failover', 'ecmp'}
     gwm = lambda l: l['interface'] if l['type'] == 'dhcp' else None
 
     def table(name, note):

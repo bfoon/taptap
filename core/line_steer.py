@@ -139,13 +139,76 @@ def lanes(router, rows=None):
     out = list(found.values())
     for l in out:
         l['share'] = round(l['parts'] * 100 / total) if total else 0
+    mode = 'pcc' if len(out) >= 2 else ''
+    if len(out) < 2:
+        marked = mark_lanes(router, rows, names)
+        if len(marked) >= 2:
+            out, mode, classifier = marked, 'marks', ''
     why = ''
     if len(out) < 2:
         why = ('This router does not share customers over several lines with marks (it has one line, a backup line, or '
                'combined lines), so there is no line to switch a single customer to.' if rows else
                'TapTap has not read this router\'s firewall yet — run a sync on the Routers page first.')
-    return {'lanes': out, 'total': total, 'classifier': classifier, 'sticky': 'port' not in classifier and bool(classifier),
-            'why': why, 'as_of': at.isoformat() if at else None}
+    return {'lanes': out, 'total': total, 'classifier': classifier,
+            'sticky': mode == 'marks' or ('port' not in classifier and bool(classifier)),
+            'mode': mode, 'why': why, 'as_of': at.isoformat() if at else None}
+
+
+def _strategy(router):
+    try:
+        return (router.wan_setup.config or {}).get('strategy') or ''
+    except Exception:
+        return ''
+
+
+def mark_lanes(router, rows, names=None):
+    """Lines of a TapTap "Backup line" or "Combine lines" setup: no sharing rules, but every line has its own mark and
+    routing table ("route via <line>"). A customer is moved by giving their new connections that line's mark — the
+    table then carries them, with the other lines as fallbacks (core/wan.py). "Split by network" is left out: its
+    routing rules choose the line per network before any mark is looked at."""
+    strategy = _strategy(router)
+    if strategy == 'split':
+        return []
+    names = names if names is not None else _labels(router)
+    found = {}
+    for r in rows or []:
+        if _s(r.get('chain')) != 'prerouting' or _s(r.get('action')) != 'mark-routing' or _yes(r.get('disabled')):
+            continue
+        mark, cm = _s(r.get('connection-mark')), _s(r.get('comment'))
+        if not mark.startswith('TT-') or not MARK_RE.match(mark) or not cm.startswith('TapTap WAN') or mark in found:
+            continue
+        label = names.get(mark) or (cm.rsplit('route via', 1)[1].strip() if 'route via' in cm else '') or mark
+        found[mark] = {'mark': mark, 'label': label[:60], 'parts': 1, 'observable': True,
+                       'fields': {'chain': 'prerouting', 'action': 'mark-connection', 'new-connection-mark': mark, 'passthrough': 'yes',
+                                  'connection-mark': 'no-mark', 'in-interface-list': '!TT-WAN', 'dst-address-type': '!local'}}
+    out = list(found.values())
+    order = [f'TT-{_safe(l.get("interface"))}' for l in _cfg_links(router)]
+    out.sort(key=lambda l: order.index(l['mark']) if l['mark'] in order else 99)
+    for i, l in enumerate(out):
+        l['share'] = (100 if i == 0 else 0) if strategy in ('failover', 'single', '') else round(100 / len(out))
+    return out
+
+
+def _safe(iface):
+    from .wan import safe_name
+    return safe_name(iface)
+
+
+def _cfg_links(router):
+    try:
+        return [l for l in (router.wan_setup.config or {}).get('links') or [] if l.get('interface') and l.get('enabled', True)]
+    except Exception:
+        return []
+
+
+def is_anchor(r):
+    """The rule a switch goes above: the first sharing (PCC) rule, or — without sharing — TapTap's first "route via"
+    rule. Both sit below "leave local traffic alone", so a switch never catches traffic between customers."""
+    if _s(r.get('chain')) != 'prerouting' or _yes(r.get('disabled')) or _s(r.get('comment')).startswith(PIN_TAG):
+        return False
+    if _s(r.get('per-connection-classifier')):
+        return True
+    return _s(r.get('action')) == 'mark-routing' and _s(r.get('connection-mark')).startswith('TT-')
 
 
 def lane_by_mark(info, mark):
@@ -357,8 +420,7 @@ def api_pin(svc, p):
     import time
     mangle = svc.resource('/ip/firewall/mangle')
     rows = mangle.get()
-    anchor = next((r for r in rows if _s(r.get('chain')) == 'prerouting' and _s(r.get('per-connection-classifier'))
-                   and not _yes(r.get('disabled')) and not _s(r.get('comment')).startswith(PIN_TAG)), None)
+    anchor = next((r for r in rows if is_anchor(r)), None)
     if not anchor:
         return {'error': 'nopcc', **api_look(svc, p)}
     _remove_pins(mangle, rows, p['key'])
@@ -398,6 +460,13 @@ def _flush_snippet(ip):
             ':set mv ($mv + 1) } on-error={} }; ')
 
 
+# RouterOS test for is_anchor() inside a loop over /ip firewall mangle (variable $r); sets $an / $hv.
+ANCHOR_TEST = (':if (([:len [:tostr [/ip firewall mangle get $r per-connection-classifier]]] > 0) || '
+               '(([:tostr [/ip firewall mangle get $r action]] = "mark-routing") && '
+               '([:tostr [/ip firewall mangle get $r connection-mark]] ~ "^TT-"))) do={ '
+               ':if ([:tostr [/ip firewall mangle get $r comment]] ~ "^' + PIN_TAG + '") do={} else={ :set an $r; :set hv 1 } } ')
+
+
 def link_body(kind, p):
     """RouterOS for 'lane' (look), 'lanepin' (switch) and 'laneoff' (back to automatic). Appends lines to $out."""
     from .wan import kv
@@ -412,7 +481,7 @@ def link_body(kind, p):
     # the first sharing rule: the pin goes just above it (below "leave local traffic alone")
     return (':local an ""; :local hv 0; :local mv 0; '
             ':foreach r in=[/ip firewall mangle find where chain=prerouting disabled=no] do={ :if ($hv = 0) do={ :do { '
-            ':if ([:len [:tostr [/ip firewall mangle get $r per-connection-classifier]]] > 0) do={ :set an $r; :set hv 1 } '
+            + ANCHOR_TEST +
             '} on-error={} } }; '
             ':if ($hv = 0) do={ :set out ($out . "err=nopcc\\n") } else={ :do { ' + rm +
             f'/ip firewall mangle add {kv(p["fields"])} place-before=$an; ' + _flush_snippet(p['ip']) +
@@ -441,7 +510,7 @@ def parse_link(lines):
 # ─────────────────────────────── the answer, in plain words ───────────────────────────────
 
 ERRORS = {
-    'nopcc': 'The router has no load-sharing rule to place the switch above (its setup changed) — open Internet lines and apply it again.',
+    'nopcc': 'The router has no TapTap line rules to place the switch above (its setup changed) — open Internet lines and apply it again.',
     'add': 'The router refused the switch rule. Run a sync so TapTap reads its firewall again, then try once more.',
     'remove': 'The router could not remove the switch rule.',
 }
