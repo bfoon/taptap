@@ -88,6 +88,12 @@ def summary(cfg, facts):
         lines.append('Health checks: ' + '; '.join(f'{l["label"]} pings {l["check"]}' for l in L) + ' — a dead ISP is noticed even when the modem is still on.')
     if strat != 'single' and len(L) > 1:
         lines.append('Replies always leave by the line they arrived on, so port forwards and remote access keep working.')
+        steer = facts.get('steering') or []
+        if steer:
+            marks = sorted({x.get('mark') for x in steer if x.get('mark')})
+            lines.append(f'{len(steer)} hand-made rule(s) already on the router steer customers themselves'
+                         + (f' ({", ".join(marks[:4])})' if marks else '') + ' — they would come before TapTap’s sharing. '
+                         'They are switched off; Undo puts them back.')
     return lines, flows
 
 
@@ -192,6 +198,32 @@ def wan_apply(request, pk):
     return JsonResponse(out, status=status)
 
 
+LINE_SECTIONS = ('/ip/route', '/ip/firewall/mangle', '/routing/rule', '/ip/route/rule', '/ip/firewall/filter', '/ip/firewall/nat',
+                 '/ip/dhcp-client', '/routing/table')
+
+
+def refresh_sections(router, svc, paths=LINE_SECTIONS):
+    """Bring TapTap's stored copy of the menus an Internet lines change touches up to date. The live load-balancing
+    view reads marking rules and routing rules from that copy: before, after "Share the load" it kept showing the old
+    picture (Failover / Single path, the new line on Standby) until the next full sync."""
+    snap = RouterConfigSnapshot.objects.filter(router=router).first()
+    if not snap:
+        return 0
+    sections, n = dict(snap.sections or {}), 0
+    for label, sec in list(sections.items()):
+        if isinstance(sec, dict) and sec.get('path') in paths:
+            try:
+                rows = [dict(r) for r in svc.resource(sec['path']).get()]
+            except Exception:
+                continue
+            sections[label] = {**sec, 'rows': rows, 'count': len(rows), 'at': timezone.now().isoformat()}
+            n += 1
+    if n:
+        snap.sections = sections
+        snap.save(update_fields=['sections'])
+    return n
+
+
 class _Actor:
     def __init__(self, user):
         self.user = user
@@ -245,6 +277,7 @@ def apply_lines(router, setup, config, user, minutes=5, auto_confirm=False):
         svc2 = MikroTikService(router).connect()
         try:
             reach = True; lines = wan.health(svc2, cfg)
+            refresh_sections(router, svc2)
             lb = svc2.analyze_load_balancing()
             RouterConfigSnapshot.objects.filter(router=router).update(load_balancing=lb)
             if auto_confirm and minutes and any((h.get('ping') or {}).get('ok') for h in lines):

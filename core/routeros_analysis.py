@@ -334,7 +334,7 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
                 'distances': [], 'active': False, 'reachable': False, 'check_gateway': '', 'source': 'static',
                 'running': truthy(g(row, 'running', default='yes')) if row else True,
                 'comment': str(g(row, 'comment')), 'ecmp_weight': 0, 'pcc_rules': 0, 'route_count': 0,
-                'declared': False, 'next_hops': [], 'recursive': False,
+                'declared': False, 'next_hops': [], 'recursive': False, 'table_active': {}, 'pcc_tables': set(),
             }
             order.append(key)
         return wans[key]
@@ -362,6 +362,7 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
             wan['distances'].append((table, distance))
             wan['route_count'] += 1
             wan['active'] = wan['active'] or active
+            wan['table_active'][table] = wan['table_active'].get(table, False) or active
             wan['reachable'] = wan['reachable'] or hop['reachable']
             wan['check_gateway'] = wan['check_gateway'] or str(g(route, 'check-gateway'))
             wan['source'] = _route_source(route, hop['interface'], iface_rows)
@@ -415,6 +416,11 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
     for key, wan in wans.items():
         for table in wan['tables']:
             table_to_wans.setdefault(table, []).append(key)
+    # A table belongs to the line of its lowest-distance route. TapTap's per-line tables also hold the other lines
+    # as fallbacks (distance 2, 3…): before, a table went to whichever line was listed first, so with "Share the load"
+    # every sharing rule was counted for the first line and the second one showed "plan 0% · Standby".
+    for table, keys in table_to_wans.items():
+        keys.sort(key=lambda k: min((d for t, d in wans[k]['distances'] if t == table), default=999))
 
     unmapped_pcc = 0
     denominators = set()
@@ -433,6 +439,8 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
             target_keys = [conn_to_iface[cmark]]
         if target_keys:
             wans[target_keys[0]]['pcc_rules'] += 1
+            if rmark:
+                wans[target_keys[0]]['pcc_tables'].add(rmark)
         else:
             unmapped_pcc += 1
 
@@ -517,10 +525,25 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
             state = 'down'
         elif not up:
             state = 'down'
+        elif role == 'balanced' and wan['pcc_tables'] and not any(wan['table_active'].get(t) for t in wan['pcc_tables']):
+            state = 'standby'                       # its share goes to the fallback lines: its own route is waiting
         elif role in {'balanced', 'primary', 'policy'} and wan['active']:
             state = 'active'
         else:
             state = 'standby'
+        why = ''
+        if state == 'standby':
+            gw = wan['gateways'][0] if wan['gateways'] else ''
+            if role == 'balanced' or (share and not wan['active']):
+                why = (f'Its route is waiting: the health check {gw} does not answer through {wan["interface"]}, so its share of '
+                       'customers goes out through the other line.' if wan['recursive'] and gw else
+                       f'Its route is not active — the gateway {gw or ""} does not answer, so its customers use the other line.')
+            elif method == 'PCC':
+                why = 'No sharing rule sends customers to this line.'
+            elif method in ('Failover', 'Single WAN'):
+                why = 'It is the backup line: it carries customers only when the main line fails.'
+            else:
+                why = 'Customers are not sent to this line.'
         distance = min((d for _, d in wan['distances']), default='')
         links.append({
             'id': wan['id'], 'interface': wan['interface'],
@@ -534,10 +557,20 @@ def analyze_wan(routes=None, mangle=None, bonding=None, routing_tables=None, rou
             'pcc_rules': wan['pcc_rules'], 'ecmp_weight': wan['ecmp_weight'],
             'next_hop': wan['next_hops'][0] if wan['next_hops'] else '', 'recursive': wan['recursive'],
             'held_by': held.get(wan['interface'], ''),
-            'route_count': wan['route_count'],
+            'route_count': wan['route_count'], 'why': why,
         })
 
     warnings = []
+    try:
+        from .wan import steering
+        theirs = steering(mangle, routing_rules)
+    except Exception:
+        theirs = []
+    if theirs and len(links) > 1:
+        names = sorted({str(g(r, 'new-routing-mark') or g(r, 'new-connection-mark') or g(r, 'table')) for _m, r in theirs} - {''})
+        warnings.append(f'{len(theirs)} hand-made rule(s) steer customers themselves' + (f' ({", ".join(names[:4])})' if names else '')
+                        + ': they mark connections before TapTap’s sharing does, so those customers stay on one line. '
+                        '“Share the load” switches them off (Undo puts them back).')
     if unmapped_pcc:
         warnings.append(f'{unmapped_pcc} PCC rule(s) mark traffic into a table that has no default route — that share of traffic may fall back to main.')
     if method in {'PCC', 'Policy routing'} and filter_rules:

@@ -1504,7 +1504,7 @@ def act_revive(router, rows, line_list, data, user):
     return f'{l["label"]}: {said}. Give the modem about 10 seconds to answer.', False, {'steps': done}
 
 
-def share_config(setup, facts, target, line_list):
+def share_config(setup, facts, target, line_list, rotate=False):
     """The owner's design turned into "Share the load" over every working line, with ``target`` in it."""
     raw = dict(setup.config or {})
     saved = {_s(l.get('interface')): dict(l) for l in raw.get('links') or [] if l.get('interface')}
@@ -1542,8 +1542,22 @@ def share_config(setup, facts, target, line_list):
     for iface, row in saved.items():          # static lines from the design that detection does not list
         if iface not in seen and row.get('type') == 'static' and _ipv4(row.get('gateway')):
             links.append({**row, 'enabled': row.get('enabled', True)})
+    if rotate:      # "Try another health check": the target's own check host does not answer through its line
+        old = _s(saved.get(target, {}).get('check'))
+        others = {_s(saved.get(l['interface'], {}).get('check')) for l in links if l['enabled'] and l['interface'] != target}
+        used.update(others | {old})
+        pick = next((h for h, _ in wan.CHECK_HOSTS if h not in used), '')
+        if not pick:
+            raise HubError('Every health-check address is already in use.')
+        used.discard(old)
+        used.add(pick)
+        saved.setdefault(target, {})['check'] = pick
+        for l in links:
+            if l['interface'] == target:
+                l['check'] = pick
     for l in links:
-        l['check'] = check_for(saved.get(l['interface'], l)) if l['enabled'] else (l.get('check') or '')
+        if not (rotate and l['interface'] == target):
+            l['check'] = check_for(saved.get(l['interface'], l)) if l['enabled'] else (l.get('check') or '')
     if sum(1 for l in links if l['enabled']) < 2:
         raise HubError('Sharing the load needs two working lines. Bring the other line online first.')
     cfg = {**raw, 'strategy': 'balance', 'links': links, 'sticky': raw.get('sticky') or 'customer', 'health': True, 'weights': {}}
@@ -1574,12 +1588,18 @@ def act_share(router, rows, line_list, data, user):
         finally:
             svc.close()
     facts.pop('analysis', None)
-    cfg, skipped = share_config(setup, facts, iface, line_list)
+    cfg, skipped = share_config(setup, facts, iface, line_list, rotate=bool(data.get('new_check')))
     out, status = views_wan.apply_lines(router, setup, cfg, user, minutes=8 if on_link(router) else 5, auto_confirm=True)
     if not out.get('success'):
         raise HubError(out.get('message') or 'The Internet lines change did not go through.')
     names = ', '.join(x['label'] for x in cfg['links'] if x['enabled'])
     tail = f' Left out for now (not connected): {", ".join(skipped)}.' if skipped else ''
+    if data.get('new_check'):
+        tail += f' {l["label"]} now checks its internet with {next(x["check"] for x in cfg["links"] if x["interface"] == iface)}.'
+    steer = facts.get('steering') or []
+    if steer:
+        tail += (f' {len(steer)} hand-made steering rule(s) on the router are switched off — they sent customers past the sharing '
+                 '(Undo puts them back).')
     if out.get('via_link'):
         msg = (f'Sharing the load over {names}. Sent through TapTap Link with a safety timer: the router takes it at its next '
                f'check-ins and TapTap confirms it by itself once the router stays online.{tail}')

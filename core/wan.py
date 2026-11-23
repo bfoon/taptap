@@ -106,6 +106,59 @@ def dhcp_gateway(client, explicit=None, routes=()):
     return ''
 
 
+# ═══════════════════════════ hand-made steering ═══════════════════════════
+# A router that had its own load balancing before TapTap (marks such as "starlink2", PCC rules, routing rules into its
+# own tables) keeps steering customers itself: those rules come first and mark every new connection, and TapTap's
+# sharing only shares connections nobody has marked yet — so "Share the load" changed nothing and the second line
+# stayed on standby. When TapTap runs two or more lines, these rules are switched off (marked LINK_OFF, so every
+# undo puts them back). Only rules that steer internet traffic are touched: a rule for one destination (a VPN, an
+# office network) and every TapTap rule stay as they are.
+STEER_CHAINS = {'prerouting', 'output'}
+
+
+def _row_on(row):
+    return _s(row.get('disabled')).lower() not in {'true', 'yes'} and _s(row.get('dynamic')).lower() not in {'true', 'yes'}
+
+
+def _theirs(row):
+    return 'taptap' not in _s(row.get('comment')).lower()
+
+
+def _internet_bound(row):
+    dst, lst = _s(row.get('dst-address')), _s(row.get('dst-address-list'))
+    return (not dst or dst == '0.0.0.0/0') and (not lst or lst.startswith('!'))
+
+
+def steering(mangle, rules):
+    """Hand-made rules that steer customers to a line: [(menu, row)] with menu 'mangle' or 'rule'."""
+    mangle = [dict(r) for r in mangle or []]
+    hand = [r for r in mangle if _row_on(r) and _theirs(r) and _s(r.get('chain')) in STEER_CHAINS]
+    marks = {_s(r.get('connection-mark')) for r in hand if _s(r.get('action')) == 'mark-routing' and _internet_bound(r)}
+    marks -= {'', 'no-mark'}
+    out = []
+    for r in hand:
+        action = _s(r.get('action'))
+        if action == 'mark-routing' and _internet_bound(r):
+            out.append(('mangle', r))
+        elif action == 'mark-connection' and (_s(r.get('per-connection-classifier')) or _s(r.get('new-connection-mark')) in marks):
+            out.append(('mangle', r))
+    for r in rules or []:
+        r = dict(r)
+        table = _s(r.get('table'))
+        if _row_on(r) and _theirs(r) and table and table != 'main' and _internet_bound(r) and not _s(r.get('dst-address')):
+            out.append(('rule', r))
+    return out
+
+
+def steering_text(found):
+    """One sentence for the preview."""
+    if not found:
+        return ''
+    names = sorted({_s(r.get('new-routing-mark') or r.get('new-connection-mark') or r.get('table')) for _m, r in found} - {''})
+    return (f'{len(found)} hand-made rule(s) on the router steer customers themselves' + (f' ({", ".join(names[:4])})' if names else '')
+            + ' — they come before TapTap’s sharing, so it would change nothing. They are switched off; Undo puts them back.')
+
+
 IFACE_RE = re.compile(r'[A-Za-z0-9_.\-<>@ ]{1,60}')
 
 
@@ -196,7 +249,13 @@ def detect(svc):
             lan['label'] = lan['label'] + ' (HotSpot)'
     dns_rows = svc.safe_get('/ip/dns')
     dns_servers = split_servers(dns_rows[0].get('servers')) if dns_rows else []
+    try:
+        steer = steering(svc.safe_get('/ip/firewall/mangle'), svc.safe_get('/routing/rule' if ver[0] >= 7 else '/ip/route/rule'))
+    except Exception:
+        steer = []
     return {'version': '.'.join(map(str, ver)), 'v7': ver[0] >= 7, 'links': links, 'lans': lans,
+            'steering': [{'menu': m, 'comment': _s(r.get('comment'))[:60], 'action': _s(r.get('action') or 'lookup'),
+                          'mark': _s(r.get('new-routing-mark') or r.get('new-connection-mark') or r.get('table'))} for m, r in steer][:20],
             'hotspot': bool(hotspot), 'analysis': analysis, 'dns_servers': dns_servers,
             'check_hosts': [{'ip': ip, 'label': lab} for ip, lab in CHECK_HOSTS]}
 
@@ -458,6 +517,9 @@ def build_plan(cfg, facts, run=None):
             path = '/ip/dhcp-client' if other['type'] == 'dhcp' else '/interface/pppoe-client'
             B['clients'].append({'op': 'client', 'path': path, 'interface': other['interface'], 'fields': {'add-default-route': 'no'}, 'group': 'clients',
                                  'note': 'not selected — stays connected but carries no customer traffic'})
+    if multi:
+        B['clients'].append({'op': 'disable_steering', 'group': 'clients',
+                             'note': 'hand-made marks / routing rules would send customers past TapTap’s lines'})
     B['clients'].append({'op': 'disable_static_defaults', 'group': 'clients'})
     if health:
         # A hand-made 8.8.8.8/32 next to TapTap's would make RouterOS send the health checks out through either
@@ -512,7 +574,7 @@ def render_script(plan, cfg, facts, business_name=''):
     group_titles = {'lists': '2. Lists', 'tables': '3. Routing tables', 'routes': '4. Routes', 'mangle': '5. Traffic marking',
                     'filter': '5b. Keep shared traffic out of FastTrack (otherwise one line takes it all)',
                     'rules': '6. Network rules', 'nat': '7. NAT', 'dns': '8. DNS that never depends on one line',
-                    'clients': '9. Hand default routes over to TapTap'}
+                    'clients': '9. Hand default routes (and any hand-made steering rules) over to TapTap'}
     last = None
     for op in plan['ops']:
         g = op.get('group')
@@ -570,6 +632,28 @@ def op_lines(op, v7, run=None):
             else:
                 out.append(f'/ip route disable [find where {where}]')
         return out
+    if kind == 'disable_steering':
+        m, rule = '/ip firewall mangle', ('/routing rule' if v7 else '/ip route rule')
+        tt = '"[Tt][Aa][Pp][Tt][Aa][Pp]"'
+        # $b = 1 when the rule is for internet traffic (no destination, or only "not these destinations")
+        look = (f':local c [:tostr [{m} get $r comment]]; :local d [:tostr [{m} get $r dst-address]]; '
+                f':local l [:tostr [{m} get $r dst-address-list]]; :local b 0; '
+                ':if (([:len $d] = 0 || $d = "0.0.0.0/0") && ([:len $l] = 0 || [:pick $l 0 1] = "!")) do={ :set b 1 }; ')
+        return ['; '.join([      # one line: TapTap Link cuts a setup into parts at line ends, and $ttcm must reach the next loop
+            ':local ttcm [:toarray ""]',
+            f':foreach r in=[{m} find where action=mark-routing and disabled=no and dynamic=no] do={{ {look}'
+            f':if (!($c ~ {tt}) && $b = 1) do={{ :local k [:tostr [{m} get $r connection-mark]]; '
+            ':if ([:len $k] > 0 && $k != "no-mark") do={ :set ttcm ($ttcm, $k) } } }',
+            f':foreach r in=[{m} find where disabled=no and dynamic=no and (chain=prerouting or chain=output)] do={{ {look}'
+            f':local a [:tostr [{m} get $r action]]; :local h 0; :if (!($c ~ {tt})) do={{ '
+            ':if ($a = "mark-routing" && $b = 1) do={ :set h 1 }; '
+            f':if ($a = "mark-connection") do={{ :if ([:len [:tostr [{m} get $r per-connection-classifier]]] > 0) do={{ :set h 1 }}; '
+            f':if ([:typeof [:find $ttcm [:tostr [{m} get $r new-connection-mark]]]] = "num") do={{ :set h 1 }} }} }}; '
+            f':if ($h = 1) do={{ {m} set $r disabled=yes comment=($c . "{LINK_OFF}") }} }}',
+            f':foreach r in=[{rule} find where disabled=no] do={{ :local c [:tostr [{rule} get $r comment]]; '
+            f':local t [:tostr [{rule} get $r table]]; :if (!($c ~ {tt}) && [:len $t] > 0 && $t != "main" && '
+            f'[:len [:tostr [{rule} get $r dst-address]]] = 0) do={{ {rule} set $r disabled=yes comment=($c . "{LINK_OFF}") }} }}',
+        ])]
     if kind == 'disable_static_defaults':
         table = 'routing-table=main' if v7 else '!routing-mark'
         if run:   # marked, so the Link undo can put exactly these back
@@ -601,6 +685,11 @@ def render_undo(original, v7, guarded=True):
         cmds.append(f'{path} set [find where {key}={q(cl["interface"])}] ' + ' '.join(f'{k}={q(v) if v != "" else chr(34) * 2}' for k, v in f.items()))
     for rid in (original or {}).get('disabled_routes', []):
         cmds.append(f'/ip route enable [find where .id={rid}]')
+    mark = LINK_OFF.strip()        # a rule that had no comment carries only the mark (no space before it)
+    for p in ('/ip firewall mangle', '/routing rule' if v7 else '/ip route rule'):
+        cmds.append(f':foreach r in=[{p} find where comment~"{mark}"] do={{ :local c [:tostr [{p} get $r comment]]; '
+                    f':local i [:find $c "{LINK_OFF}"]; :if ([:typeof $i] != "num") do={{ :set i [:find $c "{mark}"] }}; '
+                    f'{p} set $r disabled=no comment=[:pick $c 0 $i] }}')
     if (original or {}).get('dns_servers') is not None:
         cmds.append(f'/ip dns set servers={q(",".join(original["dns_servers"])) or chr(34) * 2}')
     if guarded:
@@ -734,6 +823,13 @@ def apply_plan(svc, plan, facts, original, undo_minutes=5, log=None):
                 if original.get('disabled_routes') and undo_minutes:
                     for row in _find(sched, name=UNDO_SCHEDULER):
                         sched.set(id=row['id'], on_event=render_undo(original, v7))
+            elif kind == 'disable_steering':
+                paths = {'mangle': '/ip/firewall/mangle', 'rule': '/routing/rule' if v7 else '/ip/route/rule'}
+                found = steering(svc.resource(paths['mangle']).get(), _safe_rows(svc, paths['rule']))
+                for menu, row in found:
+                    svc.resource(paths[menu]).set(id=row['id'], disabled='yes', comment=_s(row.get('comment')) + LINK_OFF)
+                if found:
+                    done.append(steering_text(found))
             elif kind == 'disable_static_defaults':
                 res = svc.resource('/ip/route')
                 for row in res.get():
@@ -754,6 +850,33 @@ def apply_plan(svc, plan, facts, original, undo_minutes=5, log=None):
             raise WanError(f'Stopped while applying {op.get("path", kind)} ({op.get("fields", {}).get("comment", "")}): {exc}. '
                            + ('The safety timer will undo the partial change automatically.' if undo_minutes else 'Use “Undo” to remove the partial change.')) from exc
     return {'counts': counts, 'notes': done}
+
+
+def _safe_rows(svc, path):
+    try:
+        return svc.resource(path).get()
+    except Exception:
+        return []
+
+
+def restore_steering(svc, v7):
+    """Undo over the API: the hand-made steering rules this setup switched off are switched on again."""
+    n = 0
+    for path in ('/ip/firewall/mangle', '/routing/rule' if v7 else '/ip/route/rule'):
+        try:
+            res = svc.resource(path)
+            rows = res.get()
+        except Exception:
+            continue
+        mark = LINK_OFF.strip()
+        for row in rows:
+            c = str(row.get('comment') or '')
+            if mark in c:
+                try:
+                    res.set(id=row['id'], disabled='no', comment=c.split(LINK_OFF)[0] if LINK_OFF in c else c.split(mark)[0]); n += 1
+                except Exception:
+                    pass
+    return n
 
 
 def confirm(svc):
@@ -788,6 +911,7 @@ def undo(svc, original, v7):
     for rid in (original or {}).get('disabled_routes', []):
         try: routes.set(id=rid, disabled='no')
         except Exception: pass
+    restore_steering(svc, v7)
     return removed
 
 

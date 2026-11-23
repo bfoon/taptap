@@ -168,6 +168,13 @@ def progress(router, now=None):
         elif status in {'undone', 'failed'}:
             setup.confirm_by = None
         setup.save()
+        if status in {'active', 'undone'} or stage == 'undone':
+            # read the router again: the load-balancing view and Line Hub work from TapTap's copy of its menus
+            try:
+                from .linkops import refresh
+                refresh(router)
+            except Exception as exc:
+                logger.info('Internet lines: re-read after the change failed for %s: %s', router, exc)
         return stage
 
     if stage == 'confirming':

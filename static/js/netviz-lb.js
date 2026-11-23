@@ -147,7 +147,7 @@
             <small><span data-k="pct">0%</span> of traffic${l.expected_share != null ? ` · plan ${l.expected_share}%` : ''}</small>
           </div>
           <svg class="lbx-spark" viewBox="0 0 120 28" preserveAspectRatio="none"><polyline data-k="spark" points=""/></svg>
-          <footer>${this.footer(l)}</footer>${this.actionBar(l)}
+          <footer>${this.footer(l)}</footer>${l.why && l.state !== 'active' ? `<p class="lbx-why"><i class="bi bi-info-circle"></i> ${esc(l.why)}</p>` : ''}${this.actionBar(l)}
           <div class="lbx-mission" hidden></div>
         </article>`).join('');
 
@@ -171,6 +171,7 @@
       if (['down', 'held', 'broken'].includes(l.state)) b.push(['revive', 'bi-lightning-charge-fill', l.state === 'held' ? 'Put it back in use' : l.state === 'broken' ? 'Repair it' : 'Bring it online', 'primary']);
       if (['standby', 'no-route', 'held'].includes(l.state)) b.push(['share', 'bi-shuffle', 'Share the load with it', l.state === 'held' ? 'ghost' : 'primary']);
       if (l.state === 'down') b.push(['share', 'bi-shuffle', 'Bring online & share', 'ghost']);
+      if (l.state === 'standby' && /health check/.test(l.why || '')) { b.length = 0; b.push(['share+check', 'bi-activity', 'Try another health check', 'primary']); }
       if (!b.length) return `<div class="lbx-acts quiet"><a href="${esc(this.cfg.designer_url)}#lineHub"><i class="bi bi-sliders"></i> Manage this line</a></div>`;
       return `<div class="lbx-acts">${b.map(([k, ic, t, kind]) => `<button type="button" class="lbx-act ${kind}" data-act="${k}${k === 'share' && l.state === 'down' ? '+revive' : ''}"><i class="bi ${ic}"></i> ${esc(t)}</button>`).join('')}</div>`;
     }
@@ -190,8 +191,9 @@
     async start(kind, id) {
       const l = this.links().find(x => x.id === id); if (!l || (this.missions[id] && this.missions[id].busy)) return;
       const name = l.isp || l.label || l.interface;
-      const both = kind === 'share+revive';
-      const q = kind === 'revive' ? `Bring ${name} online?\n\nTapTap does what it takes on the router: switches the line on, asks the modem for a fresh address, repairs its routes or puts it back in use. Customers on other lines are not touched.`
+      const both = kind === 'share+revive', newCheck = kind === 'share+check';
+      const q = newCheck ? `Give ${name} another health check?\n\nIts health check does not answer through ${l.interface}, so RouterOS treats the line as dead and sends its customers out through the other line. TapTap picks another address to check with and applies “Share the load” again (with the safety timer).`
+        : kind === 'revive' ? `Bring ${name} online?\n\nTapTap does what it takes on the router: switches the line on, asks the modem for a fresh address, repairs its routes or puts it back in use. Customers on other lines are not touched.`
         : `Share the load with ${name}?\n\nTapTap sets the router to share customers over every working line by their speed (“Share the load”), with health checks and a safety timer, and confirms it by itself once the router is still reachable. Each customer stays on one line, so logins and calls keep working.`;
       if (!window.confirm(q)) return;
       const m = this.missions[id] = { kind, name, iface: l.interface, busy: true, t0: Date.now(), steps: [] };
@@ -209,7 +211,7 @@
         if (!both) return this.endMission(id, true, `${name} is back online.`);
       }
       step('plan', 'Building the plan: share by speed, one line per customer, health checks');
-      const r = await this.post(this.cfg.action_url, { action: 'share', interface: l.interface });
+      const r = await this.post(this.cfg.action_url, { action: 'share', interface: l.interface, new_check: newCheck });
       if (!r.ok) { step('plan', r.message, 'bad'); return this.endMission(id, false, r.message); }
       step('plan', 'Plan built for ' + (r.lines || []).length + ' lines', 'done');
       step('apply', r.via_link ? 'Safety timer and new routes on their way through TapTap Link' : 'Safety timer and new routes on the router', r.via_link ? 'run' : 'done');

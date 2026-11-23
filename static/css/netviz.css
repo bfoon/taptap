@@ -320,3 +320,6 @@ html[data-theme="dark"] .lbx-picks button{background:#1f2933;color:#c8d6e5}
 html[data-theme="dark"] .lbx-act.ghost{background:#1b2a3d;color:#9cc8ff}
 @media(prefers-reduced-motion:reduce){.lbx-act,.lbx-mission,.lbx-m-steps li,.lbx-lane.lbx-flash{animation:none!important}}
 .lbx-acts[hidden],.lbx-mission[hidden]{display:none!important}
+.lbx-why{margin:.45rem 0 0;font-size:.72rem;line-height:1.4;color:#8a5a00;background:#fff7e6;border:1px solid #f3d38f;border-radius:8px;padding:.35rem .5rem}
+.lbx-lane.st-down .lbx-why{color:#9b2c2c;background:#fff1f1;border-color:#f3c4c4}
+html[data-theme="dark"] .lbx-why{background:#2b2410;border-color:#5c4a17;color:#f4d58a}
