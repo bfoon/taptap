@@ -397,6 +397,16 @@ class MikroTikService:
                     res.remove(id=row['id'])
             except Exception:
                 pass
+        # A phone already signed in again under ANOTHER user — the new voucher the customer just bought — must
+        # not be thrown off: removing its host or its Wi-Fi link would end that new session, and the phone kept
+        # showing "logged in" with no internet and no login page. This voucher's own sessions are gone by now,
+        # so every session still listed belongs to someone else.
+        try:
+            for row in self.resource('/ip/hotspot/active').get():
+                if str(row.get('user', '')).strip().upper() != str(code or '').strip().upper():
+                    want.discard(norm(row.get('mac-address')))
+        except Exception:
+            pass
         if not want:
             return 0
         try:

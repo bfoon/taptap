@@ -239,10 +239,15 @@ def rs(value):
 # phone reconnects and sees the login page again (iPhones only look for it when they join; see
 # MikroTikService.release_devices). Wi-Fi menus are reached through :parse: on a router without that package
 # a plain command would stop the whole script from running.
-DROP_DEVICE = (':local drop do={ :do { /ip hotspot host remove [find mac-address=$m] } on-error={}; '
+# A phone that is already signed in again — with the NEW voucher the customer just bought — is left alone: this
+# voucher's own sessions are removed before $drop runs, so any session still on that MAC belongs to someone else.
+# (Without this check the expiry clean-up, which can run minutes later, cut the new voucher's session: the phone
+# kept showing "you are logged in" with no internet, and no login page came up.)
+DROP_DEVICE = (':local drop do={ :local busy 0; :do { :set busy [:len [/ip hotspot active find mac-address=$m]] } on-error={}; '
+               ':if ($busy = 0) do={ :do { /ip hotspot host remove [find mac-address=$m] } on-error={}; '
                ':foreach t in={"/interface wireless registration-table";"/caps-man registration-table";'
                '"/interface wifi registration-table";"/interface wifiwave2 registration-table"} do={ '
-               ':do { :local f [:parse ($t . " remove [find mac-address=" . $m . "]")]; $f } on-error={} } }; ')
+               ':do { :local f [:parse ($t . " remove [find mac-address=" . $m . "]")]; $f } on-error={} } } }; ')
 
 
 def free_login(user_expr):
