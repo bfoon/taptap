@@ -5,7 +5,8 @@
 1. new unique codes in the chosen format (nothing is created when that fails);
 2. in one transaction: the batch, its vouchers with serial numbers, the activity log line, and — when an agent
    holds the batch — handing it over on credit or paid upfront (core/finance.py);
-3. sending just this batch to its router (not a full sync);
+3. sending just this batch to its router (not a full sync) — or, when the router's Sync control says new batches
+   wait (core/sync_control.py), marking them "Held" until quiet hours or until someone presses Send;
 4. telling the people who track the plan (core/tracking.py) and, on their phones, the owner and admins when
    someone else on the team made the vouchers (core/mobile_push.py).
 
@@ -14,6 +15,8 @@ The caller turns the returned notes into messages (website) or JSON (app).
 from __future__ import annotations
 
 import logging
+
+from contextlib import nullcontext
 
 from django.db import transaction
 from django.utils import timezone
@@ -41,7 +44,11 @@ def make_batch(business, plan, qty, fmt, *, router=None, name='', note='', agent
     codes = generate_codes(qty, fmt['length'], fmt['charset'], fmt['prefix'], fmt['suffix'], business, fmt['case'])
     name = (name or '').strip() or f'{plan.name} {timezone.localtime():%Y-%m-%d %H:%M}'
     notes = []
-    with transaction.atomic():
+    # Sync control (core/sync_control.py): the owner may let new batches wait for quiet hours or for "Send".
+    from .sync_control import hold, hold_text, holds_batches
+    from .voucher_fastlane import quiet
+    held = bool(router) and holds_batches(router)
+    with transaction.atomic(), (quiet() if held else nullcontext()):
         if save_serial:
             business.serial_format, business.serial_digits, business.serial_reset = sfmt, sdig, sreset
             business.save(update_fields=['serial_format', 'serial_digits', 'serial_reset'])
@@ -51,6 +58,7 @@ def make_batch(business, plan, qty, fmt, *, router=None, name='', note='', agent
             Voucher.objects.create(business=business, batch=batch, router=router, code=c, serial=sn, plan_name=plan.name,
                                    price=plan.price, duration_minutes=plan.duration_minutes, max_devices=plan.max_devices,
                                    source='taptap')
+        n_held = hold(batch.vouchers.all()) if held else 0      # in the same transaction: no check-in sees them Pending
         log(business, 'Voucher Generated', f'Batch {batch.name}: {qty} voucher(s), {describe_format(fmt)}, serials {sns[0]}–{sns[-1]}'
             + (f' for {agent.name}' if agent else ''))
         if agent:
@@ -60,7 +68,9 @@ def make_batch(business, plan, qty, fmt, *, router=None, name='', note='', agent
             notes.append(('info', f'Batch issued to {agent.name}' + (
                 f' — bought upfront for {business.currency}{sum(x.amount for x in sales):,.2f}.' if sales
                 else ' on credit: each voucher is credited to them as it sells.')))
-    if router:
+    if held:
+        notes.append(('info', f'{n_held} voucher(s) are ready in TapTap. ' + hold_text(router)))
+    elif router:
         # Send just this batch to the router — not a full router sync.
         try:
             from .voucher_push import push_vouchers

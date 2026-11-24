@@ -276,6 +276,9 @@ def sync_now(voucher_ids, user=None, force=False):
                     .exclude(status__in=['expired', 'archived']).select_related('router', 'business'))
     if force:
         unclaim([v.pk for v in vouchers])
+    else:          # a waiting (Held) voucher the router never had: a change to it waits with it (core/sync_control.py)
+        from .sync_control import HELD
+        vouchers = [v for v in vouchers if v.mikrotik_sync_status != HELD]
     by_router = {}
     for v in vouchers:
         if claim(v):

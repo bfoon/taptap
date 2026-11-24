@@ -45,6 +45,11 @@ def _complete_job(job, summary):
     job.error = ""
     job.finished_at = timezone.now()
     job.save(update_fields=["status", "progress", "phase", "summary", "error", "finished_at", "updated_at"])
+    try:    # a sync started gently (busy router, overdue) is over: the next one decides afresh (core/sync_control.py)
+        from .sync_control import job_done
+        job_done(job.router)
+    except Exception:
+        pass
     try:    # member profiles that sign idle members out are corrected right after a sync
         from .member_keepalive import ensure_member_profiles
         ensure_member_profiles(job.router)

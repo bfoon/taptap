@@ -53,6 +53,8 @@ from datetime import timedelta
 from django.core.cache import cache
 from django.utils import timezone
 
+from .sync_control import HELD
+
 logger = logging.getLogger('taptap.sync.doctor')
 
 MAX_PUSH = 3000
@@ -310,6 +312,8 @@ def heal(router, job=None, mirror=None, read_at=None, profiles=None):
             continue                                   # made after the router was read: the normal path sends it
         if v.pk in carried:
             continue                                   # on its way in a Link batch
+        if v.mikrotik_sync_status == HELD:
+            continue                                   # waits for the moment the owner chose (core/sync_control.py)
         report['checked'] += 1
         row = mirror.get(v.code.upper())
         if platform_owned(v):

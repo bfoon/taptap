@@ -656,6 +656,13 @@ def housekeeping():
             _probe_guard()
         except Exception:
             logger.exception('probe guard')
+        # Sync control (core/sync_control.py): quiet hours set waiting vouchers free; direct API routers whose owner
+        # chose automatic full syncs get them (TapTap Link routers are handled at their check-ins).
+        try:
+            from .sync_control import tick as _sync_tick
+            _sync_tick()
+        except Exception:
+            logger.exception('sync control')
         # Internet lines never stuck on "renewing..." (core/dhcp_guard.py): each router whose lines TapTap runs.
         try:
             from .dhcp_guard import ensure_all as _dhcp_guard

@@ -374,7 +374,7 @@
 
 
           <td>
-            {{ v.mikrotik_sync_status }}
+            {% if v.mikrotik_sync_status == 'Held' %}<span class="text-warning fw-bold" title="Waits for the moment chosen in Sync control — or goes the moment a customer types it">Waiting</span>{% else %}{{ v.mikrotik_sync_status }}{% endif %}
           </td>
 
 

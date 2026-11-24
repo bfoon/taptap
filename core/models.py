@@ -1186,6 +1186,12 @@ class RouterAgent(models.Model):
             base=max(base,(pace(self.router_id) or 0)*4)
         except Exception:
             pass
+        # While the router prints a full-sync table it may check in late: busy, not offline (core/sync_control.py).
+        try:
+            from .sync_control import busy_grace
+            base=max(base,busy_grace(self.router_id))
+        except Exception:
+            pass
         # A router that is busy every evening checks in late every evening: its own usual rhythm (learned from its
         # check-ins, core/link_rhythm.py) stretches the allowance up to 5 minutes, so a slow-but-steady router is not
         # flagged offline and "unstable" every few minutes.
@@ -1470,3 +1476,4 @@ class LoginAddress(models.Model):
     def __str__(self): return self.name
 
 from .models_router_schedule import RouterSchedule, RouterScheduleRun  # noqa: E402,F401
+from .models_sync import RouterSyncPolicy  # noqa: E402,F401

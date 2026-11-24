@@ -32,6 +32,7 @@ from django.utils import timezone
 
 from .models import AgentCommand, Router, RouterAgent, RouterBackup, Voucher
 from .utils import log
+from .sync_control import HELD
 
 logger = logging.getLogger('taptap.link')
 MAX_SCRIPT = 3600
@@ -176,7 +177,7 @@ def _wants_turbo(router):
     waiting = bool(cache.get(f'tt:link:urgent:{router.pk}'))
     if not waiting:
         waiting = AgentCommand.objects.filter(router=router, status='queued', kind__in=VOUCHER_KINDS).exists() or \
-            router.vouchers.filter(source='taptap').exclude(mikrotik_sync_status__in=['Synced', 'Queued']) \
+            router.vouchers.filter(source='taptap').exclude(mikrotik_sync_status__in=['Synced', 'Queued', HELD]) \
             .exclude(status__in=['expired', 'archived']).exists()
     if not waiting:
         return False
@@ -1357,7 +1358,7 @@ def push_pending_vouchers(router, limit=None):
     # router already has used to hold every new voucher back until it answered — up to 5 minutes, or for good.
     if AgentCommand.objects.filter(router=router, kind='hotspot_users', status='queued').exists():
         return 0
-    todo = list(router.vouchers.filter(source='taptap').exclude(mikrotik_sync_status__in=['Synced', 'Queued'])
+    todo = list(router.vouchers.filter(source='taptap').exclude(mikrotik_sync_status__in=['Synced', 'Queued', HELD])   # Held: the owner's Sync control
                 .exclude(status__in=['expired', 'archived'])                                  # vouchers that are over are never re-sent
                 .exclude(mikrotik_sync_status='Error', mikrotik_sync_error__startswith=REFUSED_MARK)   # refused 3×: not every check-in
                 .annotate(tt_first=_customer_first(router))
@@ -1648,7 +1649,8 @@ BACKGROUND_PIECES = ('traffic_dns', 'traffic_conns', 'share_lists')   # samples:
 
 
 def link_traffic_samples(router):
-    """Apps & sites for Link-only routers: every 2 minutes upload the DNS cache and the busy connections.
+    """Apps & sites for Link-only routers: upload the newest DNS names and the busiest connections, as often as the
+    router's load allows (core/link_rhythm.py) and when the owner's Sync control allows samples at all.
     Not while voucher changes wait for this router: customers first, the samples follow at the next turn."""
     from .linkops import uses_link
     if not uses_link(router):
@@ -1662,6 +1664,9 @@ def link_traffic_samples(router):
         every = 120
     if not cache.add(f'tt:link:apps:{router.pk}', 1, every):
         return
+    from .sync_control import samples_allowed
+    if not samples_allowed(router):
+        return  # the owner switched samples off, or allows them only in quiet hours (core/sync_control.py)
     if AgentCommand.objects.filter(router=router, kind='inventory_piece', status__in=['queued', 'sent']).exists():
         return  # a full sync is running; it has priority
     kinds = ['traffic_dns', 'traffic_conns']
@@ -1736,30 +1741,23 @@ def link_expiries(router, now):
 
 
 def auto_sync(router, first=False):
-    """Full inventory sync on the first check-in, then every LINK_SYNC_MINUTES (default 30).
+    """Full inventory sync on the first check-in, then as the owner's Sync control allows (core/sync_control.py:
+    automatic every N minutes, only in quiet hours, or only when someone presses Sync; held back while the router
+    is busy).
 
     Settling syncs left 'running' by a router that went offline mid-sync runs in the worker:
     nothing slow may happen inside the check-in, whose answer the router waits only 8 s for.
     """
-    from .tasks import enqueue_router_sync, settle_link_router
+    from .tasks import settle_link_router
     if not first and not cache.add(f'tt:link:autosync:{router.pk}', 1, 60):
         return
-    now = timezone.now()
     try:
         settle_link_router.delay(router.pk)
     except Exception:
         from .agent_inventory import settle_router
         settle_router(router)
-    every = int(getattr(settings, 'LINK_SYNC_MINUTES', 30))
-    if not first:
-        try:   # automatic syncs spread out while they find nothing to repair (core/link_breath.py)
-            from .link_breath import sync_minutes
-            every = sync_minutes(router, every)[0]
-        except Exception:
-            logger.debug('sync pace %s', router, exc_info=True)
-    last_ok = router.sync_jobs.filter(status='success').order_by('-finished_at').values_list('finished_at', flat=True).first()
-    if first or not last_ok or now - last_ok > timedelta(minutes=every):
-        enqueue_router_sync(router)
+    from .sync_control import start_if_due
+    start_if_due(router, first=first)
 
 
 def _release_voucher_batches(cmds, why, unanswered=False):
@@ -1891,10 +1889,28 @@ def build_response(router, url):
         voucher_budget = max(0, min(voucher_budget, MAX_SCRIPT - keep))
     voucher_size, vouchers_closed = 0, False
     sent_ids, alone_sent = set(), False
+    # Sync control, gentle pace (core/sync_control.py): one full-sync table per check-in, and the next only once the
+    # router delivered the last — a busy router never prints several big tables at once. None = no limit.
+    piece_room = None
+    if any(c.kind == 'inventory_piece' and (c.params or {}).get('job_id') for c in rows):
+        try:
+            from .sync_control import gentle
+            if gentle(router):
+                printing = any(not (params or {}).get('uploaded') for params in AgentCommand.objects.filter(
+                    router=router, kind='inventory_piece', status='sent', params__has_key='job_id',
+                    sent_at__gte=now - timedelta(seconds=ACK_WAIT['inventory_piece'])).values_list('params', flat=True)[:20])
+                piece_room = 0 if printing else 1
+        except Exception:
+            logger.debug('gentle sync pace on %s', router, exc_info=True)
     for cmd in rows:
         if cmd.kind in TRAVEL_ALONE and parts:
             break  # these always travel alone
         is_voucher = cmd.kind in VOUCHER_KINDS
+        sync_piece = cmd.kind == 'inventory_piece' and bool((cmd.params or {}).get('job_id'))
+        if sync_piece and piece_room is not None:
+            if piece_room <= 0:
+                continue
+            piece_room -= 1
         if is_voucher and vouchers_closed:
             continue   # a voucher command left for the next check-in: the later ones wait too (their order matters)
         try:
@@ -1920,6 +1936,9 @@ def build_response(router, url):
         voucher_work = voucher_work or cmd.kind in VOUCHER_KINDS
         AgentCommand.objects.filter(pk=cmd.pk).update(status='sent', sent_at=now, attempts=cmd.attempts + 1)
         sent_ids.add(cmd.pk)
+        if sync_piece:     # while the router prints this table its check-ins may come late: late, not offline
+            from .sync_control import note_piece_sent
+            note_piece_sent(router.pk)
         if cmd.kind in TRAVEL_ALONE:
             alone_sent = True
             break

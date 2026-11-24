@@ -1475,6 +1475,8 @@ def sync_router(
         # IMPORTANT:
         # Archived vouchers stay permanently in TapTap,
         # but they must never be recreated on MikroTik.
+        # Held vouchers wait for the moment the owner chose in Sync control
+        # (core/sync_control.py): a full sync does not send them early.
         for voucher in (
             router.vouchers
             .filter(
@@ -1482,6 +1484,9 @@ def sync_router(
             )
             .exclude(
                 status='archived'
+            )
+            .exclude(
+                mikrotik_sync_status='Held'
             )
         ):
             try:

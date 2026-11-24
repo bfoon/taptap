@@ -69,7 +69,7 @@
         <i class="bi bi-wind"></i>
         <span>TapTap’s load on this router: <b>{{ breath.label }}</b> — a check-in every <b>{{ breath.seconds }} s</b>{% if breath.why %} ({{ breath.why }}){% endif %}{% if breath.seconds != breath.base %}, back to {{ breath.base }} s the moment there is work{% endif %}
           {% if breath.usage %}· today <b>{{ breath.usage.checkins }}</b> check-ins, about <b>{{ breath.usage.total }}</b> of data{% if breath.usage.saved %} — <b>{{ breath.usage.saved }}</b> check-ins saved ({{ breath.usage.saved_pct }} %, about {{ breath.usage.saved_data }}){% endif %}{% endif %}
-          {% if breath.sync_every %}· full sync every <b>{{ breath.sync_every }} min</b> ({{ breath.sync_why }}){% endif %}</span>
+          {% if breath.sync_every %}· full sync every <b>{{ breath.sync_every }} min</b> ({{ breath.sync_why }}){% elif breath.sync_why %}· full sync <b>{{ breath.sync_why }}</b>{% endif %} · <a href="{% url 'sync_control' router.id %}">Sync control</a></span>
       </div>
       {% endif %}
       {% if rhythm and rhythm.usual %}
@@ -130,6 +130,7 @@
   <div class="col-lg-7"><section class="panel h-100">
     <div class="panel-head"><div><h3>Commands</h3><p>Inventory, voucher delivery, tests, backups and other Link commands appear here.</p></div>
       <div class="d-flex gap-2 flex-wrap">
+        <a href="{% url 'sync_control' router.id %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-sliders2-vertical"></i> Sync control</a>
         <form method="post" action="{% url 'router_link_action' router.id %}">{% csrf_token %}<button name="action" value="ping" class="btn btn-sm btn-outline-primary"><i class="bi bi-broadcast"></i> Test</button></form>
         <form method="post" action="{% url 'router_link_action' router.id %}">{% csrf_token %}<button name="action" value="backup" class="btn btn-sm btn-outline-primary"><i class="bi bi-cloud-arrow-down"></i> Back up</button></form>
         <form method="post" action="{% url 'router_link_action' router.id %}" onsubmit="var t=prompt('Reboot {{ router.name|escapejs }}? Type the router name to confirm:','');if(t===null)return false;this.confirm.value=t;">{% csrf_token %}<input type="hidden" name="confirm"><button name="action" value="reboot" class="btn btn-sm btn-outline-danger"><i class="bi bi-bootstrap-reboot"></i> Reboot</button></form>

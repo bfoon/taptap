@@ -376,7 +376,7 @@ document.querySelectorAll('[data-copy]').forEach(function (b) {
     </section>
 
     <section class="panel vd-card">
-      <div class="hd"><h3><i class="bi bi-router"></i> On the router</h3><small class="text-secondary">{{ v.mikrotik_sync_status }}</small></div>
+      <div class="hd"><h3><i class="bi bi-router"></i> On the router</h3><small class="text-secondary">{% if v.mikrotik_sync_status == 'Held' %}Waiting — Sync control sends it in quiet hours or on “Send”; it also goes the moment a customer types it{% else %}{{ v.mikrotik_sync_status }}{% endif %}</small></div>
       <dl class="vd-dl">
         <div><dt>Router</dt><dd>{{ v.router.name|default:'—' }}</dd></div>
         {% if mirror %}

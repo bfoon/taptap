@@ -134,6 +134,7 @@ html[data-theme="dark"] .rc-error{background:#3a2a17;color:#f2b46f}
                   <li><a class="dropdown-item" href="{% url 'router_link' r.id %}"><i class="bi bi-link-45deg text-success"></i> Switch to TapTap Link</a></li>
                 {% endif %}
                 <li><a class="dropdown-item" href="{% url 'config_studio' r.id %}"><i class="bi bi-grid-1x2 text-primary"></i> Config Studio</a></li>
+                <li><a class="dropdown-item" href="{% url 'sync_control' r.id %}"><i class="bi bi-sliders2-vertical text-primary"></i> Sync control</a></li>
                 <li><a class="dropdown-item" href="{% url 'router_schedules' %}?router={{ r.id }}"><i class="bi bi-calendar2-check"></i> Restart / shutdown schedule</a></li>
                 <li><a class="dropdown-item" href="{% url 'network_tools' %}?router={{ r.id }}"><i class="bi bi-speedometer2"></i> Network tools</a></li>
                 <li><a class="dropdown-item" href="{% url 'router_inventory' %}"><i class="bi bi-database-check"></i> Inventory</a></li>

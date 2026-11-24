@@ -41,7 +41,6 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import timedelta
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -226,8 +225,15 @@ def summary(router, agent):
     level = st.get('l') or 'fast'
     out = {'on': enabled(), 'seconds': secs, 'base': base(agent), 'level': level, 'label': LABEL.get(level, level),
            'why': st.get('w') or '', 'usage': usage(router.pk)}
-    try:
-        out['sync_every'], out['sync_why'] = sync_minutes(router)
+    try:     # the owner's Sync control decides first (core/sync_control.py)
+        from .sync_control import policy, window_text
+        p = policy(router)
+        if p.full_mode == 'manual':
+            out['sync_every'], out['sync_why'] = None, 'only when you press Sync'
+        else:
+            out['sync_every'], out['sync_why'] = sync_minutes(router, p.full_every)
+            if p.full_mode == 'quiet':
+                out['sync_why'] += f', in quiet hours {window_text(p)} only'
     except Exception:
         out['sync_every'], out['sync_why'] = None, ''
     return out

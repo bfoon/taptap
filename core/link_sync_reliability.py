@@ -16,7 +16,6 @@ of replacing the very large core/agent.py and core/agent_inventory.py files.
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -456,9 +455,11 @@ def install():
         result = original_auto_sync(router, first=first)
 
         # If the latest full Link sync failed after the last success, retry
-        # sooner than LINK_SYNC_MINUTES, but never continuously.
+        # sooner than the usual interval, but never continuously — and only
+        # when the owner's Sync control allows an automatic sync right now
+        # (not in manual mode, not outside quiet hours, not while busy).
         try:
-            from .tasks import enqueue_router_sync
+            from .sync_control import start_if_due
 
             if router.sync_jobs.filter(
                 status__in=["queued", "running"]
@@ -481,7 +482,7 @@ def install():
                 1,
                 SYNC_RETRY_SECONDS,
             ):
-                enqueue_router_sync(router)
+                start_if_due(router, retry=True)
         except Exception:
             logger.exception("Early failed-sync retry failed for %s", router)
 

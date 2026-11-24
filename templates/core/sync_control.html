@@ -1,0 +1,141 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}Sync control — {{ router.name }}{% endblock %}
+{% block heading %}Sync control{% endblock %}
+{% block extra_head %}<style>
+.sc-tabs{display:flex;gap:.4rem;flex-wrap:wrap;margin-bottom:1rem}.sc-tabs a{display:inline-flex;align-items:center;gap:.45rem;border:1px solid var(--border);background:var(--panel,#fff);border-radius:999px;padding:.35rem .85rem;font-size:.8rem;font-weight:700;color:var(--ink)}
+.sc-tabs a.on{background:#1769e0;border-color:#1769e0;color:#fff}.sc-tabs small{font-weight:600;opacity:.75}.sc-tabs em{font-style:normal;background:#f59e0b;color:#fff;border-radius:999px;padding:0 .4rem;font-size:.66rem}
+.sc-hero{display:grid;grid-template-columns:320px 1fr;gap:1.4rem;background:radial-gradient(circle at 12% 0,#173455,#0b1726 70%);color:#e8f0f8;border-radius:24px;padding:1.3rem 1.5rem;margin-bottom:1rem;align-items:center}
+.sc-hero h2{font-size:1.25rem;font-weight:850;margin:0 0 .3rem}.sc-hero p{color:#a9bdd2;font-size:.86rem;margin:0}
+.sc-dial{position:relative;width:300px;height:300px;margin:auto}.sc-dial svg{width:100%;height:100%;overflow:visible}
+.sc-dial .mid{position:absolute;inset:0;display:grid;place-items:center;text-align:center;pointer-events:none}.sc-dial .mid b{display:block;font-size:2rem;font-weight:900;line-height:1}.sc-dial .mid small{display:block;color:#9fb3c8;font-size:.7rem;margin-top:.25rem}
+.sc-dial .mid .cpu{font-size:.72rem;margin-top:.35rem;font-weight:800;border-radius:999px;padding:.15rem .55rem;display:inline-block;background:#ffffff14}.sc-dial .mid .cpu.hot{background:#d6454533;color:#ffb3b3}
+.sc-now{display:flex;flex-direction:column;gap:.55rem}
+.sc-chip{display:flex;gap:.65rem;align-items:flex-start;background:#ffffff0d;border:1px solid #ffffff1c;border-radius:16px;padding:.65rem .8rem}.sc-chip>i{width:34px;height:34px;border-radius:12px;display:grid;place-items:center;background:#1769e033;color:#8cc8ff;flex:none;font-size:1rem}
+.sc-chip b{display:block;font-size:.86rem}.sc-chip small{color:#9fb3c8;font-size:.74rem}.sc-chip.wait>i{background:#f59e0b33;color:#ffd38a}.sc-chip.go>i{background:#18a66a33;color:#7ee2b3}
+.sc-run{height:6px;border-radius:99px;background:#ffffff1a;overflow:hidden;margin-top:.4rem}.sc-run i{display:block;height:100%;background:linear-gradient(90deg,#1769e0,#14a3e2);transition:width .8s}
+.sc-legend{display:flex;gap:.8rem;flex-wrap:wrap;font-size:.68rem;color:#9fb3c8;margin-top:.2rem}.sc-legend span{display:inline-flex;align-items:center;gap:.3rem}.sc-legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.sc-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
+.sc-card{background:var(--panel,#fff);border:1px solid var(--border);border-radius:20px;padding:1.1rem 1.2rem;position:relative}
+.sc-card h3{font-size:1rem;font-weight:850;margin:0;display:flex;align-items:center;gap:.5rem}.sc-card h3 i{color:#1769e0}.sc-card>p{color:var(--muted);font-size:.8rem;margin:.25rem 0 .8rem}
+.sc-seg{display:flex;background:#eef3f9;border-radius:14px;padding:4px;gap:4px;flex-wrap:wrap}.sc-seg input{display:none}
+.sc-seg label{flex:1;min-width:110px;text-align:center;border-radius:11px;padding:.5rem .55rem;font-size:.8rem;font-weight:750;cursor:pointer;color:#4e6479;transition:background .2s,color .2s,box-shadow .2s}
+.sc-seg label small{display:block;font-weight:600;font-size:.66rem;opacity:.8;margin-top:.1rem}
+.sc-seg input:checked+label{background:#fff;color:#1769e0;box-shadow:0 4px 14px #1769e026}
+.sc-row{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-top:.8rem}.sc-row label.l{font-size:.76rem;font-weight:750;color:var(--muted)}
+.sc-row select,.sc-row input[type=time]{border:1px solid var(--border);border-radius:10px;padding:.35rem .55rem;font-size:.85rem;background:var(--panel,#fff);color:var(--ink)}
+.sc-switch{position:relative;display:inline-flex;align-items:center;gap:.55rem;cursor:pointer;font-size:.82rem;font-weight:700}.sc-switch input{display:none}
+.sc-switch span{width:44px;height:24px;border-radius:99px;background:#cbd5e1;position:relative;transition:background .2s;flex:none}.sc-switch span::after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:3px;left:3px;transition:left .2s;box-shadow:0 1px 4px #0003}
+.sc-switch input:checked+span{background:#18a66a}.sc-switch input:checked+span::after{left:23px}
+.sc-cpu{flex:1;min-width:200px}.sc-cpu input{width:100%;accent-color:#d64545}.sc-cpu .bar{position:relative;height:10px;border-radius:99px;background:linear-gradient(90deg,#18a66a,#f59e0b 65%,#d64545);margin-top:.2rem}
+.sc-cpu .bar i{position:absolute;top:-4px;width:4px;height:18px;border-radius:3px;background:#102033;transform:translateX(-2px);transition:left .8s}.sc-cpu .bar b{position:absolute;top:14px;font-size:.66rem;transform:translateX(-50%);white-space:nowrap;color:var(--muted)}.sc-cpu{padding-bottom:1.1rem}
+.sc-held{display:flex;align-items:center;gap:.8rem;margin-top:.8rem;background:#fff7e8;border:1px solid #f6d79b;border-radius:14px;padding:.6rem .8rem;font-size:.8rem;color:#7a5200}.sc-held b{font-size:1.2rem}
+.sc-strip{display:grid;grid-template-columns:repeat(24,1fr);gap:2px;margin-top:.7rem;align-items:end;height:54px}.sc-strip div{border-radius:4px 4px 0 0;background:#c8d6e6;position:relative;min-height:3px}.sc-strip div.q{background:#18a66a}.sc-strip div.s{outline:2px dashed #1769e0;outline-offset:1px}
+.sc-hours{display:grid;grid-template-columns:repeat(24,1fr);font-size:.56rem;color:var(--muted);text-align:center;margin-top:.15rem}
+.sc-tl{display:flex;flex-direction:column;gap:.35rem;max-height:360px;overflow:auto}.sc-tl div{display:grid;grid-template-columns:86px 1fr auto;gap:.6rem;align-items:center;font-size:.78rem;padding:.35rem .2rem;border-bottom:1px solid var(--border)}
+.sc-tl .bar{height:6px;border-radius:99px;background:#e6edf5;overflow:hidden}.sc-tl .bar i{display:block;height:100%;background:#1769e0}.sc-tl .failed .bar i{background:#d64545}.sc-tl .running .bar i{background:repeating-linear-gradient(45deg,#1769e0 0 8px,#14a3e2 8px 16px);animation:scStripe 1s linear infinite;background-size:200% 100%}
+@keyframes scStripe{to{background-position:-32px 0}}
+.sc-pill{font-size:.64rem;font-weight:800;border-radius:999px;padding:.1rem .5rem}.sc-pill.auto{background:#eef2f6;color:#51667b}.sc-pill.you{background:#e9f2ff;color:#1558b8}.sc-pill.failed{background:#fdeaea;color:#c02b2b}
+.sc-save{position:sticky;bottom:12px;z-index:5;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;background:#0f1d2e;color:#e8f0f8;border-radius:18px;padding:.7rem 1rem;margin-top:1rem;box-shadow:0 14px 40px #0b17264d}
+.sc-save .sc-switch{color:#d8e6f4}.sc-dirty{animation:scGlow 1.6s ease-in-out infinite}@keyframes scGlow{50%{box-shadow:0 0 0 4px #1769e055,0 14px 40px #0b17264d}}
+.sc-hint{font-size:.72rem;color:var(--muted);margin-top:.45rem}.sc-off{opacity:.45;pointer-events:none;transition:opacity .2s}
+html[data-theme="dark"] .sc-seg{background:#1d2a38}html[data-theme="dark"] .sc-seg input:checked+label{background:#2a3b4f;color:#8cc8ff}html[data-theme="dark"] .sc-held{background:#3a2e17;border-color:#6b5226;color:#ffd38a}
+html[data-theme="dark"] .sc-strip div{background:#2c3e52}html[data-theme="dark"] .sc-cpu .bar i{background:#fff}
+@media(max-width:1000px){.sc-hero{grid-template-columns:1fr}.sc-grid{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){.sc-dirty,.sc-tl .running .bar i{animation:none}}
+</style>{% endblock %}
+{% block content %}
+<p class="mb-2"><a href="{% url 'routers' %}" class="text-decoration-none"><i class="bi bi-arrow-left"></i> Routers</a></p>
+{% if tabs|length > 1 %}<nav class="sc-tabs" aria-label="Routers">{% for t in tabs %}<a href="{% url 'sync_control' t.router.pk %}" class="{% if t.router.pk == router.pk %}on{% endif %}"><i class="bi bi-router"></i>{{ t.router.name }} <small>{{ t.mode }}</small>{% if t.held %}<em title="vouchers waiting">{{ t.held }}</em>{% endif %}</a>{% endfor %}</nav>{% endif %}
+
+<section class="sc-hero">
+  <div class="sc-dial" id="scDial" aria-label="Today around the clock">
+    <svg viewBox="-150 -150 300 300" id="scDialSvg" role="img"></svg>
+    <div class="mid"><div><b id="scClock">--:--</b><small>{{ router.name }}</small>
+      <span class="cpu{% if o.busy %} hot{% endif %}" id="scCpu">{% if o.cpu is not None %}CPU {{ o.cpu }} %{% else %}CPU —{% endif %}</span></div></div>
+  </div>
+  <div class="sc-now">
+    <div><h2>How TapTap talks to {{ router.name }}</h2>
+      <p>A full sync reads every table of the router. Choose when it may happen, how hard it may push, and when new vouchers go — so a busy router is left in peace.</p></div>
+    <div class="sc-chip {% if o.decision.ok %}go{% else %}wait{% endif %}" id="scDecision"><i class="bi {% if o.decision.ok %}bi-play-circle{% else %}bi-hourglass-split{% endif %}"></i>
+      <div><b>Automatic sync: {% if o.decision.ok %}going ahead{% else %}waiting{% endif %}</b><small id="scWhy">{{ o.decision.why }}</small></div></div>
+    {% if o.running %}
+    <div class="sc-chip go" id="scRunning"><i class="bi bi-arrow-repeat"></i><div style="flex:1"><b>Syncing now</b><small id="scPhase">{{ o.running.phase }}</small><div class="sc-run"><i id="scRunBar" style="width:{{ o.running.progress }}%"></i></div></div></div>
+    {% endif %}
+    {% if o.held %}<div class="sc-chip wait"><i class="bi bi-inboxes"></i><div><b>{{ o.held }} new voucher{{ o.held|pluralize }} waiting</b><small>They go {% if p.voucher_mode == 'quiet' %}in quiet hours ({{ o.window }}){% else %}when you press Send{% endif %} — or the moment a customer types one.</small></div></div>{% endif %}
+    <div class="sc-legend"><span><i style="background:#18a66a"></i>quiet hours {{ o.window }}</span><span><i style="background:#5aa2ff"></i>traffic (14 days)</span><span><i style="background:#fff;border-radius:50%"></i>syncs</span><span><i style="background:#d64545;border-radius:50%"></i>failed</span></div>
+    <form method="post" action="{% url 'sync_control_action' router.pk %}" class="d-flex gap-2 flex-wrap">{% csrf_token %}
+      <button name="action" value="sync" class="btn btn-light btn-sm fw-bold"><i class="bi bi-arrow-repeat"></i> Sync now</button>
+      {% if o.held %}<button name="action" value="release" class="btn btn-warning btn-sm fw-bold"><i class="bi bi-send"></i> Send {{ o.held }} waiting voucher{{ o.held|pluralize }} now</button>{% endif %}
+    </form>
+  </div>
+</section>
+
+<form method="post" action="{% url 'sync_control_save' router.pk %}" id="scForm">{% csrf_token %}
+<div class="sc-grid">
+  <section class="sc-card">
+    <h3><i class="bi bi-database-down"></i> Full sync</h3>
+    <p>Reads every table of the router (vouchers, hosts, leases, firewall, routes…) and repairs what differs. Pressing <b>Sync now</b> always works.</p>
+    <div class="sc-seg">{% for v, label in full_modes %}<input type="radio" name="full_mode" id="fm{{ v }}" value="{{ v }}" {% if p.full_mode == v %}checked{% endif %}><label for="fm{{ v }}">{{ label }}<small>{% if v == 'auto' %}every few minutes{% elif v == 'quiet' %}only {{ o.window }}{% else %}nothing by itself{% endif %}</small></label>{% endfor %}</div>
+    <div class="sc-row" id="scEvery"><label class="l" for="scEverySel">Every</label>
+      <select name="full_every" id="scEverySel">{% for m in every_choices %}<option value="{{ m }}" {% if p.full_every == m %}selected{% endif %}>{% if m < 60 %}{{ m }} minutes{% elif m == 60 %}hour{% elif m < 1440 %}{% widthratio m 60 1 %} hours{% else %}day{% endif %}</option>{% endfor %}</select>
+      <span class="sc-hint mt-0">While syncs keep finding nothing to repair, TapTap spaces them further apart by itself.</span></div>
+    {% if not o.checks_in %}<div class="sc-hint"><i class="bi bi-info-circle"></i> {{ router.name }} is reached over the RouterOS API: TapTap already reads its sessions live, so automatic full syncs are off unless you choose them here.</div>{% endif %}
+  </section>
+
+  <section class="sc-card">
+    <h3><i class="bi bi-speedometer2"></i> Busy guard &amp; pace</h3>
+    <p>Automatic syncs wait while the router works hard. One that waited more than 6 hours runs anyway — gently.</p>
+    <label class="sc-switch"><input type="checkbox" name="busy_guard" id="scGuard" {% if p.busy_guard %}checked{% endif %}><span></span> Wait while the router is busy</label>
+    <div class="sc-row" id="scCpuRow"><div class="sc-cpu"><label class="l" for="scCpuIn">Busy from <b id="scCpuVal">{{ p.busy_cpu }}</b> % CPU</label>
+      <input type="range" min="40" max="95" step="5" name="busy_cpu" id="scCpuIn" value="{{ p.busy_cpu }}">
+      <div class="bar"><i id="scCpuNow" style="left:{% if o.cpu is not None %}{{ o.cpu }}{% else %}0{% endif %}%"></i><b id="scCpuNowTxt" style="left:{% if o.cpu is not None %}{{ o.cpu }}{% else %}0{% endif %}%">{% if o.cpu is not None %}now {{ o.cpu }} %{% else %}no reading{% endif %}</b></div></div></div>
+    {% if not o.checks_in %}<div class="sc-hint">The CPU comes from TapTap Link check-ins; without Link the guard has no reading and never holds a sync back.</div>{% endif %}
+    <div class="sc-seg mt-3">{% for v, label in paces %}<input type="radio" name="pace" id="pc{{ v }}" value="{{ v }}" {% if p.pace == v %}checked{% endif %}><label for="pc{{ v }}">{{ label }}<small>{% if v == 'normal' %}as fast as check-ins carry{% else %}the next table only after the last arrived{% endif %}</small></label>{% endfor %}</div>
+    <div class="sc-hint">TapTap switches to gentle by itself while the router is busy. While a table is being printed, a late check-in is counted as busy, not offline.</div>
+  </section>
+
+  <section class="sc-card">
+    <h3><i class="bi bi-ticket-perforated"></i> New voucher batches</h3>
+    <p>When a generated batch goes to the router. Single vouchers, online sales and voucher changes (switch off, extend…) always go at once.</p>
+    <div class="sc-seg">{% for v, label in voucher_modes %}<input type="radio" name="voucher_mode" id="vm{{ v }}" value="{{ v }}" {% if p.voucher_mode == v %}checked{% endif %}><label for="vm{{ v }}">{{ label }}<small>{% if v == 'instant' %}as soon as made{% elif v == 'quiet' %}{{ o.window }}{% else %}you decide{% endif %}</small></label>{% endfor %}</div>
+    <div class="sc-hint"><i class="bi bi-shield-check"></i> Nobody is turned away: a waiting voucher is sent the moment a customer types it at the login page.</div>
+    {% if o.held %}<div class="sc-held"><i class="bi bi-inboxes"></i><div style="flex:1"><b>{{ o.held }}</b> waiting for {{ router.name }}</div><button type="submit" form="scRelease" class="btn btn-sm btn-warning fw-bold">Send now</button></div>{% endif %}
+  </section>
+
+  <section class="sc-card">
+    <h3><i class="bi bi-moon-stars"></i> Quiet hours</h3>
+    <p>The hours your network sleeps. Used by every “quiet hours” choice on this page.</p>
+    <div class="sc-row"><label class="l" for="scFrom">From</label><input type="time" name="quiet_from" id="scFrom" value="{{ p.quiet_from|time:'H:i' }}">
+      <label class="l" for="scTo">to</label><input type="time" name="quiet_to" id="scTo" value="{{ p.quiet_to|time:'H:i' }}">
+      {% if o.suggest is not None %}<button type="button" class="btn btn-sm btn-outline-success" id="scSuggest" data-from="{{ o.suggest|stringformat:'02d' }}:00" data-to="{{ o.suggest_to|stringformat:'02d' }}:00"><i class="bi bi-magic"></i> Use my quietest hours ({{ o.suggest|stringformat:'02d' }}:00–{{ o.suggest_to|stringformat:'02d' }}:00)</button>{% endif %}</div>
+    <div class="sc-strip" id="scStrip" aria-hidden="true">{% for h in hours %}<div></div>{% endfor %}</div>
+    <div class="sc-hours">{% for h in hours %}<span>{% if h|divisibleby:3 %}{{ h }}{% endif %}</span>{% endfor %}</div>
+    {% if o.suggest is None %}<div class="sc-hint">No traffic history yet — the suggestion appears once TapTap has seen a few days of apps &amp; sites.</div>{% endif %}
+    <h3 class="mt-3" style="font-size:.9rem"><i class="bi bi-graph-up"></i> Apps &amp; sites samples</h3>
+    <div class="sc-seg mt-2">{% for v, label in sample_modes %}<input type="radio" name="samples_mode" id="sm{{ v }}" value="{{ v }}" {% if p.samples_mode == v %}checked{% endif %}><label for="sm{{ v }}">{{ label }}</label>{% endfor %}</div>
+    <div class="sc-hint">Samples read the DNS cache and busiest connections for the Traffic pages. They already slow down on a busy router.</div>
+  </section>
+</div>
+
+<div class="sc-save" id="scSaveBar">
+  <span><i class="bi bi-sliders"></i> <b id="scSaveTxt">{% if o.saved %}Your choices for {{ router.name }}{% else %}TapTap’s defaults — nothing saved yet{% endif %}</b></span>
+  <span class="d-flex align-items-center gap-3 flex-wrap">{% if others %}<label class="sc-switch"><input type="checkbox" name="all_routers" value="1"><span></span> Same for my other {{ others }} router{{ others|pluralize }}</label>{% endif %}
+    <button class="btn btn-primary fw-bold"><i class="bi bi-check2-circle"></i> Save</button></span>
+</div>
+</form>
+<form method="post" action="{% url 'sync_control_action' router.pk %}" id="scRelease">{% csrf_token %}<input type="hidden" name="action" value="release"></form>
+
+<section class="sc-card mt-3">
+  <h3><i class="bi bi-clock-history"></i> Recent syncs</h3>
+  <p>How long each took and who started it — the dots on the dial.</p>
+  <div class="sc-tl">{% for t in o.timeline %}
+    <div class="{{ t.status }}"><span>{{ t.at|date:'D H:i' }}</span>
+      <span><span class="bar"><i style="width:{% if t.status == 'success' %}100{% else %}{{ t.progress }}{% endif %}%"></i></span>
+        <small class="text-secondary">{% if t.status == 'running' or t.status == 'queued' %}{{ t.phase }}{% elif t.status == 'failed' %}failed — {{ t.phase }}{% else %}{% if t.took is not None %}{% if t.took < 60 %}{{ t.took }} s{% else %}{% widthratio t.took 60 1 %} min{% endif %}{% endif %}{% if t.healed %} · repaired {{ t.healed }}{% endif %}{% endif %}</small></span>
+      <span class="sc-pill {% if t.status == 'failed' %}failed{% elif t.by == 'you' %}you{% else %}auto{% endif %}">{% if t.by == 'you' %}{{ t.who|default:'you' }}{% else %}automatic{% endif %}</span></div>
+  {% empty %}<div class="text-secondary small">No sync yet.</div>{% endfor %}</div>
+</section>
+{{ o.load|json_script:"scLoad" }}
+<script id="scData" type="application/json">{"quietFrom":"{{ p.quiet_from|time:'H:i' }}","quietTo":"{{ p.quiet_to|time:'H:i' }}","now":{{ o.now_hour|stringformat:'.3f' }},"status":"{% url 'sync_control_status' router.pk %}","syncs":[{% for t in o.timeline %}{"h":{{ t.hour|stringformat:'.3f' }},"s":"{{ t.status }}","b":"{{ t.by }}"}{% if not forloop.last %},{% endif %}{% endfor %}]}</script>
+{% endblock %}
+{% block scripts %}<script src="{% static 'js/sync-control.js' %}?v=1"></script>{% endblock %}

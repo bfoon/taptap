@@ -29,7 +29,6 @@ from .models import (
     Voucher,
 )
 from .durations import parse_routeros as _routeros_minutes
-from .routeros_analysis import analyze_wan
 from .sync import (
     _clean,
     _has_uptime,
@@ -280,6 +279,13 @@ def start_agent_inventory_sync(job):
     # Voucher tables first: if the router is slow or the sync stops halfway, vouchers are already up to date.
     first = ('hotspot_user_profiles', 'hotspot_users', 'active_users', 'hotspot_ip_bindings')
     ordered = [k for k in first if k in SOURCES] + [k for k in SOURCES if k not in first]
+    # A gentle sync (core/sync_control.py) sends one table per check-in: its tables may wait the whole time a sync is
+    # allowed to take, instead of expiring after 30 minutes half-way through.
+    try:
+        from .sync_control import gentle
+        wait = MAX_SYNC_MINUTES if gentle(router) else 30
+    except Exception:
+        wait = 30
     for kind in ordered:
         src = SOURCES[kind]
         from .agent import queue
@@ -289,7 +295,7 @@ def start_agent_inventory_sync(job):
             {'job_id': job.pk, 'kind': kind},
             label=f'Sync {src["label"]}',
             user=job.requested_by,
-            minutes=30,
+            minutes=wait,
         )
 
     job.status = 'running'
@@ -894,6 +900,11 @@ def _record_piece(router, job_id, piece_summary):
     if not router.sales_baseline_at:
         Router.objects.filter(pk=router.pk, sales_baseline_at__isnull=True).update(sales_baseline_at=now)
     log(router.business, 'Router Sync', f'{router.name}: full inventory synchronized through TapTap Link', router=router)
+    try:    # a sync started gently (busy router, overdue) is over: the next one decides afresh (core/sync_control.py)
+        from .sync_control import job_done
+        job_done(router)
+    except Exception:
+        logger.debug('sync control %s', router, exc_info=True)
     try:    # then every voucher is checked against what the router just sent, and what differs is healed
         from .sync_doctor import schedule
         schedule(job)
