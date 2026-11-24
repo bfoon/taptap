@@ -317,3 +317,25 @@ class GentleSyncStart(Base):
         inv.start_agent_inventory_sync(job)
         cmd = AgentCommand.objects.filter(router=self.router, kind='inventory_piece').first()
         self.assertGreaterEqual((cmd.expires_at - cmd.created_at).total_seconds(), inv.MAX_SYNC_MINUTES * 60 - 5)
+
+
+class MikroTikControlPage(Base):
+    def test_every_router_card_shows_how_it_syncs_and_links_to_sync_control(self):
+        api = Router.objects.create(business=self.biz, name='Branch', ip_address='10.0.0.2', username='a', password='p')
+        self.save(full_mode='quiet', voucher_mode='manual')
+        Voucher.objects.create(business=self.biz, router=self.router, code='WAIT1', plan_name='Day', duration_minutes=60,
+                               source='taptap', mikrotik_sync_status=sc.HELD)
+        r = self.client.get('/routers/')
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, f'/routers/{self.router.pk}/sync-control/')
+        self.assertContains(r, f'/routers/{api.pk}/sync-control/')
+        self.assertContains(r, 'Sync: Quiet hours · 01:00–05:00')
+        self.assertContains(r, '1 waiting')
+        self.assertContains(r, 'Sync: Manual')                 # a direct API router without a saved policy
+        self.assertContains(r, 'sync-ctl-btn')
+
+    def test_the_page_still_opens_if_sync_control_cannot_answer(self):
+        with mock.patch('core.sync_control.card_summaries', side_effect=RuntimeError('boom')):
+            r = self.client.get('/routers/')
+        self.assertEqual(r.status_code, 200)
+        self.assertNotContains(r, 'Sync: ')

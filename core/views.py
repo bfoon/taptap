@@ -544,6 +544,14 @@ def routers(request):
             router.sync_load=load_summary(router)
         except Exception:
             router.sync_load=None
+    # each card: how its syncs run, from Sync control (core/sync_control.py) — never breaks the page
+    try:
+        from .sync_control import card_summaries
+        ctl=card_summaries(router_rows)
+    except Exception:
+        ctl={}
+    for router in router_rows:
+        router.sync_ctl=ctl.get(router.id)
     return render(request,'core/routers.html',{
         'routers':router_rows,'form':form,'recent_sync_jobs':recent_jobs,
         'sync_schema_ready':sync_schema_ready,

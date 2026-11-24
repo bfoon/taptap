@@ -397,6 +397,28 @@ def overview(router):
     }
 
 
+def card_summaries(routers):
+    """{router_id: {...}} for the router cards on the MikroTik Control page — two queries for all routers."""
+    from django.db.models import Count
+    from .models import Voucher
+    from .models_sync import RouterSyncPolicy
+    ids = [r.pk for r in routers]
+    saved = {p.router_id: p for p in RouterSyncPolicy.objects.filter(router_id__in=ids)}
+    held = dict(Voucher.objects.filter(router_id__in=ids, mikrotik_sync_status=HELD, deleted_at__isnull=True)
+                .exclude(status__in=('expired', 'archived')).values('router_id').annotate(n=Count('id')).values_list('router_id', 'n'))
+    out = {}
+    for r in routers:
+        p = saved.get(r.pk)
+        if p is None:
+            p = RouterSyncPolicy(router=r, full_every=_default_every(), full_mode='auto' if _checks_in(r) else 'manual')
+        every = int(p.full_every or _default_every())
+        span = f'{every} min' if every < 60 else (f'{every // 60} h' if every < 1440 else 'day')
+        text = {'auto': f'Auto · every {span}', 'quiet': f'Quiet hours · {window_text(p)}', 'manual': 'Manual'}[p.full_mode]
+        out[r.pk] = {'mode': p.full_mode, 'text': text, 'held': held.get(r.pk, 0), 'gentle': p.pace == 'gentle',
+                     'saved': bool(p.pk), 'vouchers': p.voucher_mode}
+    return out
+
+
 # ─────────────────────────────── saving ───────────────────────────────
 
 def _time(value, default):

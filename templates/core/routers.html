@@ -47,6 +47,9 @@ html[data-theme="dark"] .sd-chip.warn,html[data-theme="dark"] .sd-chip.bad{backg
 .rc-chip.sched{border-style:dashed}
 .rc-chip.sched.set{border-style:solid;border-color:#c9dcf7;color:#1769e0;background:#f1f6fe}
 .rc-chip.sched.set.off{border-color:#f3c4c4;color:#c02b2b;background:#fdf2f2}
+.rc-chip.syncc{border-color:#c9dcf7;color:#1769e0;background:#f1f6fe}.rc-chip.syncc.manual{border-color:#e3d3f7;color:#6d28d9;background:#f6f1fe}.rc-chip.syncc.quiet{border-color:#bfe8d3;color:#138453;background:#effaf4}
+.rc-chip.syncc em{font-style:normal;background:#f59e0b;color:#fff;border-radius:999px;padding:0 .45rem;font-size:.66rem;margin-left:.15rem}
+html[data-theme="dark"] .rc-chip.syncc{background:#1c2a3d;border-color:#2e4a70;color:#8fbaf5}html[data-theme="dark"] .rc-chip.syncc.manual{background:#2a2140;border-color:#4b3a72;color:#c4a8ff}html[data-theme="dark"] .rc-chip.syncc.quiet{background:#1d3328;border-color:#2f5a44;color:#79e1b4}
 .rc-error{margin-top:.6rem;font-size:.76rem;color:#b45309;background:#fff7ec;border-radius:10px;padding:.4rem .6rem}
 .rc-load{display:flex;gap:.45rem;align-items:flex-start;font-size:.74rem;color:var(--muted,#6b7280);padding:.45rem .9rem 0;line-height:1.35}.rc-load .bi{color:#18a66a;margin-top:.1rem}
 html[data-theme="dark"] .rc{background:#1f242b;border-color:#343c47}
@@ -66,7 +69,7 @@ html[data-theme="dark"] .rc-error{background:#3a2a17;color:#f2b46f}
 {% block content %}
 <div class="page-actions">
   <div><h2 class="section-title">Router control & synchronization</h2><p>TapTap Link is recommended for cloud hosting: the MikroTik connects out over HTTPS, so no local IP or open API port is required.</p></div>
-  {% if routers %}<form method="post" action="{% url 'routers_sync_all' %}">{% csrf_token %}<button class="btn btn-primary sync-btn" {% if not sync_schema_ready %}disabled title="Run database migrations first"{% endif %}><i class="bi bi-arrow-repeat"></i> Full sync all routers</button></form>{% endif %}
+  {% if routers %}<div class="d-flex gap-2 flex-wrap align-items-center"><a href="{% url 'sync_control' routers.0.id %}" class="btn btn-outline-primary sync-ctl-btn" title="When and how TapTap syncs each router: automatic or manual, quiet hours, busy guard, voucher batches"><i class="bi bi-sliders2-vertical"></i> Sync control</a><form method="post" action="{% url 'routers_sync_all' %}">{% csrf_token %}<button class="btn btn-primary sync-btn" {% if not sync_schema_ready %}disabled title="Run database migrations first"{% endif %}><i class="bi bi-arrow-repeat"></i> Full sync all routers</button></form></div>{% endif %}
 </div>
 
 {% if not sync_schema_ready %}
@@ -171,6 +174,7 @@ html[data-theme="dark"] .rc-error{background:#3a2a17;color:#f2b46f}
             {% else %}<i class="bi bi-calendar-plus"></i> Add a schedule{% endif %}
           </a>
           {% endwith %}
+          {% with c=r.sync_ctl %}{% if c %}<a class="rc-chip syncc {{ c.mode }}" href="{% url 'sync_control' r.id %}" title="Sync control: when and how TapTap syncs {{ r.name }}{% if c.gentle %} (gentle pace){% endif %}"><i class="bi bi-sliders2-vertical"></i> Sync: {{ c.text }}{% if c.gentle %} · gentle{% endif %}{% if c.held %}<em>{{ c.held }} waiting</em>{% endif %}</a>{% endif %}{% endwith %}
           <a class="rc-chip" href="{% url 'network_tools' %}?router={{ r.id }}"><i class="bi bi-speedometer2"></i> Tools</a>
         </div>
         {% if r.last_error %}<div class="rc-error"><i class="bi bi-exclamation-triangle"></i> {{ r.last_error|truncatechars:140 }}</div>{% endif %}
