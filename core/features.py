@@ -6,7 +6,9 @@ vouchers, batches, plans, routers, active users, settings, subscription, support
 
 Who decides
 -----------
-1. The business's TIER (package) gives a bundle of modules: Starter, Pro or Business (everything).
+1. The business's PLAN (tier) gives a bundle of modules: Free (vouchers only), Basic (everything but team
+   accounts and the AI assistant), Pro (everything) or Enterprise (everything, plus features built for it).
+   A paid plan or trial that ends falls back to Free — vouchers keep working, the rest locks (effective_tier).
 2. The PLATFORM (superusers, Platform console → business → Features) can switch any module on
    or off for one business on top of its tier: Business.feature_overrides = {key: True/False}.
 3. The OWNER (Settings → Features) can switch OFF optional modules they don't use, to keep
@@ -94,8 +96,16 @@ FEATURES = OrderedDict((f.key, f) for f in [
        'traffic traffic_now traffic_cdn traffic_data traffic_speed traffic_speed_save traffic_speed_action'),
     _f('app_control', 'App & site control', 'network', 'bi-funnel', 'Block or slow apps and sites, with peak-hour rules.', 'app_control app_rule_save app_rule_global app_rule_action', depends=('traffic',)),
     _f('devices', 'Devices', 'network', 'bi-fingerprint', 'Every phone and laptop seen, with sharing checks.', 'devices device_detail device_action'),
-    _f('wan', 'Internet lines', 'network', 'bi-hdd-network', 'Multi-WAN designer and the Internet Doctor.',
-       'wan_designer wan_detect wan_preview wan_apply wan_confirm wan_undo wan_status wan_script wan_doctor_status wan_doctor_check wan_doctor_install wan_doctor_remove wan_doctor_fix wan_doctor_script router_wan_name'),
+    _f('wan', 'Internet lines', 'network', 'bi-hdd-network', 'Multi-WAN designer, the line hub and the Internet Doctor.',
+       'wan_designer wan_detect wan_preview wan_apply wan_confirm wan_undo wan_status wan_script wan_doctor_status wan_doctor_check wan_doctor_install wan_doctor_remove wan_doctor_fix wan_doctor_script router_wan_name '
+       'line_hub line_hub_pulse line_hub_action line_hub_move'),
+    _f('router_studio', 'Router control & Config Studio', 'network', 'bi-grid-1x2', 'Ports, clock, quick recipes and Config Studio: change the router from TapTap.',
+       'router_control router_config_apply router_config_refresh router_resource_api router_quick_recipe router_telemetry router_port port_action port_blink '
+       'router_interface_role router_clock router_clock_read router_clock_set config_studio config_studio_action config_studio_ai config_studio_backup '
+       'config_studio_check config_studio_deploy config_studio_export config_studio_read config_studio_section config_studio_state config_studio_trace'),
+    _f('schedules', 'Schedules & sync control', 'network', 'bi-calendar2-check', 'Restart / shutdown schedules, and when and how TapTap syncs each router.',
+       'router_schedules router_schedule_save router_schedule_action sync_control sync_control_save sync_control_action sync_control_status'),
+    _f('flow', 'Flow lab', 'network', 'bi-water', 'Slow customers, idle devices, DHCP and speed checks, step by step.', paths=('/flow/',)),
     _f('network_tools', 'Network tools', 'network', 'bi-activity', 'Ping, speed tests and path checks from the router.',
        'network_tools network_tools_run network_tools_test network_tools_path network_tools_devices network_tools_verdict network_tools_save_chain network_tools_blob network_tools_sink'),
     _f('other_devices', 'Other routers & APs', 'network', 'bi-hdd-rack', 'TP-Link, Omada and other devices TapTap does not manage, with remote access.',
@@ -128,19 +138,22 @@ FEATURES = OrderedDict((f.key, f) for f in [
 ])
 ALL = frozenset(FEATURES)
 
-# Packages. "business" is everything and is the default, so existing accounts see no change.
+# Plans, cheapest first. Pro is everything and the default, so existing accounts see no change.
+#   (key, (name, one line, modules, extras shown on the plan card))
 TIERS = OrderedDict([
-    ('starter', ('Starter', 'Vouchers, plans, routers and the essentials for one site.', frozenset({
-        'daily_sales', 'members', 'agents', 'customer_reports', 'missing_vouchers', 'tracking', 'reports', 'finance',
-        'ip_bindings', 'hotspot_profiles', 'alerts', 'security', 'portal_studio', 'voucher_designer'}))),
-    ('pro', ('Pro', 'Everything in Starter plus team accounts, deep network tools and Fit.', frozenset({
-        'daily_sales', 'members', 'agents', 'customer_reports', 'missing_vouchers', 'tracking', 'reports',
-        'ip_bindings', 'hotspot_profiles', 'alerts', 'security', 'portal_studio', 'voucher_designer',
-        'finance', 'team', 'bonanza', 'adverts', 'topology', 'traffic', 'app_control', 'devices', 'wan',
-        'network_tools', 'other_devices', 'router_maintenance', 'fair_usage', 'fit'}))),
-    ('business', ('Business', 'Everything, including payroll, online sales, partners and investors.', ALL)),
+    ('free', ('Free', 'Vouchers only: make, print, sell and manage vouchers on your routers.', frozenset(),
+              ('Vouchers, batches and plans', 'Routers over TapTap Link', 'Minimal print design', 'Active users'))),
+    ('basic', ('Basic', 'Every tool for one business, without team accounts and the AI assistant.', ALL - {'team', 'payroll', 'fit'},
+               ('Everything in Free', 'Reports, finance and members', 'Network, security and studio tools', 'Online sales and partners'))),
+    ('pro', ('Pro', 'Everything TapTap has, with team accounts and Fit, the AI assistant.', ALL,
+             ('Everything in Basic', 'Team accounts and payroll', 'Fit — the AI technician', 'Every new feature first'))),
+    ('enterprise', ('Enterprise', 'Everything in Pro, plus features tailor-made for your business.', ALL,
+                    ('Everything in Pro', 'Features built just for you', 'Your requests tracked step by step', 'A TapTap contact for your business'))),
 ])
-DEFAULT_TIER = 'business'
+PAID_TIERS = ('basic', 'pro')               # bought on the Subscription page; Enterprise is agreed with TapTap
+DEFAULT_TIER = 'pro'
+# Package names before plans existed: Starter was a subset of Basic, Business was everything.
+LEGACY_TIERS = {'starter': 'basic', 'business': 'pro'}
 
 # Prefixes the gate never looks at (public pages, APIs, static) — same idea as the team gate.
 SKIP_PREFIXES = ('/admin/', '/static/', '/api/', '/p/', '/b/', '/n/off/', '/n/me/', '/media/', '/ag/', '/c/', '/member/')
@@ -150,13 +163,46 @@ _ROUTER_MAINT = re.compile(r'^/routers/\d+/(cleanup|restore|backups)/')
 
 # ───────────────────────────── deciding ─────────────────────────────
 def tier_of(business):
+    """The plan the business is on (or paying for)."""
     t = getattr(business, 'feature_tier', '') or DEFAULT_TIER
+    t = LEGACY_TIERS.get(t, t)
     return t if t in TIERS else DEFAULT_TIER
 
 
+def free_fallback():
+    """Does a business whose paid time or trial ended keep the Free plan (instead of being locked out)?"""
+    from django.conf import settings
+    return bool(getattr(settings, 'FREE_PLAN_FALLBACK', True))
+
+
+def paid_time_left(business):
+    """True while the trial or a paid subscription runs (or the account is unlimited)."""
+    if getattr(business, 'is_unlimited', False):
+        return True
+    from django.utils import timezone
+    exp = business.access_expires_at() if hasattr(business, 'access_expires_at') else None
+    return bool(exp and exp > timezone.now())
+
+
+def effective_tier(business):
+    """The plan in force right now: the chosen plan while its time runs, Free once it has ended."""
+    tier = tier_of(business)
+    if tier == 'free' or paid_time_left(business):
+        return tier
+    return 'free' if free_fallback() else tier
+
+
+def cheapest_tier_with(key):
+    """The first plan (cheapest) that includes module ``key`` — for "Unlock with Basic" buttons."""
+    for t, row in TIERS.items():
+        if key in row[2]:
+            return t
+    return 'pro'
+
+
 def available(business):
-    """Modules this business may use: tier bundle + platform switches (before the owner's choices)."""
-    keys = set(TIERS[tier_of(business)][2])
+    """Modules this business may use: plan bundle + platform switches (before the owner's choices)."""
+    keys = set(TIERS[effective_tier(business)][2])
     for key, on in (getattr(business, 'feature_overrides', None) or {}).items():
         if key in FEATURES:
             (keys.add if on else keys.discard)(key)
@@ -192,6 +238,12 @@ def enabled(business, key):
     return key in enabled_set(business)
 
 
+def uses(business, key):
+    """Background work of module ``key`` may run for this business: it has access and its plan includes the module
+    (a business that fell back to Free keeps its vouchers, but not Fit missions, sharing checks or app rules)."""
+    return bool(business is not None and business.has_access and enabled(business, key))
+
+
 def why_off(business, key):
     """'package' | 'platform' | 'owner' | 'depends:<key>' | '' (= it is on)."""
     if key not in FEATURES or enabled(business, key):
@@ -213,7 +265,7 @@ def state_rows(business):
     """For the Settings → Features and platform pages: every module with its state."""
     on = enabled_set(business)
     avail = available(business)
-    tier_keys = TIERS[tier_of(business)][2]
+    tier_keys = TIERS[effective_tier(business)][2]
     overrides = getattr(business, 'feature_overrides', None) or {}
     hidden = set(getattr(business, 'features_off', None) or [])
     groups = OrderedDict((g, {'key': g, 'label': lbl, 'icon': icon, 'items': []}) for g, (lbl, icon) in GROUPS.items())
@@ -290,8 +342,11 @@ class FeatureGateMiddleware:
         if _wants_json(request):
             return JsonResponse({'ok': False, 'error': f'{f.label} is switched off for this business.', 'feature': key, 'why': why}, status=403)
         dep = FEATURES.get(why.split(':', 1)[1]) if why.startswith('depends:') else None
+        unlock = cheapest_tier_with(key)
         return render(request, 'core/feature_off.html', {'feature': f, 'why': why, 'dep': dep,
-                                                         'tier': TIERS[tier_of(business)][0]}, status=403)
+                                                         'tier': TIERS[effective_tier(business)][0], 'tier_key': effective_tier(business),
+                                                         'unlock': unlock, 'unlock_name': TIERS[unlock][0],
+                                                         'unlock_extras': TIERS[unlock][3]}, status=403)
 
 
 # ───────────────────────────── menus ─────────────────────────────
@@ -304,15 +359,31 @@ _EMPTY_LABEL = re.compile(r'<div\b[^>]*class=["\'][^"\']*nav-label[^"\']*["\'][^
 _FIT_WIDGET = re.compile(r'<link\b[^>]*css/fit\.css[^>]*>\s*<div id="ttFit"[^>]*></div>\s*<script\b[^>]*js/fit\.js[^>]*></script>', re.I | re.S)
 
 
-def strip_menus(body, enabled_keys):
+_A_OPEN = re.compile(r'^<a\b', re.I)
+_A_CLOSE = re.compile(r'</a>$', re.I)
+
+
+def _locked_link(html, key):
+    """A menu link the plan does not include: kept, dimmed, with a lock — it opens the "Unlock with …" page."""
+    name = TIERS[cheapest_tier_with(key)][0]
+    html = _A_OPEN.sub(f'<a data-tt-locked="1" title="{FEATURES[key].label}: unlock with {name}"', html, count=1)
+    return _A_CLOSE.sub('<i class="bi bi-lock-fill tt-lock" aria-label="locked"></i></a>', html, count=1)
+
+
+def strip_menus(body, enabled_keys, locked_keys=()):
     """Remove menu links to switched-off modules from the sidebar and the mobile menu
-    (including links added by other modules), empty section labels, and the Fit widget."""
+    (including links added by other modules), empty section labels, and the Fit widget.
+    Modules in ``locked_keys`` (not in the business's plan) keep their link, dimmed with a lock, so the owner sees
+    what a plan would unlock; modules the owner or TapTap switched off disappear."""
     off = ALL - set(enabled_keys)
     if not off:
         return body
+    locked = set(locked_keys) & off
 
     def drop(match):
         key = feature_for_path(match.group(1))
+        if key in locked:
+            return _locked_link(match.group(0), key)
         return '' if key in off else match.group(0)
 
     for rx in _NAV_REGIONS:
@@ -335,9 +406,11 @@ def _clean_response(request, response):
         keys = request_features(request)
         if keys == ALL:
             return response
+        business = request.tt_business
+        locked = {k for k in ALL - set(keys) if why_off(business, k) == 'package'}
         charset = response.charset or 'utf-8'
         body = response.content.decode(charset)
-        new = strip_menus(body, keys)
+        new = strip_menus(body, keys, locked)
         if new != body:
             response.content = new.encode(charset)
             if response.has_header('Content-Length'):

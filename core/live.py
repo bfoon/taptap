@@ -26,6 +26,7 @@ from django.db import close_old_connections, connection
 from django.utils import timezone
 
 from .finance import mark_activated
+from .features import uses
 from .mikrotik import MikroTikService, ros_bool
 from .models import (Business, IPBindingAccessExpiry, Router, RouterHotspotUser, SessionIncident, SyncedIPBinding,
                      Voucher)
@@ -688,7 +689,7 @@ def housekeeping():
             from .sharing import run as _share_run
             from .models import Router as _SR
             for r in _SR.objects.filter(business__sharing_policy__enabled=True).select_related('business'):
-                if r.business.has_access:
+                if uses(r.business, 'security'):
                     _share_run(r)
         except Exception:
             logger.exception('sharing protection')
@@ -712,7 +713,7 @@ def housekeeping():
         try:
             from .app_control import push_all
             for business in Business.objects.filter(app_rules__isnull=False).distinct():
-                if business.has_access:
+                if uses(business, 'app_control'):
                     push_all(business)
         except Exception:
             logger.exception('app control')
@@ -720,7 +721,7 @@ def housekeeping():
         try:
             from .business_alerts import evaluate
             for business in Business.objects.filter(event_rules__enabled=True).distinct():
-                if business.has_access:
+                if uses(business, 'alerts'):
                     evaluate(business)
         except Exception:
             logger.exception('business alerts')

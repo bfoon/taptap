@@ -5,12 +5,13 @@ from django.shortcuts import render
 from django.views.decorators.http import require_POST
 
 from . import agent_portal as ap
+from .features import uses
 
 
 def _agent(token):
     from .models import Agent
     a = Agent.objects.filter(portal_token=token, active=True).select_related('business').first() if token and len(token) >= 16 else None
-    if not a or not a.business.has_access:
+    if not a or not a.business.has_access or not uses(a.business, 'agents'):
         raise Http404
     return a
 

@@ -1,13 +1,89 @@
-{% extends 'core/base.html' %}{% block title %}Subscription — TapTap{% endblock %}{% block heading %}Subscription{% endblock %}{% block content %}
-<div class="subscription-hero"><div><span class="eyebrow">YOUR ACCESS</span><h2>{% if current_business.is_unlimited %}Unlimited account{% elif current_business.has_access %}{{ current_business.days_left }} days remaining{% else %}Your TapTap access has expired{% endif %}</h2>
-  <p>{% if current_business.has_access %}Your dashboard and management tools are available.{% elif 'subscription.manage' in tt_perms %}Choose a plan to restore voucher, network and business management features.{% else %}The TapTap subscription for {{ current_business.business_name }} has ended. Please ask the business owner to renew it.{% endif %}</p>
-  <p class="small mb-0 opacity-75"><i class="bi bi-geo-alt"></i> Prices for {{ country_label }} · <a href="{% url 'support' %}" class="text-reset">wrong country? tell TapTap support</a></p></div><i class="bi bi-lightning-charge-fill"></i></div>
+{% extends 'core/base.html' %}{% block title %}Plans &amp; subscription — TapTap{% endblock %}{% block heading %}Plans &amp; subscription{% endblock %}
+{% block extra_head %}<style>
+.pl-hero{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;border-radius:22px;background:radial-gradient(circle at 85% 0,#2caef8 0,#1769e0 38%,#0f2a52 100%);color:#fff;padding:1.4rem 1.6rem;margin-bottom:1.2rem}
+.pl-hero h2{font-weight:850;margin:.2rem 0;font-size:1.5rem}.pl-hero p{margin:0;color:#d8e8ff;max-width:720px}.pl-hero .eyebrow{color:#a9c9f5}
+.pl-hero .big{font-size:3.4rem;opacity:.8}
+.pl-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1rem;align-items:stretch}
+.pl-card{position:relative;display:flex;flex-direction:column;background:var(--panel,#fff);border:1px solid var(--border);border-radius:22px;padding:1.2rem;transition:transform .2s,box-shadow .2s}
+.pl-card:hover{transform:translateY(-3px);box-shadow:0 16px 36px #1769e01f}
+.pl-card.now{border:2px solid #18a66a;box-shadow:0 12px 30px #18a66a24}.pl-card.pro{border:2px solid #1769e0}
+.pl-card.enterprise{background:linear-gradient(160deg,#101927,#1b2b45);color:#e8f0f8;border-color:#2b3e5c}
+.pl-card.enterprise .pl-line,.pl-card.enterprise li{color:#a9bdd2}
+.pl-ico{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;font-size:1.3rem;margin-bottom:.6rem;background:#eef5ff;color:#1769e0}
+.pl-card.free .pl-ico{background:#eef2f6;color:#51667b}.pl-card.basic .pl-ico{background:#e6f7ef;color:#138453}.pl-card.enterprise .pl-ico{background:#ffffff14;color:#ffd38a}
+.pl-card h3{font-size:1.2rem;font-weight:850;margin:0}.pl-line{color:var(--muted);font-size:.82rem;min-height:2.6em;margin:.2rem 0 .6rem}
+.pl-price{font-size:1.6rem;font-weight:900;line-height:1.1}.pl-price small{font-size:.75rem;font-weight:600;color:var(--muted)}
+.pl-card.enterprise .pl-price small{color:#a9bdd2}
+.pl-card ul{list-style:none;padding:0;margin:.8rem 0;font-size:.82rem;flex:1}.pl-card li{padding:.22rem 0;display:flex;gap:.45rem}.pl-card li i{color:#18a66a}
+.pl-card.enterprise li i{color:#ffd38a}
+.pl-tag{position:absolute;top:-11px;right:16px;font-size:.62rem;font-weight:900;letter-spacing:.06em;border-radius:999px;padding:.25rem .6rem;background:#1769e0;color:#fff}
+.pl-tag.now{background:#18a66a}.pl-tag.later{background:#f59e0b}
+.pl-dur{display:flex;flex-direction:column;gap:.35rem}.pl-dur button{display:flex;justify-content:space-between;align-items:center;width:100%;border:1px solid var(--border);background:transparent;border-radius:12px;padding:.45rem .7rem;font-size:.8rem;font-weight:700;color:var(--ink);transition:border-color .15s,background .15s}
+.pl-dur button:hover{border-color:#1769e0;background:#1769e00d}.pl-dur button em{font-style:normal;font-size:.62rem;font-weight:800;color:#138453;background:#e4f7ee;border-radius:999px;padding:.05rem .4rem;margin-left:.3rem}
+.pl-dur button b{font-variant-numeric:tabular-nums}
+.pl-cmp{margin-top:1.4rem}.pl-cmp table{width:100%;border-collapse:separate;border-spacing:0}.pl-cmp th,.pl-cmp td{padding:.45rem .6rem;font-size:.82rem;border-bottom:1px solid var(--border)}
+.pl-cmp th{position:sticky;top:0;background:var(--panel,#fff);text-align:center;font-size:.78rem}.pl-cmp th:first-child,.pl-cmp td:first-child{text-align:left}
+.pl-cmp td{text-align:center}.pl-cmp .grp td{background:#f4f7fb;font-weight:800;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:#51667b;text-align:left}
+.pl-cmp .yes{color:#18a66a;font-size:1rem}.pl-cmp .no{color:#c2ccd8}.pl-cmp .mine{background:#18a66a0d}
+.ent{display:grid;grid-template-columns:1.1fr 1fr;gap:1rem;margin-top:1.4rem}
+.ent-steps{display:flex;gap:.25rem;margin-top:.45rem}.ent-steps span{flex:1;height:6px;border-radius:99px;background:#e6edf5}.ent-steps span.on{background:linear-gradient(90deg,#1769e0,#14a3e2)}.ent-steps.declined span.on{background:#d64545}
+.ent-item{border:1px solid var(--border);border-radius:14px;padding:.7rem .8rem;margin-bottom:.6rem}.ent-item b{font-size:.88rem}.ent-item small{color:var(--muted)}
+.ent-st{font-size:.66rem;font-weight:800;border-radius:999px;padding:.12rem .55rem;background:#eef2f6;color:#51667b}.ent-st.live{background:#e4f7ee;color:#138453}.ent-st.building,.ent-st.planned{background:#e9f2ff;color:#1558b8}.ent-st.declined{background:#fdeaea;color:#c02b2b}
+html[data-theme="dark"] .pl-cmp .grp td{background:#1d2a38;color:#a9bdd2}html[data-theme="dark"] .pl-cmp th{background:#1f242b}html[data-theme="dark"] .ent-steps span{background:#2c3e52}
+@media(max-width:1199px){.pl-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.ent{grid-template-columns:1fr}}@media(max-width:650px){.pl-grid{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){.pl-card{transition:none}.pl-card:hover{transform:none}}
+</style>{% endblock %}
+{% block content %}
+<div class="pl-hero"><div><span class="eyebrow">YOUR PLAN</span><h2>{{ standing.title }}</h2><p>{{ standing.line }}</p>
+  <p class="small mt-1 opacity-75"><i class="bi bi-geo-alt"></i> Prices for {{ country_label }} · <a href="{% url 'support' %}" class="text-reset">wrong country? tell TapTap support</a></p></div><i class="bi bi-lightning-charge-fill big"></i></div>
 {% if pending %}<div class="alert alert-info d-flex gap-2 align-items-start"><i class="bi bi-hourglass-split"></i><div><b>Waiting for payment confirmation:</b>
-  {% for s in pending %}{{ s.plan }} — {{ s.money }} (requested {{ s.created_at|date:'d M' }}){% if not forloop.last %}; {% endif %}{% endfor %}</div></div>{% endif %}
-<div class="pricing-grid">{% for p in prices %}<div class="price-card {% if p.featured %}featured{% endif %}">{% if p.featured %}<span class="popular">BEST VALUE</span>{% elif p.saving %}<span class="popular" style="background:#e4f7ee;color:#138453">SAVE {{ p.saving }}%</span>{% endif %}
-  <h3>{{ p.name }}</h3><strong>{{ p.symbol }}{{ p.amount|floatformat:"-2" }}</strong>
-  <p>{% if p.days > 30 %}≈ {{ p.symbol }}{{ p.per_month }} a month{% if p.saving and p.featured %} · save {{ p.saving }}%{% endif %}{% else %}Full TapTap business access{% endif %}</p>
-  <ul><li>Voucher management</li><li>MikroTik controls</li><li>Reports & finance</li><li>Security center</li></ul>
-  {% if 'subscription.manage' in tt_perms %}<form method="post" action="{% url 'subscription_select' p.code %}">{% csrf_token %}<button class="btn {% if p.featured %}btn-primary{% else %}btn-outline-primary{% endif %} w-100">Choose plan</button></form>{% else %}<span class="btn btn-light w-100 disabled">Owner renews</span>{% endif %}</div>
-{% empty %}<div class="alert alert-warning">No packages are offered in your country yet. Please contact TapTap support.</div>{% endfor %}</div>
+  {% for s in pending %}{% if s.tier_label %}{{ s.tier_label }} · {% endif %}{{ s.plan }} — {{ s.money }} (requested {{ s.created_at|date:'d M' }}){% if not forloop.last %}; {% endif %}{% endfor %}</div></div>{% endif %}
+
+<div class="pl-grid" id="plans">{% for c in cards %}
+  <section class="pl-card {{ c.key }}{% if c.current %} now{% endif %}">
+    {% if c.current %}<span class="pl-tag now">YOUR PLAN</span>{% elif c.chosen %}<span class="pl-tag later" title="Paid time ended — choose it again to get it back">ENDED</span>{% elif c.key == 'pro' %}<span class="pl-tag">MOST CHOSEN</span>{% endif %}
+    <div class="pl-ico"><i class="bi {{ c.icon }}"></i></div>
+    <h3>{{ c.name }}</h3><p class="pl-line">{{ c.line }}</p>
+    <div class="pl-price">{% if c.key == 'free' %}Free <small>forever</small>{% elif c.key == 'enterprise' %}Tailored <small>talk to us</small>{% elif c.from %}<small>from</small> {{ c.from.symbol }}{{ c.from.per_month|floatformat:"-2" }} <small>/ month</small>{% else %}—{% endif %}</div>
+    <ul>{% for e in c.extras %}<li><i class="bi bi-check2-circle"></i>{{ e }}</li>{% endfor %}<li><i class="bi bi-grid"></i>{% if c.modules %}{{ c.modules }} of {{ c.total }} modules{% else %}The core voucher tools only{% endif %}</li></ul>
+    {% if 'subscription.manage' in tt_perms %}
+      {% if c.key == 'free' %}
+        {% if c.current %}<span class="btn btn-light w-100 disabled">You are on Free</span>{% else %}<form method="post" action="{% url 'subscription_free' %}">{% csrf_token %}<button class="btn btn-outline-secondary w-100">Use Free</button></form>{% endif %}
+      {% elif c.key == 'enterprise' %}
+        <a href="#enterprise" class="btn btn-warning w-100 fw-bold"><i class="bi bi-chat-square-heart"></i> Tell us what you need</a>
+      {% else %}
+        <form method="post" class="pl-dur">{% csrf_token %}<input type="hidden" name="tier" value="{{ c.key }}">
+          {% for p in c.prices %}<button formaction="{% url 'subscription_select' p.code %}" type="submit"><span>{{ p.name }}{% if p.saving %}<em>−{{ p.saving }}%</em>{% endif %}</span><b>{{ p.symbol }}{{ p.amount|floatformat:"-2" }}</b></button>
+          {% empty %}<span class="small text-secondary">Not offered in your country yet — contact support.</span>{% endfor %}</form>
+      {% endif %}
+    {% else %}<span class="btn btn-light w-100 disabled">The owner chooses the plan</span>{% endif %}
+  </section>{% endfor %}
+</div>
+
+<section class="panel pl-cmp"><div class="panel-head"><div><h3><i class="bi bi-table"></i> What each plan unlocks</h3><p>Vouchers, batches, plans, routers, active users and settings are in every plan.</p></div></div>
+  <div class="table-responsive"><table><thead><tr><th>Module</th>{% for c in cards %}<th class="{% if c.current %}mine{% endif %}">{{ c.name }}</th>{% endfor %}</tr></thead><tbody>
+  {% for g in comparison %}<tr class="grp"><td colspan="{{ cards|length|add:1 }}"><i class="bi {{ g.icon }}"></i> {{ g.label }}</td></tr>
+    {% for r in g.rows %}<tr><td><i class="bi {{ r.f.icon }} text-secondary me-1"></i>{{ r.f.label }}<small class="d-block text-secondary">{{ r.f.description }}</small></td>
+      {% for yes in r.in %}<td>{% if yes %}<i class="bi bi-check-circle-fill yes" aria-label="included"></i>{% else %}<i class="bi bi-dash-lg no" aria-label="not included"></i>{% endif %}</td>{% endfor %}</tr>{% endfor %}
+  {% endfor %}</tbody></table></div>
+</section>
+
+<div class="ent" id="enterprise">
+  <section class="panel"><div class="panel-head"><div><h3><i class="bi bi-gem text-warning"></i> Enterprise — built for you</h3><p>Everything in Pro, plus what your business needs and TapTap does not have yet: a report your bank asks for, a link to your accounting, a special voucher flow. Tell us; we call you, agree it, build it and switch it on for you.</p></div></div>
+    {% if 'subscription.manage' in tt_perms %}
+    <form method="post" action="{% url 'subscription_enterprise' %}" class="d-flex flex-column gap-2">{% csrf_token %}
+      <input class="form-control" name="title" maxlength="140" required placeholder="In a few words: what should TapTap build for you?">
+      <textarea class="form-control" name="details" rows="3" maxlength="4000" placeholder="How would it work? Who uses it? (optional)"></textarea>
+      <input class="form-control" name="contact" maxlength="60" placeholder="Phone number to call you (optional)" value="{{ current_business.phone }}">
+      <button class="btn btn-warning fw-bold"><i class="bi bi-send"></i> Send to TapTap</button></form>
+    {% else %}<p class="text-secondary small mb-0">The business owner can send requests here.</p>{% endif %}
+  </section>
+  <section class="panel"><div class="panel-head"><div><h3><i class="bi bi-kanban"></i> Your tailor-made features</h3><p>Each request, step by step: requested → planned → being built → live.</p></div></div>
+    {% for e in enterprise %}<div class="ent-item"><div class="d-flex justify-content-between gap-2"><b>{{ e.title }}</b><span class="ent-st {{ e.status }}">{{ e.get_status_display }}</span></div>
+      <small>{{ e.created_at|date:'d M Y' }}</small>
+      <div class="ent-steps{% if e.status == 'declined' %} declined{% endif %}" aria-hidden="true"><span class="on"></span><span class="{% if e.status == 'planned' or e.status == 'building' or e.status == 'live' or e.status == 'declined' %}on{% endif %}"></span><span class="{% if e.status == 'building' or e.status == 'live' %}on{% endif %}"></span><span class="{% if e.status == 'live' %}on{% endif %}"></span></div>
+      {% if e.note %}<p class="small mt-2 mb-0"><i class="bi bi-chat-left-quote text-primary"></i> {{ e.note }}</p>{% endif %}</div>
+    {% empty %}<p class="text-secondary small mb-0">Nothing asked yet. Your requests and TapTap’s answers appear here.</p>{% endfor %}
+  </section>
+</div>
 {% endblock %}

@@ -108,7 +108,7 @@ URL_PERMS = {
     'finance_book_missing': 'finance.manage', 'finance_settings': 'finance.manage',
     'settings': 'settings.manage', 'notifications': 'settings.manage', 'notifications_test': 'settings.manage', 'notifications_resend': 'settings.manage',
     'live_settings': 'settings.manage',
-    'subscription_select': 'subscription.manage',
+    'subscription_select': 'subscription.manage', 'subscription_free': 'subscription.manage', 'subscription_enterprise': 'subscription.manage',
     'team': 'team.manage', 'team_member_save': 'team.manage', 'team_member_action': 'team.manage',
     'team_pay_save': 'payroll.manage', 'payroll_pay': 'payroll.manage', 'payroll_pay_all': 'payroll.manage',
     'payroll_void': 'payroll.manage', 'payroll_payslip': 'payroll.manage',

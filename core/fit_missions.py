@@ -59,6 +59,8 @@ from django.core.exceptions import ValidationError
 from django.db.models import Sum, Count
 from django.utils import timezone
 
+from .features import uses
+
 logger = logging.getLogger('taptap.fit.missions')
 
 LOCK_KEY = 'tt:fitmission:tick'
@@ -1253,7 +1255,7 @@ def tick(now=None):
         soon = now + timedelta(hours=24)
         qs = FitMission.objects.filter(status='waiting').select_related('business', 'created_by')
         for m in qs.filter(trigger='when') | qs.exclude(trigger='when').filter(next_at__lte=soon) | qs.filter(expires_at__lte=now):
-            if not m.business.has_access:
+            if not uses(m.business, 'fit'):
                 continue
             out['checked'] += 1
             try:

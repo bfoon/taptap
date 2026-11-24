@@ -14,7 +14,7 @@
 </form>
 <div class="panel"><div class="table-responsive"><table class="table align-middle">
   <thead><tr><th>Requested</th><th>Business</th><th>Plan</th><th class="text-end">Amount</th><th>Method / ref</th><th>Status</th><th>Covers</th><th></th></tr></thead><tbody>
-  {% for s in page_obj %}<tr><td>{{ s.created_at|date:'d M Y H:i' }}</td><td><a href="{% url 'platform_business' s.business_id %}">{{ s.business.business_name }}</a></td><td>{{ s.plan }}</td><td class="text-end"><b>{{ s.amount|money:'D' }}</b></td>
+  {% for s in page_obj %}<tr><td>{{ s.created_at|date:'d M Y H:i' }}</td><td><a href="{% url 'platform_business' s.business_id %}">{{ s.business.business_name }}</a></td><td>{% if s.tier_label %}<b>{{ s.tier_label }}</b> · {% endif %}{{ s.plan }}</td><td class="text-end"><b>{{ s.amount|money:'D' }}</b></td>
     <td>{{ s.payment_method }}{% if s.transaction_id %}<small class="d-block text-secondary">{{ s.transaction_id }}</small>{% endif %}</td><td><span class="st {{ s.payment_status }}">{{ s.payment_status }}</span></td>
     <td>{% if s.expires_at %}{{ s.starts_at|date:'d M' }} – {{ s.expires_at|date:'d M Y' }}{% endif %}</td>
     <td class="text-end text-nowrap">{% if s.payment_status == 'Pending' %}<form method="post" action="{% url 'platform_sub_action' s.id %}" class="d-inline-flex gap-1">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">

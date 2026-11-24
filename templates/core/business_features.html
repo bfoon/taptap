@@ -12,7 +12,7 @@
 .ft-save{position:sticky;bottom:1rem;z-index:5}
 </style>{% endblock %}
 {% block content %}
-<div class="panel mb-4"><div class="ft-head"><div><span class="eyebrow">YOUR PACKAGE</span><h2 class="h4 fw-bold m-0">{{ tier.0 }}</h2><p class="text-secondary m-0">{{ tier.1 }}</p></div>
+<div class="panel mb-4"><div class="ft-head"><div><span class="eyebrow">YOUR PLAN</span><h2 class="h4 fw-bold m-0">{{ tier.0 }}</h2><p class="text-secondary m-0">{{ tier.1 }}{% if tier_key != 'pro' and tier_key != 'enterprise' and 'subscription.manage' in tt_perms %} · <a href="{% url 'subscription' %}#plans">Compare plans</a>{% endif %}</p></div>
   <div class="text-end"><strong class="fs-3">{{ count_on }}</strong><span class="text-secondary"> / {{ count_all }} modules on</span>
   <small class="d-block text-secondary">Vouchers, plans, routers, active users and settings are always on.</small></div></div></div>
 <form method="post">{% csrf_token %}

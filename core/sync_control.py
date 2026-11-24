@@ -58,10 +58,22 @@ def _checks_in(router):
     return getattr(router, 'connection_mode', '') == 'agent'
 
 
+def plan_allows(router):
+    """Is Sync control part of this business's plan (core/features.py "schedules")? Without it the saved choices
+    rest and TapTap's defaults apply — a business that moved to Free is never left on "manual"."""
+    try:
+        from .features import enabled
+        return enabled(router.business, 'schedules')
+    except Exception:
+        return True
+
+
 def policy(router):
     """The router's saved policy, or an unsaved one holding TapTap's defaults for this kind of router."""
     from .models_sync import RouterSyncPolicy
     p = RouterSyncPolicy.objects.filter(router=router).first()
+    if p is not None and not plan_allows(router):
+        p = None
     if p is None:
         p = RouterSyncPolicy(router=router, full_every=_default_every(),
                              full_mode='auto' if _checks_in(router) else 'manual')
@@ -326,6 +338,12 @@ def tick(now=None):
                 continue
         except Exception:
             continue
+        if not plan_allows(r):              # the plan no longer has Sync control: nothing waits any more
+            try:
+                done['released'] += release(r, RELEASE_BATCH)
+            except Exception:
+                logger.exception('release held vouchers on %s', r)
+            continue
         if p.voucher_mode == 'quiet' and in_quiet(p, now):
             try:
                 done['released'] += release(r, RELEASE_BATCH)
@@ -408,7 +426,7 @@ def card_summaries(routers):
                 .exclude(status__in=('expired', 'archived')).values('router_id').annotate(n=Count('id')).values_list('router_id', 'n'))
     out = {}
     for r in routers:
-        p = saved.get(r.pk)
+        p = saved.get(r.pk) if plan_allows(r) else None
         if p is None:
             p = RouterSyncPolicy(router=r, full_every=_default_every(), full_mode='auto' if _checks_in(r) else 'manual')
         every = int(p.full_every or _default_every())

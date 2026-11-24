@@ -90,3 +90,6 @@
 .form-panel .form-check-label,.form-panel .form-check label{margin:0;font-size:.85rem}
 .form-panel input.form-control-color{width:3rem;height:calc(1.5em + .75rem + 2px);padding:.375rem;display:inline-block}
 @media print{.form-panel input.form-check-input{print-color-adjust:exact}}
+
+/* Plans (core/features.py): menu links the plan does not include — dimmed, with a lock */
+[data-tt-locked]{opacity:.55}[data-tt-locked]:hover{opacity:.85}.tt-lock{margin-left:auto;font-size:.72rem;opacity:.85}

@@ -19,10 +19,12 @@ from django.db.models import Count, F, Max, Q, Sum
 from django.db.models.functions import Coalesce, TruncDate, TruncMonth
 from django.http import HttpResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from .models import Business, Router, Subscription, TrustedDevice, Voucher, VoucherSale
+from .models_plans import EnterpriseFeature
 from .models_team import PlatformAudit, TeamMember, UsageDaily
 from .subscriptions import PLAN_DAYS, activate_subscription, extend_business, record_paid_subscription
 from .team import VIEW_AS_KEY, _ip
@@ -274,6 +276,7 @@ def business_detail(request, pk):
         'subs': b.subscriptions.order_by('-created_at'), 'team': b.team.select_related('user'),
         'activities': b.activities.order_by('-created_at')[:15], 'audit': b.platform_audit.select_related('actor')[:15],
         'devices': TrustedDevice.objects.filter(user=b.user, revoked_at__isnull=True, expires_at__gt=now).count(),
+        'enterprise': b.enterprise_features.all()[:30], 'enterprise_status': EnterpriseFeature.STATUS,
     })
 
 
@@ -316,7 +319,10 @@ def business_action(request, pk):
         if not days:
             messages.error(request, 'Choose a package or enter the days for a custom payment.')
             return back
-        sub = record_paid_subscription(b, plan, amount, days, method=request.POST.get('method', 'Manual'), reference=request.POST.get('reference', ''))
+        from . import features as ft
+        tier = request.POST.get('tier') if request.POST.get('tier') in ft.TIERS else ''
+        sub = record_paid_subscription(b, plan, amount, days, method=request.POST.get('method', 'Manual'), reference=request.POST.get('reference', ''),
+                                       tier=tier)
         sub.currency, sub.country = currency, b.country
         sub.save(update_fields=['currency', 'country'])
         audit(request, b, 'Recorded payment', f'{plan} {pricing.money(amount, currency)} ({days} days) ref {sub.transaction_id}. {note}')
@@ -356,6 +362,18 @@ def business_action(request, pk):
             messages.success(request, f'Features saved: {ft.TIERS[tier][0]} package' + (f' with {len(overrides)} change(s).' if overrides else '.'))
         else:
             messages.info(request, 'Features unchanged.')
+    elif action == 'enterprise_item':
+        item = get_object_or_404(EnterpriseFeature, pk=_int(request.POST.get('item'), 0, 0, 10**9), business=b)
+        status = request.POST.get('status') if request.POST.get('status') in dict(EnterpriseFeature.STATUS) else item.status
+        answer = (request.POST.get('answer') or '').strip()[:2000]
+        if (status, answer) != (item.status, item.note):
+            item.status, item.note = status, answer
+            item.save(update_fields=['status', 'note', 'updated_at'])
+            audit(request, b, 'Tailor-made feature', f'{item.title}: {item.get_status_display()}' + (f' — {answer[:120]}' if answer else ''))
+            messages.success(request, f'“{item.title}” is now {item.get_status_display().lower()}.')
+        else:
+            messages.info(request, 'Nothing changed.')
+        return redirect(f"{reverse('platform_business', args=[b.pk])}#enterprise")
     elif action in ('confirm_sub', 'reject_sub'):
         return sub_action(request, request.POST.get('sub'))
     elif action == 'toggle_unlimited':

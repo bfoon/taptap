@@ -68,6 +68,11 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 LANGUAGE_CODE = 'en-us'; TIME_ZONE = os.getenv('TIME_ZONE', 'Africa/Banjul'); USE_I18N = True; USE_TZ = True
 STATIC_URL = os.getenv('STATIC_URL', '/static/'); STATIC_ROOT = BASE_DIR / 'staticfiles'; STATICFILES_DIRS = [BASE_DIR / 'static']
+# collectstatic also writes compressed copies (.gz, and .br when the brotli package is installed) that WhiteNoise sends
+# to browsers which accept them: Bootstrap and its icons are served from TapTap itself (no wait for a CDN before the
+# first page can draw — the blank screen after signing in), at a fraction of their size.
+STORAGES = {'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+            'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage'}}
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = 'login'; LOGIN_REDIRECT_URL = 'dashboard'; LOGOUT_REDIRECT_URL = 'home'
 

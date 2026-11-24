@@ -27,7 +27,7 @@ def business_features(request):
         else:
             messages.info(request, 'Nothing changed.')
         return redirect('business_features')
-    tier = ft.tier_of(business)
+    tier = ft.effective_tier(business)      # the plan in force (Free once a paid plan has ended)
     rows = ft.state_rows(business)
     on = sum(1 for g in rows for i in g['items'] if i['on'])
     return render(request, 'core/business_features.html', {

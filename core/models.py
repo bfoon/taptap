@@ -53,14 +53,30 @@ class Business(models.Model):
     # Where the business is (sign-up) — decides its subscription prices and currency. See core/countries.py, core/pricing.py
     country=models.CharField(max_length=2,default='GM',db_index=True,help_text='ISO country code, e.g. GM')
     # Feature modules — see core/features.py
-    feature_tier=models.CharField(max_length=20,default='business',help_text='Bundle of features this business gets (core/features.py TIERS)')
+    feature_tier=models.CharField(max_length=20,default='pro',help_text='Plan: free, basic, pro or enterprise (core/features.py TIERS)')
     feature_overrides=models.JSONField(default=dict,blank=True,help_text='Platform switches on top of the tier: {feature key: true/false}')
     features_off=models.JSONField(default=list,blank=True,help_text='Optional features the owner switched off for their own business')
     def access_expires_at(self): return self.subscription_expires_at if self.subscription_status=='active' else self.trial_ends_at
     @property
-    def has_access(self):
+    def paid_access(self):
+        """The trial or a paid plan is running (or the account is unlimited)."""
         if self.is_unlimited:return True
         exp=self.access_expires_at(); return bool(exp and exp>timezone.now())
+    @property
+    def has_access(self):
+        """May the business use TapTap at all? When the trial or paid time ends it keeps the Free plan (vouchers
+        only, core/features.py) instead of being locked out — unless FREE_PLAN_FALLBACK is switched off."""
+        if self.paid_access:return True
+        from .features import free_fallback, tier_of
+        return free_fallback() or tier_of(self)=='free'
+    @property
+    def tier_key(self):
+        from .features import effective_tier
+        return effective_tier(self)
+    @property
+    def tier_name(self):
+        from .features import TIERS
+        return TIERS[self.tier_key][0]
     @property
     def days_left(self):
         if self.is_unlimited:return 9999
@@ -75,6 +91,11 @@ class Subscription(models.Model):
     transaction_id=models.CharField(max_length=120,blank=True); starts_at=models.DateTimeField(null=True,blank=True); expires_at=models.DateTimeField(null=True,blank=True); created_at=models.DateTimeField(auto_now_add=True)
     currency=models.CharField(max_length=3,default='GMD',help_text='ISO currency of the amount')
     country=models.CharField(max_length=2,blank=True,help_text='Country price list used for this request')
+    tier=models.CharField(max_length=20,blank=True,default='',help_text='Plan bought (basic, pro…); empty = the business keeps its plan')
+    @property
+    def tier_label(self):
+        from .features import TIERS
+        return TIERS[self.tier][0] if self.tier in TIERS else ''
     @property
     def money(self):
         from .countries import symbol
@@ -1477,3 +1498,4 @@ class LoginAddress(models.Model):
 
 from .models_router_schedule import RouterSchedule, RouterScheduleRun  # noqa: E402,F401
 from .models_sync import RouterSyncPolicy  # noqa: E402,F401
+from .models_plans import EnterpriseFeature  # noqa: E402,F401

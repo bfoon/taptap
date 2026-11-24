@@ -502,8 +502,12 @@ def voucher_print_rows(business, qs):
 @login_required
 def voucher_print(request):
     business = _b(request)
-    dsg = business.voucher_designs.filter(pk=request.GET.get('design') or 0).first() or business.voucher_designs.filter(is_default=True).first()
-    config = dsg.config if dsg else voucher_template('classic')
+    # Plans without the voucher designer (Free) print the minimal design: black on white, prints anywhere.
+    from .features import enabled as _feature_on
+    designer = _feature_on(business, 'voucher_designer')
+    designs = business.voucher_designs.all() if designer else business.voucher_designs.none()
+    dsg = (designs.filter(pk=request.GET.get('design') or 0).first() or designs.filter(is_default=True).first()) if designer else None
+    config = dsg.config if dsg else voucher_template('classic' if designer else 'minimal')
     qs = business.vouchers.all().order_by('created_at')
     title = 'Vouchers'
     stock, states = None, {}
@@ -539,7 +543,7 @@ def voucher_print(request):
         for row in rows:
             row['state'] = states.get(row['code'], 'left')
         return render(request, 'core/studio/voucher_print.html', {
-            'title': tbl.title, 'design': dsg, 'designs': business.voucher_designs.all(), 'config_json': _safe_json(config),
+            'title': tbl.title, 'design': dsg, 'designs': designs, 'config_json': _safe_json(config),
             'rows_json': _safe_json(rows), 'business_json': _safe_json(business_ctx(business)), 'count': len(rows),
             'sample': False, 'papers_json': _safe_json({k: list(v) for k, v in PAPERS.items()}),
             'ads_json': _safe_json(ads_for(business, 'voucher')), 'query': request.GET.urlencode(),
@@ -560,7 +564,7 @@ def voucher_print(request):
     for row in rows if stock else ():
         row['state'] = states.get(row['code'], 'left')
     return render(request, 'core/studio/voucher_print.html', {
-        'title': title, 'design': dsg, 'designs': business.voucher_designs.all(), 'config_json': _safe_json(config),
+        'title': title, 'design': dsg, 'designs': designs, 'config_json': _safe_json(config),
         'rows_json': _safe_json(rows), 'business_json': _safe_json(business_ctx(business)), 'count': len(rows),
         'sample': bool(request.GET.get('sample')), 'papers_json': _safe_json({k: list(v) for k, v in PAPERS.items()}),
         'ads_json': _safe_json(ads_for(business, 'voucher')),

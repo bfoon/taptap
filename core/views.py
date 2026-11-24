@@ -108,27 +108,53 @@ def dashboard(request):
 
 @login_required
 def subscription(request):
-    from . import countries, pricing
+    from . import countries, plans
     business=b(request)
     return render(request,'core/subscription.html',{
-        'prices':[p for p in pricing.price_list(business) if p['offered']],
+        'cards':plans.cards(business),'standing':plans.standing(business),'comparison':plans.comparison(),
         'country':business.country,'country_label':countries.label(business.country),
+        'enterprise':business.enterprise_features.all()[:20],
         'pending':business.subscriptions.filter(payment_status='Pending').order_by('-created_at')[:3]})
 
 
 @login_required
 def subscription_select(request,code):
-    from . import pricing
-    business=b(request); price=pricing.price_for(business,code)
-    if not price or not price['offered']: return redirect('subscription')
+    from . import features as ft, plans, pricing
+    business=b(request)
     if request.method!='POST':
-        messages.info(request,'Press "Choose plan" to send the request.')
+        messages.info(request,'Press "Choose" to send the request.')
         return redirect('subscription')
+    tier=request.POST.get('tier') or 'pro'
+    if tier not in ft.PAID_TIERS: return redirect('subscription')
+    price=plans.price_for(business,tier,code)
+    if not price: return redirect('subscription')
+    name=ft.TIERS[tier][0]
     Subscription.objects.create(business=business,plan=price['name'],amount=price['amount'],currency=price['currency'],country=business.country,
-                                payment_method='Manual',payment_status='Pending')
-    messages.success(request,f'{price["name"]} subscription request created for {pricing.money(price["amount"],price["currency"])}. '
-                             'TapTap confirms it as soon as your payment is received.')
+                                payment_method='Manual',payment_status='Pending',tier=tier)
+    messages.success(request,f'{name} · {price["name"]} requested for {pricing.money(price["amount"],price["currency"])}. '
+                             f'TapTap switches you to {name} as soon as your payment is received.')
     return redirect('subscription')
+
+
+@login_required
+def subscription_free(request):
+    from . import plans
+    if request.method!='POST': return redirect('subscription')
+    ok,msg=plans.choose_free(b(request),request.user)
+    (messages.success if ok else messages.info)(request,msg)
+    return redirect('subscription')
+
+
+@login_required
+def subscription_enterprise(request):
+    from . import plans
+    if request.method!='POST': return redirect('subscription')
+    try:
+        item=plans.request_enterprise(b(request),request.POST.get('title'),request.POST.get('details'),request.POST.get('contact'),request.user)
+        messages.success(request,f'Thank you — TapTap has your request “{item.title}” and will call you about it. Follow it below.')
+    except ValueError as e:
+        messages.error(request,str(e))
+    return redirect('/subscription/#enterprise')
 
 
 @login_required

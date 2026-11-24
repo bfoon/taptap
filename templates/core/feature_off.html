@@ -2,14 +2,16 @@
 {% block content %}
 <div class="panel text-center py-5 mx-auto" style="max-width:640px">
   <div class="mx-auto mb-3 d-grid" style="width:72px;height:72px;border-radius:22px;background:#eef4ff;color:#1769e0;place-items:center;font-size:2rem"><i class="bi {{ feature.icon }}"></i></div>
-  <h2 class="h4 fw-bold">{{ feature.label }} is switched off</h2>
+  <h2 class="h4 fw-bold">{% if why == 'package' %}{{ feature.label }} comes with {{ unlock_name }}{% else %}{{ feature.label }} is switched off{% endif %}</h2>
   <p class="text-secondary">{{ feature.description }}</p>
   {% if why == 'owner' %}
     <p>{% if tt_role == 'owner' or 'settings.manage' in tt_perms %}You switched this off for your business. Switch it back on any time.{% else %}The business owner switched this off. Ask them if you need it.{% endif %}</p>
     {% if 'settings.manage' in tt_perms %}<a class="btn btn-primary" href="{% url 'business_features' %}"><i class="bi bi-toggles"></i> Open Features</a>{% endif %}
   {% elif why == 'package' %}
-    <p>It is not part of your <b>{{ tier }}</b> package.</p>
-    {% if 'subscription.manage' in tt_perms %}<a class="btn btn-primary" href="{% url 'support' %}"><i class="bi bi-headset"></i> Ask TapTap to add it</a>{% endif %}
+    <p>Your <b>{{ tier }}</b> plan does not include it. It comes with <b>{{ unlock_name }}</b>{% if unlock != 'pro' and unlock != 'enterprise' %} and every plan above{% endif %}.</p>
+    <ul class="list-unstyled d-inline-block text-start small text-secondary mb-3">{% for e in unlock_extras %}<li><i class="bi bi-check2-circle text-success"></i> {{ e }}</li>{% endfor %}</ul>
+    <div>{% if 'subscription.manage' in tt_perms %}<a class="btn btn-primary" href="{% url 'subscription' %}#plans"><i class="bi bi-unlock"></i> Unlock with {{ unlock_name }}</a>
+    {% else %}<p class="small">Ask the business owner to choose the {{ unlock_name }} plan.</p>{% endif %}</div>
   {% elif dep %}
     <p>It needs <b>{{ dep.label }}</b>, which is switched off.</p>
     {% if 'settings.manage' in tt_perms %}<a class="btn btn-primary" href="{% url 'business_features' %}"><i class="bi bi-toggles"></i> Open Features</a>{% endif %}

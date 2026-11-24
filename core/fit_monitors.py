@@ -35,6 +35,8 @@ from functools import wraps
 from django.core.cache import cache
 from django.utils import timezone
 
+from .features import uses
+
 logger = logging.getLogger('taptap.fit.monitors')
 
 EVENT_KINDS = ('slot_refused', 'slot_filled')
@@ -551,7 +553,7 @@ def evaluate_all(now=None):
     ids = FitMonitor.objects.filter(active=True).exclude(kind__in=EVENT_KINDS).values_list('business_id', flat=True).distinct()
     n = 0
     for b in Business.objects.filter(pk__in=list(ids)):
-        if getattr(b, 'has_access', True):
+        if uses(b, 'fit'):
             n += evaluate(b, now)
     return n
 
