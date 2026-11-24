@@ -568,7 +568,8 @@ def check_line(svc, line):
             return {**out, 'state': 'off', 'finding': f'{line["label"]}: there is no DHCP client on {iface}.'}
         if _yes(c[0].get('disabled')):
             return {**out, 'state': 'off', 'finding': f'{line["label"]} is switched off on the router (its DHCP client on {iface} is disabled).'}
-        if _s(c[0].get('status')) != 'bound':
+        from .wan import dhcp_has_lease
+        if not dhcp_has_lease(c[0]):
             return {**out, 'state': 'down', 'fix': 'refresh',
                     'finding': f'{line["label"]}: the modem is not giving {iface} an address (DHCP {_s(c[0].get("status")) or "not bound"}). Check its power and cable, or wait for it to finish restarting.'}
         out['gateway'] = _s(c[0].get('gateway'))
@@ -758,9 +759,15 @@ def use_state(svc, iface):
         state = 'out'
         res, client, path = _client(svc, iface)
         if path == '/ip/dhcp-client' and client and not _yes(client.get('disabled')) \
-                and _yes(client.get('add-default-route')) and _s(client.get('status')) == 'bound':
+                and _yes(client.get('add-default-route')) and _lease(client):
             state = 'plain'
     return {'state': state, 'has_routes': bool(defaults), 'routes_off': len(defaults) - len(on)}
+
+
+def _lease(client):
+    """Bound, renewing or rebinding: the line has its address (core/wan.py dhcp_has_lease)."""
+    from .wan import dhcp_has_lease
+    return dhcp_has_lease(client)
 
 
 def _client(svc, iface):
@@ -948,7 +955,7 @@ def link_lines_state(router, setup):
             row['mac_changed'] = bool(orig) and orig.upper() != row['mac'].upper()
         if client is not None and _yes(client.get('disabled')):
             row.update(state='off', finding=f'{l["label"]} is switched off on the router.')
-        elif path == '/ip/dhcp-client' and _s(client.get('status')) != 'bound':
+        elif path == '/ip/dhcp-client' and not _lease(client):
             row.update(state='down', fix='refresh', finding=f'{l["label"]}: no address from the modem at the last sync ({_s(client.get("status")) or "not bound"}).')
         else:
             row['gateway'] = _s(client.get('gateway')) if client else l.get('gateway', '')

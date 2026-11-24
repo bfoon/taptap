@@ -329,10 +329,13 @@ def lines(router, rows, setup=None):
             gateway = iface
         client_off = _yes(client.get('disabled'))
         port_off = _yes(port.get('disabled'))
-        running = not missing and not port_off and _yes(port.get('running', 'true'))
+        # A route through the port that RouterOS made active proves the cable and modem are up, even when the
+        # synced copy of /interface says otherwise (it can be older than the routes, or lack the flag).
+        running = not missing and not port_off and (_yes(port.get('running', 'true')) or wan.route_live_on(routes, iface))
         if kind == 'dhcp':
-            status = 'port missing' if missing else ('switched off' if client_off else (_s(client.get('status')) or 'unknown'))
-            up = running and not client_off and _s(client.get('status')) == 'bound'
+            st = wan.dhcp_status(client, explicit.get(iface))
+            status = 'port missing' if missing else ('switched off' if client_off else (st or ('bound' if address else 'unknown')))
+            up = running and not client_off and wan.dhcp_has_lease(client, explicit.get(iface))
         elif kind == 'pppoe':
             status = 'port missing' if missing else ('switched off' if client_off else ('connected' if _yes(client.get('running')) else 'disconnected'))
             up = running and not client_off and _yes(client.get('running'))
@@ -1044,15 +1047,36 @@ def live_rates(router, rows, names):
         return {}
 
 
-def state(router, rows):
-    setup = _setup(router)
+def traffic_proves_up(l):
+    """Traffic is coming in through a line right now and it has its address: it is connected, whatever an
+    older synced copy of the router said (TapTap Link reads the menus only now and then, the speeds every pulse)."""
+    if l['up'] or l['missing'] or l['client_off'] or l['port_off'] or l.get('rx_bps', 0) <= 0:
+        return False
+    st = _s(l.get('status')).lower()
+    if l['type'] == 'dhcp' and (not l.get('address') or st.startswith(wan.DHCP_WITHOUT)):
+        return False
+    if l['type'] == 'static' and not l.get('gateway'):
+        return False
+    l.update(up=True, running=True, proved_by_traffic=True)
+    return True
+
+
+def lines_now(router, rows, setup=None):
+    """lines() with each line's current speed — and a line that is carrying traffic counted as connected."""
     line_list = lines(router, rows, setup)
-    if rows.live:
-        remember_view(router, rows)
     rates = live_rates(router, rows, [l['interface'] for l in line_list if not l['missing']])
     for l in line_list:
         r = rates.get(l['interface']) or {}
         l['rx_bps'], l['tx_bps'] = int(r.get('rx_bps') or 0), int(r.get('tx_bps') or 0)
+        traffic_proves_up(l)
+    return line_list
+
+
+def state(router, rows):
+    setup = _setup(router)
+    line_list = lines_now(router, rows, setup)
+    if rows.live:
+        remember_view(router, rows)
     b = board(router, rows, line_list)
     for l in line_list:
         col = next((c for c in b['columns'] if c['interface'] == l['interface']), None)
@@ -1630,7 +1654,7 @@ def move(router, data, user):
     rows = open_rows(router, live=False)
     try:
         setup = _setup(router)
-        line_list = lines(router, rows, setup)
+        line_list = lines_now(router, rows, setup)
         steer, info = steering(router, rows, line_list)
     finally:
         rows.close()
@@ -1807,7 +1831,7 @@ def hub_action(request, pk):
             if stale:
                 raise HubError('TapTap’s copy of this router’s ' + ' and '.join(stale) + ' is out of date, so it cannot tell safely '
                                'which line customers use. Press “Refresh from router” and try again in a minute.')
-        line_list = lines(router, rows, _setup(router))
+        line_list = lines_now(router, rows, _setup(router))
         data['_request'] = request
         res = fn(router, rows, line_list, data, request.user)
         message, via_link, extra = (res + ({},))[:3] if len(res) == 2 else res

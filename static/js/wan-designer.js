@@ -49,7 +49,7 @@
     var box = $('#lines');
     if (!S.lines.length) { box.innerHTML = '<div class="detect-state"><i class="bi bi-info-circle"></i> No internet connections found. Add one by hand, or set a port’s role to WAN in Router control.</div>'; return; }
     box.innerHTML = S.lines.map(function (l, i) {
-      var st = l.detected === false ? '' : (l.running && (l.type !== 'dhcp' || /bound/i.test(l.status || '')) ? 'up' : (l.type === 'static' && l.running ? 'up' : 'down'));
+      var st = l.detected === false ? '' : (l.running && (l.type !== 'dhcp' || (/^(bound|renewing|rebinding)/i.test(l.status || '') || (!l.status && l.address))) ? 'up' : (l.type === 'static' && l.running ? 'up' : 'down'));
       var hostOpts = HOSTS.map(function (h) { return '<option value="' + h[0] + '"' + (l.check === h[0] ? ' selected' : '') + '>' + h[0] + ' · ' + h[1] + '</option>'; }).join('');
       if (l.check && !HOSTS.some(function (h) { return h[0] === l.check; })) hostOpts += '<option selected>' + esc(l.check) + '</option>';
       if (l.missing) return '<div class="line-card off missing" data-i="' + i + '" data-if="' + esc(l.interface) + '"><div class="tog"><input type="checkbox" disabled aria-label="Port missing"></div>' +

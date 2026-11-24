@@ -81,6 +81,43 @@ def dns_plan(links, current):
     return out if out != current else None
 
 
+# DHCP states in which the client still holds its address and the line works. RouterOS renews a lease half-way
+# through ("renewing..."), then asks any server ("rebinding..."): many modems never answer the renewal, so a line can
+# sit in those states for hours while it carries traffic normally. Only "bound" counted, so such a line showed
+# "Not connected", was left out of "Share the load" and customers could not be moved to it.
+DHCP_HOLDING = ('bound', 'renewing', 'rebinding')
+DHCP_WITHOUT = ('searching', 'requesting', 'stopped', 'error', 'invalid')
+
+
+def dhcp_status(client, explicit=None):
+    """The client's status: its own row, else TapTap Link's one-by-one reading (/ip/dhcp-client/gateways)."""
+    return (_s((client or {}).get('status')) or _s((explicit or {}).get('status'))).lower()
+
+
+def dhcp_has_lease(client, explicit=None):
+    """Does this DHCP client hold an address from its modem right now (bound, renewing or rebinding)?
+    With no status at all (some RouterOS builds leave it out of `print as-value`) an address counts."""
+    st = dhcp_status(client, explicit)
+    if st.startswith(DHCP_HOLDING):
+        return True
+    if st.startswith(DHCP_WITHOUT):
+        return False
+    return not st and bool(_s((client or {}).get('address')) or _s((explicit or {}).get('gateway')))
+
+
+def route_live_on(routes, iface):
+    """Is a route through ``iface`` active? RouterOS makes a gateway route active only while its port is up,
+    so this shows a working line even when a synced copy of /interface lags behind."""
+    for r in routes or ():
+        if _s(r.get('disabled')).lower() in {'true', 'yes'} or _s(r.get('active')).lower() not in {'true', 'yes'}:
+            continue
+        for v in (r.get('immediate-gw'), r.get('gateway')):
+            v = _s(v)
+            if v == iface or ('%' in v and v.split('%')[-1] == iface):
+                return True
+    return False
+
+
 def dhcp_gateway(client, explicit=None, routes=()):
     """The gateway a bound DHCP client got. Some RouterOS builds leave it out of `print as-value`, so it is
     looked for, in order: the client row, TapTap Link's explicit reading, the client's own dynamic default
@@ -217,7 +254,7 @@ def detect(svc):
         if _s(r.get('disabled')).lower() in {'true', 'yes'}:
             continue
         iface = _s(r.get('interface'))
-        add(iface, 'dhcp', dhcp_gateway(r, explicit.get(iface), routes), _s(r.get('status')), _s(r.get('address')), r)
+        add(iface, 'dhcp', dhcp_gateway(r, explicit.get(iface), routes), dhcp_status(r, explicit.get(iface)), _s(r.get('address')), r)
     for r in pppoe:
         if _s(r.get('disabled')).lower() in {'true', 'yes'}:
             continue
