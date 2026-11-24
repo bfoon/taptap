@@ -656,6 +656,12 @@ def housekeeping():
             _probe_guard()
         except Exception:
             logger.exception('probe guard')
+        # Internet lines never stuck on "renewing..." (core/dhcp_guard.py): each router whose lines TapTap runs.
+        try:
+            from .dhcp_guard import ensure_all as _dhcp_guard
+            _dhcp_guard()
+        except Exception:
+            logger.exception('dhcp guard')
         # Remote admin pages of other routers: close expired sessions (their NAT rules go away).
         try:
             from .netdev import close_expired as _rm_close

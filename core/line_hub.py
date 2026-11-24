@@ -1075,6 +1075,13 @@ def lines_now(router, rows, setup=None):
 def state(router, rows):
     setup = _setup(router)
     line_list = lines_now(router, rows, setup)
+    try:            # a line stuck on renewing: make its renewals get through (core/dhcp_guard.py), at most hourly
+        from .dhcp_guard import nudge
+        if nudge(router, line_list):
+            for l in line_list:
+                l['dhcp_fixing'] = l['type'] == 'dhcp' and wan.dhcp_status({'status': l['status']}).startswith(('renew', 'rebind'))
+    except Exception:
+        logger.debug('dhcp guard nudge', exc_info=True)
     if rows.live:
         remember_view(router, rows)
     b = board(router, rows, line_list)

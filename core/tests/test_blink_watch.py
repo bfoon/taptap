@@ -36,7 +36,7 @@ class DoctorV3Tests(SimpleTestCase):
         self.src = wd.render_source([{'interface': 'ether1', 'type': 'dhcp', 'gateway': '', 'label': 'Starlink'}])
 
     def test_silent_modem_is_not_a_broken_line(self):
-        self.assertEqual(wd.VERSION, '3')                         # routers on v2 are upgraded automatically
+        self.assertEqual(wd.VERSION, '4')                         # routers on older versions are upgraded automatically
         self.assertIn(':set silent true', self.src)
         self.assertNotIn('count=2] = 0) do={ :return ("down,"', self.src)
         self.assertIn(':if ($silent) do={ :return ("down," . $gw) }', self.src)

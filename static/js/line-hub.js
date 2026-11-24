@@ -116,6 +116,7 @@
       if (l.carries_link) badges.push('<span class="lh-badge link" title="TapTap Link and Tunnel go through this line"><i class="bi bi-broadcast"></i> TapTap</span>');
       if (!l.missing && !l.nat.on && l.up) badges.push('<span class="lh-badge warn" title="Customers are not hidden behind this line (NAT off)"><i class="bi bi-exclamation-triangle"></i> NAT off</span>');
       if (l.routes_off && l.use === 'out') badges.push('<span class="lh-badge" title="Its routes are switched off">held</span>');
+      if (l.type === 'dhcp' && /^(renew|rebind)/i.test(l.status || '')) badges.push('<span class="lh-badge warn" title="Its modem has not answered the address renewal. TapTap ' + (l.dhcp_fixing ? 'is now making sure renewals get through' : 'keeps renewals out of the line marks, NAT and firewall') + ' — the line works meanwhile."><i class="bi bi-arrow-repeat"></i> renewing</span>');
       if (!l.in_design && !l.missing) badges.push('<span class="lh-badge" title="Not in your design yet — tick it in step 1">new</span>');
       return '<button type="button" class="lh-pod ' + s[0] + '" data-if="' + esc(l.interface) + '" style="--c:' + color + '">' +
         '<span class="lh-pod-top"><span class="lh-pod-dot"></span><b>' + esc(l.label) + '</b><em>' + esc(l.interface) + ' · ' + esc(l.type.toUpperCase()) + '</em></span>' +

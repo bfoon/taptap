@@ -108,3 +108,73 @@ class GatewaysTab(Base):
         out = hub.share_config(self.setup, facts, 'ether5', line_list)
         cfg = out[0] if isinstance(out, tuple) else out
         self.assertEqual(sorted(l['interface'] for l in cfg['links'] if l['enabled']), ['ether1', 'ether5'])
+
+
+# ═══════════════════════ "renewing..." for hours, even after a reboot ═══════════════════════
+from core import agent, dhcp_guard, wan_doctor                       # noqa: E402
+from core.models import AgentCommand                                 # noqa: E402
+
+
+class DoctorOnTheRouter(SimpleTestCase):
+    def test_a_renewing_line_is_measured_not_taken_out_of_use(self):
+        body = wan_doctor._BODY
+        self.assertNotIn('status]] != "bound") do={ :return "unbound," }', body)
+        self.assertIn(':if ([:pick $ds 0 5] = "renew") do={ :set held true }', body)
+        self.assertIn(':if ([:pick $ds 0 6] = "rebind") do={ :set held true }', body)
+        self.assertIn(':if ($held = false) do={ :return "unbound," }', body)
+        self.assertEqual(wan_doctor.VERSION, '4')           # routers with the Doctor get the new script by themselves
+
+
+class GuardScript(SimpleTestCase):
+    def test_only_the_routers_own_dhcp_traffic_is_touched_and_each_rule_goes_on_top(self):
+        s = dhcp_guard.script()
+        for menu, fields, _note in dhcp_guard.RULES:
+            self.assertIn(f'{menu} add {fields}', s)
+            self.assertIn('udp', fields)
+            self.assertTrue('src-port=67 dst-port=68' in fields or 'src-port=68 dst-port=67' in fields)
+        self.assertEqual(s.count('place-before=[:pick $f 0]'), len(dhcp_guard.RULES))
+        self.assertIn('/ip firewall nat add chain=srcnat protocol=udp src-port=68 dst-port=67 src-address-type=local', s)
+
+    def test_it_can_run_again_and_heals_a_stuck_client(self):
+        s = dhcp_guard.script()
+        self.assertLess(s.index('mangle remove [find where comment~"^TapTap DHCP"]'), s.index('mangle add'))
+        self.assertIn('/ip firewall connection remove', s)
+        self.assertIn('/ip dhcp-client renew $c', s)
+        self.assertEqual(s.count('{'), s.count('}'))
+        self.assertEqual(s.count('['), s.count(']'))
+
+    def test_stuck_states(self):
+        self.assertTrue(dhcp_guard.is_stuck('renewing...'))
+        self.assertTrue(dhcp_guard.is_stuck('rebinding...'))
+        self.assertFalse(dhcp_guard.is_stuck('bound'))
+        self.assertFalse(dhcp_guard.is_stuck('searching...'))
+
+
+class GuardOnLink(Base):
+    def test_a_line_stuck_on_renewing_queues_the_guard_once(self):
+        self.snapshot(**{'/ip/dhcp-client': clients(status='renewing...')})
+        for _ in range(2):
+            rows = hub.open_rows(self.router, live=False)
+            try:
+                st = hub.state(self.router, rows)
+            finally:
+                rows.close()
+        cmds = AgentCommand.objects.filter(router=self.router, kind=dhcp_guard.KIND)
+        self.assertEqual(cmds.count(), 1)                    # at most once an hour
+        self.assertEqual(agent.command_body(cmds[0]), dhcp_guard.script())
+        e5 = next(l for l in st['lines'] if l['interface'] == 'ether5')
+        self.assertTrue(e5['up'])
+
+    def test_bound_lines_queue_nothing(self):
+        self.snapshot()
+        rows = hub.open_rows(self.router, live=False)
+        try:
+            hub.state(self.router, rows)
+        finally:
+            rows.close()
+        self.assertFalse(AgentCommand.objects.filter(router=self.router, kind=dhcp_guard.KIND).exists())
+
+    def test_housekeeping_puts_it_on_routers_whose_lines_taptap_runs(self):
+        self.assertEqual(dhcp_guard.ensure_all(), 1)
+        self.assertEqual(dhcp_guard.ensure_all(), 0)          # once per version
+        self.assertTrue(AgentCommand.objects.filter(router=self.router, kind=dhcp_guard.KIND).exists())

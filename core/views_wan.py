@@ -242,6 +242,12 @@ def apply_lines(router, setup, config, user, minutes=5, auto_confirm=False):
         # on-router safety timer is mandatory: it undoes the change unless TapTap
         # can confirm through the tunnel afterwards.
         minutes = 5
+    if len([l for l in (config or {}).get('links') or [] if l.get('enabled', True)]) > 1:
+        try:     # with two or more lines, the lines' own DHCP renewals must never follow a line mark (core/dhcp_guard.py)
+            from .dhcp_guard import apply as guard_dhcp
+            guard_dhcp(router, user)
+        except Exception:
+            pass
     if _on_link(router):
         resp = _apply_via_link(request, router, setup, data, minutes)
         return json.loads(resp.content), resp.status_code

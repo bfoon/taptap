@@ -42,7 +42,10 @@ logger = logging.getLogger('taptap.wan_doctor')
 
 TAG = 'TapTap Doctor'
 NAME = 'TapTap-Doctor'                 # script and scheduler name on the router
-VERSION = '3'
+VERSION = '4'
+# v4 (Nov 2026): a DHCP line on "renewing..." / "rebinding..." still has its address and is measured like a bound one.
+#     v3 called it "unbound" and took it out of use; its renewals then followed the other line's routes and were
+#     never answered, so it stayed "renewing..." for good (see core/dhcp_guard.py for why renewals got lost).
 # v3 (Nov 2026): the internet "goes off for a few seconds and comes back" — every 15 minutes on lines whose modem does
 #     not answer ping: v2 called such a line "down" although customers used it, released its DHCP address every 15
 #     minutes (everyone cut for a few seconds) and, with two lines, took the working line out of use. Now
@@ -184,7 +187,14 @@ _BODY = r'''
     :local c [/ip dhcp-client find where interface=$iface]
     :if ([:len $c] = 0) do={ :return "skip" }
     :if ([:tostr [/ip dhcp-client get ($c->0) disabled]] = "true") do={ :return "skip" }
-    :if ([:tostr [/ip dhcp-client get ($c->0) status]] != "bound") do={ :return "unbound," }
+    # renewing / rebinding: the line still has its address (many modems never answer a renewal) - measure it.
+    # v3 called it "unbound", took the line out of use and the line could never come back.
+    :local ds [:tostr [/ip dhcp-client get ($c->0) status]]
+    :local held false
+    :if ($ds = "bound") do={ :set held true }
+    :if ([:pick $ds 0 5] = "renew") do={ :set held true }
+    :if ([:pick $ds 0 6] = "rebind") do={ :set held true }
+    :if ($held = false) do={ :return "unbound," }
     :set gw [:tostr [/ip dhcp-client get ($c->0) gateway]]
   }
   :if ($kind = "pppoe") do={
