@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ shop.heading }} — {{ b.business_name }}</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f1f6f4;color:#142337;font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+.wrap{max-width:720px;margin:0 auto;padding:18px 16px 40px}
+.top{background:linear-gradient(135deg,#0b3a4a,#118a5c);color:#fff;border-radius:0 0 26px 26px;padding:26px 20px 34px;text-align:center}
+.top h1{margin:0;font-size:24px;font-weight:900}.top p{margin:6px 0 0;color:#d4f5e7}
+.card{background:#fff;border:1px solid #dbe7e2;border-radius:18px;padding:18px;box-shadow:0 14px 40px #20354d10;margin-top:-18px}
+.offers{display:grid;gap:10px}.offer{display:flex;gap:12px;align-items:center;border:2px solid #e1ebe6;border-radius:14px;padding:12px;cursor:pointer;transition:.15s}
+.offer:has(input:checked){border-color:#12945d;background:#f2fbf6}.offer input{accent-color:#12945d;width:20px;height:20px}
+.offer .t{flex:1}.offer b{display:block;font-size:16px}.offer small{color:#61758a}.offer .p{font-weight:900;font-size:20px;white-space:nowrap}
+.net{display:inline-block;font-size:12px;font-weight:700;color:#11824f;background:#e6f7ef;border-radius:99px;padding:1px 8px;margin-top:3px}
+.pay{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.pay label{border:2px solid #e1ebe6;border-radius:12px;padding:10px;text-align:center;cursor:pointer;font-weight:800}
+.pay label:has(input:checked){border-color:#12945d;background:#f2fbf6}.pay input{position:absolute;opacity:0}
+.field{margin-top:14px}.field>label{display:block;font-weight:750;margin-bottom:5px}
+input[type=tel],input[type=text]{width:100%;border:1px solid #c9d8d1;border-radius:11px;padding:12px;font-size:16px}
+button{width:100%;margin-top:16px;border:0;border-radius:12px;padding:14px;background:#12945d;color:#fff;font-weight:900;font-size:17px}
+.msg{background:#fff4dc;border:1px solid #eed297;padding:10px;border-radius:10px;margin-bottom:10px}.muted{color:#61758a;font-size:13px}
+.off{padding:22px;text-align:center;color:#61758a}h2{font-size:15px;margin:18px 0 8px}
+.foot{text-align:center;color:#8aa0b3;font-size:12px;margin-top:18px}
+</style></head><body>
+<div class="top"><h1>{{ shop.heading }}</h1><p>{{ b.business_name }}{% if shop.note %} · {{ shop.note }}{% endif %}</p></div>
+<div class="wrap"><div class="card">
+{% for m in messages %}<div class="msg">{{ m }}</div>{% endfor %}
+{% if offers and wallets %}
+<form method="post">{% csrf_token %}
+  <h2 style="margin-top:0">1. Choose your Wi-Fi</h2>
+  <div class="offers">{% for o in offers %}<label class="offer"><input type="radio" name="deal" value="{{ o.deal.pk }}" {% if forloop.first %}checked{% endif %}>
+    <span class="t"><b>{{ o.plan }}</b><small>{{ o.duration }} · {{ o.devices }} device{{ o.devices|pluralize }}{% if o.left <= 20 %} · only {{ o.left }} left{% endif %}</small><br><span class="net">📶 {{ o.network }} — {{ o.area }}</span></span>
+    <span class="p">{{ b.currency }}{{ o.price|floatformat:"-2" }}</span></label>{% endfor %}</div>
+  <h2>2. Pay with</h2>
+  <div class="pay">{% for w in wallets %}<label><input type="radio" name="provider" value="{{ w.provider }}" {% if forloop.first %}checked{% endif %}>{{ w.get_provider_display }}</label>{% endfor %}</div>
+  <div class="field"><label for="phone">Your mobile number</label><input type="tel" id="phone" name="phone" required placeholder="7xxxxxx" autocomplete="tel"></div>
+  <div class="field"><label for="name">Name <span class="muted">(optional)</span></label><input type="text" id="name" name="name" maxlength="120"></div>
+  <button>Continue to payment</button>
+  <p class="muted" style="text-align:center;margin:10px 0 0">You pay {{ b.business_name }} directly. Your voucher appears on the next page as soon as the payment is confirmed.</p>
+</form>
+{% else %}<div class="off">Nothing for sale right now. Please check again later.</div>{% endif %}
+</div><div class="foot">Powered by TapTap Market</div></div>
+</body></html>

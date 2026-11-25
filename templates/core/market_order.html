@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Your Wi-Fi voucher — {{ b.business_name }}</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f1f6f4;color:#142337;font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+.wrap{max-width:560px;margin:0 auto;padding:22px 16px 40px}.card{background:#fff;border:1px solid #dbe7e2;border-radius:20px;padding:22px;box-shadow:0 14px 40px #20354d10}
+h1{font-size:21px;margin:0 0 4px}.muted{color:#61758a;font-size:13px}.msg{background:#fff4dc;border:1px solid #eed297;padding:10px;border-radius:10px;margin-bottom:12px}
+.amount{font-size:34px;font-weight:900;margin:8px 0}.wallet{border:2px dashed #12945d;border-radius:16px;padding:14px;text-align:center;margin:12px 0;background:#f2fbf6}
+.wallet .num{font-size:28px;font-weight:900;letter-spacing:.05em}.ref{font-family:ui-monospace,monospace;background:#eef4ff;padding:2px 6px;border-radius:6px}
+input{width:100%;border:1px solid #c9d8d1;border-radius:11px;padding:12px;font-size:16px;margin-top:6px}
+button,.btn{display:block;width:100%;margin-top:12px;border:0;border-radius:12px;padding:14px;background:#12945d;color:#fff;font-weight:900;font-size:17px;text-align:center;text-decoration:none}
+.btn.alt{background:#1dc4f2}.code{font-size:40px;font-weight:900;letter-spacing:.12em;text-align:center;background:#0f2742;color:#fff;border-radius:16px;padding:16px;margin:12px 0}
+ol{padding-left:20px}ol li{margin:6px 0}.wait{text-align:center;padding:10px}.spin{width:42px;height:42px;border:4px solid #d6eee2;border-top-color:#12945d;border-radius:50%;margin:10px auto;animation:s 1s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}.bad{color:#b42318}
+</style></head><body><div class="wrap"><div class="card">
+{% for m in messages %}<div class="msg">{{ m }}</div>{% endfor %}
+<h1>{{ o.deal.listing.plan_name }} · {{ duration }}</h1>
+<div class="muted">📶 Works on <b>{{ network }}</b> — {{ area }} · order {{ o.reference }}</div>
+
+{% if o.status == 'issued' and o.voucher %}
+  <p style="margin-top:16px">Payment received. Your voucher:</p>
+  <div class="code">{{ o.voucher.code }}</div>
+  <ol><li>Join the Wi-Fi <b>{{ network }}</b>.</li><li>The login page opens{% if login %} (or type <b>{{ login }}</b> in your browser){% endif %}.</li><li>Type the code above. Keep this page or take a screenshot.</li></ol>
+{% elif o.status == 'pending' %}
+  {% if o.wallet and o.wallet.automatic %}
+  <div class="wait"><div class="spin"></div>Waiting for Wave to confirm your payment…</div>
+  {% else %}
+  <p style="margin-top:14px">Send exactly</p><div class="amount">{{ b.currency }}{{ o.amount|floatformat:"-2" }}</div>
+  <div class="wallet"><div class="muted">{{ o.get_provider_display }} to</div><div class="num">{{ o.wallet.number }}</div><div><b>{{ o.wallet.holder }}</b></div>
+    <div class="muted">Reference: <span class="ref">{{ o.reference }}</span></div></div>
+  {% if o.wallet.pay_link %}<a class="btn alt" href="{{ o.wallet.pay_link }}" target="_blank" rel="noopener">Open {{ o.get_provider_display }}</a>{% endif %}
+  <form method="post">{% csrf_token %}<label for="ref" style="font-weight:750;display:block;margin-top:14px">Then type the transaction ID from your payment message</label>
+    <input id="ref" name="payment_ref" required minlength="4" maxlength="80" autocomplete="off"><button>I paid</button></form>
+  <p class="muted">Pay before {{ deadline|time:'H:i' }}. If you paid a little late, still type the transaction ID: it works while vouchers are left.</p>
+  {% endif %}
+{% elif o.status == 'claimed' or o.status == 'paid' %}
+  <div class="wait"><div class="spin"></div><b>Checking your payment</b><p class="muted">{{ b.business_name }} confirms as soon as the money shows in their {{ o.get_provider_display }}. Keep this page open — the voucher appears here.</p></div>
+{% elif o.status == 'review' %}
+  <p class="bad">Your payment needs a quick look by {{ b.business_name }}. Keep this page; your voucher will appear here, or contact them with reference <span class="ref">{{ o.reference }}</span>.</p>
+{% elif o.status == 'expired' %}
+  <p style="margin-top:14px">This order timed out. <b>If you already sent {{ b.currency }}{{ o.amount|floatformat:"-2" }}</b> to {{ o.wallet.number }}, type the transaction ID:</p>
+  <form method="post">{% csrf_token %}<input name="payment_ref" required minlength="4" maxlength="80" autocomplete="off" placeholder="Transaction ID"><button>I paid</button></form>
+  {% if shop %}<a class="btn" style="background:#61758a" href="{% url 'market_shop' shop.slug %}">Start a new order</a>{% endif %}
+{% else %}
+  <p class="bad" style="margin-top:14px">{{ o.get_status_display }}.{% if o.error %} {{ o.error }}{% endif %}</p>
+  {% if shop %}<a class="btn" href="{% url 'market_shop' shop.slug %}">Start again</a>{% endif %}
+{% endif %}
+</div></div>
+{% if o.status in 'pending claimed paid review' and o.status != 'issued' %}<script>(function(){var u=location.pathname+'?json=1',s='{{ o.status }}';
+function t(){fetch(u,{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){if(d.status!==s)location.reload();}).catch(function(){});}
+setInterval(t,{% if o.status == 'pending' %}15000{% else %}6000{% endif %});})();</script>{% endif %}
+</body></html>

@@ -142,27 +142,17 @@ class WaveProvider(PaymentProvider):
         ).hexdigest()
         return f"t={ts},v1={digest}"
 
+    def return_urls(self, purchase, request):
+        """Where Wave sends the payer back after paying (success) or giving up (error)."""
+        page = _site_url(request) + reverse("online_buy_order", args=[purchase.reference, purchase.access_token])
+        return page, page + "?payment=error"
+
     def create_checkout(self, purchase, request):
         ok, reason = self.configured_for(purchase.business)
         if not ok:
             raise ValueError(reason)
 
-        base = _site_url(request)
-        success_url = (
-            base
-            + reverse(
-                "online_buy_order",
-                args=[purchase.reference, purchase.access_token],
-            )
-        )
-        error_url = (
-            base
-            + reverse(
-                "online_buy_order",
-                args=[purchase.reference, purchase.access_token],
-            )
-            + "?payment=error"
-        )
+        success_url, error_url = self.return_urls(purchase, request)
         body_obj = {
             "amount": format(purchase.amount, ".2f").rstrip("0").rstrip("."),
             "currency": purchase.currency,

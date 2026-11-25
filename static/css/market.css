@@ -1,0 +1,73 @@
+/* TapTap Market — hub, listing (due diligence), deal room */
+.mk-tabs{display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:1.1rem;border-bottom:1px solid var(--border);padding-bottom:.6rem}
+.mk-tabs a{padding:.45rem .9rem;border-radius:999px;font-weight:700;font-size:.86rem;color:#4e6479;display:inline-flex;gap:.4rem;align-items:center}
+.mk-tabs a.on{background:#0f2742;color:#fff}.mk-tabs a b{background:#f59e0b;color:#fff;border-radius:99px;font-size:.68rem;padding:0 .4rem}
+.mk-hero{display:flex;flex-wrap:wrap;gap:1rem 2rem;align-items:center;border-radius:22px;padding:1.3rem 1.5rem;margin-bottom:1.1rem;color:#fff;
+  background:radial-gradient(circle at 90% 0,#38c793 0,#118a5c 35%,#0b3a4a 100%)}
+.mk-hero h2{margin:0;font-weight:850;font-size:1.4rem}.mk-hero p{margin:.2rem 0 0;color:#d4f5e7;font-size:.88rem;max-width:640px}
+.mk-hero .flow{display:flex;gap:.5rem;align-items:center;font-size:.78rem;font-weight:700;margin-left:auto;flex-wrap:wrap}
+.mk-hero .flow span{background:#ffffff1f;border-radius:999px;padding:.3rem .65rem}.mk-hero .flow i.bi-arrow-right{opacity:.7}
+.mk-tools{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin-bottom:1rem}
+.mk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:1rem}
+.mk-card{background:#fff;border:1px solid var(--border);border-radius:18px;padding:1rem 1.1rem;color:inherit;display:flex;flex-direction:column;gap:.55rem;transition:.15s;position:relative}
+.mk-card:hover{border-color:#9dc0f2;box-shadow:0 12px 30px #1d3b5a14;transform:translateY(-1px)}
+.mk-card .top{display:flex;justify-content:space-between;align-items:flex-start;gap:.6rem}
+.mk-card h3{font-size:1rem;font-weight:800;margin:0}.mk-card .where{font-size:.8rem;color:var(--muted)}
+.grade{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;font-weight:900;font-size:1.3rem;color:#fff;flex:0 0 46px;line-height:1}
+.grade small{display:block;font-size:.55rem;font-weight:700;opacity:.85}
+.g-A{background:#12945d}.g-B{background:#3aa655}.g-C{background:#d39a1c}.g-D{background:#e07020}.g-E{background:#c93a3a}
+.mk-facts{display:grid;grid-template-columns:repeat(3,1fr);gap:.4rem}.mk-facts div{background:#f5f8fc;border-radius:10px;padding:.4rem .5rem}
+.mk-facts small{display:block;font-size:.62rem;font-weight:800;color:#8a9aab;text-transform:uppercase;letter-spacing:.05em}.mk-facts b{font-size:.92rem}
+.mk-spark{display:flex;align-items:flex-end;gap:1px;height:34px}.mk-spark i{flex:1;background:#9fd8bd;border-radius:2px 2px 0 0;min-height:1px}
+.mk-price{display:flex;justify-content:space-between;align-items:baseline;border-top:1px dashed var(--border);padding-top:.5rem}
+.mk-price strong{font-size:1.25rem}.mk-price span{font-size:.78rem;color:var(--muted)}
+.chip{display:inline-flex;align-items:center;gap:.25rem;border-radius:999px;padding:.12rem .5rem;font-size:.7rem;font-weight:700;background:#eef4ff;color:#1558b8}
+.chip.green{background:#e6f7ef;color:#11824f}.chip.amber{background:#fff4dc;color:#9a6200}.chip.red{background:#fdecea;color:#b42318}.chip.grey{background:#f1f3f5;color:#6c7c90}
+
+/* due diligence */
+.dd-head{display:flex;flex-wrap:wrap;gap:1rem 1.5rem;align-items:center;background:#fff;border:1px solid var(--border);border-radius:20px;padding:1.2rem 1.4rem;margin-bottom:1rem}
+.dd-head .grade{width:74px;height:74px;font-size:2.1rem;border-radius:20px;flex-basis:74px}
+.dd-head h2{margin:0;font-size:1.35rem;font-weight:850}.dd-head p{margin:.15rem 0 0;color:var(--muted);font-size:.86rem}
+.dd-head .buybox{margin-left:auto;text-align:right}.dd-head .buybox strong{font-size:1.6rem;display:block;line-height:1.1}
+.verified{display:inline-flex;gap:.35rem;align-items:center;font-size:.74rem;font-weight:700;color:#11824f;background:#e6f7ef;border-radius:999px;padding:.2rem .6rem}
+.dd-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:.75rem;margin-bottom:1rem}
+.dd-kpi{background:#fff;border:1px solid var(--border);border-radius:16px;padding:.8rem .9rem}
+.dd-kpi small{display:block;font-size:.64rem;font-weight:800;color:#8a9aab;letter-spacing:.07em;text-transform:uppercase}
+.dd-kpi strong{display:block;font-size:1.3rem;line-height:1.2;margin:.1rem 0}.dd-kpi em{font-style:normal;font-size:.74rem;color:var(--muted)}
+.bars{display:flex;align-items:flex-end;gap:2px;height:140px;border-bottom:1px solid var(--border)}
+.bars i{flex:1;background:linear-gradient(180deg,#2c8af5,#1558b8);border-radius:3px 3px 0 0;min-height:1px;position:relative}
+.bars i.few{background:repeating-linear-gradient(45deg,#dfe7f1 0 3px,#f4f7fb 3px 6px);height:14px!important}
+.bars.green i{background:linear-gradient(180deg,#35c58a,#12945d)}
+.axis{display:flex;justify-content:space-between;font-size:.66rem;color:#8a9aab;margin-top:.25rem}
+.upstrip{display:grid;grid-template-columns:repeat(90,1fr);gap:2px}.upstrip i{height:28px;border-radius:3px;background:#22b573}
+.upstrip i.l1{background:#9ed9b5}.upstrip i.l2{background:#f5c04a}.upstrip i.l3{background:#ef7d38}.upstrip i.l4{background:#d64545}.upstrip i.nw{background:#e8eef6}
+.hours{display:grid;grid-template-columns:repeat(24,1fr);gap:2px}.hours i{height:34px;border-radius:4px;background:#e9f2ff;display:block}
+.hours-l{display:grid;grid-template-columns:repeat(24,1fr);font-size:.6rem;color:#8a9aab;text-align:center}
+.week{display:grid;grid-template-columns:repeat(7,1fr);gap:.4rem;text-align:center;font-size:.74rem}.week div{border-radius:10px;padding:.45rem 0;background:#f5f8fc}
+.week b{display:block;font-size:.95rem}
+.score-row{display:grid;grid-template-columns:130px 1fr 50px;gap:.6rem;align-items:center;font-size:.84rem;padding:.3rem 0}
+.score-row .m{height:8px;border-radius:99px;background:#edf1f6;overflow:hidden}.score-row .m i{display:block;height:100%;background:#12945d}
+.privacy{border:1px dashed #b9d7c7;background:#f4fbf7;border-radius:14px;padding:.8rem 1rem;font-size:.82rem;color:#2f5d47}
+.privacy ul{margin:.35rem 0 0;padding-left:1.1rem}
+.forecast{background:#0f2742;color:#dbe8f7;border-radius:18px;padding:1.1rem 1.2rem}
+.forecast h3{color:#fff;font-size:1.02rem;font-weight:800;margin:0}.forecast .big{font-size:2rem;font-weight:850;color:#fff;line-height:1.1}
+.forecast input[type=range]{width:100%;accent-color:#35c58a}.forecast small{color:#9fb6cf}
+.forecast .cols{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin-top:.7rem}.forecast .cols div{background:#ffffff10;border-radius:10px;padding:.45rem .6rem}
+.forecast .cols b{display:block;color:#fff}
+
+/* deal room */
+.kv th{font-weight:500;color:#5d7186;font-size:.84rem}.kv td{font-weight:600}
+.steps{display:flex;gap:.4rem;margin-bottom:1rem;flex-wrap:wrap}
+.steps div{flex:1 1 140px;border-radius:14px;padding:.65rem .8rem;background:#f1f4f8;color:#6c7c90;font-weight:700;font-size:.84rem;display:flex;gap:.45rem;align-items:center}
+.steps div.done{background:#e6f7ef;color:#11824f}.steps div.now{background:#11824f;color:#fff;box-shadow:0 8px 20px #11824f33}
+.pay-card{border:2px solid #12945d;border-radius:18px;padding:1rem 1.1rem;background:#f4fbf7}
+.pay-card .num{font-size:1.4rem;font-weight:850;letter-spacing:.04em}
+.wallet-row{display:flex;align-items:center;gap:.8rem;padding:.6rem 0;border-bottom:1px solid var(--border)}
+.wallet-row:last-child{border-bottom:0}
+.wlogo{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:900;font-size:.8rem;flex:0 0 40px}
+.w-wave{background:#1dc4f2}.w-qmoney{background:#e4002b}.w-afrimoney{background:#f39200}
+.mk-empty{text-align:center;padding:2.5rem 1rem;color:var(--muted)}.mk-empty i{font-size:2.2rem;display:block;margin-bottom:.4rem;color:#9fb6cf}
+@media(max-width:1100px){.dd-kpis{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:650px){.dd-kpis{grid-template-columns:repeat(2,1fr)}.dd-head .buybox{margin-left:0;text-align:left}.mk-hero .flow{margin-left:0}.upstrip{gap:1px}.score-row{grid-template-columns:100px 1fr 40px}}
+html[data-theme="dark"] .mk-card,html[data-theme="dark"] .dd-head,html[data-theme="dark"] .dd-kpi{background:#13233a;border-color:#22344d}
+html[data-theme="dark"] .mk-facts div,html[data-theme="dark"] .week div{background:#16263c}html[data-theme="dark"] .privacy,html[data-theme="dark"] .pay-card{background:#10261c}

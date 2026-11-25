@@ -127,6 +127,8 @@ FEATURES = OrderedDict((f.key, f) for f in [
     _f('adverts', 'Adverts', 'studio', 'bi-badge-ad', 'Adverts on the login page with views and clicks.', 'ads ad_save ad_action'),
     # ── growth ──
     _f('online_sales', 'Online sales', 'growth', 'bi-bag-check', 'Sell vouchers online with mobile money.', 'online_buy_admin', paths=('/online-sales/',)),
+    _f('market', 'Market — sell batches', 'growth', 'bi-shop-window', 'List batches of vouchers for other people to buy and resell; they keep running on your network.',
+       'market_sell market_listing_action', paths=('/market/sell/',)),
     _f('collaboration', 'Collaboration & roaming', 'growth', 'bi-arrow-left-right', 'Share vouchers with partner businesses and let customers roam.',
        'business_collaboration business_collaboration_action business_roaming business_roaming_action', paths=('/collaboration/',)),
     _f('investors', 'Investors', 'growth', 'bi-piggy-bank', 'Investor deals, investor portal and investment opportunities.',
