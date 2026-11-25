@@ -1,0 +1,65 @@
+{% extends 'core/base.html' %}{% load static taptap_extras team_perf %}{% block title %}Team performance — TapTap{% endblock %}{% block heading %}Team performance{% endblock %}
+{% block extra_head %}<link href="{% static 'css/team-performance.css' %}?v=1" rel="stylesheet">{% endblock %}
+{% block content %}
+{% with c=current_business.currency %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+  <p class="text-secondary m-0">{{ r.period.label }} · who made the vouchers, who sold them and how much cash each person should be holding.{% if not all %} You see your own figures.{% endif %}</p>
+  {% if 'team' in tt_features %}<a class="btn btn-sm btn-light" href="{% url 'team' %}"><i class="bi bi-arrow-left"></i> Team accounts</a>{% endif %}
+</div>
+{% include 'core/_perf_period.html' %}
+
+<div class="perf-kpis">
+  <div class="perf-kpi"><small>Sales</small><strong>{{ r.total|money:c }}</strong><em>{{ r.rows|length }} row{{ r.rows|length|pluralize }} · agents and automatic included</em></div>
+  <div class="perf-kpi cash"><small>Cash sales</small><strong>{{ r.total_cash|money:c }}</strong><em>{{ r.total_cash|pct_of:r.total }}% of all sales</em></div>
+  <div class="perf-kpi"><small>Vouchers made</small><strong>{{ r.total_vouchers }}</strong><em>by the team in this period</em></div>
+  <div class="perf-kpi"><small>Batches</small><strong>{{ r.total_batches }}</strong><em>printed or generated at once</em></div>
+</div>
+
+{% if all and r.team|length > 1 and r.team.0.amount %}
+<div class="podium" aria-label="Top sellers">
+  {% with a=r.team.0 b=r.team.1 %}{% with cc=r.team|slice:"2:3" %}
+  <a class="step p2" href="{% url 'team_performance_person' b.user_id %}?range={{ range }}&start={{ start }}&end={{ end }}"><div class="ava">{{ b.name|initials }}<b>2</b></div><div class="name">{{ b.name }}</div><div class="amt">{{ b.amount|money:c }}</div><div class="block">{{ b.share }}%</div></a>
+  <a class="step p1" href="{% url 'team_performance_person' a.user_id %}?range={{ range }}&start={{ start }}&end={{ end }}"><div class="ava">{{ a.name|initials }}<b>1</b></div><div class="name"><i class="bi bi-trophy-fill text-warning"></i> {{ a.name }}</div><div class="amt">{{ a.amount|money:c }}</div><div class="block">{{ a.share }}%</div></a>
+  {% for x in cc %}<a class="step p3" href="{% url 'team_performance_person' x.user_id %}?range={{ range }}&start={{ start }}&end={{ end }}"><div class="ava">{{ x.name|initials }}<b>3</b></div><div class="name">{{ x.name }}</div><div class="amt">{{ x.amount|money:c }}</div><div class="block">{{ x.share }}%</div></a>{% empty %}<span></span>{% endfor %}
+  {% endwith %}{% endwith %}
+</div>
+{% endif %}
+
+<div class="panel mb-3">
+  <div class="panel-head"><div><h3>Leaderboard</h3><p>Sales go to who recorded them; automatic sales to who created the voucher.</p></div>
+    <div class="mix-legend">{% for k, label in methods %}<span class="lg-{{ k }}">{{ label }}</span>{% endfor %}</div></div>
+  <div class="table-responsive"><table class="table perf-table">
+    <thead><tr><th>#</th><th>Person</th><th class="text-end">Vouchers</th><th class="text-end">Batches</th><th class="text-end">Sales</th><th>How paid</th><th class="text-end" title="Cash sales + cash collected from agents − cash expenses">Cash drawer</th><th>vs before</th><th>{% if r.bucket == 'month' %}Months{% else %}Days{% endif %}</th><th></th></tr></thead>
+    <tbody>
+    {% for p in r.rows %}
+      <tr class="{% if p.pseudo %}pseudo{% endif %}">
+        <td class="rank">{% if p.rank %}{{ p.rank }}{% else %}·{% endif %}</td>
+        <td><b>{{ p.name }}</b><small class="d-block text-secondary">{{ p.role }}{% if not p.active %} · switched off{% endif %}</small>
+          {% for icon, label in p.badges %}<span class="perf-badge"><i class="bi {{ icon }}"></i>{{ label }}</span>{% endfor %}</td>
+        <td class="text-end">{% if p.pseudo %}—{% else %}<b>{{ p.vouchers }}</b>{% if p.members %}<small class="d-block text-secondary">+{{ p.members }} member{{ p.members|pluralize }}</small>{% endif %}{% endif %}</td>
+        <td class="text-end">{% if p.pseudo %}—{% else %}{{ p.batches }}{% if p.batch_vouchers %}<small class="d-block text-secondary">{{ p.batch_vouchers }} in them</small>{% endif %}{% endif %}</td>
+        <td class="text-end"><b>{{ p.amount|money:c }}</b><small class="d-block text-secondary">{{ p.sales }} sale{{ p.sales|pluralize }} · {{ p.share }}%</small><div class="share ms-auto"><i style="width:{{ p.share }}%"></i></div></td>
+        <td style="min-width:120px"><div class="mix" title="{% for m in p.mix %}{{ m.label }}: {{ m.amount|money:c }}{% if not forloop.last %} · {% endif %}{% endfor %}">{% for m in p.mix %}<i class="m-{{ m.key }}" style="width:{{ m.pct }}%"></i>{% endfor %}</div>
+          <small class="text-secondary">{{ p.methods.cash|money:c }} cash</small></td>
+        <td class="text-end">{% if p.pseudo %}—{% else %}<b>{{ p.cash_drawer|money:c }}</b>{% if p.collected_cash or p.expenses_cash %}<small class="d-block text-secondary">{% if p.collected_cash %}+{{ p.collected_cash|money:c }} collected{% endif %}{% if p.expenses_cash %} −{{ p.expenses_cash|money:c }} spent{% endif %}</small>{% endif %}{% endif %}</td>
+        <td>{% if p.pseudo %}{% elif p.change is None %}<span class="delta flat">—</span>{% elif not p.prev_amount %}<span class="delta up">new</span>{% else %}{{ p.change|delta }}{% endif %}</td>
+        <td><div class="spark" title="{% if p.best %}Best: {{ p.best.label }} · {{ p.best.amount|money:c }}{% else %}No sales yet{% endif %}">{% for b in p.series|slice:"-31:" %}<i class="{% if not b.amount %}z{% endif %}" style="height:{{ b.amount|pct_of:p.peak }}%"></i>{% endfor %}</div></td>
+        <td class="text-end">{% if p.user_id %}<a class="btn btn-sm btn-light" href="{% url 'team_performance_person' p.user_id %}?range={{ range }}&start={{ start }}&end={{ end }}{% if group %}&group={{ group }}{% endif %}" aria-label="Details for {{ p.name }}"><i class="bi bi-chevron-right"></i></a>{% endif %}</td>
+      </tr>
+    {% empty %}<tr><td colspan="10" class="empty-table">Nothing made or sold in this period.</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+{% if r.team %}
+<div class="panel">
+  <div class="panel-head"><div><h3>{% if r.bucket == 'month' %}Month by month{% else %}Day by day{% endif %}</h3><p>Sales per person — the darker, the more they sold. Hover a square for the figures.</p></div></div>
+  <div class="heat-wrap"><div class="heat" style="--n:{{ r.keys|slice:"-62:"|length }}">
+    <span class="who"></span>{% for k, label in r.keys|slice:"-62:" %}<span class="hd" title="{{ label }}">{% if r.bucket == 'month' %}{{ label|slice:":3" }}{% else %}{{ k|slice:"8:" }}{% endif %}</span>{% endfor %}
+    {% for p in r.team %}<a class="who" href="{% url 'team_performance_person' p.user_id %}?range={{ range }}&start={{ start }}&end={{ end }}{% if group %}&group={{ group }}{% endif %}">{{ p.name }}</a>{% for b in p.series|slice:"-62:" %}<span class="cell" data-l="{{ b.amount|heat:r.max_bucket }}" title="{{ p.name }} · {{ b.label }}: {{ b.amount|money:c }} from {{ b.sales }} sale{{ b.sales|pluralize }}, {{ b.vouchers }} voucher{{ b.vouchers|pluralize }} made">{% if b.sales %}{{ b.sales }}{% endif %}</span>{% endfor %}{% endfor %}
+  </div></div>
+  {% if 'fit' in tt_features %}<p class="small text-secondary mt-2 mb-0"><i class="bi bi-stars"></i> Ask Fit: “How much cash did each team member bring in last month?” or “Show me Awa's sales per day this month.”</p>{% endif %}
+</div>
+{% endif %}
+{% endwith %}
+{% endblock %}

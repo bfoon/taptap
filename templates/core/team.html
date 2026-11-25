@@ -30,7 +30,8 @@ html[data-theme="dark"] .pay-strip{background:#13233a;border-color:#22344d}html[
 {% with c=current_business.currency %}
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
   <p class="text-secondary m-0">Give each staff member their own login. They only see and can only do what their role allows — the server checks every page and action.</p>
-  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#memberModal" data-member='{}'><i class="bi bi-person-plus"></i> Add team member</button>
+  <div class="d-flex gap-2"><a class="btn btn-outline-primary" href="{% url 'team_performance' %}"><i class="bi bi-bar-chart-line"></i> Performance</a>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#memberModal" data-member='{}'><i class="bi bi-person-plus"></i> Add team member</button></div>
 </div>
 
 {% if payroll %}
@@ -51,7 +52,7 @@ html[data-theme="dark"] .pay-strip{background:#13233a;border-color:#22344d}html[
     <thead><tr><th>Name</th><th>Role</th>{% if payroll %}<th>Pay</th>{% endif %}<th>Status</th><th>Last sign-in</th><th class="text-end">Use (30 days)</th><th></th></tr></thead>
     <tbody>
       <tr><td><b>{% firstof owner.get_full_name current_business.owner_name %}</b><small class="d-block text-secondary">{{ owner.email }}</small></td>
-        <td><span class="role-pill owner">Owner</span></td>{% if payroll %}<td><small class="text-secondary">Owner draws</small></td>{% endif %}<td>Active</td><td>{{ owner.last_login|date:'d M Y H:i'|default:'—' }}</td><td class="text-end">—</td><td></td></tr>
+        <td><span class="role-pill owner">Owner</span></td>{% if payroll %}<td><small class="text-secondary">Owner draws</small></td>{% endif %}<td>Active</td><td>{{ owner.last_login|date:'d M Y H:i'|default:'—' }}</td><td class="text-end">—</td><td class="text-end"><a class="btn btn-sm btn-light" href="{% url 'team_performance_person' owner.pk %}" aria-label="Performance of {% firstof owner.get_full_name current_business.owner_name %}" title="Sales &amp; cash"><i class="bi bi-bar-chart-line"></i></a></td></tr>
       {% for m in members %}
       <tr class="member-row {% if not m.is_active %}off{% endif %}">
         <td><b>{{ m.name }}</b><small class="d-block text-secondary">{{ m.user.email }}{% if m.phone %} · {{ m.phone }}{% endif %}</small></td>
@@ -67,6 +68,7 @@ html[data-theme="dark"] .pay-strip{background:#13233a;border-color:#22344d}html[
         <td>{{ m.user.last_login|date:'d M Y H:i'|default:'Never' }}</td>
         <td class="text-end"><small>{{ m.usage.views|default:0 }} pages · {{ m.usage.logins|default:0 }} sign-ins</small></td>
         <td class="text-end text-nowrap">
+          <a class="btn btn-sm btn-light" href="{% url 'team_performance_person' m.user_id %}" aria-label="Performance of {{ m.name }}" title="Sales &amp; cash"><i class="bi bi-bar-chart-line"></i></a>
           {% if payroll and m.can_pay %}<button class="btn btn-sm btn-light" aria-label="Pay for {{ m.name }}" title="Salary &amp; commission" data-bs-toggle="modal" data-bs-target="#payModal"
             data-pay='{"member":{{ m.id }},"name":"{{ m.name|escapejs }}",{% if m.pay_terms %}"set":true,"pay_type":"{{ m.pay_terms.pay_type }}","amount":"{{ m.pay_terms.amount }}","percent":"{{ m.pay_terms.percent|pct }}","minimum":"{{ m.pay_terms.minimum }}","cap":"{{ m.pay_terms.cap }}","site":"{{ m.pay_terms.site_id|default_if_none:'' }}","method":"{{ m.pay_terms.method }}","pay_day":{{ m.pay_terms.pay_day }},"starts_on":"{{ m.pay_terms.starts_on|date:'Y-m-d' }}","show_basis":{{ m.pay_terms.show_basis|yesno:"true,false" }},"active":{{ m.pay_terms.active|yesno:"true,false" }},"note":"{{ m.pay_terms.note|escapejs }}"{% else %}"set":false{% endif %}}'><i class="bi bi-wallet2"></i></button>{% endif %}
           {% if m.can_edit %}

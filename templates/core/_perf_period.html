@@ -1,0 +1,16 @@
+<form method="get" class="perf-period" aria-label="Period">
+  <div class="perf-chips" role="group">
+    {% for key, label in ranges %}{% if key != 'custom' %}<button class="perf-chip{% if range == key %} on{% endif %}" name="range" value="{{ key }}">{{ label }}</button>{% endif %}{% endfor %}
+  </div>
+  <div class="perf-custom">
+    <input type="date" name="start" value="{{ start|default:'' }}" aria-label="From" class="form-control form-control-sm">
+    <span>→</span>
+    <input type="date" name="end" value="{{ end|default:'' }}" aria-label="To" class="form-control form-control-sm">
+    <button class="btn btn-sm btn-light" name="range" value="custom" title="Show these dates"><i class="bi bi-calendar-range"></i></button>
+  </div>
+  <div class="perf-group" role="group" aria-label="Group by">
+    <a class="{% if r.bucket == 'day' %}on{% endif %}" href="?range={{ range }}&start={{ start }}&end={{ end }}&group=day">Daily</a>
+    <a class="{% if r.bucket == 'month' %}on{% endif %}" href="?range={{ range }}&start={{ start }}&end={{ end }}&group=month">Monthly</a>
+  </div>
+  {% if group %}<input type="hidden" name="group" value="{{ group }}">{% endif %}
+</form>

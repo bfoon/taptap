@@ -1,0 +1,75 @@
+{% extends 'core/base.html' %}{% load static taptap_extras team_perf %}{% block title %}{{ me.name }} — performance — TapTap{% endblock %}{% block heading %}{{ me.name }}{% endblock %}
+{% block extra_head %}<link href="{% static 'css/team-performance.css' %}?v=1" rel="stylesheet">{% endblock %}
+{% block content %}
+{% with c=current_business.currency %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+  <p class="text-secondary m-0">{{ r.period.label }}</p>
+  <a class="btn btn-sm btn-light" href="{% url 'team_performance' %}?range={{ range }}&start={{ start }}&end={{ end }}{% if group %}&group={{ group }}{% endif %}"><i class="bi bi-arrow-left"></i> {% if all %}Whole team{% else %}Back{% endif %}</a>
+</div>
+{% include 'core/_perf_period.html' %}
+
+<section class="me-hero">
+  <span class="ava">{{ me.name|initials }}</span>
+  <div><h2>{{ me.name }}</h2><p>{{ me.role }}{% if me.email %} · {{ me.email }}{% endif %}{% if not me.active %} · switched off{% endif %}</p>
+    <div class="mt-1">{% for icon, label in me.badges %}<span class="perf-badge"><i class="bi {{ icon }}"></i>{{ label }}</span>{% endfor %}
+      {% if me.best %}<span class="perf-badge"><i class="bi bi-star-fill"></i>Best {% if r.bucket == 'month' %}month{% else %}day{% endif %}: {{ me.best.label }} · {{ me.best.amount|money:c }}</span>{% endif %}</div></div>
+  {% if rank %}<div class="rank"><strong>#{{ rank }}</strong><small>of {{ team_size }} · {{ me.amount|pct_of:team_total }}% of all sales</small></div>{% endif %}
+</section>
+
+<div class="perf-kpis">
+  <div class="perf-kpi"><small>Sales</small><strong>{{ me.amount|money:c }}</strong><em>{{ me.sales }} sale{{ me.sales|pluralize }} · average {{ me.avg_sale|money:c }} ·
+    {% if me.change is None %}—{% elif not me.prev_amount %}<span class="delta up">new</span>{% else %}{{ me.change|delta }}{% endif %}</em></div>
+  <div class="perf-kpi cash"><small>Cash drawer</small><strong>{{ me.cash_drawer|money:c }}</strong><em>cash they should hold or have handed in</em></div>
+  <div class="perf-kpi"><small>Vouchers made</small><strong>{{ me.vouchers }}</strong><em>{% if me.members %}+ {{ me.members }} member{{ me.members|pluralize }} · {% endif %}face value {{ me.stock_value|money:c }}</em></div>
+  <div class="perf-kpi"><small>Batches</small><strong>{{ me.batches }}</strong><em>{{ me.batch_vouchers }} voucher{{ me.batch_vouchers|pluralize }} in them</em></div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-6"><div class="panel h-100">
+    <div class="panel-head"><div><h3>The cash drawer</h3><p>Only cash passes through a drawer; mobile money and bank go straight to the business.</p></div></div>
+    <div class="drawer">
+      <span>Cash sales</span><span class="op">+</span><span>Collected from agents</span><span></span>
+      <b>{{ me.methods.cash|money:c }}</b><span class="op">+</span><b>{{ me.collected_cash|money:c }}</b><span></span>
+      <span>Cash expenses</span><span class="op">=</span><span>In hand</span><span></span>
+      <b>−{{ me.expenses_cash|money:c }}</b><span class="op">=</span><b class="eq">{{ me.cash_drawer|money:c }}</b><span></span>
+    </div>
+    {% if me.collected != me.collected_cash or me.expenses != me.expenses_cash %}<p class="small text-secondary mt-2 mb-0">Not in cash: {{ me.collected|money:c }} collected and {{ me.expenses|money:c }} of expenses in total.</p>{% endif %}
+  </div></div>
+  <div class="col-lg-6"><div class="panel h-100">
+    <div class="panel-head"><div><h3>How customers paid</h3><p>{{ me.amount|money:c }} in sales{% if me.commission %} · {{ me.commission|money:c }} agent commission{% endif %}</p></div></div>
+    <div class="mix" style="height:14px">{% for m in me.mix %}<i class="m-{{ m.key }}" style="width:{{ m.pct }}%"></i>{% endfor %}</div>
+    <div class="row g-2 mt-2">{% for m in me.mix %}<div class="col-6"><div class="mix-legend"><span class="lg-{{ m.key }}">{{ m.label }}</span></div><b>{{ m.amount|money:c }}</b> <small class="text-secondary">{{ m.pct }}%</small></div>{% endfor %}</div>
+  </div></div>
+</div>
+
+<div class="panel mb-3">
+  <div class="panel-head"><div><h3>{% if r.bucket == 'month' %}Month by month{% else %}Day by day{% endif %}</h3><p>Bars are sales; an orange dot marks a {% if r.bucket == 'month' %}month{% else %}day{% endif %} with vouchers made.</p></div></div>
+  <div class="cols" role="img" aria-label="Sales per {{ r.bucket }}">{% for b in me.series %}<div class="c" title="{{ b.label }}: {{ b.amount|money:c }} · {{ b.sales }} sale{{ b.sales|pluralize }} · {{ b.vouchers }} voucher{{ b.vouchers|pluralize }} made"><i class="{% if not b.amount %}z{% endif %}" style="height:{{ b.amount|pct_of:me.peak }}%"></i>{% if b.vouchers %}<u></u>{% endif %}</div>{% endfor %}</div>
+  <div class="col-labels">{% for b in me.series %}<span>{% if r.bucket == 'month' %}{{ b.label|slice:":3" }}{% else %}{{ b.key|slice:"8:" }}{% endif %}</span>{% endfor %}</div>
+  <div class="table-responsive mt-3" style="max-height:340px;overflow:auto"><table class="table table-sm">
+    <thead><tr><th>{% if r.bucket == 'month' %}Month{% else %}Day{% endif %}</th><th class="text-end">Sales</th><th class="text-end">Amount</th><th class="text-end">Vouchers made</th></tr></thead>
+    <tbody>{% for b in me.series reversed %}{% if b.sales or b.vouchers %}<tr><td>{{ b.label }}</td><td class="text-end">{{ b.sales }}</td><td class="text-end"><b>{{ b.amount|money:c }}</b></td><td class="text-end">{{ b.vouchers }}</td></tr>{% endif %}{% empty %}{% endfor %}
+    {% if not me.active_buckets %}<tr><td colspan="4" class="empty-table">Nothing made or sold in this period.</td></tr>{% endif %}</tbody>
+  </table></div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7"><div class="panel h-100">
+    <div class="panel-head"><div><h3>Latest sales</h3><p>The last 25 in this period</p></div></div>
+    <div class="table-responsive"><table class="table table-sm">
+      <thead><tr><th>When</th><th>Voucher</th><th>Plan</th><th>Paid by</th><th class="text-end">Amount</th></tr></thead>
+      <tbody>{% for s in sales %}<tr><td>{{ s.sold_at|date:'d M H:i' }}</td><td><span class="voucher-code">{{ s.voucher_code|default:"—" }}</span></td><td>{{ s.plan_name }}</td><td>{{ s.get_payment_method_display }}{% if not s.recorded_by_id and s.payment_method != 'auto' %} <small class="text-secondary">(automatic)</small>{% endif %}</td><td class="text-end"><b>{{ s.amount|money:c }}</b></td></tr>
+      {% empty %}<tr><td colspan="5" class="empty-table">No sales in this period.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </div></div>
+  <div class="col-lg-5"><div class="panel h-100">
+    <div class="panel-head"><div><h3>Batches made</h3><p>The last 12 in this period</p></div></div>
+    <div class="table-responsive"><table class="table table-sm">
+      <thead><tr><th>When</th><th>Batch</th><th class="text-end">Vouchers</th></tr></thead>
+      <tbody>{% for b in batches %}<tr><td>{{ b.created_at|date:'d M H:i' }}</td><td>{{ b.name }}{% if b.plan %}<small class="d-block text-secondary">{{ b.plan.name }}</small>{% endif %}{% if b.deleted_at %}<small class="d-block text-danger">deleted</small>{% endif %}</td><td class="text-end">{{ b.quantity }}</td></tr>
+      {% empty %}<tr><td colspan="3" class="empty-table">No batches in this period.</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </div></div>
+</div>
+{% endwith %}
+{% endblock %}

@@ -85,7 +85,7 @@ FEATURES = OrderedDict((f.key, f) for f in [
     _f('reports', 'Reports', 'money', 'bi-bar-chart', 'Voucher and sales reports with charts and exports.', 'reports reports_data reports_export'),
     _f('finance', 'Finance', 'money', 'bi-cash-stack', 'Sales, expenses, profit and loss.',
        'finance finance_sale_add finance_sale_delete finance_expense_add finance_expense_delete finance_expense_repeat finance_settings finance_export finance_book_missing'),
-    _f('team', 'Team accounts', 'money', 'bi-people', 'Staff logins with roles and permissions.', 'team team_member_save team_member_action'),
+    _f('team', 'Team accounts', 'money', 'bi-people', 'Staff logins with roles and permissions.', 'team team_member_save team_member_action team_performance team_performance_person'),
     _f('payroll', 'Payroll', 'money', 'bi-wallet2', 'Staff salaries, commission deals and payslips.',
        'team_pay_save payroll_pay payroll_pay_all payroll_void payroll_payslip my_pay my_payslip', depends=('team', 'finance')),
     # ── network ──
