@@ -1499,3 +1499,4 @@ class LoginAddress(models.Model):
 from .models_router_schedule import RouterSchedule, RouterScheduleRun  # noqa: E402,F401
 from .models_sync import RouterSyncPolicy  # noqa: E402,F401
 from .models_plans import EnterpriseFeature  # noqa: E402,F401
+from .models_landing import LandingAd  # noqa: E402,F401

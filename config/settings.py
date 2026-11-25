@@ -184,6 +184,12 @@ LINK_TURBO_PER_MINUTE = int(os.getenv('LINK_TURBO_PER_MINUTE', '12'))
 # ─── Sign-in security ───────────────────────────────────────────────────
 # Email codes at sign-up and on new devices; trusted devices skip the code for TRUSTED_DEVICE_DAYS.
 AUTH_EMAIL_OTP = env_bool('AUTH_EMAIL_OTP', True)
+# Plans (core/features.py, core/plans.py): a business whose trial or paid plan ended keeps the Free plan (0 = locked
+# out as before); Basic costs this share of the Pro price.
+FREE_PLAN_FALLBACK = env_bool('FREE_PLAN_FALLBACK', True)
+PLAN_BASIC_RATIO = os.getenv('PLAN_BASIC_RATIO', '0.6')
+# Landing page (core/landing.py): live figures appear once TapTap has this many businesses.
+LANDING_STATS_MIN = int(os.getenv('LANDING_STATS_MIN', '10'))
 TRUSTED_DEVICE_DAYS = int(os.getenv('TRUSTED_DEVICE_DAYS', '30'))
 # Reject addresses whose domain cannot receive mail (DNS MX lookup; skipped when DNS is unreachable).
 EMAIL_CHECK_DOMAIN = env_bool('EMAIL_CHECK_DOMAIN', True)

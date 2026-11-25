@@ -1,0 +1,116 @@
+{% extends 'core/platform/base.html' %}{% load static %}
+{% block title %}Landing page & adverts{% endblock %}{% block heading %}Landing page &amp; adverts{% endblock %}
+{% block extra_head %}<style>
+.lp-grid{display:grid;grid-template-columns:1.25fr 1fr;gap:1.2rem;align-items:start}
+.lp-map{display:grid;grid-template-rows:auto auto auto auto;gap:.45rem;background:#0f1c30;border-radius:18px;padding:.8rem;color:#cfe3ff}
+.lp-map .row1{display:grid;grid-template-columns:1.2fr 1fr;gap:.45rem}
+.slot{border:2px dashed #ffffff33;border-radius:12px;padding:.55rem .7rem;font-size:.75rem;cursor:pointer;transition:border-color .15s,background .15s;background:#ffffff08}
+.slot:hover,.slot.on{border-color:#7cd0ff;background:#7cd0ff14}.slot b{display:block;color:#fff;font-size:.8rem}.slot em{font-style:normal;color:#5ee0a5;font-weight:800}.slot em.zero{color:#9fb3c8}
+.slot.fake{border-style:solid;border-color:#ffffff12;cursor:default;background:#ffffff05;color:#6f86a3}.slot.fake:hover{border-color:#ffffff12;background:#ffffff05}
+.ad-row{display:grid;grid-template-columns:96px 1fr auto;gap:.85rem;align-items:center;border:1px solid #e3e9f1;border-radius:16px;padding:.6rem;margin-bottom:.55rem;background:#fff}
+.ad-thumb{width:96px;height:60px;border-radius:11px;object-fit:cover;display:grid;place-items:center;color:#fff;font-size:1.2rem}
+.sw-brand{background:linear-gradient(140deg,#1769e0,#14a3e2)}.sw-night{background:linear-gradient(150deg,#0b1220,#1d2f4d)}.sw-sunset{background:linear-gradient(140deg,#f07b2b,#d6455e)}.sw-mint{background:linear-gradient(140deg,#0d8a5b,#3cc7a0)}.sw-gold{background:linear-gradient(140deg,#1b1406,#6b4c00 60%,#d79a00)}
+.ad-row b{font-size:.92rem}.ad-row small{color:#6b7c8f;font-size:.74rem}
+.state{font-size:.66rem;font-weight:800;border-radius:999px;padding:.1rem .5rem}.state.live{background:#e4f7ee;color:#138453}.state.scheduled{background:#eef4ff;color:#1558b8}.state.ended{background:#e9ecef;color:#495057}.state.paused{background:#fff4dc;color:#9a6200}
+.ctr{height:5px;border-radius:9px;background:#edf2f7;overflow:hidden;margin-top:.3rem;max-width:220px}.ctr i{display:block;height:100%;background:linear-gradient(90deg,#1769e0,#14a3e2)}
+.grp-h{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#8a9aab;margin:1rem 0 .4rem}
+.pv{border-radius:20px;overflow:hidden;color:#fff;box-shadow:0 14px 34px #0b172633;margin-bottom:1rem}
+.pv img{width:100%;aspect-ratio:16/9;object-fit:cover;display:block}.pv .body{padding:1rem 1.1rem;display:flex;flex-direction:column;gap:.3rem}
+.pv .badge2{align-self:flex-start;font-size:.6rem;font-weight:900;letter-spacing:.08em;text-transform:uppercase;border-radius:999px;padding:.2rem .55rem;background:#00000033}
+.pv b{font-size:1.05rem}.pv small{opacity:.88}.pv .cta{font-weight:800;font-size:.85rem}.pv em{font-style:normal;font-size:.7rem;opacity:.7}
+.styles{display:flex;gap:.4rem;flex-wrap:wrap}.styles input{display:none}.styles label{width:40px;height:28px;border-radius:9px;cursor:pointer;border:3px solid transparent}.styles input:checked+label{border-color:#102033;box-shadow:0 0 0 2px #fff inset}
+</style>{% endblock %}
+{% block content %}
+<div class="kpi-grid mb-3">
+  <div class="kpi"><small>Live adverts</small><strong>{{ totals.live }}</strong><em>of {{ ads|length }}</em></div>
+  <div class="kpi"><small>Views</small><strong>{{ totals.views }}</strong><em>landing page impressions</em></div>
+  <div class="kpi"><small>Clicks</small><strong>{{ totals.clicks }}</strong><em>visitors sent on</em></div>
+  <div class="kpi"><small>Click rate</small><strong>{{ totals.ctr }} %</strong><em>clicks per view</em></div>
+</div>
+<div class="lp-grid">
+  <div>
+    <div class="panel mb-3"><div class="panel-head"><div><h3><i class="bi bi-layout-text-window-reverse"></i> Where adverts appear</h3><p>Click a place to make an advert for it. Numbers are adverts live there now.</p></div>
+      <a class="btn btn-sm btn-outline-primary text-nowrap" href="/" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Open page</a></div>
+      <div class="lp-map">
+        <div class="slot" data-place="strip"><b>Announcement bar</b>top of the page · one at a time · <em class="cnt" data-c="strip"></em></div>
+        <div class="row1"><div class="slot fake"><b>Headline &amp; buttons</b>“Your Wi-Fi business, on autopilot.”</div><div class="slot" data-place="hero"><b>Hero card</b>beside the headline · <em class="cnt" data-c="hero"></em></div></div>
+        <div class="slot fake"><b>Live figures · features · how it works</b></div>
+        <div class="slot" data-place="banner"><b>Wide banner</b>between sections · <em class="cnt" data-c="banner"></em></div>
+        <div class="slot" data-place="spotlight"><b>Offers &amp; news carousel</b>up to 6, slides by itself · <em class="cnt" data-c="spotlight"></em></div>
+        <div class="slot fake"><b>Plans · questions · sign-up</b></div>
+      </div>
+    </div>
+    <div class="panel"><div class="panel-head"><div><h3><i class="bi bi-megaphone"></i> Adverts</h3><p>Newest and heaviest first in each place.</p></div><a class="btn btn-sm btn-primary" href="{% url 'platform_landing' %}#lpForm"><i class="bi bi-plus-lg"></i> New advert</a></div>
+      {% regroup ads by get_placement_display as groups %}
+      {% for g in groups %}<div class="grp-h">{{ g.grouper }}</div>
+        {% for a in g.list %}<div class="ad-row" data-state="{{ a.now_state }}" data-place="{{ a.placement }}">
+          {% if a.img_len %}<img class="ad-thumb" src="{% url 'landing_ad_image' a.pk %}?v={{ a.updated_at|date:'U' }}" alt="">{% else %}<span class="ad-thumb sw-{{ a.style }}"><i class="bi bi-type"></i></span>{% endif %}
+          <div><div class="d-flex gap-2 align-items-center flex-wrap"><b>{{ a.title }}</b><span class="state {{ a.now_state }}">{{ a.now_state|capfirst }}</span>{% if a.weight > 1 %}<small>weight {{ a.weight }}</small>{% endif %}</div>
+            <small>{% if a.advertiser %}{{ a.advertiser }} · {% endif %}{% if a.starts_at %}from {{ a.starts_at|date:'d M H:i' }} {% endif %}{% if a.ends_at %}until {{ a.ends_at|date:'d M H:i' }}{% endif %}{% if not a.starts_at and not a.ends_at %}no end date{% endif %}</small>
+            <small class="d-block">{{ a.views }} views · {{ a.clicks }} clicks · {{ a.ctr }} %</small><div class="ctr"><i style="width:{% widthratio a.ctr 10 100 %}%"></i></div></div>
+          <div class="d-flex flex-column gap-1 align-items-end">
+            <div class="btn-group btn-group-sm"><a class="btn btn-outline-primary" href="?edit={{ a.pk }}#lpForm" title="Edit"><i class="bi bi-pencil"></i></a><a class="btn btn-outline-secondary" href="/?preview={{ a.pk }}" target="_blank" rel="noopener" title="Preview on the landing page"><i class="bi bi-eye"></i></a></div>
+            <form method="post" action="{% url 'platform_landing_action' a.pk %}" class="btn-group btn-group-sm">{% csrf_token %}
+              {% if a.active %}<button class="btn btn-outline-warning" name="action" value="pause" title="Pause"><i class="bi bi-pause"></i></button>{% else %}<button class="btn btn-outline-success" name="action" value="resume" title="Switch on"><i class="bi bi-play"></i></button>{% endif %}
+              <button class="btn btn-outline-secondary" name="action" value="duplicate" title="Copy"><i class="bi bi-copy"></i></button>
+              <button class="btn btn-outline-secondary" name="action" value="reset" title="Reset views and clicks" onclick="return confirm('Set views and clicks back to zero?')"><i class="bi bi-arrow-counterclockwise"></i></button>
+              <button class="btn btn-outline-danger" name="action" value="delete" title="Delete" onclick="return confirm('Delete this advert?')"><i class="bi bi-trash"></i></button></form></div>
+        </div>{% endfor %}
+      {% empty %}<p class="text-secondary small mb-0">No adverts yet. Make the first one — it can be a TapTap announcement or a paid spot for a partner.</p>{% endfor %}
+    </div>
+  </div>
+
+  <div class="panel" id="lpForm" style="position:sticky;top:1rem">
+    <div class="panel-head"><div><h3>{% if edit %}Edit “{{ edit.title }}”{% else %}New advert{% endif %}</h3><p>The card below shows how it will look.</p></div>{% if edit %}<a class="btn btn-sm btn-light" href="{% url 'platform_landing' %}">New instead</a>{% endif %}</div>
+    <div class="pv sw-{{ edit.style|default:'brand' }}" id="pv"><img id="pvImg" alt="" {% if edit.image %}src="{% url 'landing_ad_image' edit.pk %}?v={{ edit.updated_at|date:'U' }}"{% else %}hidden{% endif %}>
+      <div class="body"><span class="badge2" id="pvBadge">{{ edit.label|default:'News' }}</span><b id="pvTitle">{{ edit.title|default:'Your headline' }}</b><small id="pvText">{{ edit.text|default:'One or two lines that make people want to click.' }}</small>
+        <span class="cta" id="pvCta">{{ edit.cta|default:'Learn more' }} →</span><em id="pvBy">{% if edit.advertiser %}by {{ edit.advertiser }}{% endif %}</em></div></div>
+    <form method="post" action="{% url 'platform_landing_save' %}" enctype="multipart/form-data" class="row g-2" id="lpF">{% csrf_token %}
+      {% if edit %}<input type="hidden" name="id" value="{{ edit.pk }}">{% endif %}
+      <div class="col-12"><label class="form-label small fw-bold mb-1">Place on the page</label><select class="form-select form-select-sm" name="placement" id="fPlace">{% for k,l in placements %}<option value="{{ k }}" {% if edit.placement == k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-12"><input class="form-control" name="title" id="fTitle" maxlength="100" required placeholder="Headline" value="{{ edit.title|default:'' }}"></div>
+      <div class="col-12"><textarea class="form-control form-control-sm" name="text" id="fText" rows="2" maxlength="260" placeholder="One or two lines (optional)">{{ edit.text|default:'' }}</textarea></div>
+      <div class="col-7"><input class="form-control form-control-sm" name="link" type="url" maxlength="500" placeholder="https://… where a click goes" value="{{ edit.link|default:'' }}"></div>
+      <div class="col-5"><input class="form-control form-control-sm" name="cta" id="fCta" maxlength="30" placeholder="Button text" value="{{ edit.cta|default:'Learn more' }}"></div>
+      <div class="col-7"><input class="form-control form-control-sm" name="advertiser" id="fBy" maxlength="100" placeholder="Advertiser (blank = TapTap)" value="{{ edit.advertiser|default:'' }}"></div>
+      <div class="col-5"><input class="form-control form-control-sm" name="badge" id="fBadge" maxlength="24" placeholder="Label, e.g. NEW" value="{{ edit.badge|default:'' }}"></div>
+      <div class="col-12"><label class="form-label small fw-bold mb-1">Colours (used without a picture, and around it)</label><div class="styles">{% for k,l in styles %}<input type="radio" name="style" id="s{{ k }}" value="{{ k }}" {% if edit.style == k or not edit and k == 'brand' %}checked{% endif %}><label for="s{{ k }}" class="sw-{{ k }}" title="{{ l }}"></label>{% endfor %}</div></div>
+      <div class="col-12"><label class="form-label small fw-bold mb-1">Picture (JPG, PNG or WebP — made small automatically)</label><input class="form-control form-control-sm" type="file" name="image" id="fImg" accept="image/png,image/jpeg,image/webp">
+        {% if edit.image %}<div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="remove_image" id="fRm" value="1"><label class="form-check-label small" for="fRm">Remove the current picture</label></div>{% endif %}</div>
+      <div class="col-6"><label class="form-label small fw-bold mb-1">Starts</label><input class="form-control form-control-sm" type="datetime-local" name="starts_at" value="{{ edit.starts_at|date:'Y-m-d\TH:i' }}"></div>
+      <div class="col-6"><label class="form-label small fw-bold mb-1">Ends</label><input class="form-control form-control-sm" type="datetime-local" name="ends_at" value="{{ edit.ends_at|date:'Y-m-d\TH:i' }}"></div>
+      <div class="col-6"><label class="form-label small fw-bold mb-1">Weight 1–10</label><input class="form-control form-control-sm" type="number" min="1" max="10" name="weight" value="{{ edit.weight|default:1 }}"></div>
+      <div class="col-6 d-flex align-items-end"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="active" id="fOn" value="1" {% if not edit or edit.active %}checked{% endif %}><label class="form-check-label" for="fOn">Switched on</label></div></div>
+      <div class="col-12"><button class="btn btn-primary w-100"><i class="bi bi-check2-circle"></i> {% if edit %}Save changes{% else %}Create advert{% endif %}</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script>
+(function () {
+  var counts = {};
+  [].forEach.call(document.querySelectorAll('.ad-row[data-state="live"]'), function (r) { var p = r.getAttribute('data-place'); counts[p] = (counts[p] || 0) + 1; });
+  [].forEach.call(document.querySelectorAll('.cnt'), function (e) { var n = counts[e.getAttribute('data-c')] || 0; e.textContent = n + ' live'; e.classList.toggle('zero', !n); });
+  var place = document.getElementById('fPlace');
+  [].forEach.call(document.querySelectorAll('.slot[data-place]'), function (s) {
+    s.addEventListener('click', function () { place.value = s.getAttribute('data-place'); mark(); document.getElementById('fTitle').focus(); });
+  });
+  function mark() { [].forEach.call(document.querySelectorAll('.slot[data-place]'), function (s) { s.classList.toggle('on', s.getAttribute('data-place') === place.value); }); }
+  place.addEventListener('change', mark); mark();
+  var pv = document.getElementById('pv');
+  function bind(id, out, fallback, fmt) {
+    var i = document.getElementById(id), o = document.getElementById(out);
+    function up() { var v = i.value.trim(); o.textContent = fmt ? fmt(v) : (v || fallback); }
+    i.addEventListener('input', up);
+  }
+  bind('fTitle', 'pvTitle', 'Your headline'); bind('fText', 'pvText', '');
+  bind('fCta', 'pvCta', '', function (v) { return (v || 'Learn more') + ' →'; });
+  bind('fBy', 'pvBy', '', function (v) { return v ? 'by ' + v : ''; });
+  var by = document.getElementById('fBy'), badge = document.getElementById('fBadge'), pvBadge = document.getElementById('pvBadge');
+  function lab() { pvBadge.textContent = badge.value.trim() || (by.value.trim() ? 'Sponsored' : 'News'); }
+  badge.addEventListener('input', lab); by.addEventListener('input', lab);
+  [].forEach.call(document.querySelectorAll('input[name=style]'), function (r) { r.addEventListener('change', function () { pv.className = 'pv sw-' + r.value; }); });
+  var img = document.getElementById('fImg'), pvImg = document.getElementById('pvImg');
+  img.addEventListener('change', function () { var f = img.files && img.files[0]; if (!f) return; var rd = new FileReader(); rd.onload = function () { pvImg.src = rd.result; pvImg.hidden = false; }; rd.readAsDataURL(f); });
+})();
+</script>{% endblock %}

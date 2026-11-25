@@ -1,0 +1,11 @@
+{# One advert on the landing page (core/landing.py). Variables: ad, mode = hero | spotlight | banner #}
+<a class="lad lad-{{ mode }} st-{{ ad.style }}{% if ad.img_len %} has-img{% endif %}" href="{% if ad.link %}{% url 'landing_ad_click' ad.pk %}{% else %}#{% endif %}"{% if ad.link %} rel="sponsored noopener" target="_blank"{% endif %} data-ad="{{ ad.pk }}">
+  {% if ad.img_len %}<img src="{% url 'landing_ad_image' ad.pk %}?v={{ ad.updated_at|date:'U' }}" alt="{{ ad.title }}" loading="lazy" decoding="async">{% endif %}
+  <span class="lad-body">
+    <span class="lad-badge">{{ ad.label }}</span>
+    <b>{{ ad.title }}</b>
+    {% if ad.text %}<small>{{ ad.text }}</small>{% endif %}
+    {% if ad.link %}<span class="lad-cta">{{ ad.cta }} <i class="bi bi-arrow-right"></i></span>{% endif %}
+    {% if ad.advertiser %}<em>by {{ ad.advertiser }}</em>{% endif %}
+  </span>
+</a>

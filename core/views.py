@@ -57,7 +57,9 @@ from .pricing import PACKAGES as SUBSCRIPTION_PACKAGES   # code → (name, defau
 DEFAULT_PLANS = [('12 Hours',25,12,1),('24 Hours',40,24,1),('Weekly',150,168,1),('Monthly',500,720,1),('Family Monthly',700,720,5)]
 
 
-def home(request): return render(request, 'core/home.html')
+def home(request):
+    from .landing import home as landing_home      # the public landing page with its adverts (core/landing.py)
+    return landing_home(request)
 
 
 def register(request):
