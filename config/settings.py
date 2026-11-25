@@ -209,6 +209,10 @@ CELERY_BEAT_SCHEDULE['taptap-router-schedules'] = {'task': 'core.tasks.router_sc
 # Fit missions: jobs Fit does later by itself (a time, a timetable, a quiet moment, something that happens) — every minute.
 CELERY_BEAT_SCHEDULE['taptap-fit-missions'] = {'task': 'core.tasks.fit_missions_task', 'schedule': 60.0, 'options': {'expires': 55}}
 CELERY_BEAT_SCHEDULE['taptap-investors'] = {'task': 'core.tasks.investor_tick', 'schedule': 900.0, 'options': {'expires': 800}}
+# TapTap Market: reservations, hand-overs of finished batches and Wave payouts (core/market_owner.py) — every 5 minutes.
+CELERY_BEAT_SCHEDULE['taptap-market'] = {'task': 'core.tasks.market_tick', 'schedule': 300.0, 'options': {'expires': 280}}
+# Share of each market payment kept when TapTap's Wave pays it out to the owner (covers Wave's fees), 0–20 %.
+MARKET_PAYOUT_FEE_PERCENT = os.getenv('MARKET_PAYOUT_FEE_PERCENT', '0')
 # Optional hosted checkout for investor payments (same contract as the member portal checkout; HMAC-SHA256 webhook).
 INVESTOR_PAYMENT_CHECKOUT_URL = os.getenv('INVESTOR_PAYMENT_CHECKOUT_URL', '')
 INVESTOR_PAYMENT_WEBHOOK_SECRET = os.getenv('INVESTOR_PAYMENT_WEBHOOK_SECRET', '')

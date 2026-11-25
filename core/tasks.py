@@ -330,6 +330,14 @@ def fit_missions_task():
 
 
 @shared_task(ignore_result=True)
+def market_tick():
+    """TapTap Market: expire unpaid reservations/orders, close batches at their sell-by date, hand finished batches over
+    to their buyer, send and follow Wave payouts (core/market_owner.py)."""
+    from .market_owner import tick
+    return tick()
+
+
+@shared_task(ignore_result=True)
 def investor_tick():
     """Investors: book finished days of earnings, then send the daily summaries that are due (core/investors.py)."""
     from .investors import tick

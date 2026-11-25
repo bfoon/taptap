@@ -1,0 +1,37 @@
+{% extends 'core/platform/base.html' %}
+{% block title %}Market sellers{% endblock %}{% block heading %}Market sellers{% endblock %}
+{% block extra_head %}<style>
+.vt-tabs{display:flex;flex-wrap:wrap;gap:.35rem;margin-bottom:1rem}.vt-tabs a{padding:.4rem .85rem;border-radius:999px;font-weight:700;font-size:.85rem;color:#4e6479;background:#fff;border:1px solid #e3e9f1}
+.vt-tabs a.on{background:#102033;color:#fff;border-color:#102033}.vt-tabs b{background:#ffcf5c;color:#402c00;border-radius:99px;font-size:.68rem;padding:0 .4rem;margin-left:.25rem}
+.vt-row{display:grid;grid-template-columns:64px 1fr 200px 140px auto;gap:1rem;align-items:center;background:#fff;border:1px solid #e3e9f1;border-radius:16px;padding:.75rem 1rem;margin-bottom:.55rem;color:inherit}
+.vt-row:hover{border-color:#9dc0f2}.ring{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;font-weight:900;font-size:1rem;background:conic-gradient(var(--c) calc(var(--v)*1%),#edf1f6 0)}
+.ring span{width:44px;height:44px;border-radius:50%;background:#fff;display:grid;place-items:center}
+.vt-row small{color:#6b7c8f}.flag{font-size:.7rem;font-weight:700;border-radius:99px;padding:.08rem .45rem;background:#fdeaea;color:#b42323;margin:.1rem .2rem 0 0;display:inline-block}
+.flag.ok{background:#e4f7ee;color:#138453}.flag.w{background:#fff4dc;color:#9a6200}
+@media(max-width:900px){.vt-row{grid-template-columns:56px 1fr}.vt-row>div:nth-child(n+3){grid-column:2}}
+</style>{% endblock %}
+{% block content %}
+<div class="kpi-grid mb-3">
+  <div class="kpi"><small>Waiting for you</small><strong>{{ counts.waiting }}</strong><em>applications</em></div>
+  <div class="kpi"><small>Vetted sellers</small><strong>{{ counts.approved }}</strong><em>{{ open_listings }} listings on the market</em></div>
+  <div class="kpi"><small>On watch</small><strong>{{ counts.watch }}</strong><em>slipped in the daily check</em></div>
+  <div class="kpi"><small>Batches owned by buyers</small><strong>{{ deals }}</strong><em>still running on sellers' networks</em></div>
+</div>
+<nav class="vt-tabs">
+  <a href="?tab=waiting" class="{% if tab == 'waiting' %}on{% endif %}">Waiting{% if counts.waiting %}<b>{{ counts.waiting }}</b>{% endif %}</a>
+  <a href="?tab=info" class="{% if tab == 'info' %}on{% endif %}">Asked for more{% if counts.info %}<b>{{ counts.info }}</b>{% endif %}</a>
+  <a href="?tab=watch" class="{% if tab == 'watch' %}on{% endif %}">On watch{% if counts.watch %}<b>{{ counts.watch }}</b>{% endif %}</a>
+  <a href="?tab=approved" class="{% if tab == 'approved' %}on{% endif %}">Vetted</a>
+  <a href="?tab=closed" class="{% if tab == 'closed' %}on{% endif %}">Rejected &amp; suspended</a>
+</nav>
+{% for r in rows %}
+<a class="vt-row" href="{% url 'platform_market_seller' r.pk %}">
+  <div class="ring" style="--v:{{ r.score }};--c:{% if r.score >= 70 %}#12945d{% elif r.score >= 45 %}#f59e0b{% else %}#d64545{% endif %}"><span>{{ r.score }}</span></div>
+  <div><b>{{ r.business.business_name }}</b> <small>· {{ r.town|default:'—' }} · since {{ r.operating_since|default:'—' }} · {{ r.sites }} site{{ r.sites|pluralize }}</small>
+    <div>{% for f in r.failed_required %}<span class="flag">{{ f }}</span>{% empty %}<span class="flag ok">Required checks pass</span>{% endfor %}{% if r.watch %}<span class="flag w">{{ r.watch_note }}</span>{% endif %}</div></div>
+  <div><small>{{ r.get_status_display }}{% if r.status == 'approved' %} · {{ r.get_level_display }}{% endif %}</small><br><small>{% if tab == 'waiting' %}waiting {{ r.waiting_days }} day{{ r.waiting_days|pluralize }}{% else %}updated {{ r.updated_at|date:'d M Y' }}{% endif %}</small></div>
+  <div><small>{{ r.listings }} listing{{ r.listings|pluralize }}</small></div>
+  <div><i class="bi bi-chevron-right"></i></div>
+</a>
+{% empty %}<div class="kpi text-center text-secondary py-4">Nothing here.</div>{% endfor %}
+{% endblock %}

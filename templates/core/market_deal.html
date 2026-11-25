@@ -1,0 +1,107 @@
+{% extends 'core/base.html' %}{% load static taptap_extras %}{% block title %}{{ deal.reference }} — Market — TapTap{% endblock %}{% block heading %}{% if seller_side %}Batch sale{% else %}Batch purchase{% endif %} · {{ deal.reference }}{% endblock %}
+{% block extra_head %}<link href="{% static 'css/market.css' %}?v=1" rel="stylesheet">{% endblock %}
+{% block content %}
+{% with c=current_business.currency %}
+<div class="d-flex justify-content-between flex-wrap gap-2 mb-3">
+  <a class="btn btn-sm btn-light" href="{% url 'market' %}?tab={% if seller_side %}selling{% else %}stock{% endif %}"><i class="bi bi-arrow-left"></i> Market</a>
+  <span class="chip {% if deal.status == 'active' or deal.status == 'completed' %}green{% elif deal.status == 'claimed' or deal.status == 'awaiting_payment' %}amber{% else %}grey{% endif %}" style="font-size:.85rem">{{ deal.get_status_display }}</span>
+</div>
+
+<div class="steps">{% for s in steps %}<div class="{% if s.now %}now{% elif s.done %}done{% endif %}"><i class="bi {{ s.icon }}"></i>{{ s.label }}</div>{% endfor %}</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    {% if deal.status == 'awaiting_payment' and not seller_side %}
+    <div class="pay-card mb-3">
+      <h3 style="font-size:1.05rem;font-weight:800">Pay {{ deal.price|money:c }} to the seller</h3>
+      {% if wave_auto and is_owner %}<form method="post" class="mb-3">{% csrf_token %}<button class="btn btn-lg w-100 text-white" style="background:#1dc4f2" name="action" value="wave"><i class="bi bi-lightning-charge-fill"></i> Pay {{ deal.price|money:c }} with Wave — the batch is yours at once</button></form>
+      <p class="small text-secondary mb-2 text-center">or pay by hand:</p>{% endif %}
+      <p class="small text-secondary mb-2">Held for you until {{ deadline|date:'d M H:i' }}. Use the transaction reference <b>{{ deal.reference }}</b> if your wallet asks for one.</p>
+      {% for w in seller_wallets %}<div class="wallet-row"><span class="wlogo w-{{ w.provider }}">{{ w.get_provider_display|slice:":2"|upper }}</span>
+        <div class="flex-grow-1"><div class="num">{{ w.number }}</div><small class="text-secondary">{{ w.get_provider_display }} · {{ w.holder }}</small></div>
+        {% if w.pay_link %}<a class="btn btn-sm btn-outline-success" href="{{ w.pay_link }}" target="_blank" rel="noopener">Open {{ w.get_provider_display }}</a>{% endif %}</div>{% endfor %}
+      {% if is_owner %}<form method="post" class="row g-2 mt-2">{% csrf_token %}<input type="hidden" name="action" value="claim">
+        <div class="col-sm-4"><select class="form-select" name="provider">{% for w in seller_wallets %}<option value="{{ w.provider }}">{{ w.get_provider_display }}</option>{% endfor %}</select></div>
+        <div class="col-sm-5"><input class="form-control" name="payment_ref" placeholder="Transaction ID" required minlength="4" maxlength="80"></div>
+        <div class="col-sm-3"><button class="btn btn-success w-100">I paid</button></div>
+      </form>
+      <form method="post" class="mt-2">{% csrf_token %}<button class="btn btn-link btn-sm text-secondary p-0" name="action" value="cancel" onclick="return confirm('Cancel this reservation? The batch goes back on the market.')">Cancel the reservation</button></form>{% endif %}
+    </div>
+    {% elif deal.status == 'claimed' and not seller_side %}
+    <div class="panel mb-3"><h3><i class="bi bi-hourglass-split text-warning"></i> Waiting for the seller</h3><p class="mb-0">You told {{ deal.seller.business_name }} you paid {{ deal.price|money:c }} by {{ deal.get_paid_with_display }} (transaction <code>{{ deal.payment_ref }}</code>). They have been notified and confirm when the money shows in their wallet.</p></div>
+    {% elif deal.status in 'awaiting_payment claimed' and seller_side %}
+    <div class="pay-card mb-3">
+      <h3 style="font-size:1.05rem;font-weight:800">{% if deal.status == 'claimed' %}{{ deal.buyer.business_name }} says they paid{% else %}{{ deal.buyer.business_name }} reserved this batch{% endif %}</h3>
+      {% if deal.status == 'claimed' %}<p class="mb-2"><b>{{ deal.price|money:c }}</b> by {{ deal.get_paid_with_display }} · transaction <code>{{ deal.payment_ref }}</code> · {{ deal.claimed_at|date:'d M H:i' }}</p>
+      <p class="small text-secondary">Open your {{ deal.get_paid_with_display }} app and check. Confirming hands the batch over: from then on {{ deal.quantity }} vouchers of {{ l.plan_name }} must keep working on {{ l.router.name }}.</p>
+      {% else %}<p class="small text-secondary">They have until {{ deadline|date:'d M H:i' }} to pay. You can confirm now if the money already arrived.</p>{% endif %}
+      {% if is_owner %}<form method="post" class="d-flex flex-wrap gap-2">{% csrf_token %}
+        <button class="btn btn-success" name="action" value="confirm" onclick="return confirm('The money is in your wallet? This hands the batch to the buyer.')"><i class="bi bi-check-lg"></i> Money arrived — hand over the batch</button>
+        <input class="form-control" style="max-width:240px" name="why" placeholder="Why not (optional)"><button class="btn btn-outline-danger" name="action" value="reject">Not received</button></form>{% endif %}
+    </div>
+    {% elif deal.status == 'active' or deal.status == 'completed' or deal.status == 'handed_over' %}
+    {% if seller_side and deal.status != 'handed_over' %}<div class="alert alert-info d-flex gap-2"><i class="bi bi-shield-lock fs-5"></i><div><b>This batch belongs to {{ deal.buyer.business_name }} until its last voucher is used.</b><br><span class="small">You can support its vouchers (check, fix a login, reset devices, warn about sharing) but not delete, pause, edit or move them. When the last one ends, the batch leaves your router and your account by itself.</span></div></div>{% endif %}
+    {% if deal.status == 'handed_over' %}<div class="alert alert-success d-flex gap-2"><i class="bi bi-flag fs-5"></i><div><b>Finished {{ deal.handed_over_at|date:'d M Y' }}.</b> Every voucher of this batch was used. {% if seller_side %}Its vouchers have left your router and your account.{% else %}The history below is yours.{% endif %}</div></div>{% endif %}
+    {% if mon and not seller_side %}<div class="panel mb-3">
+      <div class="panel-head"><div><h3><i class="bi bi-activity"></i> My batch, live</h3><p>{% if mon.rank %}You are <b>#{{ mon.rank }}</b> of {{ mon.of }} on this network{% if mon.share is not None %} and get about <b>{{ mon.share }}%</b> of its online buyers right now{% endif %}.{% endif %}</p></div></div>
+      <div class="dd-kpis" style="grid-template-columns:repeat(4,1fr)">
+        <div class="dd-kpi"><small>Sold</small><strong>{{ mon.sold }}</strong><em>of {{ deal.quantity }}</em></div>
+        <div class="dd-kpi"><small>In use now</small><strong>{{ mon.in_use }}</strong><em>time still running</em></div>
+        <div class="dd-kpi"><small>Not used yet</small><strong>{{ mon.unused }}</strong><em>sold, waiting</em></div>
+        <div class="dd-kpi"><small>Finished</small><strong>{{ mon.finished }}</strong><em>time over</em></div>
+      </div>
+      <div class="bars green" style="height:80px">{% for d in mon.days %}<i style="height:{{ d.h }}%" title="{{ d.d|date:'d M' }}: {{ d.n }} sold"></i>{% endfor %}</div>
+      <div class="axis"><span>30 days ago</span><span>today</span></div>
+      <div class="d-flex flex-wrap gap-3 mt-2 small">{% for k, v in mon.channels.items %}<span><b>{{ v.n }}</b> {% if k == 'network' %}bought online on the seller's network{% else %}from your shop link{% endif %} · {{ v.v|money:c }}</span>{% endfor %}</div>
+      {% if mon.payouts %}<hr><b class="small">Wave payouts to you</b>{% for p in mon.payouts %}<div class="d-flex justify-content-between small border-bottom py-1"><span>{{ p.created_at|date:'d M H:i' }} · {{ p.mobile }}</span><span>{{ p.amount|money:c }} · <span class="chip {% if p.status == 'succeeded' %}green{% elif p.status == 'stuck' %}red{% else %}amber{% endif %}">{{ p.get_status_display }}</span></span></div>{% endfor %}{% endif %}
+    </div>{% endif %}
+    {% if deal.status != 'handed_over' %}<div class="panel mb-3">
+      <div class="panel-head"><div><h3>{% if seller_side %}Vouchers you owe{% else %}Your stock{% endif %}</h3><p>{% if seller_side %}Each voucher is made on {{ l.router.name }} the moment one of {{ deal.buyer.business_name }}'s customers pays them.{% else %}Customers pay your wallet; each voucher is made on {% firstof deal.seller.wifi_ssid deal.seller.business_name %} the moment you get paid.{% endif %}</p></div></div>
+      <div class="dd-kpis" style="grid-template-columns:repeat(3,1fr)">
+        <div class="dd-kpi"><small>Sold</small><strong>{{ deal.issued }}</strong><em>of {{ deal.quantity }}</em></div>
+        <div class="dd-kpi"><small>{% if seller_side %}Still to honour{% else %}Left to sell{% endif %}</small><strong>{% if seller_side %}{{ deal.remaining }}{% else %}{{ left }}{% endif %}</strong><em>{% if issued_vouchers %}{{ issued_vouchers.used }} used so far{% else %}&nbsp;{% endif %}</em></div>
+        <div class="dd-kpi"><small>{% if seller_side %}You were paid{% else %}Your price{% endif %}</small><strong>{% if seller_side %}{{ deal.price|money:c }}{% else %}{{ deal.retail_price|money:c }}{% endif %}</strong><em>{% if not seller_side %}each{% else %}{{ deal.confirmed_at|date:'d M Y' }}{% endif %}</em></div>
+      </div>
+      {% if not seller_side and deal.status == 'active' and is_owner %}
+      <form method="post" class="d-flex flex-wrap align-items-end gap-2 mt-3">{% csrf_token %}<input type="hidden" name="action" value="retail">
+        <div><label class="form-label small mb-1">Your price for one voucher ({{ l.min_retail|money:c }} – {{ retail_max|money:c }})</label>
+          <input class="form-control" type="number" step="0.01" min="{{ l.min_retail }}" max="{{ retail_max }}" name="retail_price" value="{{ deal.retail_price }}"></div>
+        <button class="btn btn-light">Save price</button></form>{% endif %}
+    </div>{% endif %}
+    {% if orders %}<div class="panel mb-3"><div class="panel-head"><div><h3>Customer orders</h3></div></div>
+      <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>When</th><th>Customer</th><th>Wallet</th><th>Status</th><th class="text-end">Amount</th><th></th></tr></thead>
+      <tbody>{% for o in orders %}<tr><td>{{ o.created_at|date:'d M H:i' }}</td><td>{{ o.customer_phone }}</td><td>{{ o.get_provider_display }}{% if o.route == 'own' or o.route == 'platform' %} <i class="bi bi-lightning-charge-fill text-info" title="Confirmed by Wave"></i>{% endif %}{% if o.payment_ref %}<small class="d-block text-secondary">{{ o.payment_ref }}</small>{% endif %}{% if o.channel == 'network' %}<small class="d-block text-secondary">on the seller's network</small>{% endif %}</td>
+        <td><span class="chip {% if o.status == 'issued' %}green{% elif o.status == 'claimed' or o.status == 'pending' %}amber{% elif o.status == 'review' %}red{% else %}grey{% endif %}">{{ o.get_status_display }}</span>{% if o.voucher_code or o.voucher %}<small class="d-block"><code>{% firstof o.voucher_code o.voucher.code %}</code></small>{% endif %}</td>
+        <td class="text-end">{{ o.amount|money:c }}</td>
+        <td class="text-end">{% if o.status == 'claimed' and o.route != 'platform' or o.status == 'review' %}<form method="post" action="{% url 'market_order_action' o.reference %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}"><button class="btn btn-sm btn-success text-nowrap" name="action" value="confirm">Money arrived</button></form>{% endif %}</td></tr>{% endfor %}</tbody></table></div></div>{% endif %}
+    {% if not seller_side and is_owner %}<div class="panel mb-3"><div class="panel-head"><div><h3>Rate the seller</h3><p>Helps other buyers; shown on the seller's next listings.</p></div></div>
+      <form method="post" class="d-flex flex-wrap gap-2 align-items-center">{% csrf_token %}<input type="hidden" name="action" value="rate">
+        <select class="form-select w-auto" name="rating">{% for i in "54321" %}<option value="{{ i }}" {% if deal.rating|stringformat:'s' == i %}selected{% endif %}>{{ i }} ★</option>{% endfor %}</select>
+        <input class="form-control" style="max-width:360px" name="review" maxlength="300" value="{{ deal.review }}" placeholder="Vouchers worked well, network rarely down…"><button class="btn btn-light">Save</button></form></div>{% endif %}
+    {% else %}
+    <div class="panel mb-3"><h3>{{ deal.get_status_display }}</h3>{% if deal.note %}<p class="mb-0">{{ deal.note }}</p>{% endif %}<p class="text-secondary small mb-0">No money is owed on this deal.</p></div>
+    {% endif %}
+  </div>
+
+  <div class="col-lg-5">
+    <div class="panel mb-3">
+      <div class="panel-head"><div><h3>The batch</h3></div></div>
+      <table class="table table-sm mb-0 kv">
+        <tr><th>Vouchers</th><td class="text-end">{{ deal.quantity }}× {{ l.plan_name }}</td></tr>
+        <tr><th>Price of the batch</th><td class="text-end"><b>{{ deal.price|money:c }}</b></td></tr>
+        <tr><th>Worth at the seller's price</th><td class="text-end">{{ l.face_value|money:c }}</td></tr>
+        <tr><th>Lowest resale price</th><td class="text-end">{{ l.min_retail|money:c }}</td></tr>
+        <tr><th>{% if seller_side %}Buyer{% else %}Seller{% endif %}</th><td class="text-end">{% if seller_side %}{{ deal.buyer.business_name }}{% elif unlocked or deal.status in 'awaiting_payment claimed' %}{{ deal.seller.business_name }}{% else %}{{ l.area }}{% endif %}</td></tr>
+        {% if unlocked %}<tr><th>Wi-Fi network</th><td class="text-end">{% firstof deal.seller.wifi_ssid '—' %}</td></tr><tr><th>Seller support</th><td class="text-end">{% firstof deal.seller.support_phone deal.seller.phone %}</td></tr>{% endif %}
+        <tr><th>Area</th><td class="text-end">{{ l.area }}</td></tr>
+        {% if l.sell_by %}<tr><th>Sell by</th><td class="text-end">{{ l.sell_by|date:'d M Y' }}</td></tr>{% endif %}
+      </table>
+    </div>
+    {% if dd.score %}<div class="panel"><div class="panel-head"><div><h3>Due diligence when reserved</h3><p>Saved with the deal on {{ dd.generated_at }}.</p></div><span class="grade g-{{ dd.score.grade }}" style="width:42px;height:42px;flex-basis:42px;font-size:1.1rem">{{ dd.score.grade }}</span></div>
+      <table class="table table-sm mb-0 kv"><tr><th>Uptime 30 days</th><td class="text-end">{{ dd.uptime.pct_30 }}%</td></tr><tr><th>This plan sold a day</th><td class="text-end">{{ dd.sales.plan_daily }}</td></tr>
+      <tr><th>Devices a day</th><td class="text-end">{{ dd.users.avg }}</td></tr><tr><th>Sales, last 30 days</th><td class="text-end">{{ dd.sales.last30_text }}</td></tr></table>
+      {% if seller_side or l.status == 'open' or l.status == 'reserved' %}<a class="small" href="{% url 'market_listing' l.code %}">Today's figures</a>{% endif %}</div>{% endif %}
+  </div>
+</div>
+{% endwith %}
+{% endblock %}

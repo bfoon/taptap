@@ -89,6 +89,8 @@ class CoreConfig(AppConfig):
         _install_optional("landing")            # adverts on the public landing page, managed on the platform console
         _install_optional("views_sync_control")  # Sync control page: when and how TapTap syncs each router
         _install_optional("dhcp_guard")         # the lines' own DHCP renewals are never marked, NATed or blocked
+        _install_optional("market")             # TapTap Market: batches for sale with due diligence, resold with mobile money
+        _install_optional("market_vetting")     # TapTap vets sellers before they may list on the Market
         _install_optional("team_performance")   # Team › Performance: what each person made, sold and holds in cash; Fit tool
         _install_optional("fit_members")        # Fit can look after members and member plans (Take action)
         _install_optional("fit_monitors")   # last: wraps device_lock.claim() outside every other rule

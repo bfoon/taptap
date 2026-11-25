@@ -1,0 +1,45 @@
+{% with s=vet.seller %}
+<div class="panel mb-3" id="vetting">
+  <div class="panel-head"><div><h3><i class="bi bi-patch-check"></i> {% if s and s.status == 'approved' %}Vetted by TapTap{% else %}Become a vetted seller{% endif %}</h3>
+    <p>{% if s and s.status == 'approved' %}{{ s.get_level_display }} since {{ s.approved_at|date:'d M Y' }} — up to {% if vet.limit_open is not None %}{{ vet.limit_open }}{% else %}any number of{% endif %} listings at a time{% if vet.limit_batch %}, {{ vet.limit_batch }} vouchers per batch{% endif %}.{% else %}TapTap checks every seller before they can list, so buyers can trust what they buy. It takes a few minutes to apply.{% endif %}</p></div>
+    {% if s %}<span class="chip {% if s.status == 'approved' %}green{% elif s.status == 'applied' or s.status == 'info' %}amber{% else %}red{% endif %}" style="font-size:.8rem">{{ s.get_status_display }}</span>{% endif %}</div>
+  {% if not s or s.status != 'approved' %}
+  <div class="steps">{% for st in vet.steps %}<div class="{% if st.now %}now{% elif st.done %}done{% endif %}">{{ forloop.counter }}. {{ st.label }}</div>{% endfor %}</div>
+  {% if s and s.note %}<div class="alert {% if s.status == 'info' %}alert-warning{% elif s.status == 'rejected' or s.status == 'suspended' %}alert-danger{% else %}alert-info{% endif %}"><b>TapTap:</b> {{ s.note }}{% if s.status == 'rejected' and s.reapply_after %} <span class="d-block small">You can apply again from {{ s.reapply_after|date:'d F Y' }}.</span>{% endif %}</div>{% endif %}
+  {% if s and s.status == 'applied' %}<p class="mb-3"><i class="bi bi-hourglass-split text-warning"></i> Sent on {{ s.submitted_at|date:'d M Y H:i' }}. TapTap usually answers within two working days; you'll get an email and a bell alert.</p>{% endif %}
+  {% endif %}
+  <div class="row g-3">
+    <div class="col-lg-5">
+      <h3 style="font-size:.95rem;font-weight:800">What TapTap measures <span class="text-secondary fw-normal">· {{ vet.score }}/100 today</span></h3>
+      <div class="m mb-2" style="height:8px;border-radius:99px;background:#edf1f6;overflow:hidden"><i style="display:block;height:100%;width:{{ vet.score }}%;background:{% if vet.score >= 70 %}#12945d{% elif vet.score >= 45 %}#f59e0b{% else %}#d64545{% endif %}"></i></div>
+      {% for c in vet.checks %}<div class="d-flex gap-2 align-items-start small py-1 border-bottom"><i class="bi {% if c.ok %}bi-check-circle-fill text-success{% elif c.required %}bi-x-circle-fill text-danger{% else %}bi-dash-circle text-warning{% endif %}"></i>
+        <div class="flex-grow-1">{{ c.label }}{% if c.required %} <span class="chip grey">required</span>{% endif %}<small class="d-block text-secondary">{{ c.detail }}</small></div></div>{% endfor %}
+      <small class="text-secondary d-block mt-2">Measured from your routers and books — you can't type these in. They are checked again every day once you sell.</small>
+    </div>
+    <div class="col-lg-7">
+      {% if vet.can_apply and is_owner %}
+      <form method="post" action="{% url 'market_apply' %}" enctype="multipart/form-data" class="row g-2">{% csrf_token %}
+        <div class="col-sm-6"><label class="form-label small mb-0">Your name</label><input class="form-control" name="contact_name" value="{% firstof s.contact_name current_business.owner_name %}" required maxlength="120"></div>
+        <div class="col-sm-6"><label class="form-label small mb-0">Phone TapTap can call</label><input class="form-control" name="contact_phone" value="{% firstof s.contact_phone current_business.phone %}" required maxlength="40"></div>
+        <div class="col-sm-5"><label class="form-label small mb-0">Town or area</label><input class="form-control" name="town" value="{{ s.town|default:'' }}" required maxlength="80" placeholder="Brikama"></div>
+        <div class="col-sm-4"><label class="form-label small mb-0">Running since</label><input class="form-control" name="operating_since" value="{{ s.operating_since|default:'' }}" required maxlength="40" placeholder="2023 / 8 months"></div>
+        <div class="col-sm-3"><label class="form-label small mb-0">Sites</label><input class="form-control" type="number" min="1" name="sites" value="{{ s.sites|default:1 }}"></div>
+        <div class="col-12"><label class="form-label small mb-0">How do customers buy today?</label><textarea class="form-control" name="how_sell" rows="2" required maxlength="400" placeholder="A shop at the junction sells printed vouchers; students buy by Wave in the evening.">{{ s.how_sell|default:'' }}</textarea></div>
+        <div class="col-12"><label class="form-label small mb-0">When a buyer's customer can't connect, who helps them and how fast?</label><textarea class="form-control" name="support_plan" rows="2" required maxlength="400" placeholder="My technician answers on WhatsApp 7xxxxxx from 8 am to 10 pm.">{{ s.support_plan|default:'' }}</textarea></div>
+        <div class="col-sm-6"><label class="form-label small mb-0">Photo of your installation {% if s.site_photo %}<span class="text-success">(sent — add to replace)</span>{% endif %}</label><input class="form-control" type="file" name="site_photo" accept="image/jpeg,image/png,image/webp" {% if not s.site_photo %}required{% endif %}></div>
+        <div class="col-sm-6"><label class="form-label small mb-0">Registration or licence <span class="text-secondary">(optional)</span></label><input class="form-control" type="file" name="document" accept="image/jpeg,image/png,image/webp,application/pdf"></div>
+        <div class="col-12"><div class="privacy small"><b>The Market seller rules</b><ul class="mb-1">{% for r in vet.rules %}<li>{{ r }}</li>{% endfor %}</ul>
+          <label><input type="checkbox" name="agree" value="1" required> I accept these rules.</label></div></div>
+        <div class="col-12"><button class="btn btn-success"><i class="bi bi-send"></i> {% if s %}Send again to TapTap{% else %}Apply to sell{% endif %}</button>
+          {% if not vet.required_ok %}<small class="text-warning ms-2"><i class="bi bi-exclamation-triangle"></i> Fix the required checks first, or TapTap will have to say no.</small>{% endif %}</div>
+      </form>
+      {% elif s and s.status == 'approved' %}
+      <div class="privacy"><b><i class="bi bi-shield-check"></i> What being vetted means</b><ul class="mb-0"><li>Your listings show the “Vetted by TapTap” badge.</li><li>TapTap re-checks your network every day; if uptime or complaints slip, TapTap may contact you.</li><li>Need bigger batches? Keep your record clean — TapTap moves good sellers up to Trusted and Partner.</li></ul></div>
+      {% elif not is_owner %}<p class="text-secondary">Only the business owner can apply.</p>
+      {% elif s and s.status == 'applied' %}<div class="mk-empty"><i class="bi bi-hourglass-split"></i>Your application is with TapTap.</div>
+      {% elif s and s.status == 'suspended' %}<div class="mk-empty"><i class="bi bi-pause-circle"></i>Your listings are hidden for now. Batches you sold keep working for their buyers.</div>
+      {% else %}<div class="mk-empty"><i class="bi bi-calendar-event"></i>You can apply again later.</div>{% endif %}
+    </div>
+  </div>
+</div>
+{% endwith %}

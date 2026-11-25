@@ -1500,3 +1500,4 @@ from .models_router_schedule import RouterSchedule, RouterScheduleRun  # noqa: E
 from .models_sync import RouterSyncPolicy  # noqa: E402,F401
 from .models_plans import EnterpriseFeature  # noqa: E402,F401
 from .models_landing import LandingAd  # noqa: E402,F401
+from .models_market import MarketDeal, MarketListing, MarketOrder, MarketPayout, MarketSeller, MarketShop, MarketVettingEvent, MarketWallet, RouterOutage  # noqa: E402,F401

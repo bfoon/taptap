@@ -1,0 +1,72 @@
+{% extends 'core/platform/base.html' %}
+{% block title %}{{ b.business_name }} — Market seller{% endblock %}{% block heading %}{{ b.business_name }}{% endblock %}
+{% block extra_head %}<style>
+.vs-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:1rem;align-items:start}@media(max-width:1000px){.vs-grid{grid-template-columns:1fr}}
+.card2{background:#fff;border:1px solid #e3e9f1;border-radius:18px;padding:1rem 1.15rem;margin-bottom:1rem}.card2 h3{font-size:1rem;font-weight:800;margin:0 0 .6rem}
+.chk{display:flex;gap:.55rem;align-items:flex-start;padding:.4rem 0;border-bottom:1px solid #f0f3f7;font-size:.87rem}.chk small{display:block;color:#6b7c8f}
+.req{font-size:.62rem;font-weight:800;background:#eef2f6;color:#4e6479;border-radius:99px;padding:.05rem .4rem;margin-left:.3rem}
+.kv{display:grid;grid-template-columns:150px 1fr;gap:.35rem .8rem;font-size:.87rem}.kv span{color:#6b7c8f}
+.photo{width:100%;max-height:300px;object-fit:cover;border-radius:14px;border:1px solid #e3e9f1}
+.decide label{font-size:.75rem;font-weight:700;color:#4e6479}.decide .btn{font-weight:700}
+.ev{display:flex;gap:.6rem;font-size:.82rem;padding:.35rem 0;border-bottom:1px solid #f0f3f7}.ev b{min-width:92px}.ev small{color:#6b7c8f}
+.bigscore{font-size:2.6rem;font-weight:900;line-height:1}.mini{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem}.mini div{background:#f5f8fc;border-radius:12px;padding:.5rem .6rem}
+.mini small{display:block;font-size:.65rem;font-weight:800;color:#8a9aab;text-transform:uppercase}.mini b{font-size:1.05rem}
+.spark{display:flex;align-items:flex-end;gap:1px;height:46px}.spark i{flex:1;background:#9dc0f2;border-radius:2px 2px 0 0;min-height:1px}
+</style>{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+  <a class="btn btn-sm btn-light" href="{% url 'platform_market' %}"><i class="bi bi-arrow-left"></i> Market sellers</a>
+  <span class="st {% if s.status == 'approved' %}paid{% elif s.status == 'applied' or s.status == 'info' %}Pending{% else %}expired{% endif %}">{{ s.get_status_display }}{% if s.status == 'approved' %} · {{ s.get_level_display }}{% endif %}</span>
+  {% if s.watch %}<span class="st Pending"><i class="bi bi-eye"></i> On watch — {{ s.watch_note }}</span>{% endif %}
+  <a class="btn btn-sm btn-outline-secondary ms-auto" href="{% url 'platform_business' b.pk %}">Business record</a>
+</div>
+<div class="vs-grid">
+<div>
+  <div class="card2"><div class="d-flex gap-3 align-items-center mb-2"><div class="bigscore" style="color:{% if score >= 70 %}#12945d{% elif score >= 45 %}#d39a1c{% else %}#d64545{% endif %}">{{ score }}</div>
+    <div><b>Automatic checks today</b><small class="d-block text-secondary">{% if required_ok %}All required checks pass.{% else %}A required check fails — approving is allowed, but think twice.{% endif %} When they applied: {{ s.score }}/100.</small></div></div>
+    {% for c in checks %}<div class="chk"><i class="bi {% if c.ok %}bi-check-circle-fill text-success{% elif c.required %}bi-x-circle-fill text-danger{% else %}bi-dash-circle text-warning{% endif %}"></i><div>{{ c.label }}{% if c.required %}<span class="req">REQUIRED</span>{% endif %}<small>{{ c.detail }} · {{ c.weight }} pts</small></div></div>{% endfor %}
+  </div>
+  {% if dd %}<div class="card2"><h3>Their network, as a buyer would see it <small class="text-secondary fw-normal">· {{ router.name }}, plan {{ plan.name }}, exact figures</small></h3>
+    <div class="mini mb-2"><div><small>Grade</small><b>{{ dd.score.grade }} · {{ dd.score.value }}</b></div><div><small>Uptime 30 d</small><b>{{ dd.uptime.pct_30 }}%</b></div><div><small>Devices / day</small><b>{{ dd.users.avg }}</b></div>
+      <div><small>Sales 30 d</small><b>{{ dd.sales.last30_text }}</b></div><div><small>Complaints</small><b>{{ dd.quality.complaints_per_100 }}/100</b></div><div><small>Outages</small><b>{{ dd.uptime.outages }}</b></div></div>
+    <div class="spark" title="Sales per day, 90 days">{% for d in dd.sales.per_day %}<i style="height:{{ d.h }}%"></i>{% endfor %}</div>
+  </div>{% endif %}
+  <div class="card2"><h3>Their record on the Market</h3>
+    <p class="small mb-2">{{ deals|length }} batch sale{{ deals|length|pluralize }}{% if rating %} · <i class="bi bi-star-fill text-warning"></i> {{ rating }}/5{% endif %} · {{ listings|length }} listing{{ listings|length|pluralize }}</p>
+    {% for d in deals %}<div class="ev"><b>{{ d.reference }}</b><span>{{ d.quantity }}× {{ d.listing.plan_name }} to {{ d.buyer.business_name }} <small>· {{ d.get_status_display }}{% if d.rating %} · {{ d.rating }}★{% endif %}</small></span></div>{% empty %}<p class="small text-secondary mb-0">No batch sold yet.</p>{% endfor %}
+  </div>
+</div>
+<div>
+  <div class="card2 decide"><h3>Decision</h3>
+    {% if s.note %}<p class="small mb-2"><b>Last message to the seller:</b> {{ s.note }}</p>{% endif %}
+    <form method="post" action="{% url 'platform_market_action' s.pk %}">{% csrf_token %}
+      <div class="row g-2">
+        <div class="col-6"><label>Level</label><select class="form-select form-select-sm" name="level">{% for k, v in levels %}<option value="{{ k }}" {% if s.level == k %}selected{% endif %}>{{ v }}</option>{% endfor %}</select></div>
+        <div class="col-3"><label>Max listings</label><input class="form-control form-control-sm" name="max_open" value="{{ s.max_open_listings|default_if_none:'' }}" placeholder="level"></div>
+        <div class="col-3"><label>Max / batch</label><input class="form-control form-control-sm" name="max_batch" value="{{ s.max_batch_vouchers|default_if_none:'' }}" placeholder="level"></div>
+        <div class="col-12"><small class="text-secondary">Starter: 2 listings, 300 per batch · Trusted: 6 and 2000 · Partner: no limit. Blank uses the level.</small></div>
+        <div class="col-12"><label>Message to the seller (required to ask, reject or suspend)</label><textarea class="form-control form-control-sm" name="note" rows="3" maxlength="500" placeholder="e.g. Please send a clearer photo of the access point at the market."></textarea></div>
+        <div class="col-5"><label>Re-apply after (days, if rejecting)</label><input class="form-control form-control-sm" type="number" min="0" name="days" value="30"></div>
+      </div>
+      <div class="d-flex flex-wrap gap-2 mt-3">
+        {% if s.status != 'approved' and s.status != 'suspended' %}<button class="btn btn-success btn-sm" name="action" value="approve"><i class="bi bi-patch-check"></i> Approve</button>
+          <button class="btn btn-warning btn-sm" name="action" value="info"><i class="bi bi-chat-dots"></i> Ask for more</button>
+          <button class="btn btn-outline-danger btn-sm" name="action" value="reject" onclick="return confirm('Reject this application?')">Reject</button>{% endif %}
+        {% if s.status == 'approved' %}<button class="btn btn-primary btn-sm" name="action" value="level">Save level &amp; limits</button>
+          <button class="btn btn-outline-danger btn-sm" name="action" value="suspend" onclick="return confirm('Hide all their listings now? Sold batches keep working for buyers.')"><i class="bi bi-pause-circle"></i> Suspend</button>{% endif %}
+        {% if s.status == 'suspended' %}<button class="btn btn-success btn-sm" name="action" value="reinstate">Reinstate</button>{% endif %}
+        {% if s.watch %}<button class="btn btn-light btn-sm" name="action" value="clear_watch">Clear watch</button>{% endif %}
+      </div>
+    </form>
+  </div>
+  <div class="card2"><h3>What they told TapTap</h3>
+    <div class="kv"><span>Contact</span><b>{{ s.contact_name }} · {{ s.contact_phone }}</b><span>Town / area</span><b>{{ s.town }}</b><span>Running since</span><b>{{ s.operating_since }}</b>
+      <span>Sites</span><b>{{ s.sites }}</b><span>Customers buy</span><div>{{ s.how_sell }}</div><span>Support plan</span><div>{{ s.support_plan }}</div>
+      <span>Rules accepted</span><b>{{ s.agreed_at|date:'d M Y H:i'|default:'—' }}</b><span>Account</span><div>{{ b.user.email }} · {{ b.phone }} · {{ b.tier_name }}</div></div>
+    {% if s.site_photo %}<p class="small fw-bold mt-3 mb-1">Installation photo</p>{% if photo_is_image %}<a href="{% url 'platform_market_file' s.pk 'photo' %}" target="_blank" rel="noopener"><img class="photo" src="{% url 'platform_market_file' s.pk 'photo' %}" alt="Installation photo"></a>{% endif %}{% endif %}
+    {% if s.document %}<p class="small fw-bold mt-3 mb-1">Registration / licence</p>{% if doc_is_image %}<a href="{% url 'platform_market_file' s.pk 'document' %}" target="_blank" rel="noopener"><img class="photo" src="{% url 'platform_market_file' s.pk 'document' %}" alt="Document"></a>{% else %}<a class="btn btn-sm btn-light" href="{% url 'platform_market_file' s.pk 'document' %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> Open the PDF</a>{% endif %}{% endif %}
+  </div>
+  <div class="card2"><h3>History</h3>{% for e in events %}<div class="ev"><b>{{ e.action|title }}</b><span>{{ e.note|default:'' }} <small>· {{ e.created_at|date:'d M Y H:i' }}{% if e.actor %} · {{ e.actor.email }}{% endif %}</small></span></div>{% empty %}<p class="small text-secondary mb-0">—</p>{% endfor %}</div>
+</div>
+</div>
+{% endblock %}

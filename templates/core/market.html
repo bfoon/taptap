@@ -1,0 +1,202 @@
+{% extends 'core/base.html' %}{% load static taptap_extras %}{% block title %}Market — TapTap{% endblock %}{% block heading %}Market{% endblock %}
+{% block extra_head %}<link href="{% static 'css/market.css' %}?v=1" rel="stylesheet">{% endblock %}
+{% block content %}
+{% with c=current_business.currency %}
+<section class="mk-hero">
+  <div><h2><i class="bi bi-shop-window"></i> TapTap Market</h2>
+    <p>Buy batches of vouchers that run on other owners' networks and sell them with mobile money, or sell batches of your own. Every figure in the due diligence is read by TapTap; customers' details never leave the network.</p></div>
+  <div class="flow"><span>Seller lists a batch</span><i class="bi bi-arrow-right"></i><span>Buyer checks the figures &amp; pays</span><i class="bi bi-arrow-right"></i><span>Customers pay the buyer's wallet</span><i class="bi bi-arrow-right"></i><span>Voucher works on the seller's Wi-Fi</span></div>
+</section>
+
+<nav class="mk-tabs">
+  <a href="?tab=browse" class="{% if tab == 'browse' %}on{% endif %}"><i class="bi bi-search"></i> Browse batches</a>
+  <a href="?tab=stock" class="{% if tab == 'stock' %}on{% endif %}"><i class="bi bi-box-seam"></i> My stock{% if counts.orders_waiting %} <b>{{ counts.orders_waiting }}</b>{% endif %}</a>
+  <a href="?tab=selling" class="{% if tab == 'selling' %}on{% endif %}"><i class="bi bi-tag"></i> Selling{% if counts.deals_waiting %} <b>{{ counts.deals_waiting }}</b>{% endif %}</a>
+  <a href="?tab=setup" class="{% if tab == 'setup' %}on{% endif %}"><i class="bi bi-wallet2"></i> Wallets &amp; shop</a>
+</nav>
+
+{% if tab == 'browse' %}
+<form class="mk-tools" method="get"><input type="hidden" name="tab" value="browse">
+  <input class="form-control" style="flex:0 1 320px" name="q" value="{{ q }}" placeholder="Area, plan or MKT- code">
+  <select class="form-select w-auto" name="sort" onchange="this.form.submit()">
+    <option value="score" {% if sort == 'score' %}selected{% endif %}>Best score first</option>
+    <option value="margin" {% if sort == 'margin' %}selected{% endif %}>Biggest margin</option>
+    <option value="fast" {% if sort == 'fast' %}selected{% endif %}>Sells out fastest</option>
+  </select><button class="btn btn-light"><i class="bi bi-search"></i></button>
+</form>
+{% if cards %}<div class="mk-grid">
+  {% for x in cards %}{% with l=x.l dd=x.dd %}
+  <a class="mk-card" href="{% url 'market_listing' l.code %}">
+    <div class="top"><div><h3>{% firstof l.title l.plan_name %}</h3><div class="where"><i class="bi bi-geo-alt"></i> {{ dd.identity.label }} · {{ l.code }}</div></div>
+      <span class="grade g-{{ dd.score.grade }}">{{ dd.score.grade }}<small>{{ dd.score.value }}</small></span></div>
+    <div class="mk-spark" title="Sales per day, last 90 days">{% for d in dd.sales.per_day %}<i style="height:{{ d.h }}%"></i>{% endfor %}</div>
+    <div class="mk-facts">
+      <div><small>Uptime 30 d</small><b>{{ dd.uptime.pct_30 }}%</b></div>
+      <div><small>Devices / day</small><b>{% if dd.users.source == 'none' %}—{% else %}{{ dd.users.avg }}{% endif %}</b></div>
+      <div title="If you sell a quarter as many as the seller does"><small>Sold out in</small><b>{% if dd.forecast.days.25 %}~{{ dd.forecast.days.25 }} d{% else %}—{% endif %}</b></div>
+    </div>
+    <div class="d-flex flex-wrap gap-1">
+      <span class="chip green" title="Vetted by TapTap"><i class="bi bi-patch-check-fill"></i> {{ l.business.market_seller.get_level_display }}</span>
+      <span class="chip">{{ l.quantity }}× {{ l.plan_name }}</span>
+      <span class="chip green">{{ l.margin_pct }}% margin</span>
+      {% if dd.record.rating %}<span class="chip amber"><i class="bi bi-star-fill"></i>{{ dd.record.rating }} · {{ dd.record.deals }} batch{{ dd.record.deals|pluralize:"es" }} sold</span>{% elif dd.record.deals %}<span class="chip amber">{{ dd.record.deals }} batch{{ dd.record.deals|pluralize:"es" }} sold before</span>{% endif %}
+      {% if l.sell_by %}<span class="chip grey">sell by {{ l.sell_by|date:'d M' }}</span>{% endif %}
+    </div>
+    <div class="mk-price"><div><strong>{{ l.price|money:l.business.currency }}</strong> <span>for {{ l.quantity }}</span></div><span>worth {{ l.face_value|money:l.business.currency }}</span></div>
+  </a>
+  {% endwith %}{% endfor %}
+</div>
+{% else %}<div class="panel mk-empty"><i class="bi bi-shop"></i>No batches on the market{% if q %} for “{{ q }}”{% endif %} right now.{% if can_sell %} <a href="?tab=selling#new">Sell one of yours</a>.{% endif %}</div>{% endif %}
+
+{% elif tab == 'stock' %}
+{% if to_confirm %}
+<div class="panel mb-3 border-warning">
+  <div class="panel-head"><div><h3><i class="bi bi-phone-vibrate text-warning"></i> Customer payments to confirm</h3><p>Open your wallet app: when you see the money, confirm and the customer gets the voucher at once.</p></div></div>
+  <div class="table-responsive"><table class="table align-middle">
+    <thead><tr><th>When</th><th>Customer</th><th>Wallet</th><th>Transaction ID</th><th class="text-end">Amount</th><th></th></tr></thead>
+    <tbody>{% for o in to_confirm %}<tr>
+      <td>{{ o.claimed_at|default:o.created_at|date:'d M H:i' }}</td><td>{{ o.customer_phone }}{% if o.customer_name %}<small class="d-block text-secondary">{{ o.customer_name }}</small>{% endif %}</td>
+      <td>{{ o.get_provider_display }}</td><td><code>{{ o.payment_ref|default:'—' }}</code>{% if o.status == 'review' %}<small class="d-block text-danger">{{ o.error }}</small>{% endif %}</td>
+      <td class="text-end"><b>{{ o.amount|money:c }}</b><small class="d-block text-secondary">{{ o.deal.listing.plan_name }}</small></td>
+      <td class="text-end text-nowrap"><form method="post" action="{% url 'market_order_action' o.reference %}" class="d-inline">{% csrf_token %}
+        <button class="btn btn-sm btn-success" name="action" value="confirm"><i class="bi bi-check-lg"></i> Money arrived</button>
+        <button class="btn btn-sm btn-light" name="action" value="reject" onclick="return confirm('Mark as not paid? The customer gets no voucher.')">Not received</button></form></td>
+    </tr>{% endfor %}</tbody></table></div>
+</div>
+{% endif %}
+<div class="dd-kpis">
+  <div class="dd-kpi"><small>Batches bought</small><strong>{{ buying|length }}</strong><em>{{ stock|length }} selling now</em></div>
+  <div class="dd-kpi"><small>Vouchers sold</small><strong>{{ earned.n|default:0 }}</strong><em>to your customers</em></div>
+  <div class="dd-kpi"><small>Money in</small><strong>{{ earned.v|default:0|money:c }}</strong><em>straight to your wallets</em></div>
+  <div class="dd-kpi"><small>Payments to confirm</small><strong>{{ counts.orders_waiting }}</strong><em>&nbsp;</em></div>
+  <div class="dd-kpi"><small>Your shop</small><strong>{% if shop and shop.enabled %}Open{% elif shop %}Closed{% else %}—{% endif %}</strong><em>{% if shop %}<a href="{{ shop_url }}" target="_blank" rel="noopener">open the page</a>{% else %}after your first batch{% endif %}</em></div>
+</div>
+{% if shop %}<div class="panel mb-3 d-flex flex-wrap align-items-center gap-2"><i class="bi bi-link-45deg fs-4 text-primary"></i><div class="flex-grow-1"><b>Your shop link</b><small class="d-block text-secondary">Share it on WhatsApp, print it as a QR code — customers pay your wallet and get the voucher here.</small></div>
+  <input class="form-control" style="max-width:420px" value="{{ shop_url }}" readonly onclick="this.select()"><button class="btn btn-light" type="button" onclick="navigator.clipboard&&navigator.clipboard.writeText('{{ shop_url|escapejs }}');this.textContent='Copied'">Copy</button></div>{% endif %}
+<div class="panel mb-3">
+  <div class="panel-head"><div><h3>Batches I bought</h3><p>What is left, your price and the network each one runs on.</p></div><a class="btn btn-sm btn-outline-primary" href="?tab=browse">Find more</a></div>
+  <div class="table-responsive"><table class="table align-middle">
+    <thead><tr><th>Batch</th><th>Network</th><th>Status</th><th class="text-end">Sold / left</th><th class="text-end">Your price</th><th></th></tr></thead>
+    <tbody>{% for d in buying %}<tr>
+      <td><b>{{ d.quantity }}× {{ d.listing.plan_name }}</b><small class="d-block text-secondary">{{ d.reference }} · {{ d.price|money:c }}</small></td>
+      <td>{% if d.status == 'active' or d.status == 'completed' %}{% firstof d.seller.wifi_ssid d.seller.business_name %}{% else %}{{ d.listing.area }}{% endif %}<small class="d-block text-secondary">{{ d.listing.area }}</small></td>
+      <td><span class="chip {% if d.status == 'active' or d.status == 'completed' %}green{% elif d.status == 'claimed' or d.status == 'awaiting_payment' %}amber{% else %}grey{% endif %}">{{ d.get_status_display }}</span></td>
+      <td class="text-end">{{ d.issued }} / {{ d.remaining }}<div class="share ms-auto" style="height:6px;border-radius:9px;background:#edf1f6;max-width:120px;overflow:hidden"><i style="display:block;height:100%;background:#12945d;width:{{ d.issued|pct_of:d.quantity }}%"></i></div></td>
+      <td class="text-end">{{ d.retail_price|money:c }}</td>
+      <td class="text-end"><a class="btn btn-sm btn-light" href="{% url 'market_deal' d.reference %}"><i class="bi bi-chevron-right"></i></a></td>
+    </tr>{% empty %}<tr><td colspan="6" class="empty-table">No batches yet. <a href="?tab=browse">Browse the market</a>.</td></tr>{% endfor %}</tbody></table></div>
+</div>
+{% if payouts %}<div class="panel mb-3"><div class="panel-head"><div><h3><i class="bi bi-send-check"></i> Wave payouts to you</h3><p>Payments TapTap's Wave received for you, sent on to your Wave number.</p></div></div>
+  <table class="table table-sm align-middle mb-0"><thead><tr><th>When</th><th>To</th><th>Status</th><th class="text-end">Amount</th></tr></thead><tbody>{% for p in payouts %}<tr><td>{{ p.created_at|date:'d M H:i' }}</td><td>{{ p.mobile }}</td>
+  <td><span class="chip {% if p.status == 'succeeded' %}green{% elif p.status == 'stuck' %}red{% else %}amber{% endif %}">{{ p.get_status_display }}</span>{% if p.error and p.status != 'succeeded' %}<small class="d-block text-secondary">{{ p.error|truncatechars:80 }}</small>{% endif %}</td><td class="text-end">{{ p.amount|money:c }}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+{% if recent_orders %}<div class="panel"><div class="panel-head"><div><h3>Latest customer orders</h3></div></div>
+  <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>When</th><th>Customer</th><th>Plan</th><th>Wallet</th><th>Status</th><th class="text-end">Amount</th></tr></thead>
+  <tbody>{% for o in recent_orders %}<tr><td>{{ o.created_at|date:'d M H:i' }}</td><td>{{ o.customer_phone }}</td><td>{{ o.deal.listing.plan_name }}</td><td>{{ o.get_provider_display }}</td>
+    <td><span class="chip {% if o.status == 'issued' %}green{% elif o.status == 'claimed' or o.status == 'pending' %}amber{% elif o.status == 'review' %}red{% else %}grey{% endif %}">{{ o.get_status_display }}</span></td><td class="text-end">{{ o.amount|money:c }}</td></tr>{% endfor %}</tbody></table></div></div>{% endif %}
+
+{% elif tab == 'selling' %}
+{% if owned_on_my_network %}<div class="alert alert-info d-flex gap-2 align-items-center"><i class="bi bi-shield-lock"></i><span>{{ owned_on_my_network }} batch{{ owned_on_my_network|pluralize:"es" }} on your network belong{{ owned_on_my_network|pluralize:"s," }} to buyers until their last voucher is used. Customers who buy those plans on your Online sales page pay the batch owners, shared fairly between them{% if shop and shop.own_share %} — you keep {{ shop.own_share }}%{% endif %}. You can support those vouchers, not change them.</span></div>{% endif %}
+{% if counts.deals_waiting %}<div class="alert alert-warning d-flex gap-2 align-items-center"><i class="bi bi-phone-vibrate"></i><span>{{ counts.deals_waiting }} buyer{{ counts.deals_waiting|pluralize }} say{{ counts.deals_waiting|pluralize:"s," }} they paid you. Check your wallet and confirm below.</span></div>{% endif %}
+<div class="panel mb-3">
+  <div class="panel-head"><div><h3>My listings</h3><p>Batches you offer. Vouchers are only made when a customer pays, so no code exists before it is sold.</p></div>{% if can_sell %}<a class="btn btn-sm btn-primary" href="#new"><i class="bi bi-plus-lg"></i> New listing</a>{% endif %}</div>
+  <div class="table-responsive"><table class="table align-middle">
+    <thead><tr><th>Listing</th><th>Runs on</th><th class="text-end">Price</th><th>Status</th><th class="text-end">Views</th><th></th></tr></thead>
+    <tbody>{% for l in mine %}<tr>
+      <td><b>{{ l.quantity }}× {{ l.plan_name }}</b><small class="d-block text-secondary">{{ l.code }} · {{ l.area }}</small></td><td>{{ l.router.name }}</td>
+      <td class="text-end"><b>{{ l.price|money:c }}</b><small class="d-block text-secondary">worth {{ l.face_value|money:c }}</small></td>
+      <td><span class="chip {% if l.status == 'open' %}green{% elif l.status == 'reserved' %}amber{% elif l.status == 'sold' %}{% else %}grey{% endif %}">{{ l.get_status_display }}</span></td>
+      <td class="text-end">{{ l.views }}</td><td class="text-end"><a class="btn btn-sm btn-light" href="{% url 'market_listing' l.code %}">See as buyers do</a></td>
+    </tr>{% empty %}<tr><td colspan="6" class="empty-table">Nothing listed yet.</td></tr>{% endfor %}</tbody></table></div>
+</div>
+{% if selling_deals %}<div class="panel mb-3"><div class="panel-head"><div><h3>Buyers</h3><p>Who bought or is buying, and the vouchers you still owe them on your network.</p></div></div>
+  <div class="table-responsive"><table class="table align-middle"><thead><tr><th>Deal</th><th>Buyer</th><th>Status</th><th class="text-end">Delivered / to honour</th><th></th></tr></thead>
+  <tbody>{% for d in selling_deals %}<tr><td><b>{{ d.quantity }}× {{ d.listing.plan_name }}</b><small class="d-block text-secondary">{{ d.reference }} · {{ d.price|money:c }}</small></td><td>{{ d.buyer.business_name }}</td>
+    <td><span class="chip {% if d.status == 'claimed' %}amber{% elif d.status == 'active' %}green{% else %}grey{% endif %}">{{ d.get_status_display }}</span></td>
+    <td class="text-end">{{ d.issued }} / {% if d.status == 'active' %}{{ d.remaining }}{% else %}—{% endif %}</td>
+    <td class="text-end"><a class="btn btn-sm {% if d.status == 'claimed' %}btn-success{% else %}btn-light{% endif %}" href="{% url 'market_deal' d.reference %}">{% if d.status == 'claimed' %}Confirm payment{% else %}Open{% endif %}</a></td></tr>{% endfor %}</tbody></table></div></div>{% endif %}
+
+{% include 'core/_market_vetting.html' %}
+{% if vet.seller and vet.seller.status == 'approved' or not can_sell %}<div class="panel" id="new">
+  <div class="panel-head"><div><h3><i class="bi bi-plus-circle"></i> List a batch</h3><p>Buyers see TapTap's figures for your network, with the privacy you choose below.</p></div></div>
+  {% if not can_sell %}<div class="alert alert-info mb-0"><i class="bi bi-lock"></i> Selling on the Market comes with the Basic plan and up. Buying is open to everybody. <a href="{% url 'subscription' %}">See plans</a></div>
+  {% elif not is_owner %}<div class="alert alert-info mb-0">Only the business owner can list batches.</div>
+  {% else %}
+  <form method="post" action="{% url 'market_sell' %}" class="row g-3">{% csrf_token %}
+    <div class="col-md-4"><label class="form-label">Plan</label><select class="form-select" name="plan" required>{% for p in plans %}<option value="{{ p.pk }}" data-price="{{ p.price }}">{{ p.name }} — {{ p.price|money:c }}</option>{% endfor %}</select></div>
+    <div class="col-md-2"><label class="form-label">How many</label><input class="form-control" type="number" name="quantity" min="5" max="10000" value="100" required id="mkQty"></div>
+    <div class="col-md-3"><label class="form-label">Price for the whole batch</label><input class="form-control" type="number" step="0.01" min="1" name="price" required id="mkPrice"><small class="text-secondary" id="mkHint"></small></div>
+    <div class="col-md-3"><label class="form-label">Runs on router</label><select class="form-select" name="router" required>{% for r in routers %}<option value="{{ r.pk }}">{{ r.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-4"><label class="form-label">Area (not an address)</label><input class="form-control" name="area" maxlength="80" placeholder="Brikama, near the market" required></div>
+    <div class="col-md-4"><label class="form-label">Title <small class="text-secondary">(optional)</small></label><input class="form-control" name="title" maxlength="120" placeholder="Busy student area, evenings"></div>
+    <div class="col-md-2"><label class="form-label">Lowest resale price</label><input class="form-control" type="number" step="0.01" min="1" name="min_retail" id="mkMin" title="Buyers may not sell one for less — protects your own price"></div>
+    <div class="col-md-2"><label class="form-label">Sell by <small class="text-secondary">(optional)</small></label><input class="form-control" type="date" name="sell_by"></div>
+    <div class="col-12"><label class="form-label">Why buy it <small class="text-secondary">(optional)</small></label><textarea class="form-control" name="pitch" rows="2" maxlength="400" placeholder="Two access points cover the whole compound; most customers buy in the evening."></textarea></div>
+    <div class="col-md-7"><label class="form-label">What buyers may see</label>
+      <div class="d-flex flex-column gap-1 small">
+        <label><input type="radio" name="precision" value="rounded" checked> Money rounded (no single sale can be worked out)</label>
+        <label><input type="radio" name="precision" value="exact"> Exact money figures</label>
+        <label><input type="radio" name="precision" value="index"> Trends only — no money amounts at all</label>
+        <label class="mt-1"><input type="checkbox" name="show_name" value="1"> Show my business name (otherwise only the area)</label>
+        <label><input type="checkbox" name="share_costs" value="1"> Share monthly running costs and margin</label>
+      </div></div>
+    <div class="col-md-5"><div class="privacy"><b><i class="bi bi-shield-lock"></i> Never shown, whatever you choose</b><ul><li>customers' names, phones and devices</li><li>voucher codes and single sales</li><li>your router's address and settings</li><li>your team and agents</li></ul></div></div>
+    <div class="col-12"><button class="btn btn-success"><i class="bi bi-shop-window"></i> Put on the market</button></div>
+  </form>
+  <script>(function(){var p=document.querySelector('[name=plan]'),q=document.getElementById('mkQty'),pr=document.getElementById('mkPrice'),h=document.getElementById('mkHint'),m=document.getElementById('mkMin');
+  function u(){var unit=parseFloat(p.selectedOptions[0]?p.selectedOptions[0].dataset.price:0)||0,n=parseInt(q.value)||0,face=unit*n,v=parseFloat(pr.value)||0;if(!m.value)m.placeholder=unit;
+  if(!pr.value&&face){pr.placeholder=Math.round(face*0.8);}h.textContent=face?('Worth {{ c|escapejs }}'+face.toLocaleString()+(v?' · buyer margin '+Math.round((face-v)/face*100)+'%':' · 15–25% margin sells well')):'';}
+  [p,q,pr].forEach(function(e){e.addEventListener('input',u)});u();})();</script>
+  {% endif %}
+</div>{% endif %}
+
+{% else %}
+<form method="post" action="{% url 'market_setup' %}">{% csrf_token %}
+<div class="row g-3">
+  <div class="col-lg-7"><div class="panel h-100">
+    <div class="panel-head"><div><h3>Wallets that receive money</h3><p>Sellers get paid for batches here; buyers' customers pay for vouchers here. Mobile money only.</p></div></div>
+    {% for code, label, w in wallet_rows %}
+    <div class="wallet-row align-items-start">
+      <span class="wlogo w-{{ code }}">{{ label|slice:":2"|upper }}</span>
+      <div class="flex-grow-1">
+        <div class="row g-2">
+          <div class="col-sm-5"><input class="form-control form-control-sm" name="{{ code }}_number" value="{{ w.number|default:'' }}" placeholder="{{ label }} number"></div>
+          <div class="col-sm-7"><input class="form-control form-control-sm" name="{{ code }}_holder" value="{{ w.holder|default:'' }}" placeholder="Name the wallet shows"></div>
+          <div class="col-12"><input class="form-control form-control-sm" name="{{ code }}_pay_link" value="{{ w.pay_link|default:'' }}" placeholder="Payment link (optional, https://…)"></div>
+          {% if code == 'wave' %}
+          <div class="col-12"><select class="form-select form-select-sm" name="wave_mode" onchange="document.getElementById('waveApi').hidden=this.value!=='api'">
+            {% if platform %}<option value="taptap" {% if w and w.mode == 'taptap' %}selected{% endif %}>Automatic — through TapTap's Wave, paid out to this number at once</option>{% endif %}
+            <option value="api" {% if w and w.mode == 'api' %}selected{% endif %}>Automatic — my own Wave Business API</option>
+            <option value="confirm" {% if not w or w.mode == 'confirm' %}selected{% endif %}>I confirm each payment myself</option></select></div>
+          <div class="col-12" id="waveApi" {% if not w or w.mode != 'api' %}hidden{% endif %}>
+            <div class="row g-2">
+              <div class="col-sm-6"><input class="form-control form-control-sm" name="wave_api_key" type="password" autocomplete="off" placeholder="{% if w.api_key %}API key saved — type to replace{% else %}Wave API key{% endif %}"></div>
+              <div class="col-sm-6"><input class="form-control form-control-sm" name="wave_webhook_secret" type="password" autocomplete="off" placeholder="{% if w.webhook_secret %}Webhook secret saved{% else %}Webhook secret{% endif %}"></div>
+              <div class="col-sm-6"><input class="form-control form-control-sm" name="wave_signing_secret" type="password" autocomplete="off" placeholder="Request signing secret (optional)"></div>
+              <div class="col-sm-6"><input class="form-control form-control-sm" name="wave_currency" value="{{ w.currency|default:'' }}" placeholder="Currency, e.g. GMD" maxlength="3"></div>
+              {% if w %}<div class="col-12"><small class="text-secondary">In your Wave Business portal, set the webhook to <code>{{ hook_base }}{{ w.hook_token }}/</code> for “checkout.session.completed”. Keys are stored encrypted.</small></div>{% endif %}
+            </div></div>
+          {% endif %}
+        </div>
+        {% if w and w.active %}<small class="text-success"><i class="bi bi-check-circle"></i> Active{% if w.automatic %} · automatic{% endif %}</small>{% elif w %}<small class="text-secondary">Off — clear the number to switch a wallet off</small>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div></div>
+  <div class="col-lg-5"><div class="panel h-100">
+    <div class="panel-head"><div><h3>My shop page</h3><p>Where your customers buy the vouchers you bought on the Market.</p></div></div>
+    <input type="hidden" name="shop" value="1">
+    <label class="form-label">Heading</label><input class="form-control mb-2" name="heading" value="{% if shop %}{{ shop.heading }}{% else %}Buy Wi-Fi vouchers{% endif %}" maxlength="120">
+    <label class="form-label">Note to customers</label><input class="form-control mb-2" name="note" value="{{ shop.note|default:'' }}" maxlength="255" placeholder="Questions? WhatsApp 7xxxxxx">
+    <label class="d-flex gap-2 align-items-center"><input type="checkbox" name="enabled" value="1" {% if not shop or shop.enabled %}checked{% endif %}> Shop open</label>
+    <label class="form-label mt-3">As a seller: your share of online sales while batches you sold are selling</label>
+    <div class="input-group" style="max-width:180px"><input class="form-control" type="number" name="own_share" min="0" max="50" value="{{ shop.own_share|default:0 }}"><span class="input-group-text">%</span></div>
+    <small class="text-secondary">0 % = every online buyer of those plans goes to the batch owners until their batches finish.</small>
+    {% if shop %}<p class="small text-secondary mt-2 mb-0">Link: <a href="{{ shop_url }}" target="_blank" rel="noopener">{{ shop_url }}</a></p>{% endif %}
+    <div class="privacy mt-3"><b><i class="bi bi-info-circle"></i> How customer payments work</b><ul><li>With automatic Wave, Wave's signed message confirms the exact amount and the voucher appears at once — your own Wave Business API, or TapTap's Wave paying out to your number straight away.</li><li>Otherwise the customer types the transaction ID; you confirm under My stock when the money shows in your wallet.</li><li>A payment page coming back never releases a voucher by itself.</li></ul></div>
+  </div></div>
+</div>
+{% if is_owner %}<button class="btn btn-primary mt-3"><i class="bi bi-check2"></i> Save</button>{% endif %}
+</form>
+{% endif %}
+{% endwith %}
+{% endblock %}

@@ -1,0 +1,137 @@
+{% extends 'core/base.html' %}{% load static taptap_extras %}{% block title %}{{ l.code }} — Market — TapTap{% endblock %}{% block heading %}Due diligence{% endblock %}
+{% block extra_head %}<link href="{% static 'css/market.css' %}?v=1" rel="stylesheet">{% endblock %}
+{% block content %}
+{% with c=l.business.currency s=dd.sales u=dd.users up=dd.uptime f=dd.forecast %}
+<div class="d-flex justify-content-between flex-wrap gap-2 mb-2">
+  <a class="btn btn-sm btn-light" href="{% url 'market' %}{% if own %}?tab=selling{% endif %}"><i class="bi bi-arrow-left"></i> Market</a>
+  <span class="verified"><i class="bi bi-patch-check-fill"></i> Figures read by TapTap from the router and the books — the seller cannot edit them · {{ dd.generated_at }}</span>
+</div>
+
+{% if own %}<div class="alert alert-info d-flex flex-wrap gap-2 align-items-center"><i class="bi bi-eye"></i><span class="flex-grow-1">This is exactly what buyers see. {{ l.views }} buyer{{ l.views|pluralize }} looked at it.</span>
+  {% if is_owner %}{% if l.status == 'open' %}<form method="post" action="{% url 'market_listing_action' l.code %}" class="d-flex gap-1">{% csrf_token %}<input class="form-control form-control-sm" style="width:120px" type="number" step="0.01" name="price" value="{{ l.price }}"><button class="btn btn-sm btn-light" name="action" value="price">Change price</button><button class="btn btn-sm btn-outline-danger" name="action" value="withdraw">Withdraw</button></form>
+  {% elif l.status == 'withdrawn' %}<form method="post" action="{% url 'market_listing_action' l.code %}">{% csrf_token %}<button class="btn btn-sm btn-success" name="action" value="reopen">Put back on the market</button></form>{% endif %}{% endif %}
+</div>{% endif %}
+
+<section class="dd-head">
+  <span class="grade g-{{ dd.score.grade }}">{{ dd.score.grade }}<small>{{ dd.score.value }}/100</small></span>
+  <div><h2>{% firstof l.title l.plan_name %}</h2>
+    <p><i class="bi bi-geo-alt"></i> {{ dd.identity.label }}{% if dd.identity.named %} · {{ dd.identity.area }}{% endif %} · {{ l.code }} · on TapTap for {{ dd.identity.account_age_days }} days · {{ dd.identity.routers }} router{{ dd.identity.routers|pluralize }}</p>
+    <div class="d-flex flex-wrap gap-1 mt-1">{% if l.business.market_seller.status == 'approved' %}<span class="chip green" title="TapTap checked this seller before letting them list"><i class="bi bi-patch-check-fill"></i> Vetted by TapTap · {{ l.business.market_seller.get_level_display }} since {{ l.business.market_seller.approved_at|date:'M Y' }}</span>{% endif %}<span class="chip">{{ l.quantity }}× {{ l.plan_name }}</span><span class="chip">{{ l.face_price|money:c }} each on this network</span>
+      <span class="chip">{{ l.max_devices }} device{{ l.max_devices|pluralize }}</span>{% if l.sell_by %}<span class="chip amber">sell by {{ l.sell_by|date:'d M Y' }}</span>{% endif %}
+      {% if up.online_now %}<span class="chip green"><i class="bi bi-circle-fill" style="font-size:.5rem"></i> online now</span>{% else %}<span class="chip red">offline now</span>{% endif %}</div>
+    {% if l.pitch %}<p class="mt-2 mb-0" style="color:inherit">“{{ l.pitch }}”</p>{% endif %}</div>
+  <div class="buybox"><small class="text-secondary">Whole batch</small><strong>{{ l.price|money:c }}</strong><span class="text-secondary small">worth {{ l.face_value|money:c }} · {{ l.unit_cost|money:c }} each</span></div>
+</section>
+
+<div class="dd-kpis">
+  <div class="dd-kpi"><small>Sales, last 30 days</small><strong>{{ s.last30_text }}</strong><em>{% if s.trend_pct is not None %}{{ s.trend_pct|delta }} vs before{% else %}{{ s.count_last30 }} sales{% endif %}</em></div>
+  <div class="dd-kpi"><small>This plan sold / day</small><strong>{{ s.plan_daily }}</strong><em>{{ s.plan_last30 }} “{{ l.plan_name }}” in 30 days, every way of selling</em></div>
+  <div class="dd-kpi"><small>{% if u.source == 'first_logins' %}First logins / day{% else %}Devices / day{% endif %}</small><strong>{% if u.source == 'none' %}—{% else %}{{ u.avg }}{% endif %}</strong><em>{% if u.trend_pct is not None %}{{ u.trend_pct|delta }} vs before{% elif u.peak %}peak {{ u.peak }}{% else %}&nbsp;{% endif %}</em></div>
+  <div class="dd-kpi"><small>Uptime, 30 days</small><strong>{{ up.pct_30 }}%</strong><em>{{ up.outages }} outage{{ up.outages|pluralize }} in {{ up.monitored_days }} days</em></div>
+  <div class="dd-kpi"><small>Complaints</small><strong>{{ dd.quality.complaints_per_100 }}</strong><em>per 100 sales{% if dd.quality.activation_pct is not None %} · {{ dd.quality.activation_pct }}% of vouchers get used{% endif %}</em></div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-8"><div class="panel h-100">
+    <div class="panel-head"><div><h3>Sales per day</h3><p>{% if dd.precision == 'index' %}Trend only — the seller keeps money amounts private; the average day is 100.{% elif dd.precision == 'rounded' %}Rounded to {{ c }}{{ s.step }}, so no single sale can be worked out.{% else %}Exact figures.{% endif %} Market trades are left out.</p></div>
+      <span class="small text-secondary">{{ s.active_days }} days with sales · mobile money {{ s.mobile_share_pct }}%</span></div>
+    <div class="bars">{% for d in s.per_day %}<i style="height:{{ d.h }}%" title="{{ d.d }}: {% if d.v is not None %}{{ c }}{{ d.v|floatformat:0 }}{% else %}index {{ d.i }}{% endif %}{% if d.few %} · fewer than 5 sales{% elif d.n %} · {{ d.n }} sales{% endif %}"></i>{% endfor %}</div>
+    <div class="axis"><span>{{ dd.from }}</span><span>average day {{ s.avg_day_text }}</span><span>{{ dd.to }}</span></div>
+    <div class="week mt-3">{% for i in s.weekday_index %}<div><small class="text-secondary">{% cycle 'Mon' 'Tue' 'Wed' 'Thu' 'Fri' 'Sat' 'Sun' %}</small><b>{{ i }}</b></div>{% endfor %}</div>
+    <small class="text-secondary">Each weekday against the average day (100).</small>
+  </div></div>
+  <div class="col-lg-4"><div class="forecast h-100" id="fc" data-qty="{{ f.quantity }}" data-net="{{ out.your_daily|stringformat:'s' }}">
+    <h3><i class="bi bi-hourglass-split"></i> How fast could you sell it?</h3>
+    <small>Customers who buy “{{ l.plan_name }}” online on this network: <b>{{ out.online_daily }}</b> a day. As #{{ out.queue.new.rank }} you get about <b>{{ out.queue.new.share }}%</b> of them ({{ out.your_daily }} a day), straight to your wallet.</small>
+    <label class="d-block mt-2"><small>Plus what you sell yourself (shop link, WhatsApp): <b id="fcOwn">1</b> a day</small></label>
+    <input type="range" min="0" max="30" step="1" value="1" id="fcRange" aria-label="Vouchers you sell yourself per day">
+    <div class="big" id="fcDays">—</div><small>to sell all {{ f.quantity }}</small>
+    <div class="cols"><div><small>You pay</small><b>{{ f.price_text }}</b></div><div><small>Customers pay</small><b>{{ f.face_value_text }}</b></div><div><small>Your margin</small><b>{{ f.margin_text }}</b><small>{{ f.margin_pct }}%</small></div></div>
+  </div></div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-6"><div class="panel h-100">
+    <div class="panel-head"><div><h3><i class="bi bi-list-ol"></i> Batches already selling here</h3><p>“{{ l.plan_name }}” on this network. Online buyers are shared at random — everyone gets a chance, earlier buyers a bigger one, a batch near its sell-by date a little more.</p></div></div>
+    {% if out.queue.rows %}<table class="table table-sm align-middle mb-2"><thead><tr><th>Rank</th><th>Bought</th><th class="text-end">Sold / left</th><th class="text-end">{% if own %}Share now{% else %}Share if you buy{% endif %}</th></tr></thead><tbody>
+      {% for r in out.queue.rows %}<tr><td><b>#{{ r.rank }}</b>{% if r.you %} <span class="chip green">yours</span>{% endif %}</td><td>{{ r.bought|date:'d M Y' }}</td><td class="text-end">{{ r.sold }} / {{ r.left }}</td>
+        <td class="text-end"><div class="d-flex align-items-center gap-2 justify-content-end"><div class="share" style="width:70px;height:6px;border-radius:9px;background:#edf1f6;overflow:hidden"><i style="display:block;height:100%;background:#1769e0;width:{{ r.share }}%"></i></div>{{ r.share }}%</div></td></tr>{% endfor %}
+      {% if not own %}<tr class="table-success"><td><b>#{{ out.queue.new.rank }}</b> <span class="chip green">you, if you buy</span></td><td>today</td><td class="text-end">0 / {{ out.queue.new.quantity }}</td><td class="text-end"><b>{{ out.queue.new.share }}%</b></td></tr>{% endif %}
+    </tbody></table><small class="text-secondary">{{ out.queue.batches }} batch{{ out.queue.batches|pluralize:"es" }} bought before you, {{ out.queue.ahead }} vouchers ahead. Buyers are never named to each other.</small>
+    {% else %}<p class="mb-0"><i class="bi bi-1-circle text-success"></i> No batch of this plan is selling here yet — you would be <b>#1</b> and get every online buyer of it.</p>{% endif %}
+  </div></div>
+  <div class="col-lg-6"><div class="panel h-100">
+    <div class="panel-head"><div><h3><i class="bi bi-lightbulb"></i> Good to know</h3><p>TapTap's reading of the figures on this page.</p></div></div>
+    {% for a in out.advice %}<div class="d-flex gap-2 mb-2"><i class="bi {{ a.icon }} {% if a.tone == 'good' %}text-success{% elif a.tone == 'warn' %}text-warning{% else %}text-primary{% endif %}"></i><span class="small">{{ a.text }}</span></div>{% endfor %}
+    {% if 'fit' in tt_features %}<p class="small text-secondary mb-0 mt-2"><i class="bi bi-stars"></i> Ask Fit: “Is {{ l.code }} a good buy for me?”</p>{% endif %}
+  </div></div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-6"><div class="panel h-100">
+    <div class="panel-head"><div><h3>{% if u.source == 'first_logins' %}First logins per day{% else %}Devices connected per day{% endif %}</h3><p>{% if u.source == 'none' %}No session data from this router yet.{% else %}Different devices on the router the vouchers run on. Days with fewer than 5 are hatched, not counted.{% endif %}</p></div></div>
+    <div class="bars green" style="height:110px">{% for d in u.per_day %}<i class="{% if d.few %}few{% endif %}" style="height:{{ d.h }}%" title="{{ d.d }}: {% if d.few %}fewer than 5{% else %}{{ d.v }}{% endif %}"></i>{% endfor %}</div>
+    <div class="axis"><span>{{ dd.from }}</span><span>{{ dd.to }}</span></div>
+    {% if u.source == 'devices' %}<h3 class="mt-3" style="font-size:.9rem">Busy hours <small class="text-secondary fw-normal">(last 30 days)</small></h3>
+    <div class="hours">{% for h in u.hours %}<i style="background:rgba(23,105,224,{{ h.a|stringformat:'s' }})" title="{{ h.h }}:00 — about {{ h.v }} device-hours"></i>{% endfor %}</div>
+    <div class="hours-l">{% for h in u.hours %}<span>{% if h.h|divisibleby:3 %}{{ h.h }}{% endif %}</span>{% endfor %}</div>{% endif %}
+  </div></div>
+  <div class="col-lg-6"><div class="panel h-100">
+    <div class="panel-head"><div><h3>Uptime</h3><p>Each square is a day on the router the vouchers run on: green all day, then yellow, orange, red the longer it was unreachable.</p></div>
+      <div class="text-end"><b style="font-size:1.4rem">{{ up.pct }}%</b><small class="d-block text-secondary">{{ up.total_min }} min down · longest {{ up.longest_min }} min</small></div></div>
+    <div class="upstrip">{% for d in up.per_day %}<i class="{{ d.l }}" title="{{ d.d }}{% if d.l == 'nw' %}: not watched yet{% elif d.min %}: {{ d.min }} min unreachable{% else %}: no outage{% endif %}"></i>{% endfor %}</div>
+    <div class="axis"><span>{{ dd.from }}</span><span>{{ dd.to }}</span></div>
+    {% if up.list %}<table class="table table-sm mt-2 mb-0"><thead><tr><th>Started</th><th>Cause</th><th class="text-end">Lasted</th></tr></thead>
+      <tbody>{% for o in up.list %}<tr><td>{{ o.d }}</td><td>{{ o.why }}</td><td class="text-end">{{ o.min }} min</td></tr>{% endfor %}</tbody></table>
+    {% else %}<p class="text-success small mt-2 mb-0"><i class="bi bi-check-circle"></i> No outage recorded in this period.</p>{% endif %}
+  </div></div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-6"><div class="panel h-100">
+    <div class="panel-head"><div><h3>Why {{ dd.score.grade }}</h3><p>The score weighs what matters to a buyer.</p></div></div>
+    {% for p in dd.score.parts %}<div class="score-row"><b>{{ p.label }}</b><div><div class="m"><i style="width:{{ p.pts|pct_of:p.max }}%"></i></div><small class="text-secondary">{{ p.why }}</small></div><span class="text-end">{{ p.pts|floatformat:0 }}/{{ p.max }}</span></div>{% endfor %}
+  </div></div>
+  <div class="col-lg-6"><div class="panel h-100">
+    <div class="panel-head"><div><h3>Seller's record</h3><p>Batches sold before on the Market.</p></div></div>
+    {% if dd.record.deals %}<p><b>{{ dd.record.deals }}</b> batch{{ dd.record.deals|pluralize:"es" }} sold · <b>{{ dd.record.delivered }}</b> vouchers delivered{% if dd.record.rating %} · <i class="bi bi-star-fill text-warning"></i> <b>{{ dd.record.rating }}</b>/5{% endif %}</p>
+      {% for r in dd.record.reviews %}<blockquote class="small border-start ps-2 mb-2">{% for i in "12345" %}<i class="bi bi-star{% if forloop.counter <= r.stars %}-fill text-warning{% endif %}"></i>{% endfor %} {{ r.text }}</blockquote>{% endfor %}
+    {% else %}<p class="text-secondary">This is the seller's first batch on the Market.</p>{% endif %}
+    {% if dd.costs %}<hr><p class="mb-0"><b>Running costs</b> about {{ dd.costs.monthly_text }} a month{% if dd.costs.margin_pct is not None %} · profit margin {{ dd.costs.margin_pct }}%{% endif %}.</p>{% endif %}
+    <div class="privacy mt-3"><b><i class="bi bi-shield-lock"></i> Privacy</b> Never shown: customers' names, phones or devices, voucher codes, single sales, the router's address, the seller's team. {% if not dd.identity.named %}The business name appears once you have bought.{% endif %}</div>
+  </div></div>
+</div>
+
+{% if not own %}
+<div class="panel" id="buy">
+  {% if my_deal %}<div class="d-flex align-items-center gap-2"><i class="bi bi-bookmark-check fs-4 text-success"></i><span class="flex-grow-1">You reserved this batch.</span><a class="btn btn-success" href="{% url 'market_deal' my_deal.reference %}">Go to the deal</a></div>
+  {% elif l.status == 'reserved' %}<div class="text-center text-secondary"><i class="bi bi-hourglass"></i> Another buyer is paying for this batch. If they don't, it comes back.</div>
+  {% elif not is_owner %}<p class="mb-0 text-secondary">Only the business owner can buy on the Market.</p>
+  {% else %}
+  <form method="post" action="{% url 'market_listing_reserve' l.code %}">{% csrf_token %}
+    <div class="row g-3 align-items-center">
+      <div class="col-lg-8">
+        <h3 style="font-size:1.05rem;font-weight:800">Buy this batch for {{ l.price|money:c }}</h3>
+        <ul class="small text-secondary mb-2">
+          {% if wave_auto %}<li><b>Pay with Wave and it is yours at once</b> — Wave confirms the payment, no waiting for the seller. (Or pay by hand within 48 hours.)</li>
+          {% else %}<li>It is held for you for 48 hours. Pay the seller's wallet, then type the transaction ID; the seller confirms the money arrived.</li>{% endif %}
+          <li><b>It is yours until its last voucher is used</b>, not for a number of hours. The seller can only support those vouchers, never change or delete them.</li>
+          <li>Every customer who buys one — on your shop link or online on the seller's network — pays <b>your</b> wallet directly. Each voucher is made the moment you are paid.</li>
+          <li>Sell them at {{ l.min_retail|money:c }} or more{% if l.sell_by %}, by {{ l.sell_by|date:'d M Y' }}{% endif %}. What you see on this page is saved with your deal.</li>
+        </ul>
+        <label class="small"><input type="checkbox" name="agree" value="1" required> I read the due diligence and these rules.</label>
+        {% if not buyer_has_wallet %}<p class="small text-warning mt-1 mb-0"><i class="bi bi-exclamation-triangle"></i> Add your wallet under <a href="{% url 'market' %}?tab=setup">Wallets &amp; shop</a> before you start selling.</p>{% endif %}
+      </div>
+      <div class="col-lg-4 text-lg-end"><button class="btn btn-success btn-lg"><i class="bi bi-bag-check"></i> Reserve for 48 hours</button></div>
+    </div>
+  </form>
+  {% endif %}
+</div>
+{% elif deals %}
+<div class="panel"><div class="panel-head"><div><h3>Buyers of this listing</h3></div></div>
+  {% for d in deals %}<div class="d-flex justify-content-between border-bottom py-2"><span>{{ d.buyer.business_name }} · {{ d.get_status_display }}</span><a href="{% url 'market_deal' d.reference %}">Open</a></div>{% endfor %}</div>
+{% endif %}
+<script>(function(){var b=document.getElementById('fc');if(!b)return;var r=document.getElementById('fcRange'),q=+b.dataset.qty,n=parseFloat(b.dataset.net)||0;
+function u(){var own=+r.value,d=n+own;document.getElementById('fcOwn').textContent=own;document.getElementById('fcDays').textContent=d>0?Math.ceil(q/d)+' days':'—';}r.addEventListener('input',u);u();})();</script>
+{% endwith %}
+{% endblock %}
