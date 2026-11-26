@@ -203,8 +203,61 @@ def settings_ctx(business):
     rows = [{'user': u, 'name': chat.display_name(u), 'initials': chat.initials(u), 'picked': u.pk in picked,
              'owner': u.pk == business.user_id, 'online': chat.online(u.pk), 'phone': u.pk in phones} for u in people]
     try:
-        callers = portal_call.caller_rows(business, 12)
+        callers = portal_call.caller_rows(business, CALLERS_SHOWN)
     except Exception:
         callers = []
-    return {'rows': rows, 'callers': callers, 'online_first': s.online_first, 'enabled': portal_call.calls_enabled(business),
+    return {'rows': rows, 'callers': _dress(callers), 'online_first': s.online_first, 'enabled': portal_call.calls_enabled(business),
+            'caller_counts': _counts(callers),
             'answering': [chat.display_name(u).split(' ')[0] for u in portal_call.handlers(business)]}
+
+
+CALLERS_SHOWN = 100          # the scrollable "Customers who called" list (newest first)
+
+
+def _dress(callers):
+    """What the scrollable list needs on top of each customer card: a time, a day heading, initials, a WhatsApp
+    number and the filter tags (here · callback · voice · missed · problem)."""
+    from django.utils import timezone
+    from django.utils.dateparse import parse_datetime
+    today = timezone.localdate()
+    for c in callers:
+        at = parse_datetime(c.get('at') or '') if isinstance(c.get('at'), str) else c.get('at')
+        c['seen'] = at
+        d = timezone.localtime(at).date() if at else None
+        c['day'] = ('Today' if d == today else 'Yesterday' if d and (today - d).days == 1
+                    else (d.strftime('%A %d %b') if d and (today - d).days < 7 else (d.strftime('%d %b %Y') if d else 'Earlier')))
+        name = (c.get('name') or '').strip()
+        c['initials'] = (''.join(w[0] for w in name.split()[:2]).upper() if name else '') or '#'
+        c['hue'] = (int(c.get('id') or 0) * 47) % 360
+        c['wa'] = portal_call.wa_digits(c.get('phone'))
+        tags = []
+        if c.get('here'):
+            tags.append('here')
+        if c.get('kind') in ('callback', 'voice'):
+            tags.append(c['kind'])
+        if c.get('outcome') in ('missed', 'declined', 'failed'):
+            tags.append('missed')
+        if c.get('why'):
+            tags.append('problem')
+        c['tags'] = ' '.join(tags)
+        c['search'] = ' '.join(str(x) for x in (name, c.get('phone'), c.get('mac'), c.get('ip'), c.get('device'),
+                                                (c.get('voucher') or {}).get('code'), (c.get('voucher') or {}).get('router')) if x).lower()
+    return callers
+
+
+def _counts(callers):
+    out = {'all': len(callers)}
+    for t in ('here', 'callback', 'voice', 'missed', 'problem'):
+        out[t] = sum(1 for c in callers if t in (c.get('tags') or '').split())
+    return out
+
+
+@login_required
+def portal_call_live(request):
+    """Every few seconds the list asks: who is on their Wi-Fi page now, and has anybody new called?"""
+    from django.core.cache import cache
+    from .models_portal_call import PortalCaller
+    business = request.user.business
+    ids = list(PortalCaller.objects.filter(business=business).values_list('pk', flat=True)[:CALLERS_SHOWN])
+    here = [i for i in ids if cache.get(portal_call.seen_key(business.pk, i))]
+    return JsonResponse({'ok': True, 'here': here, 'newest': ids[:10]})

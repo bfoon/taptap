@@ -69,7 +69,7 @@ topology_field topology_field_save topology_geo topology_labels port_blink netwo
 router_move router_move_preview router_schedules router_schedule_save router_schedule_action
 flow_lines flow_idle flow_slow flow_slow_scan flow_dhcp'''.split()
 _STUDIO = '''portal_studio portal_editor portal_qr portal_online_prepare portal_action portal_export portal_deploy portal_deploy_status voucher_designs
-voucher_design_editor voucher_design_action ads ad_save ad_action portal_call_settings'''.split()
+voucher_design_editor voucher_design_action ads ad_save ad_action portal_call_settings portal_call_live'''.split()
 
 URL_PERMS = {
     'dashboard': 'dashboard.view',

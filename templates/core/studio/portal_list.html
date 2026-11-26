@@ -55,25 +55,85 @@
     </div>
     <p class="pc-note">Nobody picked = the owner answers. Every call — answered or missed — leaves a note with the customer’s name and number in the team chat, so you can call back. Before login the router must let phones reach TapTap (the walled-garden entry TapTap adds) and, for the voice itself, your TURN relay — see the update notes.</p>
   </form>
-  {% if calls.callers %}
-  <div class="pc-callers">
-    <h4><i class="bi bi-person-lines-fill"></i> Customers who called <small>— their phone, voucher and MAC address. <b>Call back</b> rings their Wi-Fi page.</small></h4>
-    {% for c in calls.callers %}<div class="pc-caller">
-      <div class="pc-c-main"><b>{{ c.name|default:"Wi-Fi customer" }}</b>{% if c.phone %} · <a href="tel:{{ c.phone }}">{{ c.phone }}</a>{% endif %}
-        {% if c.here %}<span class="pc-here"><i class="bi bi-circle-fill"></i> on the Wi-Fi page now</span>{% endif %}
-        <small>{% if c.kind == 'voice' %}left a voice message{% elif c.kind == 'callback' %}asked to be called back{% elif c.kind == 'out' %}you called back{% else %}called{% endif %}{% if c.outcome and c.outcome != 'waiting' %} · {{ c.outcome }}{% endif %} · {{ c.calls }}×{% if c.device %} · {{ c.device }}{% endif %}</small>
-        <small>{% if c.voucher %}🎟 <a href="/vouchers/{{ c.voucher.id }}/">{{ c.voucher.code }}</a> · {{ c.voucher.plan }} · <b>{{ c.voucher.left|default:c.voucher.state }}</b>{% if c.voucher.router %} · {{ c.voucher.router }}{% endif %}{% endif %}
-          {% if c.mac %} 📱 MAC <code>{{ c.mac }}</code>{% if c.private_mac %} (private){% endif %}{% endif %}{% if c.ip %} · {{ c.ip }}{% endif %}</small>
-        {% if c.why %}<small class="pc-why">💡 {{ c.why }}</small>{% endif %}</div>
-      {% if c.can_ring %}<button type="button" class="btn btn-success btn-sm" onclick="window.TapChat&&TapChat.callCustomer({{ c.id }})"><i class="bi bi-telephone-outbound"></i> Call back</button>{% endif %}
-    </div>{% endfor %}
+  {% if calls.callers %}{% with n=calls.caller_counts %}
+  <div class="pc-callers" id="pcCallers" data-live="{% url 'portal_call_live' %}">
+    <div class="pcl-head">
+      <h4><i class="bi bi-person-lines-fill"></i> Customers who called <span class="pcl-total">{{ n.all }}</span>
+        <small>— their phone, voucher and MAC address. <b>Call back</b> rings their Wi-Fi page.</small></h4>
+      <span class="pcl-live{% if n.here %} on{% endif %}" id="pclLive" title="Customers whose Wi-Fi page is open right now — a call back rings at once"><i></i> <b id="pclHereN">{{ n.here }}</b> on the Wi-Fi page now</span>
+    </div>
+    <div class="pcl-tools">
+      <label class="pcl-search"><i class="bi bi-search"></i><input type="search" id="pclQ" placeholder="Name, phone, voucher, MAC…" aria-label="Search customers who called" autocomplete="off"></label>
+      <div class="pcl-chips" role="tablist" aria-label="Show">
+        <button type="button" class="on" data-f="">All <em>{{ n.all }}</em></button>
+        <button type="button" data-f="here"><i class="bi bi-broadcast"></i> On the page <em id="pclHereChip">{{ n.here }}</em></button>
+        <button type="button" data-f="callback"><i class="bi bi-telephone-forward"></i> Call me back <em>{{ n.callback }}</em></button>
+        <button type="button" data-f="voice"><i class="bi bi-mic"></i> Voice <em>{{ n.voice }}</em></button>
+        <button type="button" data-f="missed"><i class="bi bi-telephone-x"></i> Missed <em>{{ n.missed }}</em></button>
+        <button type="button" data-f="problem"><i class="bi bi-wrench-adjustable"></i> Has a problem <em>{{ n.problem }}</em></button>
+      </div>
+    </div>
+    <div class="pcl-new" id="pclNew" hidden><i class="bi bi-bell"></i> <span>Someone new called.</span> <a href="#portal-calls" onclick="location.reload();return false">Show</a></div>
+    <div class="pcl-scroll" id="pclScroll" tabindex="0" aria-label="Customers who called — scroll for more">
+      {% for c in calls.callers %}{% ifchanged c.day %}<div class="pcl-day">{{ c.day }}</div>{% endifchanged %}
+      <div class="pc-caller{% if c.here %} here{% endif %}" data-id="{{ c.id }}" data-tags="{{ c.tags }}" data-s="{{ c.search }}">
+        <span class="pcl-av" style="--h:{{ c.hue }}">{{ c.initials }}</span>
+        <div class="pc-c-main"><b>{{ c.name|default:"Wi-Fi customer" }}</b>{% if c.phone %} · <a href="tel:{{ c.phone|cut:' ' }}">{{ c.phone }}</a>{% endif %}
+          <span class="pc-here"><i class="bi bi-circle-fill"></i> on the Wi-Fi page now</span>
+          <small><span class="pcl-kind {{ c.kind }}">{% if c.kind == 'voice' %}<i class="bi bi-mic-fill"></i> left a voice message{% elif c.kind == 'callback' %}<i class="bi bi-telephone-forward-fill"></i> asked to be called back{% elif c.kind == 'out' %}<i class="bi bi-telephone-outbound-fill"></i> you called back{% else %}<i class="bi bi-telephone-inbound-fill"></i> called{% endif %}</span>{% if c.outcome and c.outcome != 'waiting' %} · <span class="pcl-out {{ c.outcome }}">{{ c.outcome }}</span>{% endif %}{% if c.seen %} · {{ c.seen|time:"H:i" }}{% endif %} · {{ c.calls }}×{% if c.device %} · {{ c.device }}{% endif %}</small>
+          <small>{% if c.voucher %}🎟 <a href="/vouchers/{{ c.voucher.id }}/">{{ c.voucher.code }}</a> · {{ c.voucher.plan }} · <b>{{ c.voucher.left|default:c.voucher.state }}</b>{% if c.voucher.router %} · {{ c.voucher.router }}{% endif %}{% endif %}
+            {% if c.mac %} 📱 MAC <code class="pcl-mac" title="Copy" data-copy="{{ c.mac }}">{{ c.mac }}</code>{% if c.private_mac %} (private){% endif %}{% endif %}{% if c.ip %} · {{ c.ip }}{% endif %}</small>
+          {% if c.why %}<small class="pc-why">💡 {{ c.why }}</small>{% endif %}</div>
+        <div class="pcl-acts">
+          {% if c.can_ring %}<button type="button" class="btn btn-success btn-sm" data-ring="{{ c.id }}" title="Rings their Wi-Fi page — free, over your Wi-Fi"><i class="bi bi-telephone-outbound"></i> <span>Call back</span></button>{% endif %}
+          {% if c.phone %}<a class="btn btn-sm btn-outline-secondary" href="tel:{{ c.phone|cut:' ' }}" title="Call {{ c.phone }} on your phone"><i class="bi bi-phone"></i></a>{% endif %}
+          {% if c.wa %}<a class="btn btn-sm btn-outline-success" href="https://wa.me/{{ c.wa }}" target="_blank" rel="noopener" title="WhatsApp"><i class="bi bi-whatsapp"></i></a>{% endif %}
+        </div>
+      </div>{% endfor %}
+      <div class="pcl-empty" id="pclEmpty" hidden><i class="bi bi-search"></i> Nobody matches. <a href="#" id="pclReset">Show everyone</a></div>
+    </div>
+    <div class="pcl-foot"><span id="pclShown">{{ n.all }}</span> shown{% if n.all >= 100 %} · the newest 100{% endif %} · scroll for more</div>
   </div>
-  {% endif %}
+  {% endwith %}{% endif %}
 </section>
 <style>
-.pc-callers{margin-top:1rem;border-top:1px solid #eef2f6;padding-top:.8rem}.pc-callers h4{font-size:.9rem;font-weight:800;margin:0 0 .5rem}.pc-callers h4 small{font-weight:500;color:var(--muted)}
-.pc-caller{display:flex;gap:.8rem;align-items:center;justify-content:space-between;border:1px solid #e8edf3;border-radius:12px;padding:.5rem .7rem;margin-bottom:.4rem}
-.pc-c-main small{display:block;font-size:.76rem;color:var(--muted)}.pc-c-main .pc-why{color:#8a5a00}.pc-here{font-size:.7rem;font-weight:700;color:#138453;margin-left:.4rem}.pc-here i{font-size:.45rem;vertical-align:middle}
+.pc-callers{margin-top:1rem;border-top:1px solid #eef2f6;padding-top:.8rem}
+.pcl-head{display:flex;justify-content:space-between;align-items:flex-start;gap:.6rem;flex-wrap:wrap}
+.pc-callers h4{font-size:.9rem;font-weight:800;margin:0 0 .5rem}.pc-callers h4 small{font-weight:500;color:var(--muted)}
+.pcl-total{display:inline-block;font-size:.7rem;font-weight:800;background:#eef2f6;color:#51667b;border-radius:999px;padding:.05rem .5rem;margin-left:.2rem;vertical-align:middle}
+.pcl-live{display:inline-flex;align-items:center;gap:.4rem;font-size:.74rem;font-weight:700;color:#6b7b8c;background:#f1f4f8;border-radius:999px;padding:.25rem .7rem}
+.pcl-live i{width:8px;height:8px;border-radius:50%;background:#a7b3c0}.pcl-live.on{background:#e4f7ee;color:#138453}.pcl-live.on i{background:#18a66a;animation:pclPulse 1.6s infinite}
+.pcl-tools{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.5rem}
+.pcl-search{display:flex;align-items:center;gap:.4rem;border:1px solid var(--border);border-radius:999px;padding:.25rem .75rem;flex:1 1 220px;max-width:340px;background:var(--panel,#fff)}
+.pcl-search i{color:#8a9aab}.pcl-search input{border:0;outline:0;background:transparent;font-size:.84rem;width:100%;color:inherit}
+.pcl-chips{display:flex;gap:.3rem;flex-wrap:wrap}.pcl-chips button{border:1px solid var(--border);background:var(--panel,#fff);border-radius:999px;padding:.22rem .65rem;font-size:.75rem;font-weight:700;color:#4e6479}
+.pcl-chips button em{font-style:normal;font-weight:800;margin-left:.2rem;opacity:.7}.pcl-chips button.on{background:#1769e0;border-color:#1769e0;color:#fff}
+.pcl-chips button[disabled]{opacity:.4}
+.pcl-new{display:flex;gap:.5rem;align-items:center;font-size:.8rem;background:#fff6e6;color:#8a5300;border-radius:10px;padding:.4rem .7rem;margin-bottom:.45rem;animation:pclIn .4s ease}
+.pcl-scroll{max-height:470px;overflow-y:auto;overscroll-behavior:contain;scroll-behavior:smooth;padding-right:.3rem;position:relative;
+  -webkit-mask-image:linear-gradient(#000 calc(100% - 22px),transparent);mask-image:linear-gradient(#000 calc(100% - 22px),transparent);scrollbar-width:thin}
+.pcl-scroll.end{-webkit-mask-image:none;mask-image:none}
+.pcl-scroll:focus-visible{outline:2px solid var(--bs-primary);outline-offset:2px;border-radius:12px}
+.pcl-day{position:sticky;top:0;z-index:2;font-size:.68rem;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#6b7b8c;background:var(--panel,#fff);padding:.3rem .1rem .25rem}
+.pc-caller{display:flex;gap:.7rem;align-items:center;border:1px solid #e8edf3;border-radius:12px;padding:.5rem .7rem;margin-bottom:.4rem;transition:border-color .2s,box-shadow .2s,background .2s}
+.pc-caller:hover{border-color:#cfdbe8;box-shadow:0 4px 14px #10203312}
+.pc-caller.here{border-color:#9fdcbc;background:linear-gradient(90deg,#f0fbf5,transparent 60%)}
+.pc-caller.flash{animation:pclFlash 1.4s ease}
+.pcl-av{position:relative;flex:0 0 auto;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:850;font-size:.8rem;color:hsl(var(--h) 55% 32%);background:hsl(var(--h) 70% 92%)}
+.pc-caller.here .pcl-av::after{content:'';position:absolute;inset:-4px;border-radius:50%;border:2px solid #18a66a;animation:pclRing 1.8s ease-out infinite}
+.pc-c-main{flex:1;min-width:0}.pc-c-main small{display:block;font-size:.76rem;color:var(--muted)}.pc-c-main .pc-why{color:#8a5a00}
+.pc-here{display:none;font-size:.7rem;font-weight:700;color:#138453;margin-left:.4rem}.pc-here i{font-size:.45rem;vertical-align:middle}.pc-caller.here .pc-here{display:inline}
+.pcl-kind.callback{color:#1558b8;font-weight:700}.pcl-kind.voice{color:#6d28d9;font-weight:700}.pcl-out.missed,.pcl-out.failed{color:#c02b2b;font-weight:700}.pcl-out.answered{color:#138453}
+.pcl-mac{cursor:copy;border-radius:5px;padding:0 .2rem}.pcl-mac:hover{background:#eef4ff}.pcl-mac.copied{background:#e4f7ee;color:#138453}
+.pcl-acts{display:flex;gap:.3rem;flex:0 0 auto}
+.pcl-empty{text-align:center;color:var(--muted);font-size:.84rem;padding:1.2rem}
+.pcl-foot{font-size:.7rem;color:#8a9aab;margin-top:.35rem;text-align:right}
+@keyframes pclPulse{50%{opacity:.35}}@keyframes pclRing{0%{transform:scale(.9);opacity:.9}100%{transform:scale(1.35);opacity:0}}
+@keyframes pclFlash{0%{background:#e4f7ee}100%{background:transparent}}@keyframes pclIn{from{opacity:0;transform:translateY(-4px)}}
+@media(max-width:640px){.pc-caller{flex-wrap:wrap}.pcl-acts{width:100%;justify-content:flex-end}.pcl-scroll{max-height:62vh}}
+html[data-theme="dark"] .pc-caller{border-color:#343c47}html[data-theme="dark"] .pc-caller.here{background:linear-gradient(90deg,#10261b,transparent 60%);border-color:#1f4a33}
+html[data-theme="dark"] .pcl-day{background:#1f242b}html[data-theme="dark"] .pcl-chips button,html[data-theme="dark"] .pcl-search{background:#1f242b;border-color:#343c47;color:#c9d4df}
+@media(prefers-reduced-motion:reduce){.pcl-live.on i,.pc-caller.here .pcl-av::after,.pc-caller.flash{animation:none}.pcl-scroll{scroll-behavior:auto}}
 .pc-panel{background:#fff;border:1px solid var(--border);border-radius:18px;padding:1rem 1.1rem;margin:0 0 1.2rem}
 .pc-head{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:flex-start}.pc-head h3{font-size:1rem;font-weight:800;margin:0 0 .2rem}.pc-head p{font-size:.82rem;color:var(--muted);margin:0;max-width:680px}
 .pc-state{font-size:.72rem;font-weight:700;border-radius:999px;padding:.25rem .7rem;background:#f1f4f8;color:#5b6b7c}.pc-state.on{background:#e4f7ee;color:#138453}.pc-state i{font-size:.5rem;vertical-align:middle}
@@ -126,6 +186,46 @@
 <script id="pagesData" type="application/json">{ {% for p in pages %}"p{{ p.id }}":{{ p.config_json|safe }}{% if not forloop.last %},{% endif %}{% endfor %} }</script>
 {% endblock %}
 {% block scripts %}
+<script>
+/* Customers who called: scroll, search, filter, live "on the Wi-Fi page now", copy a MAC, call back */
+(function(){
+  var box=document.getElementById('pcCallers'); if(!box) return;
+  var sc=document.getElementById('pclScroll'), q=document.getElementById('pclQ'), rows=[].slice.call(sc.querySelectorAll('.pc-caller')), f='';
+  function apply(){
+    var t=(q.value||'').trim().toLowerCase(), shown=0;
+    rows.forEach(function(r){var ok=(!f||(' '+r.dataset.tags+' ').indexOf(' '+f+' ')>=0)&&(!t||r.dataset.s.indexOf(t)>=0);r.hidden=!ok;if(ok)shown++;});
+    [].forEach.call(sc.querySelectorAll('.pcl-day'),function(d){var n=d.nextElementSibling,any=false;while(n&&!n.classList.contains('pcl-day')){if(n.classList.contains('pc-caller')&&!n.hidden){any=true;break;}n=n.nextElementSibling;}d.hidden=!any;});
+    document.getElementById('pclEmpty').hidden=shown>0;document.getElementById('pclShown').textContent=shown;edge();
+  }
+  function edge(){sc.classList.toggle('end',sc.scrollHeight-sc.scrollTop-sc.clientHeight<4);}
+  sc.addEventListener('scroll',edge,{passive:true});
+  q.addEventListener('input',apply);
+  box.querySelectorAll('.pcl-chips button').forEach(function(b){b.addEventListener('click',function(){
+    box.querySelectorAll('.pcl-chips button').forEach(function(x){x.classList.toggle('on',x===b);});f=b.dataset.f;sc.scrollTop=0;apply();});});
+  document.getElementById('pclReset').addEventListener('click',function(e){e.preventDefault();q.value='';box.querySelector('.pcl-chips button').click();});
+  sc.addEventListener('click',function(e){
+    var m=e.target.closest('[data-copy]');
+    if(m){(navigator.clipboard?navigator.clipboard.writeText(m.dataset.copy):Promise.reject()).then(function(){m.classList.add('copied');var o=m.textContent;m.textContent='copied ✓';setTimeout(function(){m.textContent=o;m.classList.remove('copied');},1200);}).catch(function(){});return;}
+    var r=e.target.closest('[data-ring]');
+    if(r){var id=+r.dataset.ring;r.disabled=true;r.querySelector('span').textContent='Ringing…';setTimeout(function(){r.disabled=false;r.querySelector('span').textContent='Call back';},8000);
+      if(window.TapChat&&TapChat.callCustomer)TapChat.callCustomer(id);else window.open('/chat/call/?customer='+id,'ttcall','popup=yes,width=480,height=760');}
+  });
+  // live: who has their Wi-Fi page open (a call back rings at once) and whether someone new called
+  var known={};rows.forEach(function(r){known[r.dataset.id]=1;});
+  function live(){
+    if(document.hidden){setTimeout(live,15000);return;}
+    fetch(box.dataset.live,{credentials:'same-origin'}).then(function(x){return x.json();}).then(function(d){
+      if(!d.ok)return;var here={};(d.here||[]).forEach(function(i){here[i]=1;});
+      rows.forEach(function(r){var was=r.classList.contains('here'),now=!!here[r.dataset.id];
+        if(was!==now){r.classList.toggle('here',now);r.dataset.tags=(r.dataset.tags.replace(/\bhere\b/,'').trim()+(now?' here':'')).trim();if(now){r.classList.remove('flash');void r.offsetWidth;r.classList.add('flash');}}});
+      var n=(d.here||[]).length;document.getElementById('pclHereN').textContent=n;document.getElementById('pclHereChip').textContent=n;document.getElementById('pclLive').classList.toggle('on',n>0);
+      var top=(d.newest||[])[0];if(top&&rows[0]&&String(top)!==rows[0].dataset.id){document.getElementById('pclNew').hidden=false;document.querySelector('#pclNew span').textContent=known[top]?'A customer called again.':'Someone new called.';}
+      if(f)apply();
+    }).catch(function(){}).then(function(){setTimeout(live,15000);});
+  }
+  setTimeout(live,15000);apply();
+})();
+</script>
 
 <script>
 (function(){
