@@ -1,0 +1,165 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}{{ twin.primary.name }} ⇄ {{ twin.standby.name }} — Router twins{% endblock %}
+{% block heading %}Router twins{% endblock %}
+{% block extra_head %}<link href="{% static 'router_twin/twin.css' %}?v=1" rel="stylesheet">{% endblock %}
+{% block content %}
+<nav class="tw-tabs"><a href="{% url 'router_twins' %}?tab=twins"><i class="bi bi-arrow-left"></i> All twins</a><a href="{% url 'router_twins' %}?tab=migrate&source={{ twin.primary_id }}&target={{ twin.standby_id }}"><i class="bi bi-arrow-left-right"></i> Migrate</a></nav>
+
+<section class="tw-hero" id="tw" data-state="{% url 'router_twin_state' twin.pk %}" data-action="{% url 'router_twin_action' twin.pk %}">
+  <div>
+    <div class="tw-pair mb-2">
+      <span class="tw-node{% if twin.primary.status == 'Online' %} on{% endif %}" id="nodeMain"><i class="bi bi-router"></i> {{ twin.primary.name }} <em>main · {% if primary_link %}TapTap Link{% else %}API{% endif %}</em></span>
+      <i class="bi bi-arrow-left-right"></i>
+      <span class="tw-node{% if twin.standby.status == 'Online' %} on{% endif %}" id="nodeStandby"><i class="bi bi-router"></i> {{ twin.standby.name }} <em>standby · {% if standby_link %}TapTap Link{% else %}API{% endif %}</em></span>
+    </div>
+    {% if open_event and open_event.kind == 'failover' %}
+      <h2><i class="bi bi-life-preserver"></i> {{ twin.standby.name }} is standing in</h2>
+      <p>{{ open_event.detail }} {{ open_event.activated }} voucher(s) have started on the standby so far. When {{ twin.primary.name }} is back TapTap tells you and hands over.</p>
+    {% elif open_event %}
+      <h2><i class="bi bi-exclamation-triangle"></i> The standby is offline</h2>
+      <p>{{ twin.primary.name }} has no backup until {{ twin.standby.name }} answers again. TapTap brings it up to date then.</p>
+    {% else %}
+      <h2 id="verdict">{{ ready.verdict }}</h2>
+      <p>{{ twin.standby.name }} holds {{ ready.kinds.user.ready }} of {{ ready.kinds.user.total }} vouchers and users{% if ready.in_use %} — {{ ready.in_use_ready }} of the {{ ready.in_use }} in use right now{% endif %}. Only changes travel; the standby is updated in its normal rhythm.</p>
+    {% endif %}
+    <div class="d-flex gap-2 flex-wrap mt-2">
+      <button class="btn btn-sm btn-light" data-act="mirror" type="button"><i class="bi bi-lightning-charge"></i> Mirror now</button>
+      {% if twin.paused %}<button class="btn btn-sm btn-success" data-act="resume" type="button"><i class="bi bi-play-circle"></i> Resume</button>
+      {% else %}<button class="btn btn-sm btn-outline-light" data-act="pause" type="button"><i class="bi bi-pause-circle"></i> Pause</button>{% endif %}
+      <button class="btn btn-sm btn-outline-light" data-act="portal" type="button"><i class="bi bi-window"></i> Same login page on the standby</button>
+    </div>
+    <div class="tw-mini mt-2" id="twLast" style="color:#9fb3c8">{% if twin.last_mirror_at %}Last update {{ twin.last_mirror_at|timesince }} ago.{% endif %}{% if twin.last_error %} Last problem: {{ twin.last_error }}{% endif %}</div>
+  </div>
+  <div class="text-center">
+    <div class="tw-ring {{ ready.tone }} mx-auto" style="width:170px;height:170px" id="ring"><svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="42"/><circle class="fg" cx="50" cy="50" r="42" stroke-dasharray="264" stroke-dashoffset="264" data-pct="{{ ready.percent }}"/></svg><b style="font-size:2rem;color:#fff"><span id="pct">{{ ready.percent }}</span>%</b></div>
+    <div class="tw-mini mt-1" style="color:#9fb3c8">ready to take over</div>
+  </div>
+</section>
+
+<div class="row g-3">
+  <div class="col-xl-7">
+    <div class="tw-card">
+      <h3><i class="bi bi-clipboard-data"></i> What the standby holds</h3>
+      <p class="lead">Green: on the standby. Blue: on its way. Amber: will be sent again. Red: a name already used on the standby (never overwritten).</p>
+      <div id="kinds">
+      {% with k=ready.kinds %}
+        <div class="tw-kind"><b>Vouchers &amp; users</b><div><div class="tw-bar"><i class="r" style="width:{% widthratio k.user.ready k.user.total|default:1 100 %}%"></i><i class="q" style="width:{% widthratio k.user.queued k.user.total|default:1 100 %}%"></i><i class="e" style="width:{% widthratio k.user.errors k.user.total|default:1 100 %}%"></i><i class="c" style="width:{% widthratio k.user.conflicts k.user.total|default:1 100 %}%"></i></div><small>{{ k.user.ready }} on the standby · {{ k.user.queued }} on the way · {{ k.user.to_send }} to send{% if k.user.errors %} · {{ k.user.errors }} again{% endif %}{% if k.user.conflicts %} · {{ k.user.conflicts }} name clash{% endif %}</small></div><span class="text-end fw-bold">{{ k.user.ready }} / {{ k.user.total }}</span></div>
+        <div class="tw-kind"><b>Profiles</b><div><div class="tw-bar"><i class="r" style="width:{% widthratio k.profile.ready k.profile.total|default:1 100 %}%"></i><i class="q" style="width:{% widthratio k.profile.queued k.profile.total|default:1 100 %}%"></i><i class="e" style="width:{% widthratio k.profile.errors k.profile.total|default:1 100 %}%"></i></div><small>{{ k.profile.ready }} on the standby · {{ k.profile.to_send }} to send</small></div><span class="text-end fw-bold">{{ k.profile.ready }} / {{ k.profile.total }}</span></div>
+        <div class="tw-kind"><b>IP bindings</b><div><div class="tw-bar"><i class="r" style="width:{% widthratio k.binding.ready k.binding.total|default:1 100 %}%"></i><i class="q" style="width:{% widthratio k.binding.queued k.binding.total|default:1 100 %}%"></i><i class="e" style="width:{% widthratio k.binding.errors k.binding.total|default:1 100 %}%"></i><i class="c" style="width:{% widthratio k.binding.conflicts k.binding.total|default:1 100 %}%"></i></div><small>{{ k.binding.ready }} on the standby · {{ k.binding.to_send }} to send{% if k.binding.conflicts %} · {{ k.binding.conflicts }} kept as the standby has them{% endif %}</small></div><span class="text-end fw-bold">{{ k.binding.ready }} / {{ k.binding.total }}</span></div>
+      {% endwith %}
+      </div>
+      <div class="tw-stat mt-3">
+        <div><b>{{ ready.in_use_ready }} / {{ ready.in_use }}</b><span>vouchers in use, ready on the standby</span></div>
+        <div><b>{{ ready.seen_on_standby }}</b><span>seen in the standby's own list</span></div>
+        <div><b>{{ ready.skipped_count }}</b><span>not copied (see below)</span></div>
+      </div>
+      {% if ready.skipped or problems %}
+      <details class="mt-3"><summary class="tw-mini fw-bold">Not on the standby, and why</summary>
+        <div class="tw-log">
+          {% for name, why in ready.skipped %}<div class="warn"><i class="bi bi-exclamation-triangle-fill"></i><span><b>{{ name }}</b> — {{ why }}</span></div>{% endfor %}
+          {% for p in problems %}<div class="{% if p.status == 'conflict' %}bad{% else %}warn{% endif %}"><i class="bi {% if p.status == 'conflict' %}bi-x-circle-fill{% else %}bi-arrow-repeat{% endif %}"></i><span><b>{{ p.key }}</b> ({{ p.get_kind_display }}) — {{ p.note|default:p.get_status_display }}</span></div>{% endfor %}
+        </div>
+      </details>
+      {% endif %}
+    </div>
+
+    <div class="tw-card mt-3">
+      <h3><i class="bi bi-signpost-2"></i> When {{ twin.primary.name }} stops</h3>
+      {% if twin.switch_over == 'ssid' %}
+      <ol class="tw-steps mt-2">
+        <li><span>Give the access points of <b>both</b> routers the <b>same Wi-Fi name</b> (and password, if any).</span></li>
+        <li><span>Press <b>Same login page on the standby</b> above, so customers see the page they know.</span></li>
+        <li><span>When {{ twin.primary.name }} goes quiet, phones join {{ twin.standby.name }} by themselves and log in with the code they have. Their time keeps counting from where it was.</span></li>
+      </ol>
+      {% elif twin.switch_over == 'vrrp' %}
+      <p class="lead mb-2">Both routers on the same customer network. The main router answers on a shared gateway address; the standby takes it over within seconds when the main one stops (VRRP). Test it out of business hours — TikLab can simulate it first.</p>
+      <form id="vrrp" class="row g-2" data-url="{% url 'router_twin_vrrp' twin.pk %}">
+        <div class="col-sm-4"><label class="tw-mini fw-bold">LAN interface</label><input class="form-control form-control-sm" name="interface" value="{{ twin.vrrp_interface|default:'bridge' }}"></div>
+        <div class="col-sm-4"><label class="tw-mini fw-bold">Shared gateway address</label><input class="form-control form-control-sm" name="address" value="{{ twin.vrrp_address }}" placeholder="10.5.50.254"></div>
+        <div class="col-sm-2"><label class="tw-mini fw-bold">VRRP id</label><input class="form-control form-control-sm" name="vrid" value="{{ twin.vrrp_id }}"></div>
+        <div class="col-sm-2 d-flex align-items-end"><button class="btn btn-sm btn-primary w-100">Write</button></div>
+        <div class="col-12"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="dhcp" id="vDhcp"><label class="form-check-label tw-mini" for="vDhcp">Also make DHCP hand out the shared address as gateway and DNS (give each router's DHCP pool a different half of the range)</label></div></div>
+      </form>
+      <div id="vrrpOut" class="mt-2"></div>
+      {% else %}
+      <ol class="tw-steps mt-2">
+        <li><span>Keep {{ twin.standby.name }} powered and online (TapTap keeps it up to date over its own internet line).</span></li>
+        <li><span>When {{ twin.primary.name }} fails, plug the customers' cable into {{ twin.standby.name }}.</span></li>
+        <li><span>Customers log in with the code they have — nothing to re-print.</span></li>
+      </ol>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-xl-5">
+    <div class="tw-card">
+      <h3><i class="bi bi-activity"></i> What happened</h3>
+      <div class="tw-ev mt-2" id="events">
+        {% for e in events %}<div class="{{ e.kind }}"><i class="bi {% if e.kind == 'failover' %}bi-life-preserver{% elif e.kind == 'standby_down' %}bi-exclamation-triangle{% elif e.kind == 'promoted' %}bi-trophy{% elif e.kind == 'mirror' %}bi-lightning-charge{% elif e.kind == 'paused' %}bi-pause-circle{% elif e.kind == 'resumed' %}bi-play-circle{% else %}bi-link-45deg{% endif %}"></i><span><b>{{ e.get_kind_display }}</b> {{ e.detail }}{% if e.kind == 'failover' %} {{ e.activated }} voucher(s) started on the standby.{% endif %}<small>{{ e.started_at|date:"d M H:i" }}{% if e.ended_at %} → {{ e.ended_at|date:"d M H:i" }}{% elif e.kind == 'failover' or e.kind == 'standby_down' %} · still going{% endif %}</small></span></div>
+        {% empty %}<div class="tw-mini">Nothing yet.</div>{% endfor %}
+      </div>
+    </div>
+
+    <form class="tw-card mt-3" method="post" action="{% url 'router_twin_action' twin.pk %}">{% csrf_token %}<input type="hidden" name="action" value="settings">
+      <h3><i class="bi bi-sliders"></i> Keep in step</h3>
+      <div class="tw-checks mt-2">
+        <label><input type="checkbox" name="copy_vouchers"{% if twin.copy_vouchers %} checked{% endif %}><span>TapTap vouchers</span></label>
+        <label><input type="checkbox" name="copy_members"{% if twin.copy_members %} checked{% endif %}><span>Members</span></label>
+        <label><input type="checkbox" name="copy_router_users"{% if twin.copy_router_users %} checked{% endif %}><span>Users made on the router</span></label>
+        <label><input type="checkbox" name="copy_profiles"{% if twin.copy_profiles %} checked{% endif %}><span>User profiles</span></label>
+        <label><input type="checkbox" name="copy_bindings"{% if twin.copy_bindings %} checked{% endif %}><span>IP bindings</span></label>
+      </div>
+      <div class="mt-3 mb-1 tw-mini fw-bold text-uppercase">How customers reach the standby</div>
+      <select class="form-select form-select-sm" name="switch_over">{% for v, l in switch_choices %}<option value="{{ v }}"{% if twin.switch_over == v %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+      <div class="text-end mt-2"><button class="btn btn-sm btn-primary">Save</button></div>
+    </form>
+
+    <div class="tw-card tw-danger mt-3">
+      <h3><i class="bi bi-arrow-repeat"></i> Make {{ twin.standby.name }} the main router</h3>
+      <p class="lead">When {{ twin.primary.name }} is gone for good: its vouchers and members move to {{ twin.standby.name }}, and {{ twin.primary.name }} becomes the standby if it ever comes back.</p>
+      <form method="post" action="{% url 'router_twin_action' twin.pk %}" class="d-flex gap-2 flex-wrap">{% csrf_token %}<input type="hidden" name="action" value="promote">
+        <input class="form-control form-control-sm" style="max-width:240px" name="confirm" placeholder="Type “{{ twin.standby.name }}”" autocomplete="off" required>
+        <button class="btn btn-sm btn-warning">Swap roles</button></form>
+      <h3 class="mt-4"><i class="bi bi-x-octagon"></i> End the twin</h3>
+      <form method="post" action="{% url 'router_twin_action' twin.pk %}" class="d-flex gap-2 flex-wrap align-items-center">{% csrf_token %}<input type="hidden" name="action" value="unpair">
+        <input class="form-control form-control-sm" style="max-width:240px" name="confirm" placeholder="Type “{{ twin.primary.name }}”" autocomplete="off" required>
+        <div class="form-check m-0"><input class="form-check-input" type="checkbox" name="clean" id="unClean" checked><label class="form-check-label tw-mini" for="unClean">Take the copies off {{ twin.standby.name }}</label></div>
+        <button class="btn btn-sm btn-outline-danger">End</button></form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  function csrf(){var m=document.cookie.match(/csrftoken=([^;]+)/);if(m)return decodeURIComponent(m[1]);var i=document.querySelector('input[name=csrfmiddlewaretoken]');return i?i.value:'';}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  var tw=document.getElementById('tw');
+  function ring(p){var c=document.querySelector('#ring .fg');if(c)c.style.strokeDashoffset=264-264*(+p||0)/100;var t=document.getElementById('pct');if(t)t.textContent=p;}
+  ring({{ ready.percent }});
+  document.querySelectorAll('[data-act]').forEach(function(b){b.addEventListener('click',function(){
+    var old=b.innerHTML;b.disabled=true;b.innerHTML='<span class="spinner-border spinner-border-sm"></span>';
+    fetch(tw.dataset.action,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRFToken':csrf()},body:JSON.stringify({action:b.dataset.act})})
+      .then(function(r){return r.json();}).then(function(d){b.innerHTML=old;b.disabled=false;document.getElementById('twLast').textContent=d.message||'';
+        if(b.dataset.act==='pause'||b.dataset.act==='resume')location.reload();});
+  });});
+  (function poll(){setTimeout(function(){fetch(tw.dataset.state,{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+    if(!d.ok)return;ring(d.ready.percent);
+    var r=document.getElementById('ring');r.className='tw-ring '+d.ready.tone+' mx-auto';
+    var v=document.getElementById('verdict');if(v)v.textContent=d.ready.verdict;
+    document.getElementById('nodeMain').classList.toggle('on',d.primary.online);document.getElementById('nodeStandby').classList.toggle('on',d.standby.online);
+  }).catch(function(){}).then(poll);},15000);})();
+  var f=document.getElementById('vrrp');
+  if(f)f.addEventListener('submit',function(e){e.preventDefault();
+    fetch(f.dataset.url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRFToken':csrf()},
+      body:JSON.stringify({interface:f.interface.value,address:f.address.value,vrid:f.vrid.value,dhcp:f.dhcp.checked})}).then(function(r){return r.json();}).then(function(d){
+      var out=document.getElementById('vrrpOut');
+      if(!d.ok){out.innerHTML='<div class="tw-warn bad"><i class="bi bi-x-octagon"></i><span>'+esc(d.message)+'</span></div>';return;}
+      out.innerHTML=[['On {{ twin.primary.name|escapejs }} (main)',d.primary],['On {{ twin.standby.name|escapejs }} (standby)',d.standby],['Undo — on both',d.undo]].map(function(x,i){
+        return '<div class="tw-code"><b class="tw-mini">'+esc(x[0])+'</b><button class="btn btn-sm btn-light" type="button" data-copy="'+i+'"><i class="bi bi-clipboard"></i></button><pre>'+esc(x[1])+'</pre></div>';}).join('');
+      out.querySelectorAll('[data-copy]').forEach(function(b){b.addEventListener('click',function(){var t=b.nextElementSibling.textContent;(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(function(){b.innerHTML='<i class="bi bi-check2"></i>';}).catch(function(){});});});
+    });
+  });
+})();
+</script>
+{% endblock %}

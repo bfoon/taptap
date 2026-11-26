@@ -342,3 +342,21 @@ def investor_tick():
     """Investors: book finished days of earnings, then send the daily summaries that are due (core/investors.py)."""
     from .investors import tick
     return tick()
+
+
+@shared_task(ignore_result=True)
+def router_migration_task(migration_id):
+    """Router › Migrate: bring profiles, vouchers, members, router users and bindings to another router (core/router_migrate)."""
+    from .router_migrate import run
+    run(migration_id)
+
+
+@shared_task(ignore_result=True)
+def router_twin_mirror_task(twin_id, user_id=None):
+    """Router twins › Mirror now: bring the standby up to date at once (core/router_twin)."""
+    from django.contrib.auth.models import User
+    from .models_router_twin import RouterTwin
+    from .router_twin import mirror_now
+    twin = RouterTwin.objects.select_related('primary', 'standby', 'business').filter(pk=twin_id).first()
+    if twin is not None:
+        mirror_now(twin, user=User.objects.filter(pk=user_id).first() if user_id else None)

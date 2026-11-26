@@ -1521,3 +1521,4 @@ from .models_tiklab import TikLabDownload  # noqa: E402,F401
 from .models_app_download import AppDownload  # noqa: E402,F401
 from .models_partners import AgentLink, AgentProgram, AgentRetail, AgentTopUp, PartnerProfile  # noqa: E402,F401
 from .models_market import MarketDeal, MarketListing, MarketOrder, MarketPayout, MarketSeller, MarketShop, MarketVettingEvent, MarketWallet, RouterOutage  # noqa: E402,F401
+from .models_router_twin import RouterMigration, RouterTwin, RouterTwinEvent, RouterTwinItem  # noqa: E402,F401

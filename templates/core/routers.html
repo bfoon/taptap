@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}
+{% extends 'core/base.html' %}{% load router_twin_tags %}
 {% block title %}Routers — TapTap{% endblock %}
 {% block heading %}MikroTik Routers{% endblock %}
 {% block extra_head %}<style>
@@ -106,7 +106,7 @@ html[data-theme="dark"] .rc-error{background:#3a2a17;color:#f2b46f}
 <div class="row g-4">
   <div class="col-xl-8">
     <div class="panel">
-      <div class="panel-head"><div><h3>Connected infrastructure</h3><p>Each router clearly shows whether it is managed through TapTap Link or Direct API.</p></div><div class="d-flex gap-2"><a href="{% url 'router_schedules' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-calendar2-check"></i> Schedules</a><a href="{% url 'router_inventory' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-database-check"></i> Inventory</a><a href="{% url 'topology' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-diagram-3"></i> Topology</a></div></div>
+      <div class="panel-head"><div><h3>Connected infrastructure</h3><p>Each router clearly shows whether it is managed through TapTap Link or Direct API.</p></div><div class="d-flex gap-2"><a href="{% url 'router_twins' %}" class="btn btn-sm btn-outline-primary" title="Move to a new router, or keep a standby that has everything"><i class="bi bi-copy"></i> Migrate &amp; twins</a><a href="{% url 'router_schedules' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-calendar2-check"></i> Schedules</a><a href="{% url 'router_inventory' %}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-database-check"></i> Inventory</a><a href="{% url 'topology' %}" class="btn btn-sm btn-outline-primary"><i class="bi bi-diagram-3"></i> Topology</a></div></div>
       <div class="router-list-scroll scroll-list">
       {% for r in routers %}
       <article class="rc{% if r.status == 'Online' %} is-on{% endif %}" data-router-card="{{ r.id }}">
@@ -141,6 +141,8 @@ html[data-theme="dark"] .rc-error{background:#3a2a17;color:#f2b46f}
                 <li><a class="dropdown-item" href="{% url 'router_schedules' %}?router={{ r.id }}"><i class="bi bi-calendar2-check"></i> Restart / shutdown schedule</a></li>
                 <li><a class="dropdown-item" href="{% url 'network_tools' %}?router={{ r.id }}"><i class="bi bi-speedometer2"></i> Network tools</a></li>
                 <li><a class="dropdown-item" href="{% url 'router_inventory' %}"><i class="bi bi-database-check"></i> Inventory</a></li>
+                <li><a class="dropdown-item" href="{% url 'router_twins' %}?tab=migrate&amp;source={{ r.id }}"><i class="bi bi-arrow-left-right text-primary"></i> Migrate to another router</a></li>
+                <li><a class="dropdown-item" href="{% url 'router_twins' %}?tab=twins"><i class="bi bi-copy text-primary"></i> Twin with a standby</a></li>
                 <li><button type="button" class="dropdown-item" data-move-router="{{ r.id }}" data-move-name="{{ r.name }}" data-preview-url="{% url 'router_move_preview' r.id %}" data-move-url="{% url 'router_move' r.id %}"><i class="bi bi-box-arrow-right"></i> Move to another business</button></li>
                 <li><hr class="dropdown-divider"></li>
                 <li><a class="dropdown-item text-danger" href="{% url 'router_delete' r.id %}" onclick="return confirm('Delete {{ r.name|escapejs }} from TapTap?')"><i class="bi bi-trash3"></i> Delete from TapTap</a></li>
@@ -168,6 +170,7 @@ html[data-theme="dark"] .rc-error{background:#3a2a17;color:#f2b46f}
             <a class="rc-chip" href="{% url 'router_control' r.id %}"><i class="bi bi-sliders"></i> Control</a>
           {% endif %}
           <a class="rc-chip" href="{% url 'config_studio' r.id %}" title="Build this router's configuration from tiles, test it on a virtual router, then deploy"><i class="bi bi-grid-1x2"></i> Studio</a>
+          {% twin_role r as tr %}{% if tr %}<a class="rc-chip link" href="{% url 'router_twin_detail' tr.pk %}" title="Router twins"><i class="bi {% if tr.failover %}bi-life-preserver{% else %}bi-copy{% endif %}"></i> {% if tr.role == 'main' %}Standby: {{ tr.other }}{% else %}Standby of {{ tr.other }}{% endif %}</a>{% endif %}
           {% with s=r.next_schedule %}
           <a class="rc-chip sched{% if s %} set{% if s.action == 'shutdown' %} off{% endif %}{% endif %}" href="{% url 'router_schedules' %}?router={{ r.id }}" title="Restart or shut down on a timetable">
             {% if s %}<i class="bi {% if s.action == 'shutdown' %}bi-power{% else %}bi-bootstrap-reboot{% endif %}"></i> {{ s.get_action_display }} · {{ s.next_at|date:"D H:i" }}

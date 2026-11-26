@@ -1,0 +1,265 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}Migrate & twin routers — TapTap{% endblock %}
+{% block heading %}Migrate & twin routers{% endblock %}
+{% block extra_head %}<link href="{% static 'router_twin/twin.css' %}?v=1" rel="stylesheet">{% endblock %}
+{% block content %}
+<nav class="tw-tabs" aria-label="Migrate or twin">
+  <a href="?tab=migrate" class="{% if tab == 'migrate' %}on{% endif %}"><i class="bi bi-arrow-left-right"></i> Migrate <small>one router to another</small></a>
+  <a href="?tab=twins" class="{% if tab == 'twins' %}on{% endif %}"><i class="bi bi-copy"></i> Twins <small>a standby that has everything</small>{% if twins %} · {{ twins|length }}{% endif %}</a>
+  <a href="{% url 'routers' %}" class="ms-auto"><i class="bi bi-router"></i> Routers</a>
+</nav>
+
+{% if tab == 'migrate' %}
+<section class="tw-hero">
+  <div>
+    <h2>Move to a new MikroTik without starting again</h2>
+    <p>Bring the vouchers, members, profiles, users made on the router and IP bindings to another router — customers keep their codes and the time they have left. The whole configuration can follow too, from a backup.</p>
+    <div class="tw-points"><span><i class="bi bi-check2-circle"></i> Codes keep working</span><span><i class="bi bi-check2-circle"></i> Time left is kept</span><span><i class="bi bi-check2-circle"></i> Preview before anything moves</span></div>
+  </div>
+  <svg class="tw-scene" viewBox="0 0 440 170" role="img" aria-label="Vouchers travelling from the old router to the new one">
+    <rect class="box" x="14" y="46" width="130" height="78" rx="16"/><text x="30" y="80">Old router</text><text class="s" x="30" y="100">everything it holds</text>
+    <rect class="box sb" x="296" y="46" width="130" height="78" rx="16"/><text x="312" y="80">New router</text><text class="s" x="312" y="100">ready for customers</text>
+    <path class="wire" d="M144 85 C 210 30, 230 140, 296 85"/><path class="pulse" d="M144 85 C 210 30, 230 140, 296 85"/><path class="pulse b" d="M144 85 C 210 30, 230 140, 296 85"/>
+    <circle class="led" cx="132" cy="58" r="5"/><circle class="led" cx="414" cy="58" r="5"/>
+  </svg>
+</section>
+
+<div class="row g-3">
+  <div class="col-xl-8">
+    <div class="tw-card" id="mig" data-preview="{% url 'router_migrate_preview' %}" data-start="{% url 'router_migrate_start' %}" data-status="{% url 'router_migrate_status' 0 %}">
+      <h3><i class="bi bi-1-circle"></i> From which router, to which router</h3>
+      <p class="lead">Nothing changes until you press Start.</p>
+      <div class="tw-route">
+        <div><label for="migSource">From (old)</label>
+          <select id="migSource">{% for r in routers %}<option value="{{ r.id }}"{% if pre_source == r.id|stringformat:'s' %} selected{% endif %}>{{ r.name }} — {{ r.status }}{% if r.role %} ({{ r.role }}){% endif %}</option>{% endfor %}</select></div>
+        <div class="tw-arrow" id="migArrow"><i class="bi bi-arrow-right"></i></div>
+        <div><label for="migTarget">To (new)</label>
+          <select id="migTarget">{% for r in routers %}<option value="{{ r.id }}"{% if pre_target == r.id|stringformat:'s' or not pre_target and forloop.counter == 2 %} selected{% endif %}>{{ r.name }} — {{ r.status }}{% if r.role %} ({{ r.role }}){% endif %}</option>{% endfor %}</select></div>
+      </div>
+      {% if routers|length < 2 %}<div class="tw-warn warn mt-3"><i class="bi bi-info-circle"></i><span>Add the new router to TapTap first (Routers › Add router) — then come back here.</span></div>{% endif %}
+
+      <h3 class="mt-4"><i class="bi bi-2-circle"></i> What to bring</h3>
+      <div class="tw-parts" id="migParts">
+        {% for key, label, icon, help in parts %}
+        <label class="tw-part{% if key in default_parts %} on{% endif %}" data-part="{{ key }}">
+          <input type="checkbox" value="{{ key }}"{% if key in default_parts %} checked{% endif %}>
+          <i class="bi {{ icon }}"></i><span><b>{{ label }}</b><small>{{ help }}</small></span><span class="n" data-count="{{ key }}">…</span>
+        </label>
+        {% endfor %}
+      </div>
+      <div id="migWarn"></div>
+
+      <div class="tw-go">
+        <div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="migClean"><label class="form-check-label" for="migClean">Take the moved vouchers off the old router afterwards</label></div>
+        <input type="text" id="migConfirm" placeholder="Type the new router's name" autocomplete="off" aria-label="Type the new router's name to confirm">
+        <button class="btn btn-primary btn-sm ms-auto" id="migGo" type="button" disabled><i class="bi bi-rocket-takeoff"></i> Start the migration</button>
+      </div>
+      <div id="migRun" hidden><div class="tw-run" id="migBar"><i></i></div><div class="tw-log" id="migLog"></div></div>
+    </div>
+  </div>
+
+  <div class="col-xl-4">
+    <div class="tw-card" id="cfg" data-url="{% url 'router_migrate_config' %}" data-sections="{% url 'router_migrate_sections' %}">
+      <h3><i class="bi bi-hdd-stack"></i> The whole configuration</h3>
+      <p class="lead">Interfaces, addresses, DHCP, firewall, hotspot server… from a backup of the old router kept on the TapTap server.</p>
+      <div id="cfgWarn"></div>
+      <div class="d-flex gap-2 flex-wrap my-2"><button class="btn btn-sm btn-outline-primary" type="button" id="cfgBackup"><i class="bi bi-cloud-arrow-up"></i> Back up the old router now</button><button class="btn btn-sm btn-light" type="button" id="cfgReload"><i class="bi bi-arrow-clockwise"></i></button></div>
+      <div class="tw-bk" id="cfgList"><div class="tw-mini">Choose the routers on the left.</div></div>
+      <div id="cfgRestore" class="mt-2"></div>
+      <form id="cfgSec" method="post" action="{% url 'router_migrate_sections' %}" hidden>
+        {% csrf_token %}<input type="hidden" name="backup"><input type="hidden" name="target">
+        <h3 class="mt-3" style="font-size:.9rem"><i class="bi bi-ui-checks"></i> Only some sections</h3>
+        <p class="tw-mini mb-1">A script you import on the new router. Red ones describe the old box itself (its ports and addresses) — leave them out unless the routers are the same model.</p>
+        <div class="tw-sec" id="cfgSecList"></div>
+        <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="strict" id="cfgStrict"><label class="form-check-label tw-mini" for="cfgStrict">Stop at the first line that fails (off: skip it and go on)</label></div>
+        <button class="btn btn-sm btn-primary mt-1"><i class="bi bi-download"></i> Download the script (.rsc)</button>
+      </form>
+    </div>
+    {% if migrations %}
+    <div class="tw-card mt-3"><h3><i class="bi bi-clock-history"></i> Recent migrations</h3>
+      <div class="tw-log">{% for m in migrations %}<div class="{% if m.status == 'done' %}ok{% elif m.status == 'failed' %}bad{% elif m.status == 'partly' %}warn{% else %}info{% endif %}"><i class="bi {% if m.status == 'done' %}bi-check-circle-fill{% elif m.status == 'failed' %}bi-x-circle-fill{% elif m.status == 'running' %}bi-hourglass-split{% else %}bi-exclamation-circle-fill{% endif %}"></i><span><b>{{ m.source_name }} → {{ m.target_name }}</b> · {{ m.get_status_display }}<br><small class="tw-mini">{{ m.created_at|date:"d M H:i" }} · {{ m.part_names }}</small></span></div>{% endfor %}</div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% else %}
+<section class="tw-hero">
+  <div>
+    <h2>Two routers, one hotspot. If one stops, the other carries on.</h2>
+    <p>Pair a main router with a standby. TapTap keeps the standby holding every voucher, member, profile and IP binding — with the right time left — so customers who reach it just keep browsing. You are told the moment the standby takes over, and when the main router is back.</p>
+    <div class="tw-points"><span><i class="bi bi-lightning-charge"></i> Only changes travel</span><span><i class="bi bi-stopwatch"></i> Time used is counted on both</span><span><i class="bi bi-bell"></i> Failover alerts</span></div>
+  </div>
+  <svg class="tw-scene" viewBox="0 0 440 190" role="img" aria-label="Main router and standby kept in step, phones reach either one">
+    <rect class="box main" x="20" y="20" width="140" height="70" rx="16"/><text x="36" y="52">Main router</text><text class="s" x="36" y="72">serving customers</text>
+    <rect class="box sb" x="280" y="20" width="140" height="70" rx="16"/><text x="296" y="52">Standby</text><text class="s" x="296" y="72">has everything</text>
+    <path class="wire" d="M160 55 H280"/><path class="pulse" d="M160 55 H280"/>
+    <circle class="led" cx="148" cy="32" r="5"/><circle class="led" cx="408" cy="32" r="5"/>
+    <rect class="phone" x="120" y="136" width="26" height="44" rx="6"/><rect class="phone" x="207" y="136" width="26" height="44" rx="6"/><rect class="phone" x="294" y="136" width="26" height="44" rx="6"/>
+    <path class="wire" d="M133 136 L90 90 M220 136 L330 90 M307 136 L350 90" style="stroke-dasharray:4 6"/>
+  </svg>
+</section>
+
+{% if twins %}
+<div class="tw-grid mb-3">
+  {% for c in twins %}{% with t=c.twin r=c.ready %}
+  <a class="tw-card text-decoration-none" href="{% url 'router_twin_detail' t.pk %}" style="color:inherit">
+    <div class="tw-twin">
+      <div class="tw-ring {{ r.tone }}"><svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="42"/><circle class="fg" cx="50" cy="50" r="42" stroke-dasharray="264" stroke-dashoffset="264" data-pct="{{ r.percent }}"/></svg><b>{{ r.percent }}%</b></div>
+      <div>
+        <div class="tw-pair"><span class="tw-node{% if t.primary.status == 'Online' %} on{% endif %}"><i class="bi bi-router"></i> {{ t.primary.name }} <em>main</em></span><i class="bi bi-arrow-left-right text-muted"></i><span class="tw-node{% if t.standby.status == 'Online' %} on{% endif %}"><i class="bi bi-router"></i> {{ t.standby.name }} <em>standby</em></span></div>
+        <div class="tw-verdict {{ r.tone }}">{{ r.verdict }}</div>
+        <div class="tw-mini mt-1">{{ r.kinds.user.ready|default:0 }} of {{ r.kinds.user.total|default:0 }} users · {{ r.kinds.profile.ready|default:0 }} profiles · {{ r.kinds.binding.ready|default:0 }} bindings{% if t.last_mirror_at %} · updated {{ t.last_mirror_at|timesince }} ago{% endif %}</div>
+      </div>
+      <div>{% if c.open and c.open.kind == 'failover' %}<span class="tw-chip fo"><i class="bi bi-life-preserver"></i> standby in use</span>{% elif c.open %}<span class="tw-chip"><i class="bi bi-exclamation-triangle"></i> standby offline</span>{% elif t.paused %}<span class="tw-chip"><i class="bi bi-pause-circle"></i> paused</span>{% endif %}<i class="bi bi-chevron-right text-muted ms-2"></i></div>
+    </div>
+  </a>
+  {% endwith %}{% endfor %}
+</div>
+{% endif %}
+
+<div class="tw-card">
+  <h3><i class="bi bi-plus-circle"></i> Pair two routers</h3>
+  <p class="lead">The standby keeps its own setup (addresses, Wi-Fi, its own vouchers). TapTap adds the main router's customers to it and keeps them in step.</p>
+  {% if free|length < 2 %}
+    <div class="tw-warn warn"><i class="bi bi-info-circle"></i><span>You need two routers that are not twinned yet. Add the standby in Routers › Add router (TapTap Link works behind any internet line).</span></div>
+  {% else %}
+  <form method="post" action="{% url 'router_twin_pair' %}" id="pairForm">{% csrf_token %}
+    <div class="tw-route">
+      <div><label for="pairMain">Main router</label><select name="primary" id="pairMain">{% for r in free %}<option value="{{ r.id }}">{{ r.name }} — {{ r.vouchers }} vouchers · {{ r.status }}</option>{% endfor %}</select></div>
+      <div class="tw-arrow"><i class="bi bi-arrow-left-right"></i></div>
+      <div><label for="pairStandby">Standby</label><select name="standby" id="pairStandby">{% for r in free %}<option value="{{ r.id }}"{% if forloop.counter == 2 %} selected{% endif %}>{{ r.name }} — {{ r.status }}</option>{% endfor %}</select></div>
+    </div>
+    <div class="mt-3 mb-1 tw-mini fw-bold text-uppercase">Keep in step</div>
+    <div class="tw-checks">
+      <label><input type="checkbox" name="copy_vouchers" checked><span>TapTap vouchers</span></label>
+      <label><input type="checkbox" name="copy_members" checked><span>Members</span></label>
+      <label><input type="checkbox" name="copy_router_users" checked><span>Users made on the router</span></label>
+      <label><input type="checkbox" name="copy_profiles" checked><span>User profiles</span></label>
+      <label><input type="checkbox" name="copy_bindings" checked><span>IP bindings</span></label>
+    </div>
+    <div class="mt-3 mb-1 tw-mini fw-bold text-uppercase">How customers reach the standby</div>
+    <div class="tw-how">
+      <input type="radio" name="switch_over" value="ssid" id="soSsid" checked><label for="soSsid"><b><i class="bi bi-wifi"></i>Same Wi-Fi name</b>Both routers' access points broadcast the same name. When one stops, phones join the other by themselves (seconds).</label>
+      <input type="radio" name="switch_over" value="vrrp" id="soVrrp"><label for="soVrrp"><b><i class="bi bi-diagram-2"></i>Shared gateway (VRRP)</b>Both on the same network; the standby takes over the gateway address within seconds. TapTap writes the scripts.</label>
+      <input type="radio" name="switch_over" value="manual" id="soManual"><label for="soManual"><b><i class="bi bi-plug"></i>I move the cable</b>A spare in the cupboard: plug it in where the main one was and customers carry on.</label>
+    </div>
+    <div class="d-flex justify-content-end mt-3"><button class="btn btn-primary"><i class="bi bi-copy"></i> Pair them</button></div>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  function csrf(){var m=document.cookie.match(/csrftoken=([^;]+)/);if(m)return decodeURIComponent(m[1]);var i=document.querySelector('input[name=csrfmiddlewaretoken]');return i?i.value:'';}
+  function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+  function post(url,data){return fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','X-CSRFToken':csrf()},body:JSON.stringify(data||{})}).then(function(r){return r.json().catch(function(){return {ok:false,message:'Unexpected answer ('+r.status+')'};});});}
+  function get(url){return fetch(url,{credentials:'same-origin'}).then(function(r){return r.json().catch(function(){return {ok:false,message:'Unexpected answer ('+r.status+')'};});});}
+  var ICON={ok:'bi-check-circle-fill',warn:'bi-exclamation-triangle-fill',bad:'bi-x-circle-fill',info:'bi-info-circle-fill'};
+  function warns(list){return (list||[]).map(function(w){return '<div class="tw-warn '+esc(w[0])+'"><i class="bi '+(w[0]==='warn'?'bi-exclamation-triangle':w[0]==='bad'?'bi-x-octagon':'bi-info-circle')+'"></i><span>'+esc(w[1])+'</span></div>';}).join('');}
+
+  // ── migrate ──
+  var mig=document.getElementById('mig');
+  if(mig){
+    var src=document.getElementById('migSource'),dst=document.getElementById('migTarget'),go=document.getElementById('migGo'),conf=document.getElementById('migConfirm');
+    var targetName='';
+    document.querySelectorAll('.tw-part input').forEach(function(i){i.addEventListener('change',function(){i.closest('.tw-part').classList.toggle('on',i.checked);});});
+    function counts(c){
+      var map={profiles:c.profiles,vouchers:c.vouchers,members:c.members,router_users:c.router_users,bindings:c.bindings,sales:c.sales,login_page:'✓'};
+      Object.keys(map).forEach(function(k){var el=document.querySelector('[data-count="'+k+'"]');if(el){el.textContent=map[k];el.closest('.tw-part').classList.toggle('none',map[k]===0);}});
+    }
+    function ready(){go.disabled=!targetName||conf.value.trim().toLowerCase()!==targetName.toLowerCase();}
+    function preview(){
+      document.getElementById('migArrow').classList.add('go');
+      if(src.value===dst.value){document.getElementById('migWarn').innerHTML=warns([['warn','Choose two different routers.']]);targetName='';ready();return;}
+      get(mig.dataset.preview+'?source='+src.value+'&target='+dst.value).then(function(d){
+        if(!d.ok){document.getElementById('migWarn').innerHTML=warns([['bad',d.message]]);targetName='';ready();return;}
+        counts(d.counts);targetName=d.target.name;conf.placeholder='Type “'+d.target.name+'” to confirm';
+        var extra=[];if(d.counts.vouchers)extra.push(['info',d.counts.vouchers_live+' of '+d.counts.vouchers+' voucher(s) are still valid and will be sent to '+d.target.name+'.']);
+        document.getElementById('migWarn').innerHTML=warns(extra.concat(d.warnings));ready();
+      });
+      if(window.ttCfg)window.ttCfg();
+    }
+    src.addEventListener('change',preview);dst.addEventListener('change',preview);conf.addEventListener('input',ready);
+    function show(m){
+      var run=document.getElementById('migRun');run.hidden=false;
+      document.getElementById('migBar').style.display=m.status==='running'?'':'none';
+      document.getElementById('migLog').innerHTML=(m.log||[]).map(function(e){return '<div class="'+esc(e.level)+'"><i class="bi '+(ICON[e.level]||ICON.info)+'"></i><span>'+esc(e.text)+'</span></div>';}).join('')+
+        (m.status!=='running'?'<div class="'+(m.status==='done'?'ok':m.status==='failed'?'bad':'warn')+'"><i class="bi '+(m.status==='done'?ICON.ok:ICON.warn)+'"></i><span><b>'+esc(m.status_label)+'.</b> Vouchers go to '+esc(m.target)+' in safe batches — Routers shows them arrive.</span></div>':'');
+      if(m.status==='running')setTimeout(function(){get(mig.dataset.status.replace('/0/','/'+m.id+'/')).then(function(d){if(d.ok)show(d.migration);});},2500);
+    }
+    go.addEventListener('click',function(){
+      var parts=[].slice.call(document.querySelectorAll('.tw-part input:checked')).map(function(i){return i.value;});
+      go.disabled=true;go.innerHTML='<span class="spinner-border spinner-border-sm"></span> Starting…';
+      post(mig.dataset.start,{source:src.value,target:dst.value,parts:parts,clean:document.getElementById('migClean').checked,confirm:conf.value}).then(function(d){
+        go.innerHTML='<i class="bi bi-rocket-takeoff"></i> Start the migration';
+        if(!d.ok){document.getElementById('migWarn').innerHTML=warns([['bad',d.message]]);ready();return;}
+        show(d.migration);
+      });
+    });
+    preview();
+  }
+
+  // ── configuration ──
+  var cfg=document.getElementById('cfg');
+  if(cfg){
+    var info=null;
+    function restore(b,kind){
+      var name=prompt('This REPLACES the whole configuration of '+info.target.name+' with '+info.source.name+'\'s and restarts it.\nType “'+info.target.name+'” to go ahead:');
+      if(!name)return;
+      var box=document.getElementById('cfgRestore');box.innerHTML='<div class="tw-log"><div class="info"><i class="bi bi-hourglass-split"></i><span>Preparing…</span></div></div>';
+      post(info.urls.prepare,{source:'server',backup:b,kind:kind}).then(function(d){
+        if(!d.ok){box.innerHTML=warns([['bad',d.message]]);return;}
+        var rid=d.restore.id;
+        post(info.urls.start.replace('{id}',rid),{confirm:name,safety:true}).then(function(s){
+          if(!s.ok){box.innerHTML=warns([['bad',s.message]]);return;}
+          (function poll(){get(info.urls.status.replace('{id}',rid)).then(function(x){if(!x.ok)return;var r=x.restore;
+            box.innerHTML='<div class="tw-log">'+(r.events||[]).slice(-6).map(function(e){return '<div class="'+esc(e.level||'info')+'"><i class="bi '+(ICON[e.level]||ICON.info)+'"></i><span>'+esc(e.text)+'</span></div>';}).join('')+'<div class="info"><i class="bi bi-arrow-repeat"></i><span><b>'+esc(r.status_label)+'</b></span></div></div>';
+            if(['done','failed'].indexOf(r.status)<0)setTimeout(poll,4000);});})();
+        });
+      });
+    }
+    function sections(b){
+      get(cfg.dataset.sections+'?backup='+b).then(function(d){
+        var f=document.getElementById('cfgSec');
+        if(!d.ok){document.getElementById('cfgRestore').innerHTML=warns([['bad',d.message]]);f.hidden=true;return;}
+        f.hidden=false;f.backup.value=b;f.target.value=info.target.id;
+        document.getElementById('cfgSecList').innerHTML=d.sections.map(function(s){return '<label class="'+(s.risky?'risky':'')+'"><input type="checkbox" name="sections" value="'+esc(s.path)+'"'+(s.suggest?' checked':'')+'> '+esc(s.path)+'<em>'+(s.risky?'this box':s.count)+'</em></label>';}).join('');
+      });
+    }
+    window.ttCfg=function(){
+      var s=document.getElementById('migSource'),t=document.getElementById('migTarget');if(!s||!t||s.value===t.value)return;
+      get(cfg.dataset.url+'?source='+s.value+'&target='+t.value).then(function(d){
+        var list=document.getElementById('cfgList');
+        if(!d.ok){list.innerHTML=warns([['bad',d.message]]);return;}
+        info=d;document.getElementById('cfgWarn').innerHTML=warns(d.warnings);
+        document.getElementById('cfgBackup').innerHTML='<i class="bi bi-cloud-arrow-up"></i> Back up '+esc(d.source.name)+' now';
+        list.innerHTML=d.backups.length?d.backups.map(function(b){
+          return '<div><b>'+esc(b.name)+'<br><small>'+esc(new Date(b.at).toLocaleString())+(b.ros?' · RouterOS '+esc(b.ros):'')+'</small></b>'+
+            (b.has_export?'<button type="button" class="btn btn-sm btn-outline-primary" data-r="rsc" data-b="'+b.id+'">Restore .rsc</button>':'')+
+            (b.has_backup?'<button type="button" class="btn btn-sm btn-outline-secondary" data-r="backup" data-b="'+b.id+'">.backup</button>':'')+
+            (b.has_export?'<button type="button" class="btn btn-sm btn-light" data-s="'+b.id+'" title="Only some sections"><i class="bi bi-ui-checks"></i></button>':'')+'</div>';
+        }).join(''):'<div class="tw-mini">No backup of '+esc(d.source.name)+' on the TapTap server yet — press “Back up now”.</div>';
+        list.querySelectorAll('[data-r]').forEach(function(x){x.addEventListener('click',function(){restore(x.dataset.b,x.dataset.r);});});
+        list.querySelectorAll('[data-s]').forEach(function(x){x.addEventListener('click',function(){sections(x.dataset.s);});});
+      });
+    };
+    document.getElementById('cfgReload').addEventListener('click',function(){window.ttCfg();});
+    document.getElementById('cfgBackup').addEventListener('click',function(){
+      if(!info)return;var fd=new FormData();fd.append('action','backup');
+      fetch(info.urls.backup,{method:'POST',credentials:'same-origin',headers:{'X-CSRFToken':csrf()},body:fd}).then(function(r){return r.json();}).then(function(d){
+        document.getElementById('cfgRestore').innerHTML=warns([[d.ok?'info':'bad',d.message||'']]);if(d.ok)setTimeout(window.ttCfg,20000);
+      }).catch(function(){document.getElementById('cfgRestore').innerHTML=warns([['bad','The backup could not be started.']]);});
+    });
+    window.ttCfg();
+  }
+
+  // ── pair ──
+  var pf=document.getElementById('pairForm');
+  if(pf)pf.addEventListener('submit',function(e){if(pf.primary.value===pf.standby.value){e.preventDefault();alert('Choose two different routers.');}});
+  document.querySelectorAll('.tw-ring .fg[data-pct]').forEach(function(c){c.style.strokeDashoffset=264-264*(+c.dataset.pct||0)/100;});
+})();
+</script>
+{% endblock %}

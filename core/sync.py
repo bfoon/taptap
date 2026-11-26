@@ -1082,6 +1082,13 @@ def sync_router(
                 # the OTHER site's RouterOS inventory. The RouterHotspotUser
                 # mirror above remains available for troubleshooting.
                 if existing_voucher.router_id not in (None, router.pk):
+                    from .router_twin import mirrors as twin_copy
+                    if twin_copy(existing_voucher.router_id, router.pk):
+                        # the standby's copy of its main router's voucher (core/router_twin.py): expected, and time
+                        # counted on the standby is a real first use
+                        from .router_twin import standby_used
+                        standby_used(existing_voucher, row.get('uptime', ''), router)
+                        continue
                     summary['duplicate_vouchers_skipped'] += 1
                     summary['errors'].append(
                         f'Voucher {username} is assigned to router #{existing_voucher.router_id} '
