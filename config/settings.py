@@ -93,6 +93,13 @@ TIKLAB_BRANCH = os.getenv('TIKLAB_BRANCH', 'main')
 TIKLAB_DOWNLOAD_BASE = os.getenv('TIKLAB_DOWNLOAD_BASE', '')                 # your own CDN/bucket instead of GitHub
 TIKLAB_LOCAL_DIR = os.getenv('TIKLAB_LOCAL_DIR', '')                         # or a folder on this server
 TIKLAB_GITHUB_TOKEN = os.getenv('TIKLAB_GITHUB_TOKEN', '')                   # only if the repository becomes private
+# The TapTap phone app offered on the landing page and /app/ (core/app_download.py)
+APP_REPO = os.getenv('APP_REPO', 'bfoon/taptap')                              # GitHub releases app-v<version>-<build>
+APP_ANDROID_URL = os.getenv('APP_ANDROID_URL', '')                           # or your own link to the APK
+APP_ANDROID_VERSION = os.getenv('APP_ANDROID_VERSION', '')
+APP_LOCAL_DIR = os.getenv('APP_LOCAL_DIR', '')                               # or a folder on this server with TapTap*.apk
+APP_GITHUB_TOKEN = os.getenv('APP_GITHUB_TOKEN', '')                         # only if the repository is private
+APP_DISCOVER = env_bool('APP_DISCOVER', sys.argv[1:2] != ['test'])
 TIKLAB_DISCOVER = env_bool('TIKLAB_DISCOVER', sys.argv[1:2] != ['test'])   # read the repo's file list (off in tests)
 MIKROTIK_API_PORT = int(os.getenv('MIKROTIK_API_PORT', '8728'))
 # Router connection behaviour — bounded so a dead router never hangs a page.

@@ -1,0 +1,46 @@
+{% load static %}{% comment %}Getting the TapTap app (core/app_download.py, static/app/app-download.js). One box, four faces:
+a computer sees a QR code to scan with the phone; an Android phone gets the download and three install steps;
+an iPhone gets "add TapTap to your Home Screen"; with no APK published yet, everybody gets TapTap in the browser.
+Without JavaScript the computer face shows, with the plain download link.{% endcomment %}
+<div class="ap-get" data-ap-get data-os="desktop" data-has="{{ app.release|yesno:'1,0' }}" data-page="{{ app.page_url }}">
+  {% if app.release %}
+  <div class="ap-face ap-desktop">
+    <div class="ap-qr" data-ap-qr="{{ app.get_url }}" role="img" aria-label="QR code to download the TapTap app on your phone"></div>
+    <div>
+      <b class="ap-big">Scan with your Android phone</b>
+      <p>Point the phone's camera at the code — the app downloads straight to it.</p>
+      <div class="ap-row">
+        <a class="ap-btn" href="{% url 'app_download_android' %}" rel="nofollow"><i class="bi bi-android2"></i><span><b>Download APK</b><small>{{ app.release.label|default:'Android' }}{% if app.release.size_text %} · {{ app.release.size_text }}{% endif %}</small></span></a>
+        <button type="button" class="ap-btn ghost" data-ap-share><i class="bi bi-send"></i><span><b>Send to my phone</b><small>WhatsApp, email…</small></span></button>
+      </div>
+    </div>
+  </div>
+  <div class="ap-face ap-android">
+    <a class="ap-btn wide" href="{% url 'app_download_android' %}" rel="nofollow" data-ap-dl><i class="bi bi-android2"></i><span><b>Download for Android</b><small>{{ app.release.label|default:'TapTap app' }}{% if app.release.size_text %} · {{ app.release.size_text }}{% endif %} · free</small></span></a>
+    <ol class="ap-steps" data-ap-steps>
+      <li><i class="bi bi-download"></i><span><b>Open the file</b> when the download ends (or from <em>Downloads</em>).</span></li>
+      <li><i class="bi bi-shield-check"></i><span>If Android asks, tap <b>Settings</b> → turn on <b>Allow from this source</b> → go back.</span></li>
+      <li><i class="bi bi-check2-circle"></i><span>Tap <b>Install</b>. If Play Protect warns, tap <b>More details → Install anyway</b>.</span></li>
+    </ol>
+  </div>
+  {% endif %}
+  <div class="ap-face ap-iphone">
+    <b class="ap-big"><i class="bi bi-apple"></i> iPhone app coming soon</b>
+    <p>Until then, put TapTap on your Home Screen — it opens like an app:</p>
+    <ol class="ap-steps">
+      <li><i class="bi bi-box-arrow-up"></i><span>Open TapTap in <b>Safari</b> and tap <b>Share</b>.</span></li>
+      <li><i class="bi bi-plus-square"></i><span>Choose <b>Add to Home Screen</b>, then <b>Add</b>.</span></li>
+    </ol>
+    <a class="ap-btn wide" href="{% url 'login' %}"><i class="bi bi-box-arrow-in-right"></i><span><b>Open TapTap</b><small>sign in in the browser</small></span></a>
+  </div>
+  {% if not app.release %}
+  <div class="ap-face ap-none">
+    <b class="ap-big"><i class="bi bi-hourglass-split"></i> The Android app is on its way</b>
+    <p>Everything it does already works on your phone's browser today.</p>
+    <div class="ap-row"><a class="ap-btn" href="{% url 'register' %}"><i class="bi bi-phone"></i><span><b>Use TapTap on my phone</b><small>free account</small></span></a>
+      <div class="ap-qr sm" data-ap-qr="{{ app.page_url }}" role="img" aria-label="QR code to open TapTap on your phone"></div></div>
+  </div>
+  {% endif %}
+  {% if app.server %}<p class="ap-server"><i class="bi bi-hdd-network"></i> First time in the app, tap <b>Using your own TapTap server?</b> and type <code>{{ app.server }}</code></p>{% endif %}
+  <p class="ap-meta">{{ app.min_android }}{% if app.release.sha256 %} · <span title="SHA-256 of the APK: {{ app.release.sha256 }}">SHA-256 {{ app.release.sha256|slice:':12' }}…</span>{% endif %}{% if app.downloads >= 50 %} · downloaded {{ app.downloads }} times{% endif %}{% if not on_page %} · <a href="{% url 'app_download' %}">More about the app</a>{% endif %}</p>
+</div>

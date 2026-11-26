@@ -1,0 +1,11 @@
+{% comment %}Landing page: the TapTap phone app — scan, download, install (core/app_download.py).{% endcomment %}
+<section class="band ap-band" id="app"><div class="wrap ap-grid">
+  <div class="ap-stage reveal">{% include "core/_app_phone.html" %}</div>
+  <div class="reveal">
+    <span class="eyebrow"><i class="bi bi-phone"></i> The TapTap app{% if app.release.version %} · {{ app.release.version }}{% endif %}</span>
+    <h2>Your Wi-Fi business, <span class="ap-grad">in your pocket.</span></h2>
+    <p class="sub">Sales as they happen, vouchers, customer complaints, team chat and calls — and Fit, your AI, by voice. Same account as the website.</p>
+    <div class="ap-feats">{% for icon, title, text in app.features %}<span title="{{ text }}"><i class="bi {{ icon }}"></i> {{ title }}</span>{% endfor %}</div>
+    {% include "core/_app_get.html" %}
+  </div>
+</div></section>

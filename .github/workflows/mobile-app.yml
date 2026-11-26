@@ -1,6 +1,10 @@
 # Builds the TapTap app (mobile/) on GitHub.
 #
 #   Android: every push that touches mobile/ — download the APK from the run's "Artifacts" box.
+#            A push to main/master also PUBLISHES it as the GitHub release app-v<version>-<build> (TapTap.apk + its
+#            SHA-256): the landing page's "Download for Android" button (core/app_download.py) offers the newest one.
+#            Bump `version:` in mobile/pubspec.yaml for a new release; the same version again replaces its file.
+#            "What's new" comes from mobile/WHATS_NEW.md if it exists, else from the commit message.
 #   iPhone:  Actions → "TapTap mobile app" → Run workflow → tick "Also build iPhone" (unsigned build, a compile check;
 #            signing for the App Store is done in Xcode or with your own signing setup).
 #
@@ -118,6 +122,45 @@ jobs:
           name: TapTap-android-${{ github.run_number }}
           path: out/*.apk
           retention-days: 30
+
+  publish:
+    name: Publish for the landing page
+    needs: android
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write          # only this job may create the release
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: TapTap-android-${{ github.run_number }}
+          path: out
+
+      - name: Version, file and notes
+        id: v
+        run: |
+          full=$(sed -n 's/^version:[[:space:]]*//p' mobile/pubspec.yaml | head -1 | tr -d '\r ')
+          name=${full%%+*}; build=${full#*+}; [ "$build" = "$full" ] && build=0
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          cp out/*.apk out/TapTap.apk
+          (cd out && sha256sum TapTap.apk | cut -d' ' -f1 > TapTap.apk.sha256 && cat TapTap.apk.sha256)
+          if [ -s mobile/WHATS_NEW.md ]; then cp mobile/WHATS_NEW.md notes.md; else git log -1 --format='- %s' > notes.md; fi
+          printf '\nSHA-256 of TapTap.apk: %s\n' "$(cat out/TapTap.apk.sha256)" >> notes.md
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-v${{ steps.v.outputs.name }}-${{ steps.v.outputs.build }}
+          name: TapTap app ${{ steps.v.outputs.name }} (build ${{ steps.v.outputs.build }})
+          body_path: notes.md
+          files: |
+            out/TapTap.apk
+            out/TapTap.apk.sha256
+          make_latest: true
+          overwrite_files: true
 
   ios:
     name: iPhone (unsigned)

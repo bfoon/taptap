@@ -1,0 +1,17 @@
+{% comment %}A phone running the TapTap app's Today screen — drawn in HTML, it comes alive with static/app/app-download.js:
+the total counts up, sales slide in, a notification drops from the top. Purely decorative.{% endcomment %}
+<div class="ap-phone" aria-hidden="true" data-ap-phone>
+  <div class="ap-notch"></div>
+  <div class="ap-push" data-ap-push><i class="bi bi-cash-coin"></i><span><b>Voucher sold · <span data-ap-push-amt>D50</span></b><small data-ap-push-who>Awa · Serrekunda shop</small></span><em>now</em></div>
+  <div class="ap-screen">
+    <div class="ap-top"><span>Today</span><i class="bi bi-bell"></i></div>
+    <div class="ap-total"><small>SOLD TODAY</small><b>D<span data-ap-total>3,850</span></b><em><i class="bi bi-arrow-up-right"></i> 18% ahead of a usual Thursday</em></div>
+    <div class="ap-bars" data-ap-bars>{% for h in "3456789012345"|make_list %}<i style="--h:{{ forloop.counter|add:8 }}"></i>{% endfor %}</div>
+    <div class="ap-list" data-ap-list>
+      <div><i class="bi bi-ticket-perforated"></i><span><b>Day pass</b><small>Lamin · cash</small></span><em>D25</em></div>
+      <div><i class="bi bi-phone"></i><span><b>Week</b><small>Online · Wave</small></span><em>D120</em></div>
+      <div><i class="bi bi-ticket-perforated"></i><span><b>3 Hours</b><small>Awa · cash</small></span><em>D10</em></div>
+    </div>
+    <div class="ap-tabs"><i class="bi bi-house-fill on"></i><i class="bi bi-ticket-perforated"></i><i class="bi bi-chat-dots"></i><i class="bi bi-robot"></i><i class="bi bi-three-dots"></i></div>
+  </div>
+</div>
