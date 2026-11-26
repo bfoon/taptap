@@ -1,0 +1,206 @@
+{% load static %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TikLab — free MikroTik router simulator · TapTap</title>
+<meta name="description" content="TikLab simulates a MikroTik router with RouterOS 7 on Windows, Linux and Raspberry Pi. Free download with the user manual. No installation.">
+<meta property="og:title" content="TikLab — a MikroTik router on your computer"><meta property="og:description" content="Free RouterOS-compatible simulator for Windows, Linux and Raspberry Pi — with the user manual.">
+<meta property="og:image" content="{% static 'tiklab/console.webp' %}">
+<link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
+{% include "core/_brand_icons.html" %}
+<link href="{% static 'tiklab/tiklab.css' %}?v=1" rel="stylesheet">
+<style>
+:root{--ink:#0d1b2e;--muted:#5c6f86;--blue:#1769e0;--line:#e3eaf3;--soft:#f4f8fd;--green:#18a66a;--r:22px}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:#fff;-webkit-font-smoothing:antialiased}
+a{color:inherit}img{max-width:100%}.wrap{width:min(1180px,92vw);margin:0 auto}
+nav.top{position:relative;z-index:3;display:flex;align-items:center;justify-content:space-between;padding:1.1rem 0}
+.brand{display:flex;align-items:center;gap:.65rem;font-weight:900;font-size:1.2rem;color:#fff;text-decoration:none}.brand img{width:36px;height:36px;border-radius:11px;background:#fff;padding:5px}
+.navlinks{display:flex;gap:1.3rem;font-size:.88rem;font-weight:700}.navlinks a{color:#c9dcf5;text-decoration:none}.navlinks a:hover{color:#fff}
+.eyebrow{font-size:.75rem;font-weight:900;letter-spacing:.16em;color:var(--blue);text-transform:uppercase}
+h1{font-size:clamp(2.2rem,4.8vw,3.7rem);line-height:1.04;letter-spacing:-.04em;margin:.8rem 0;color:#fff}
+h2{font-size:clamp(1.6rem,3vw,2.3rem);letter-spacing:-.03em;margin:.4rem 0 .7rem}.sub{color:var(--muted);font-size:1.03rem;line-height:1.55;max-width:680px}
+section{padding:4.5rem 0}.soft{background:var(--soft)}
+.tl-hero{padding:0 0 4.5rem}.tl-hero .tl-grid{padding-top:2.2rem}
+.tabs{display:flex;gap:.4rem;flex-wrap:wrap;margin:1.6rem 0 1rem}.tabs button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:.55rem 1rem;font-weight:800;cursor:pointer;display:inline-flex;gap:.45rem;align-items:center;font-size:.9rem}
+.tabs button[aria-selected=true]{background:var(--ink);color:#fff;border-color:var(--ink)}
+.steps{counter-reset:s;list-style:none;padding:0;margin:0;display:grid;gap:.8rem;max-width:820px}
+.steps li{counter-increment:s;display:flex;gap:1rem;align-items:flex-start;background:#fff;border:1px solid var(--line);border-radius:16px;padding:1rem 1.1rem;line-height:1.5}
+.steps li::before{content:counter(s);flex:none;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;font-weight:900;color:#fff;background:linear-gradient(135deg,var(--blue),#14a3e2)}
+.steps code,.cmd{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.86em;background:#eef3fa;border-radius:6px;padding:.1rem .4rem}
+.cmd{display:block;margin-top:.4rem;padding:.55rem .75rem;background:#0b1525;color:#a6f3c9;border-radius:10px;overflow-x:auto;white-space:nowrap}
+.tip{margin-top:1rem;max-width:820px;border-radius:14px;padding:.85rem 1rem;background:#fff8e6;border:1px solid #f6d98b;font-size:.92rem;color:#5a4300}
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-top:1.8rem}
+.card{border:1px solid var(--line);border-radius:var(--r);padding:1.3rem;background:#fff}
+.card .n{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:11px;background:#eef5ff;color:var(--blue);font-weight:900;margin-bottom:.6rem}
+.card h3{margin:0 0 .35rem;font-size:1.05rem}.card p{margin:0;color:var(--muted);font-size:.92rem;line-height:1.55}
+.gallery{display:grid;grid-template-columns:1.4fr 1fr;gap:1rem;margin-top:1.8rem;align-items:start}
+.gallery figure{margin:0;border-radius:var(--r);overflow:hidden;border:1px solid var(--line);background:#0b1525}
+.gallery figure img{display:block;width:100%;height:auto}.gallery figcaption{padding:.75rem 1rem;font-size:.86rem;color:#b5c9e2;background:#0d1a2d}
+.gallery .two{display:grid;gap:1rem}.gallery .phone{display:grid;grid-template-columns:150px 1fr;align-items:center}.gallery .phone img{height:auto}.gallery .phone figcaption{background:none;font-size:.95rem;padding:1rem 1.2rem}
+.manual{display:grid;grid-template-columns:260px 1fr;gap:2.2rem;align-items:start;margin-top:1.6rem}
+.cover{position:relative;display:block;border-radius:12px;overflow:hidden;box-shadow:0 26px 50px #0b17263d;transform:rotate(-2deg);transition:transform .25s}
+.cover:hover{transform:rotate(0) translateY(-4px)}.cover img{display:block;width:100%}
+.cover span{position:absolute;left:0;right:0;bottom:0;padding:.6rem;background:linear-gradient(transparent,#000c);color:#fff;font-weight:800;font-size:.85rem;text-align:center}
+.chap{columns:2;column-gap:2rem;padding:0;margin:1rem 0 1.4rem;list-style:none;counter-reset:c}
+.chap li{counter-increment:c;break-inside:avoid;padding:.35rem 0;border-bottom:1px dashed var(--line);font-size:.93rem}
+.chap li::before{content:counter(c);display:inline-block;width:1.8rem;color:var(--blue);font-weight:900}
+.btn{display:inline-flex;align-items:center;gap:.5rem;border-radius:13px;padding:.75rem 1.15rem;font-weight:800;text-decoration:none;border:1px solid var(--line);background:#fff;color:var(--ink)}
+.btn.dark{background:var(--ink);color:#fff;border-color:var(--ink)}
+table{width:100%;border-collapse:collapse;font-size:.9rem}th{text-align:left;font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:.6rem .5rem;border-bottom:1px solid var(--line)}
+td{padding:.7rem .5rem;border-bottom:1px solid var(--line);vertical-align:middle}td a.get{font-weight:800;color:var(--blue);text-decoration:none}
+.sha{font-family:ui-monospace,Menlo,monospace;font-size:.74rem;color:var(--muted)}.copy{border:1px solid var(--line);background:#fff;border-radius:8px;padding:.2rem .5rem;font-size:.75rem;cursor:pointer;margin-left:.4rem}
+.ver{display:inline-block;font-weight:900;background:#eef5ff;color:var(--blue);border-radius:999px;padding:.12rem .55rem;font-size:.78rem}.ver.new{background:#e4f7ee;color:var(--green)}
+details.older{margin-top:1rem;border:1px solid var(--line);border-radius:16px;padding:.8rem 1rem}details.older summary{cursor:pointer;font-weight:800}
+.ports{display:grid;grid-template-columns:repeat(4,1fr);gap:.6rem;margin-top:1.4rem}
+.ports div{border:1px solid var(--line);border-radius:14px;padding:.75rem .9rem;background:#fff}.ports b{display:block;font-family:ui-monospace,Menlo,monospace;font-size:1.15rem;color:var(--blue)}.ports small{color:var(--muted)}
+.faq{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1.6rem}
+.faq details{border:1px solid var(--line);border-radius:16px;padding:1rem 1.1rem;background:#fff}.faq summary{cursor:pointer;font-weight:800}.faq p{color:var(--muted);line-height:1.55;margin:.6rem 0 0}
+.stats-box{margin-top:1.4rem;border:1px dashed #c9dcf7;border-radius:16px;padding:1rem;background:#f8fbff;font-size:.88rem}
+footer{padding:2.2rem 0;color:var(--muted);font-size:.84rem;display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+@media(max-width:900px){.cards,.faq{grid-template-columns:1fr}.gallery{grid-template-columns:1fr}.manual{grid-template-columns:1fr}.cover{max-width:220px}.ports{grid-template-columns:1fr 1fr}.chap{columns:1}.navlinks{display:none}}
+</style></head><body>
+
+<header class="tl-band tl-hero">
+  <div class="wrap">
+    <nav class="top">
+      <a class="brand" href="{% url 'home' %}"><img src="{% static 'brand/mark.svg' %}" alt=""><span>TapTap</span></a>
+      <div class="navlinks"><a href="#start">How to start</a><a href="#taptap">With TapTap</a><a href="#manual">Manual</a><a href="#all">All downloads</a></div>
+    </nav>
+    {% if release %}
+    <div class="tl-grid">
+      <div>
+        <span class="eyebrow tl-eyebrow"><i class="bi bi-gift"></i> Free · TikLab {{ release.version }}</span>
+        <h1>A MikroTik router <span class="tl-grad">on your computer.</span></h1>
+        <p class="sub tl-sub">TikLab simulates a MikroTik router running RouterOS 7. Apps and people talk to it like a real router: WinBox-style console, API, REST, SSH, hotspot login page. One program, no installation — Windows, Linux and Raspberry Pi.</p>
+        {% include "core/_tiklab_picker.html" %}
+        {% if downloads >= 50 %}<span class="tl-count" style="margin:1rem 0 0;display:flex"><i class="bi bi-download"></i> Downloaded {{ downloads }} times</span>{% endif %}
+      </div>
+      <div class="tl-stage" aria-hidden="true">
+        <div class="tl-term" data-tl-term>
+          <div class="tl-bar"><i></i><i></i><i></i><span>Start TikLab</span></div>
+          <pre><span data-l class="on">TikLab {{ release.version }} - RouterOS-compatible router simulator</span>
+<span data-l class="on dim">- fresh configuration created (RB4011iGS+)</span>
+<span data-l class="on dim">- data directory: ./tiklab-data</span>
+<span data-l class="on"> </span>
+<span data-l class="on"><b>WinBox-style GUI</b>   http://127.0.0.1:8291/</span>
+<span data-l class="on"><b>RouterOS API</b>       192.168.1.20:8728</span>
+<span data-l class="on"><b>Hotspot portal</b>     http://192.168.1.20/login</span>
+<span data-l class="on"> </span>
+<span data-l class="on ok">Login: admin (empty)  ·  Configuration is saved automatically.</span></pre>
+        </div>
+        <img class="tl-shot" data-tl-shot src="{% static 'tiklab/console.webp' %}" alt="" width="1400" height="875">
+        <img class="tl-phone" src="{% static 'tiklab/login-page.webp' %}" alt="" width="420" height="840">
+      </div>
+    </div>
+    {% else %}<h1>TikLab</h1><p class="sub tl-sub">The downloads are being prepared. Please come back soon.</p>{% endif %}
+  </div>
+</header>
+
+{% if release %}
+<section id="start"><div class="wrap">
+  <span class="eyebrow">Up in a minute</span><h2>Unzip, start, log in.</h2>
+  <p class="sub">Everything TikLab saves goes into a <code>tiklab-data</code> folder next to the program — copy both to move it to another PC.</p>
+  <div class="tabs" role="tablist">
+    <button type="button" role="tab" aria-selected="true" data-tab="win"><i class="bi bi-windows"></i> Windows</button>
+    <button type="button" role="tab" aria-selected="false" data-tab="lin"><i class="bi bi-ubuntu"></i> Linux</button>
+    <button type="button" role="tab" aria-selected="false" data-tab="pi"><i class="bi bi-cpu"></i> Raspberry Pi</button>
+  </div>
+  <div data-pane="win"><ol class="steps">
+    <li><span>Unzip <b>{{ release.windows.name|default:'the Windows zip' }}</b> anywhere — the desktop or a USB stick.</span></li>
+    <li><span>Double-click <b>Start TikLab.bat</b> (or <code>tiklab.exe</code>).</span></li>
+    <li><span>If Windows SmartScreen warns about an unknown app, choose <b>More info</b> → <b>Run anyway</b>. When the firewall asks, allow <b>Private networks</b> so phones and TapTap can reach it.</span></li>
+    <li><span>The console opens in your browser at <code>http://127.0.0.1:8291/</code>. Log in as <b>admin</b> with an <b>empty password</b> — like a brand-new MikroTik.</span></li>
+  </ol>
+  <div class="tip"><i class="bi bi-lightbulb"></i> Keep the black window open while you use TikLab: closing it stops the router. Nothing is lost — the configuration saves itself.</div></div>
+  <div data-pane="lin" hidden><ol class="steps">
+    <li><span>Unpack it:<code class="cmd">tar xzf {{ release.linux_x64.name|default:'TikLab-linux-x64.tar.gz' }}</code></span></li>
+    <li><span>Start it:<code class="cmd">./start-tiklab.sh</code></span></li>
+    <li><span>Open the console address it prints if no browser opens by itself. Log in as <b>admin</b>, empty password.</span></li>
+  </ol>
+  <div class="tip"><i class="bi bi-lightbulb"></i> Without root, ports 80, 443, 22, 23 and 21 move to 8080, 8443, 2222, 2323 and 2121. To keep the real ports, run once: <code>sudo setcap 'cap_net_bind_service=+ep' ./tiklab</code></div></div>
+  <div data-pane="pi" hidden><ol class="steps">
+    <li><span>On a Raspberry Pi 4 or 5 (64-bit OS), unpack the ARM package:<code class="cmd">tar xzf {{ release.linux_arm64.name|default:'TikLab-linux-arm64.tar.gz' }}</code></span></li>
+    <li><span>Start it:<code class="cmd">./start-tiklab.sh</code></span></li>
+    <li><span>From any PC or phone on the same network, open <code>http://pi-address:8291/</code> and log in as <b>admin</b>.</span></li>
+  </ol>
+  <div class="tip"><i class="bi bi-lightbulb"></i> A Pi makes a perfect always-on training router for your shop or school.</div></div>
+</div></section>
+
+<section class="soft" id="taptap"><div class="wrap">
+  <span class="eyebrow">Practice before you buy</span><h2>Connect TikLab to TapTap like a real router.</h2>
+  <p class="sub">Make vouchers, try your portal design, watch sessions and syncs — all on the simulator. When you are ready, the same steps work on your real MikroTik.</p>
+  <div class="cards">
+    <div class="card"><span class="n">1</span><h3>Add a router in TapTap</h3><p>Choose <b>TapTap Link</b> and copy the install block TapTap shows. (On your own network you can also use the API: the PC's address, port 8728, user admin.)</p></div>
+    <div class="card"><span class="n">2</span><h3>Paste it in TikLab</h3><p>Open <b>TapTap &amp; Tunnels</b> in the TikLab console, paste the block and press <b>Run</b>. Pasting it into the terminal works too.</p></div>
+    <div class="card"><span class="n">3</span><h3>Watch it turn green</h3><p>The simulated router checks in over HTTPS every few seconds. Vouchers, sessions, backups and syncs run on it as on a router.</p></div>
+  </div>
+  <p style="margin-top:1.4rem"><a class="btn dark" href="{% if user.is_authenticated %}{% url 'routers' %}{% else %}{% url 'register' %}{% endif %}"><i class="bi bi-router"></i> {% if user.is_authenticated %}Add it to my routers{% else %}Create a free TapTap account{% endif %}</a></p>
+  <div class="gallery">
+    <figure><img src="{% static 'tiklab/network-lab.webp' %}" alt="The TikLab Network Lab: several routers, a switch, phones and PCs connected with cables" loading="lazy" width="1400" height="932"><figcaption><b>Network Lab</b> — build a whole network of routers, switches and devices on one PC, and configure each router from one console.</figcaption></figure>
+    <div class="two">
+      <figure><img src="{% static 'tiklab/console.webp' %}" alt="The TikLab console with the dashboard of a simulated RB4011" loading="lazy" width="1400" height="875"><figcaption><b>WinBox-style console</b> in your browser — and it can manage real MikroTik routers too.</figcaption></figure>
+      <figure class="phone"><img src="{% static 'tiklab/login-page.webp' %}" alt="The simulated hotspot login page on a phone" loading="lazy" width="420" height="840"><figcaption><b>Real phones</b> join the PC's Wi-Fi and log in with a voucher.</figcaption></figure>
+    </div>
+  </div>
+</div></section>
+
+{% if manual %}<section id="manual"><div class="wrap">
+  <div class="manual">
+    <a class="cover" href="{% url 'tiklab_download' manual.name %}" rel="nofollow"><img src="{% static 'tiklab/manual-cover.webp' %}" alt="Cover of the TikLab {{ manual.version }} user manual" width="420" height="594"><span><i class="bi bi-download"></i> Download the PDF</span></a>
+    <div>
+      <span class="eyebrow">The user manual</span><h2>Everything, step by step, with real screenshots.</h2>
+      <p class="sub">TikLab {{ manual.version }} user manual · PDF · {{ manual.size_text }}. Read it on your phone while you work on the PC.</p>
+      <ol class="chap">{% for c in chapters %}<li>{{ c }}</li>{% endfor %}</ol>
+      <a class="btn dark" href="{% url 'tiklab_download' manual.name %}" rel="nofollow"><i class="bi bi-file-earmark-pdf"></i> Download the manual</a>
+    </div>
+  </div>
+</div></section>{% endif %}
+
+<section class="soft" id="all"><div class="wrap">
+  <span class="eyebrow">All downloads</span><h2>Every system, every version.</h2>
+  <p class="sub">Each button gives you the file directly. The SHA-256 lets you check the file is exactly the one we published.</p>
+  <div style="overflow-x:auto;margin-top:1.2rem"><table>
+    <thead><tr><th>System</th><th>File</th><th>Size</th><th>SHA-256</th><th></th></tr></thead><tbody>
+    {% for p in release.platforms %}<tr><td><i class="bi {{ p.icon }}"></i> <b>{{ p.label }}</b><br><small style="color:var(--muted)">{{ p.who }}</small></td><td>{{ p.file.name }} <span class="ver new">latest</span></td><td>{{ p.file.size_text }}</td>
+      <td>{% if p.file.sha256 %}<span class="sha" title="{{ p.file.sha256 }}">{{ p.file.sha256|slice:':12' }}…</span><button type="button" class="copy" data-tl-copy="{{ p.file.sha256 }}"><i class="bi bi-clipboard"></i> Copy</button>{% else %}<span class="sha">—</span>{% endif %}</td>
+      <td><a class="get" href="{% url 'tiklab_download' p.file.name %}" rel="nofollow"><i class="bi bi-download"></i> Download</a></td></tr>{% endfor %}
+    {% if manual %}<tr><td><i class="bi bi-file-earmark-pdf"></i> <b>User manual</b><br><small style="color:var(--muted)">PDF, {{ manual.version }}</small></td><td>{{ manual.name }}</td><td>{{ manual.size_text }}</td>
+      <td>{% if manual.sha256 %}<span class="sha">{{ manual.sha256|slice:':12' }}…</span><button type="button" class="copy" data-tl-copy="{{ manual.sha256 }}"><i class="bi bi-clipboard"></i> Copy</button>{% else %}<span class="sha">—</span>{% endif %}</td>
+      <td><a class="get" href="{% url 'tiklab_download' manual.name %}" rel="nofollow"><i class="bi bi-download"></i> Download</a></td></tr>{% endif %}
+    </tbody></table></div>
+  {% if older %}<details class="older"><summary>Older versions ({{ older|length }})</summary><div style="overflow-x:auto"><table><tbody>
+    {% for r in older %}{% for p in r.platforms %}<tr><td><span class="ver">{{ r.version }}</span></td><td><i class="bi {{ p.icon }}"></i> {{ p.label }}</td><td>{{ p.file.size_text }}</td>
+      <td><a class="get" href="{% url 'tiklab_download' p.file.name %}" rel="nofollow"><i class="bi bi-download"></i> {{ p.file.name }}</a></td></tr>{% endfor %}{% endfor %}
+  </tbody></table></div></details>{% endif %}
+  <p class="sub" style="margin-top:1.2rem;font-size:.9rem">Short links you can share — they always give the newest version:
+    <code>{{ request.scheme }}://{{ request.get_host }}{% url 'tiklab_latest' 'windows' %}</code> · <code>…/linux-x64/</code> · <code>…/linux-arm64/</code> · <code>…/manual/</code></p>
+
+  <h2 style="margin-top:2.6rem;font-size:1.5rem">The ports it opens</h2>
+  <div class="ports">
+    <div><b>8291</b><small>Console (browser)</small></div><div><b>8728</b><small>RouterOS API</small></div><div><b>8729</b><small>API over TLS</small></div><div><b>80</b><small>REST + hotspot login</small></div>
+    <div><b>443</b><small>REST over HTTPS</small></div><div><b>22</b><small>SSH</small></div><div><b>23</b><small>Telnet</small></div><div><b>21</b><small>FTP (files, pages)</small></div>
+  </div>
+  {% if stats is not None %}<div class="stats-box"><b><i class="bi bi-bar-chart"></i> Downloads (only TapTap staff see this)</b> · {{ downloads }} in all{% if not live %} · <span style="color:#b45309">GitHub list not reachable right now — showing the built-in list</span>{% endif %}
+    <div style="overflow-x:auto"><table><tbody>{% for s in stats %}<tr><td>{{ s.file }}</td><td style="text-align:right"><b>{{ s.n }}</b></td></tr>{% empty %}<tr><td>No downloads yet.</td></tr>{% endfor %}</tbody></table></div></div>{% endif %}
+</div></section>
+
+<section id="faq"><div class="wrap">
+  <span class="eyebrow">Questions</span><h2>Good to know</h2>
+  <div class="faq">
+    <details><summary>Is TikLab made by MikroTik?</summary><p>No. TikLab is an independent simulator that re-implements RouterOS behaviour and protocols. It does not contain RouterOS. MikroTik, RouterOS and WinBox are trademarks of MikroTik.</p></details>
+    <details><summary>Does it cost anything?</summary><p>No. TikLab is free to download and use for training and testing — no account needed.</p></details>
+    <details><summary>Is there a Mac version?</summary><p>Not yet. Use a Windows or Linux PC, a Raspberry Pi, or Windows / Linux in a virtual machine on your Mac.</p></details>
+    <details><summary>Can real phones log in to the simulated hotspot?</summary><p>Yes. With a Wi-Fi model, TikLab can broadcast the router's Wi-Fi from your PC: phones join, the login page opens and they log in with a voucher.</p></details>
+    <details><summary>Will it break my network?</summary><p>No. It is a program on your PC. It does not touch your real router unless you choose to send a configuration to it.</p></details>
+    <details><summary>Something does not start?</summary><p>Chapter 13 of the manual lists common problems and their fixes — ports already in use, firewall prompts, Linux ports without root.</p></details>
+  </div>
+</div></section>
+{% endif %}
+
+<div class="wrap"><footer><span>© {{ year }} TapTap · TikLab is free for every Wi-Fi business</span><span><a href="{% url 'home' %}">TapTap home</a> · <a href="{% url 'register' %}">Start free</a></span></footer></div>
+<script>
+(function(){var tabs=document.querySelectorAll('[data-tab]');[].forEach.call(tabs,function(t){t.addEventListener('click',function(){
+[].forEach.call(tabs,function(x){x.setAttribute('aria-selected',x===t?'true':'false');});
+[].forEach.call(document.querySelectorAll('[data-pane]'),function(p){p.hidden=p.getAttribute('data-pane')!==t.getAttribute('data-tab');});});});
+var ua=navigator.userAgent;var pick=/Linux/.test(ua)&&!/Android/.test(ua)?(/aarch64|arm/i.test(ua)?'pi':'lin'):null;
+if(pick){var b=document.querySelector('[data-tab="'+pick+'"]');if(b)b.click();}})();
+</script>
+<script src="{% static 'tiklab/tiklab.js' %}?v=1" defer></script>
+</body></html>

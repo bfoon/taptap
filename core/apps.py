@@ -87,6 +87,7 @@ class CoreConfig(AppConfig):
         _install_optional("voucher_ready")      # login guarantee: voucher on the router before the login; refused logins heal; retries
         _install_optional("probe_guard")        # phones' connection tests always need a login: the login page always opens
         _install_optional("landing")            # adverts on the public landing page, managed on the platform console
+        _install_optional("tiklab")             # TikLab, the free MikroTik simulator: downloads + manual from the landing page
         _install_optional("views_sync_control")  # Sync control page: when and how TapTap syncs each router
         _install_optional("dhcp_guard")         # the lines' own DHCP renewals are never marked, NATed or blocked
         _install_optional("market")             # TapTap Market: batches for sale with due diligence, resold with mobile money

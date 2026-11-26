@@ -4,6 +4,7 @@ nginx / Traefik / Cloudflare, with or without Redis.
 """
 from pathlib import Path
 import os
+import sys
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -86,6 +87,13 @@ USE_X_FORWARDED_HOST = env_bool('USE_X_FORWARDED_HOST', True)
 USE_X_FORWARDED_PORT = env_bool('USE_X_FORWARDED_PORT', False)
 
 TRIAL_DAYS = int(os.getenv('TRIAL_DAYS', '7'))
+# TikLab, the free MikroTik simulator offered for download on the landing page (core/tiklab.py)
+TIKLAB_REPO = os.getenv('TIKLAB_REPO', 'bfoon/mikrotik_simulation')        # where the files live on GitHub
+TIKLAB_BRANCH = os.getenv('TIKLAB_BRANCH', 'main')
+TIKLAB_DOWNLOAD_BASE = os.getenv('TIKLAB_DOWNLOAD_BASE', '')                 # your own CDN/bucket instead of GitHub
+TIKLAB_LOCAL_DIR = os.getenv('TIKLAB_LOCAL_DIR', '')                         # or a folder on this server
+TIKLAB_GITHUB_TOKEN = os.getenv('TIKLAB_GITHUB_TOKEN', '')                   # only if the repository becomes private
+TIKLAB_DISCOVER = env_bool('TIKLAB_DISCOVER', sys.argv[1:2] != ['test'])   # read the repo's file list (off in tests)
 MIKROTIK_API_PORT = int(os.getenv('MIKROTIK_API_PORT', '8728'))
 # Router connection behaviour — bounded so a dead router never hangs a page.
 MIKROTIK_TIMEOUT = float(os.getenv('MIKROTIK_TIMEOUT', '10'))          # discovery / config reads

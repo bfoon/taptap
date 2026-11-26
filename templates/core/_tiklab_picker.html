@@ -1,0 +1,13 @@
+{% comment %}The smart download button (static/tiklab/tiklab.js): the visitor's own system first, the others one tap away.
+Without JavaScript it is a plain link to the Windows file, and every system stays listed below it.{% endcomment %}
+{% with win=release.windows %}
+<div class="tl-picker" data-tl-picker data-tl-files="{{ files_json }}" data-tl-page="{{ page_url|default:'' }}">
+  <div class="tl-btns">
+    <a class="tl-get" data-tl-main href="{% if win %}{% url 'tiklab_download' win.name %}{% else %}{% url 'tiklab' %}{% endif %}" rel="nofollow">
+      <i class="bi bi-windows"></i><span><b data-tl-label>Download for Windows</b><small><span data-tl-size>{{ win.size_text }}</span> · TikLab {{ release.version }} · free</small></span></a>
+    {% if manual %}<a class="tl-manual" href="{% url 'tiklab_download' manual.name %}" rel="nofollow" title="Download the user manual (PDF)"><i class="bi bi-file-earmark-pdf"></i><span><b>User manual</b><small>PDF · {{ manual.size_text }}</small></span></a>{% endif %}
+  </div>
+  <p class="tl-hint" data-tl-hint>No installation: unzip it and double-click. Windows, Linux and Raspberry Pi.</p>
+  <div class="tl-alt" data-tl-alt>{% for p in release.platforms %}<a data-tl-plat="{{ p.key }}" href="{% url 'tiklab_download' p.file.name %}" rel="nofollow" title="{{ p.who }} · {{ p.file.size_text }}"><i class="bi {{ p.icon }}"></i> {{ p.label }}</a>{% endfor %}</div>
+</div>
+{% endwith %}

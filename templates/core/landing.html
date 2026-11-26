@@ -5,6 +5,7 @@
 <meta property="og:image" content="{% static 'brand/apple-touch-icon.png' %}">
 <link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
 {% include "core/_brand_icons.html" %}
+{% if tiklab %}<link href="{% static 'tiklab/tiklab.css' %}?v=1" rel="stylesheet">{% endif %}
 <style>
 :root{--ink:#0d1b2e;--muted:#5c6f86;--blue:#1769e0;--sky:#14a3e2;--line:#e3eaf3;--soft:#f4f8fd;--green:#18a66a;--gold:#f5b70a;--r:22px}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:#fff;-webkit-font-smoothing:antialiased}
@@ -116,7 +117,7 @@ footer{padding:2.4rem 0;color:var(--muted);font-size:.85rem;display:flex;justify
   <div class="wrap">
     <nav class="top">
       <a class="brand" href="/"><img src="{% static 'brand/mark.svg' %}" alt=""><span>TapTap<small>CONNECT · TAP · GO</small></span></a>
-      <div class="links"><a href="#features">Features</a><a href="#how">How it works</a>{% if ads.spotlight %}<a href="#offers">Offers</a>{% endif %}<a href="#plans">Plans</a><a href="#faq">FAQ</a></div>
+      <div class="links"><a href="#features">Features</a><a href="#how">How it works</a>{% if tiklab %}<a href="#simulator">Free simulator</a>{% endif %}{% if ads.spotlight %}<a href="#offers">Offers</a>{% endif %}<a href="#plans">Plans</a><a href="#faq">FAQ</a></div>
       <div style="display:flex;gap:.5rem">
         {% if user.is_authenticated %}<a class="btn btn-primary btn-sm" href="{% if user.is_superuser and not user.business %}{% url 'platform_overview' %}{% else %}{% url 'dashboard' %}{% endif %}">Open TapTap <i class="bi bi-arrow-right"></i></a>
         {% else %}<a class="btn btn-ghost btn-sm" href="{% url 'login' %}">Log in</a><a class="btn btn-primary btn-sm" href="{% url 'register' %}">Start free</a>{% endif %}
@@ -166,6 +167,8 @@ footer{padding:2.4rem 0;color:var(--muted);font-size:.85rem;display:flex;justify
   <div class="steps">{% for icon, title, text in steps %}<div class="step reveal"><i class="bi {{ icon }}"></i><b>{{ title }}</b><span>{{ text }}</span></div>{% endfor %}</div>
 </div></section>
 
+{% if tiklab %}{% include "core/_landing_tiklab.html" %}{% endif %}
+
 {% if ads.banner %}<section class="band" style="padding-bottom:0"><div class="wrap reveal">{% include "core/_landing_ad.html" with ad=ads.banner mode="banner" %}</div></section>{% endif %}
 
 {% if ads.spotlight %}<section class="band" id="offers"><div class="wrap">
@@ -194,7 +197,7 @@ footer{padding:2.4rem 0;color:var(--muted);font-size:.85rem;display:flex;justify
   <a class="btn btn-light" href="{% url 'register' %}">Create my free account <i class="bi bi-arrow-right"></i></a>
 </div></div></section>
 
-<div class="wrap"><footer><span>© {{ year }} TapTap · Wi-Fi business made simple</span><span><a href="{% url 'login' %}">Log in</a> · <a href="{% url 'register' %}">Start free</a> · <a href="#plans">Plans</a></span></footer></div>
+<div class="wrap"><footer><span>© {{ year }} TapTap · Wi-Fi business made simple</span><span><a href="{% url 'login' %}">Log in</a> · <a href="{% url 'register' %}">Start free</a> · <a href="#plans">Plans</a>{% if tiklab %} · <a href="{% url 'tiklab' %}">TikLab simulator</a>{% endif %}</span></footer></div>
 
 {% if preview %}<div class="preview-note"><i class="bi bi-eye"></i> Preview of “{{ preview.title }}” ({{ preview.get_placement_display }}) — only you see it · <a href="{% url 'platform_landing' %}?edit={{ preview.pk }}">Back to editing</a></div>{% endif %}
 
@@ -258,4 +261,5 @@ footer{padding:2.4rem 0;color:var(--muted);font-size:.85rem;display:flex;justify
   }
 })();
 </script>
+{% if tiklab %}<script src="{% static 'tiklab/tiklab.js' %}?v=1" defer></script>{% endif %}
 </body></html>

@@ -156,7 +156,17 @@ FAQ = [
     ('Which routers work?', 'MikroTik routers with RouterOS 6.49 or 7. Other access points (TP-Link, Omada…) can sit behind them.'),
     ('What happens when my trial ends?', 'You keep the Free plan: vouchers, batches, plans and routers keep working. Choose a plan any time to unlock the rest.'),
     ('Can customers pay with mobile money?', 'Yes. Online sales let customers buy a voucher with mobile money and log in straight away.'),
+    ('No router yet — can I still try TapTap?', 'Yes. Download TikLab, our free MikroTik simulator for Windows, Linux and Raspberry Pi, and connect it to TapTap like a real router.'),
 ]
+
+
+def _tiklab():
+    try:
+        from .tiklab import landing_ctx
+        return landing_ctx()
+    except Exception:            # the page never fails because of the simulator downloads
+        logger.exception('tiklab on the landing page')
+        return None
 
 
 def home(request):
@@ -176,7 +186,7 @@ def home(request):
             logger.debug('landing views', exc_info=True)
     return render(request, 'core/landing.html', {
         'ads': s, 'preview': preview, 'stats': public_stats(), 'plans': plan_cards(), 'tour': FEATURE_TOUR,
-        'steps': STEPS, 'faq': FAQ, 'trial_days': getattr(settings, 'TRIAL_DAYS', 7), 'year': timezone.localdate().year,
+        'steps': STEPS, 'faq': FAQ, 'tiklab': _tiklab(), 'tiklab_page': request.build_absolute_uri('/tiklab/'), 'trial_days': getattr(settings, 'TRIAL_DAYS', 7), 'year': timezone.localdate().year,
     })
 
 

@@ -1,0 +1,33 @@
+{% load static %}{% comment %}Landing page: TikLab, the free MikroTik simulator, downloaded straight from here (core/tiklab.py).{% endcomment %}
+<section class="band tl-band" id="simulator"><div class="wrap tl-grid">
+  <div class="reveal">
+    <span class="eyebrow tl-eyebrow"><i class="bi bi-gift"></i> Free download · TikLab {{ tiklab.release.version }}</span>
+    <h2>A MikroTik router <span class="tl-grad">on your computer.</span></h2>
+    <p class="sub tl-sub">TikLab behaves like a real MikroTik with RouterOS 7: hotspot, vouchers, WinBox-style console, API. Train your staff, try your login page on real phones, build a whole network — and connect it to TapTap before you buy a single router.</p>
+    <ul class="tl-points">
+      <li><i class="bi bi-lightning-charge"></i><span><b>No installation</b> — unzip, double-click, log in as <code>admin</code></span></li>
+      <li><i class="bi bi-diagram-3"></i><span><b>Network Lab</b> — several routers, switches, phones and cables on one PC</span></li>
+      <li><i class="bi bi-link-45deg"></i><span><b>Works with TapTap</b> — add it like a router, over the API or TapTap Link</span></li>
+    </ul>
+    {% include "core/_tiklab_picker.html" with release=tiklab.release manual=tiklab.manual files_json=tiklab.files_json page_url=tiklab_page %}
+    <a class="tl-more" href="{% url 'tiklab' %}">How to start, all versions and checksums <i class="bi bi-arrow-right"></i></a>
+    {% if tiklab.downloads >= 50 %}<span class="tl-count"><i class="bi bi-download"></i> Downloaded {{ tiklab.downloads }} times</span>{% endif %}
+  </div>
+  <div class="tl-stage reveal" aria-hidden="true">
+    <div class="tl-term" data-tl-term>
+      <div class="tl-bar"><i></i><i></i><i></i><span>TikLab {{ tiklab.release.version }}</span></div>
+      <pre><span data-l class="on">TikLab {{ tiklab.release.version }} - RouterOS-compatible router simulator</span>
+<span data-l class="on dim">- model RB4011iGS+: 10 x 1G, 1 x SFP+, identity "MikroTik"</span>
+<span data-l class="on"> </span>
+<span data-l class="on"><b>WinBox-style GUI</b>   http://127.0.0.1:8291/</span>
+<span data-l class="on"><b>RouterOS API</b>       192.168.1.20:8728</span>
+<span data-l class="on"><b>REST API</b>           http://192.168.1.20:80</span>
+<span data-l class="on"><b>Hotspot portal</b>     http://192.168.1.20/login</span>
+<span data-l class="on"><b>SSH · Telnet · FTP</b> 22 · 23 · 21</span>
+<span data-l class="on"> </span>
+<span data-l class="on ok">Login: admin (empty)  ·  Press Ctrl+C to stop.</span></pre>
+    </div>
+    <img class="tl-shot" data-tl-shot src="{% static 'tiklab/console.webp' %}" alt="" loading="lazy" width="1400" height="875">
+    <img class="tl-phone" src="{% static 'tiklab/login-page.webp' %}" alt="" loading="lazy" width="420" height="840">
+  </div>
+</div></section>
