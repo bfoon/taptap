@@ -108,8 +108,6 @@ FEATURES = OrderedDict((f.key, f) for f in [
     _f('flow', 'Flow lab', 'network', 'bi-water', 'Slow customers, idle devices, DHCP and speed checks, step by step.', paths=('/flow/',)),
     _f('network_tools', 'Network tools', 'network', 'bi-activity', 'Ping, speed tests and path checks from the router.',
        'network_tools network_tools_run network_tools_test network_tools_path network_tools_devices network_tools_verdict network_tools_save_chain network_tools_blob network_tools_sink'),
-    _f('other_devices', 'Other routers & APs', 'network', 'bi-hdd-rack', 'TP-Link, Omada and other devices TapTap does not manage, with remote access.',
-       'netdev_list netdev_save netdev_action netdev_session remote_proxy_root remote_proxy omada_save omada_action'),
     _f('router_maintenance', 'Router maintenance', 'network', 'bi-tools', 'Backups, restore, clean-up and the control designer.',
        'router_cleanup_scan router_cleanup_clean router_cleanup_job router_cleanup_copy router_cleanup_download router_restore_upload router_restore_prepare router_restore_start router_restore_status router_restore_helper router_backups router_backup_download router_backup_server_download control_designer_state control_designer_refresh control_designer_inspect control_designer_preview control_designer_apply control_designer_rollback'),
     _f('hotspot_profiles', 'Hotspot profiles', 'network', 'bi-sliders', 'Check and fix router user profiles against your plans.', 'router_profiles router_profile_import profile_check_fix'),

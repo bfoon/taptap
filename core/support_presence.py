@@ -110,7 +110,6 @@ PREFIX_PAGE_NAMES = (
     ("topology_", "Topology"),
     ("traffic_", "Traffic"),
     ("device_", "Devices"),
-    ("netdev_", "Other routers & APs"),
     ("ip_binding", "IP bindings"),
     ("security_", "Security"),
     ("sharing_", "Security · Internet sharing"),

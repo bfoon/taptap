@@ -670,12 +670,12 @@ def housekeeping():
             _dhcp_guard()
         except Exception:
             logger.exception('dhcp guard')
-        # Remote admin pages of other routers: close expired sessions (their NAT rules go away).
+        # Remote-admin paths left open when "Other routers & APs" was removed: take them off (core/remote_farewell.py).
         try:
-            from .netdev import close_expired as _rm_close
-            _rm_close()
+            from .remote_farewell import process as _farewell
+            _farewell()
         except Exception:
-            logger.exception('remote admin close')
+            logger.exception('remote admin farewell')
         # Blacklisted devices: drop them wherever they show up (a router that never had the block, a new MAC).
         try:
             from .blacklist import enforce as _blk_enforce

@@ -16,7 +16,6 @@ from . import views_mobile as vmob
 from . import views_mobile_vouchers as vmobv
 from . import views_mobile_routers as vmobr
 from . import views_router_schedules as vrsched
-from . import views_netdev as vnd
 from . import views_sharing as vshare
 from . import views_tracking as vtrack
 from . import views_agent_portal as vap
@@ -42,10 +41,6 @@ from . import views_unstick as vunstick
 from . import views_flow as vflow
 
 urlpatterns = [
-    path('network/devices/',vnd.netdev_list,name='netdev_list'), path('network/devices/save/',vnd.netdev_save,name='netdev_save'),
-    path('network/devices/<int:pk>/',vnd.netdev_action,name='netdev_action'), path('network/remote/<str:token>/',vnd.netdev_session,name='netdev_session'),
-    path('remote/<str:token>/',vnd.remote_proxy,name='remote_proxy_root'), path('remote/<str:token>/<path:path>',vnd.remote_proxy,name='remote_proxy'),
-    path('network/omada/',vnd.omada_save,name='omada_save'), path('network/omada/do/',vnd.omada_action,name='omada_action'),
     path('tracking/',vtrack.tracking_list,name='tracking'), path('tracking/save/',vtrack.watch_save,name='watch_save'), path('tracking/<int:pk>/',vtrack.tracking_action,name='tracking_action'),
     path('ag/<str:token>/',vap.agent_portal,name='agent_portal'), path('ag/<str:token>/help/',vap.agent_portal_help,name='agent_portal_help'), path('ag/<str:token>/order/',vap.agent_portal_order,name='agent_portal_order'),
     path('go/voucher/<str:code>/',vgo.go_voucher,name='go_voucher'), path('go/device/<str:mac>/',vgo.go_device,name='go_device'),
