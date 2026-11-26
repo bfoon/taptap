@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{{ d.headline|default:d.name }} · {{ business.business_name }}</title>
+<meta name="theme-color" content="{{ d.theme_color }}">
+<style>
+:root{--acc:{{ d.theme_color|default:'#18a66a' }};--ink:#10221a;--muted:#4f6a5c}
+*{box-sizing:border-box}html,body{margin:0}body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);min-height:100vh;
+background:radial-gradient(circle at 50% -15%,color-mix(in srgb,var(--acc) 70%,#fff),#f3fbf7 50%,#fff);padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+.wrap{max-width:460px;margin:0 auto;padding:22px 18px 40px;text-align:center}
+.brand{font-weight:750;color:var(--muted);font-size:14px}
+.wifi{width:110px;height:110px;margin:16px auto 6px;position:relative}
+.wifi span{position:absolute;left:50%;bottom:0;border:7px solid #fff;border-color:#fff transparent transparent transparent;border-radius:50%;transform:translateX(-50%);opacity:.95;animation:wave 2.2s ease-in-out infinite}
+.wifi span:nth-child(1){width:30px;height:30px;bottom:0;border:0;background:#fff;width:16px;height:16px;bottom:6px}
+.wifi span:nth-child(2){width:56px;height:56px;bottom:-14px;animation-delay:.2s}.wifi span:nth-child(3){width:86px;height:86px;bottom:-29px;animation-delay:.4s}.wifi span:nth-child(4){width:116px;height:116px;bottom:-44px;animation-delay:.6s}
+@keyframes wave{50%{opacity:.35}}
+h1{font-size:clamp(26px,7.5vw,36px);margin:14px 0 4px;line-height:1.1}
+.time{display:inline-block;font:900 clamp(40px,13vw,60px)/1 system-ui;background:#fff;border-radius:22px;padding:12px 22px;margin:10px 0 6px;box-shadow:0 12px 30px rgba(0,0,0,.08);color:color-mix(in srgb,var(--acc) 70%,#000)}
+.time small{display:block;font:700 13px system-ui;color:var(--muted);margin-top:4px}
+.state{display:inline-flex;align-items:center;gap:6px;font-weight:800;font-size:13px;border-radius:999px;padding:6px 12px;background:#fff;margin:8px 0}
+.state i{width:8px;height:8px;border-radius:50%;background:#18a66a;animation:wave 1.4s infinite}.state.soon i{background:#1769e0}.state.closed i,.state.draw_done i{background:#94a3b8;animation:none}
+.meter{height:12px;border-radius:99px;background:#ffffffaa;overflow:hidden;margin:10px 0 4px}.meter b{display:block;height:100%;background:var(--acc);transition:width .6s}
+.left{font-size:14px;color:var(--muted);font-weight:700}
+.card{background:#fff;border-radius:22px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.08);text-align:left;margin-top:14px}
+label{font-weight:700;font-size:14px;display:block}input{width:100%;font:700 18px/1.2 system-ui;padding:13px;border-radius:14px;border:2px solid #e1e9e4;margin:7px 0 12px;text-align:center}
+input.code{font-family:ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase}input.code::placeholder{text-transform:none;letter-spacing:0;font-family:system-ui}input:focus{outline:none;border-color:var(--acc)}
+.btn{display:block;width:100%;border:0;border-radius:16px;padding:16px;font:850 18px system-ui;background:var(--acc);color:#fff;cursor:pointer;box-shadow:0 6px 0 color-mix(in srgb,var(--acc) 60%,#000);text-decoration:none;text-align:center}
+.btn:active{transform:translateY(3px);box-shadow:0 3px 0 color-mix(in srgb,var(--acc) 60%,#000)}.btn:disabled{opacity:.55}
+.btn.ghost{background:#fff;color:var(--ink);box-shadow:none;border:2px solid #e1e9e4;margin-top:10px;font-size:15px;padding:12px}
+.msg{margin-top:10px;font-size:15px;min-height:1.2em;text-align:center}.msg.err{color:#b42318}
+.won{display:none;text-align:center}.won.show{display:block;animation:pop .5s ease}
+.won .code{display:inline-block;font:900 30px ui-monospace,monospace;letter-spacing:.16em;background:#effaf4;border:2px dashed var(--acc);border-radius:14px;padding:10px 18px;margin:10px 0;user-select:all}
+.small{font-size:12.5px;color:var(--muted);white-space:pre-line;margin-top:16px}
+.banner{background:#10221a;color:#fff;border-radius:12px;padding:8px 12px;font-size:13px;margin-bottom:12px}
+.count{font:800 15px ui-monospace,monospace;color:var(--muted)}
+@keyframes pop{0%{transform:scale(.85);opacity:0}60%{transform:scale(1.04)}100%{transform:scale(1);opacity:1}}
+.confetti{position:fixed;top:-12px;width:10px;height:14px;z-index:9;animation:fall linear forwards}@keyframes fall{to{transform:translateY(110vh) rotate(720deg)}}
+@media(prefers-reduced-motion:reduce){.confetti{display:none}.wifi span,.state i{animation:none}.won.show{animation:none}}
+</style></head>
+<body><div class="wrap">
+  {% if preview %}<div class="banner">Preview — this page is not published yet.</div>{% endif %}
+  <div class="brand">{{ business.business_name }}</div>
+  <div class="wifi" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+  <h1>{{ d.headline|default:'Free Wi-Fi — on us!' }}</h1>
+  <div class="time">{{ time_text }}<small>{% if d.pick == 'draw' %}for each lucky winner{% else %}free internet{% endif %}</small></div>
+  <div><span class="state {{ state_key }}"><i></i>{{ state_text }}</span>{% if state_key == 'open' and window_end %} <span class="count" id="cd" data-end="{{ window_end|date:'c' }}"></span>{% elif state_key == 'soon' and next_at %} <span class="count" id="cd" data-end="{{ next_at|date:'c' }}"></span>{% endif %}</div>
+  {% if total and left is not None %}<div class="meter"><b id="meter" style="width:{% widthratio left total 100 %}%"></b></div><div class="left"><span id="left">{{ left }}</span> of {{ total }} left</div>{% endif %}
+
+  <div class="card" id="ask"{% if state_key != 'open' or mine %} hidden{% endif %}>
+    {% if d.audience == 'customers' %}<label for="code">The code of a voucher you bought here</label><input id="code" class="code" autocomplete="off" placeholder="{% if mac %}not needed if we know your phone{% else %}e.g. K7P2Q9{% endif %}">{% endif %}
+    {% if d.ask_phone %}<label for="phone">Your phone number</label><input id="phone" type="tel" inputmode="tel" autocomplete="tel" placeholder="e.g. 3 123 456">{% endif %}
+    <button class="btn" id="go">{% if d.pick == 'draw' %}Enter the draw{% else %}Get {{ time_text }} free{% endif %}</button>
+    <div class="msg" id="msg"></div>
+  </div>
+
+  <div class="card won" id="won">
+    <div id="wonText" style="font-weight:800;font-size:18px"></div>
+    <div class="code" id="wonCode" hidden></div>
+    <div id="howto" hidden style="font-size:14px;color:var(--muted)">Type this code on the Wi-Fi login page — username and password are the same.</div>
+    <a class="btn" id="connect" hidden>Connect now</a>
+    <button class="btn ghost" id="copy" hidden type="button">Copy the code</button>
+  </div>
+  {% if d.message %}<div class="small">{{ d.message }}</div>{% endif %}
+  <div class="small" style="text-align:center">{{ sched }}{% if d.one_per_device %} · one per phone{% endif %}</div>
+</div>
+<script>
+(function(){
+  var url='{% url "free_drop_claim" d.slug %}',mineUrl='{% url "free_drop_mine" d.slug %}',mac='{{ mac|escapejs }}';
+  var qs=new URLSearchParams(location.search),login=qs.get('login')||'';
+  function confetti(){for(var i=0;i<60;i++){var c=document.createElement('i');c.className='confetti';c.style.left=Math.random()*100+'vw';c.style.background=['{{ d.theme_color|escapejs }}','#f59e0b','#1769e0','#db2777'][i%4];c.style.animationDuration=(1.6+Math.random()*1.8)+'s';document.body.appendChild(c);setTimeout(function(x){x.remove();},3800,c);}}
+  function show(r,fresh){
+    document.getElementById('ask').hidden=true;var w=document.getElementById('won');w.classList.add('show');
+    document.getElementById('wonText').textContent=r.message||'';
+    if(r.status==='won'&&r.code){
+      var c=document.getElementById('wonCode');c.hidden=false;c.textContent=r.code;document.getElementById('howto').hidden=false;
+      var cp=document.getElementById('copy');cp.hidden=false;cp.onclick=function(){(navigator.clipboard?navigator.clipboard.writeText(r.code):Promise.reject()).then(function(){cp.textContent='Copied ✓';}).catch(function(){});};
+      if(/^https?:\/\/[^\s"'<>@]+$/.test(login)){var a=document.getElementById('connect');a.hidden=false;a.href=login+(login.indexOf('?')<0?'?':'&')+'username='+encodeURIComponent(r.code)+'&password='+encodeURIComponent(r.code)+(qs.get('dst')?'&dst='+encodeURIComponent(qs.get('dst')):'');}
+      if(fresh)confetti();
+    }
+    if(r.status==='entered')setTimeout(poll,30000);
+  }
+  function poll(){fetch(mineUrl,{credentials:'same-origin'}).then(function(x){return x.json();}).then(function(d){if(d.ok)show(d.result,d.result.status==='won');}).catch(function(){});}
+  {% if mine %}show({{ mine|safe }},false);{% endif %}
+  var go=document.getElementById('go');
+  if(go)go.addEventListener('click',function(){
+    var m=document.getElementById('msg');m.className='msg';m.textContent='';go.disabled=true;
+    var body={mac:mac};var ce=document.getElementById('code'),pe=document.getElementById('phone');if(ce)body.code=ce.value;if(pe)body.phone=pe.value;
+    fetch(url,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(x){return x.json();}).then(function(d){
+      go.disabled=false;
+      if(!d.ok){m.className='msg err';m.textContent=d.message||'Try again.';return;}
+      show(d.result,true);
+      if(d.left!=null&&document.getElementById('left')){document.getElementById('left').textContent=d.left;}
+    }).catch(function(){go.disabled=false;m.className='msg err';m.textContent='No connection — try again.';});
+  });
+  var cd=document.getElementById('cd');
+  if(cd){var end=new Date(cd.dataset.end).getTime();(function tick(){var s=Math.max(0,Math.round((end-Date.now())/1000));var h=Math.floor(s/3600),mi=Math.floor(s%3600/60),se=s%60;
+    cd.textContent=(h?h+':':'')+String(mi).padStart(2,'0')+':'+String(se).padStart(2,'0');if(s>0)setTimeout(tick,1000);else setTimeout(function(){location.reload();},1500);})();}
+})();
+</script>
+</body></html>

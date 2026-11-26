@@ -1,0 +1,160 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}{% if d %}{{ d.name }}{% else %}New free Wi-Fi{% endif %} — TapTap{% endblock %}{% block heading %}Bonanza · Free Wi-Fi{% endblock %}
+{% block extra_head %}<link href="{% static 'free_drop/free.css' %}?v=1" rel="stylesheet">{% endblock %}
+{% block content %}
+{% with p=preset %}
+<p class="mb-3"><a href="{% url 'free_drops' %}" class="text-decoration-none"><i class="bi bi-arrow-left"></i> Free Wi-Fi</a></p>
+<form method="post" id="fdForm">{% csrf_token %}
+<div class="fd-grid">
+<div>
+  <section class="panel mb-3">
+    <div class="row g-3">
+      <div class="col-md-7"><label class="form-label">Name</label><input class="form-control" name="name" required maxlength="120" value="{% if d %}{{ d.name }}{% else %}{{ p.name|default:'' }}{% endif %}" placeholder="e.g. Friday happy hour"></div>
+      <div class="col-md-3"><label class="form-label">Status</label><select class="form-select" name="status">{% for k,l in statuses %}<option value="{{ k }}"{% if d.status == k or not d and k == 'draft' %} selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label">Colour</label><input class="form-control form-control-color w-100" type="color" name="theme_color" id="fdColor" value="{{ d.theme_color|default:'#18a66a' }}"></div>
+    </div>
+    <label class="form-label mt-3">What it is</label>
+    <div class="fd-seg">
+      <input type="radio" name="kind" value="claim" id="kClaim"{% if d.kind == 'claim' or not d and p.kind != 'gift' %} checked{% endif %}><label for="kClaim"><b><i class="bi bi-qr-code"></i>Free codes</b>People get a free code on a page or by scanning a QR.</label>
+      <input type="radio" name="kind" value="gift" id="kGift"{% if d.kind == 'gift' or not d and p.kind == 'gift' %} checked{% endif %}><label for="kGift"><b><i class="bi bi-gift"></i>Gift time</b>Time added straight to your customers' own vouchers — nothing to claim.</label>
+    </div>
+    <div class="row g-3 mt-1">
+      <div class="col-6 col-md-3"><label class="form-label">Hours</label><input class="form-control" type="number" min="0" max="8784" name="hours" id="fdH" value="{{ hours }}"></div>
+      <div class="col-6 col-md-3"><label class="form-label">+ minutes</label><input class="form-control" type="number" min="0" max="59" name="mins" id="fdM" value="{{ mins }}"></div>
+      <div class="col-6 col-md-3 claim-only"><label class="form-label">Devices per code</label><input class="form-control" type="number" min="1" max="20" name="max_devices" value="{{ d.max_devices|default:1 }}"></div>
+      <div class="col-6 col-md-3"><label class="form-label">Router</label><select class="form-select" name="router"><option value="">{% if d.kind == 'gift' or p.kind == 'gift' %}All routers{% else %}First router{% endif %}</option>{% for r in routers %}<option value="{{ r.id }}"{% if d.router_id == r.id %} selected{% endif %}>{{ r.name }}</option>{% endfor %}</select></div>
+    </div>
+  </section>
+
+  <section class="panel mb-3 claim-only">
+    <h3 class="h6 fw-bold">Who gets a code</h3>
+    <div class="fd-seg mb-3">
+      <input type="radio" name="pick" value="first" id="pFirst"{% if d.pick == 'first' or not d and p.pick != 'draw' and p.pick != 'all' %} checked{% endif %}><label for="pFirst"><b><i class="bi bi-lightning-charge"></i>First come, first served</b>The first 50 / 100 phones, then “all gone”.</label>
+      <input type="radio" name="pick" value="draw" id="pDraw"{% if d.pick == 'draw' or not d and p.pick == 'draw' %} checked{% endif %}><label for="pDraw"><b><i class="bi bi-shuffle"></i>Lucky draw</b>People enter; TapTap picks random winners at the draw.</label>
+      <input type="radio" name="pick" value="all" id="pAll"{% if d.pick == 'all' or not d and p.pick == 'all' %} checked{% endif %}><label for="pAll"><b><i class="bi bi-people"></i>Everyone who asks</b>A happy hour for everybody (a limit is optional).</label>
+    </div>
+    <div class="fd-seg mb-3">
+      <input type="radio" name="audience" value="everyone" id="aAll"{% if d.audience == 'everyone' or not d and p.audience != 'customers' %} checked{% endif %}><label for="aAll"><b><i class="bi bi-globe2"></i>Anyone</b>New faces too — a great way to get new customers.</label>
+      <input type="radio" name="audience" value="customers" id="aCust"{% if d.audience == 'customers' or not d and p.audience == 'customers' %} checked{% endif %}><label for="aCust"><b><i class="bi bi-heart"></i>Only people who bought from me</b>They type a voucher they paid for — or TapTap recognises their phone.</label>
+    </div>
+    <div class="row g-3">
+      <div class="col-md-4"><label class="form-label" id="limLabel">How many</label><input class="form-control" type="number" min="1" name="limit" value="{% if d %}{{ d.limit|default:'' }}{% else %}{{ p.limit|default:'' }}{% endif %}" placeholder="No limit"><div class="fd-hint" id="limHint">50, 100… empty = no limit.</div></div>
+      <div class="col-md-4 draw-only"><label class="form-label">Draw at</label><input class="form-control" type="datetime-local" name="draw_at" value="{{ d.draw_at|date:'Y-m-d\TH:i' }}"><div class="fd-hint">Empty = at the end.</div></div>
+      <div class="col-md-8 not-draw">
+        <div class="form-check mt-md-4"><input class="form-check-input" type="checkbox" name="one_per_device" id="one"{% if not d or d.one_per_device %} checked{% endif %}><label class="form-check-label" for="one">One code per phone{% if d.daily_from %} per happy hour{% endif %}</label></div>
+        <div class="form-check"><input class="form-check-input" type="checkbox" name="ask_phone" id="askP"{% if d.ask_phone %} checked{% endif %}><label class="form-check-label" for="askP">Ask for their phone number (build your customer list)</label></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel mb-3 gift-only">
+    <h3 class="h6 fw-bold">Who gets the gift</h3>
+    <div class="fd-seg mb-3">
+      <input type="radio" name="target" value="online" id="tOn"{% if d.target == 'online' or not d and p.target != 'active' and p.target != 'recent' %} checked{% endif %}><label for="tOn"><b><i class="bi bi-broadcast"></i>Online right now</b>Customers browsing at that moment.</label>
+      <input type="radio" name="target" value="active" id="tAct"{% if d.target == 'active' or not d and p.target == 'active' %} checked{% endif %}><label for="tAct"><b><i class="bi bi-hourglass-split"></i>With time left</b>Every voucher in use that has not run out.</label>
+      <input type="radio" name="target" value="recent" id="tRec"{% if d.target == 'recent' or not d and p.target == 'recent' %} checked{% endif %}><label for="tRec"><b><i class="bi bi-bag-heart"></i>Bought recently</b>Everyone who bought in the last <input type="number" min="1" max="365" name="recent_days" value="{% if d %}{{ d.recent_days }}{% else %}{{ p.recent_days|default:7 }}{% endif %}" style="width:3.2rem;border:1px solid var(--border);border-radius:6px;display:inline"> days.</label>
+    </div>
+    <div class="row g-3 align-items-end">
+      <div class="col-md-5"><div class="form-check"><input class="form-check-input" type="checkbox" name="random_only" id="rnd"{% if d.random_only or not d and p.random_only %} checked{% endif %}><label class="form-check-label" for="rnd">Only a random handful of them</label></div></div>
+      <div class="col-md-4"><label class="form-label">How many</label><input class="form-control" type="number" min="1" name="limit" disabled data-gift-limit value="{% if d %}{{ d.limit|default:'' }}{% else %}{{ p.limit|default:'' }}{% endif %}" placeholder="All of them"></div>
+      {% if preview_count is not None %}<div class="col-md-3 fd-hint">Right now this reaches <b>{{ preview_count }}</b> customer voucher{{ preview_count|pluralize }}.</div>{% endif %}
+    </div>
+    <p class="fd-hint mt-2 mb-0">Members are left out (they have their own time). Vouchers that are switched off or whose time is up are left out too.</p>
+  </section>
+
+  <section class="panel mb-3">
+    <h3 class="h6 fw-bold">When</h3>
+    <div class="fd-seg mb-3">
+      <input type="radio" name="when" value="once" id="wOnce"{% if not d.daily_from and not p.daily_from %} checked{% endif %}><label for="wOnce"><b><i class="bi bi-calendar-event"></i>Once</b>From a start to an end (or right away).</label>
+      <input type="radio" name="when" value="daily" id="wDaily"{% if d.daily_from or p.daily_from %} checked{% endif %}><label for="wDaily"><b><i class="bi bi-arrow-repeat"></i>Happy hour that comes back</b>Same time on the days you choose.</label>
+    </div>
+    <div class="row g-3">
+      <div class="col-md-6"><label class="form-label">Starts</label><input class="form-control" type="datetime-local" name="starts_at" value="{{ d.starts_at|date:'Y-m-d\TH:i' }}"><div class="fd-hint gift-only">Gift time is given at this moment (empty = as soon as it is live).</div></div>
+      <div class="col-md-6"><label class="form-label">Ends</label><input class="form-control" type="datetime-local" name="ends_at" value="{{ d.ends_at|date:'Y-m-d\TH:i' }}"></div>
+    </div>
+    <div class="fd-when mt-3" id="daily">
+      <div class="row g-3">
+        <div class="col-6 col-md-3"><label class="form-label">Every day from</label><input class="form-control" type="time" name="daily_from" value="{% if d.daily_from %}{{ d.daily_from|time:'H:i' }}{% else %}{{ p.daily_from|default:'' }}{% endif %}"></div>
+        <div class="col-6 col-md-3"><label class="form-label">to</label><input class="form-control" type="time" name="daily_to" value="{% if d.daily_to %}{{ d.daily_to|time:'H:i' }}{% else %}{{ p.daily_to|default:'' }}{% endif %}"></div>
+        <div class="col-md-6"><label class="form-label">On</label><div class="fd-days">{% for i, n in days %}<input type="checkbox" name="days" value="{{ i }}" id="day{{ i }}"{% if i in sel_days %} checked{% endif %}><label for="day{{ i }}">{{ n }}</label>{% endfor %}</div><div class="fd-hint">None ticked = every day.</div></div>
+      </div>
+      <div class="form-check mt-2 claim-only"><input class="form-check-input" type="checkbox" name="end_with_window" id="ew"{% if d.end_with_window or not d and p.end_with_window %} checked{% endif %}><label class="form-check-label" for="ew">Free codes stop when the happy hour ends (a code taken at 18:40 gets 20 minutes)</label></div>
+      <p class="fd-hint mt-2 mb-0 gift-only">The gift is added at the start of every happy hour.</p>
+    </div>
+  </section>
+
+  <section class="panel mb-3 claim-only">
+    <div class="row g-3">
+      <div class="col-12"><label class="form-label">Headline <span class="fd-hint">(big text on the page)</span></label><input class="form-control" name="headline" id="fdHead" maxlength="160" value="{% if d %}{{ d.headline }}{% else %}{{ p.headline|default:'' }}{% endif %}" placeholder="Free Wi-Fi hour — on us!"></div>
+      <div class="col-12"><label class="form-label">Small print</label><textarea class="form-control" name="message" rows="2" placeholder="One code per phone. Use it today.">{{ d.message|default:'' }}</textarea></div>
+    </div>
+  </section>
+  <div class="d-flex gap-2 justify-content-end mb-4"><button class="btn btn-primary"><i class="bi bi-check2"></i> Save</button></div>
+</div>
+
+<aside><div class="fd-sticky">
+  {% if d %}
+  <section class="panel mb-3">
+    <div class="d-flex align-items-center justify-content-between mb-2"><b>{{ d.name }}</b>{% if state %}<span class="fd-pill {{ state.0 }}">{% if state.0 == 'open' %}<i></i>{% endif %}{{ state.1 }}</span>{% endif %}</div>
+    <div class="fd-stat mb-2">
+      {% if d.kind == 'claim' %}<div><b>{{ stats.won }}</b><span>codes given</span></div><div><b>{{ stats.used }}</b><span>used</span></div>
+      {% if d.pick == 'draw' %}<div><b>{{ stats.entered }}</b><span>in the draw</span></div>{% else %}<div><b>{% if left is None %}∞{% else %}{{ left }}{% endif %}</b><span>left now</span></div>{% endif %}<div><b>{{ stats.phones }}</b><span>phone numbers</span></div>
+      {% else %}<div><b>{{ stats.gifted }}</b><span>gifts given</span></div><div><b>{{ stats.failed }}</b><span>could not be given</span></div>{% endif %}
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      {% if d.status != 'live' %}<button class="btn btn-sm btn-success" form="act" name="action" value="live"><i class="bi bi-play-fill"></i> Go live</button>{% else %}<button class="btn btn-sm btn-outline-secondary" form="act" name="action" value="paused"><i class="bi bi-pause"></i> Pause</button>{% endif %}
+      {% if d.kind == 'claim' %}
+        {% if d.pick == 'draw' and not d.drawn_at %}<button class="btn btn-sm btn-warning" form="act" name="action" value="draw" onclick="return confirm('Pick the winners now? This happens once.')"><i class="bi bi-shuffle"></i> Draw now</button>{% endif %}
+        <a class="btn btn-sm btn-outline-primary" href="{% url 'free_drop_poster' d.pk %}" target="_blank" rel="noopener"><i class="bi bi-qr-code"></i> QR poster</a>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ public_url }}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> Page</a>
+      {% else %}
+        <button class="btn btn-sm btn-warning" form="act" name="action" value="gift" onclick="return confirm('Add {{ d.minutes }} minutes to the chosen customers now?')"><i class="bi bi-gift"></i> {% if d.gifted_at %}Give again{% else %}Give now{% endif %}</button>
+      {% endif %}
+      <a class="btn btn-sm btn-outline-secondary" href="{% url 'free_drop_people' d.pk %}"><i class="bi bi-people"></i> Who got it</a>
+    </div>
+    {% if d.kind == 'claim' %}<div class="fd-hint mt-2">Link: <code>{{ public_url }}</code><br>On your hotspot login page, link to it with <code>?mac=$(mac)</code> so customers are recognised.</div>{% endif %}
+  </section>
+  {% endif %}
+  <section class="panel claim-only">
+    <div class="fd-hint mb-2 text-center">What people see</div>
+    <div class="fd-phone"><div class="scr" id="prev">
+      <i class="bi bi-wifi" style="font-size:2rem;color:#fff"></i>
+      <h5 id="pvHead">Free Wi-Fi</h5>
+      <div class="big" id="pvTime">1 hour</div>
+      <div class="cnt" id="pvWho">First come, first served</div>
+      <div class="btnx" id="pvBtn">Get my free hour</div>
+    </div></div>
+  </section>
+</div></aside>
+</div>
+</form>
+{% if d %}<form method="post" action="{% url 'free_drop_action' d.pk %}" id="act">{% csrf_token %}{% if d.gifted_at %}<input type="hidden" name="again" value="1">{% endif %}</form>{% endif %}
+{% endwith %}
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var f=document.getElementById('fdForm');
+  function val(n){var x=f.querySelector('[name='+n+']:checked');return x?x.value:'';}
+  function show(sel,on){document.querySelectorAll(sel).forEach(function(e){e.style.display=on?'':'none';});}
+  function sync(){
+    var kind=val('kind'),pick=val('pick'),daily=val('when')==='daily';
+    show('.claim-only',kind==='claim');show('.gift-only',kind==='gift');
+    show('.draw-only',kind==='claim'&&pick==='draw');show('.not-draw',pick!=='draw');
+    document.getElementById('daily').classList.toggle('on',daily);
+    // only one "limit" field is sent: the one of the kind shown
+    var cl=f.querySelector('.claim-only [name=limit]'),gl=f.querySelector('[data-gift-limit]');
+    cl.disabled=kind!=='claim';gl.disabled=kind!=='gift';
+    document.getElementById('limLabel').textContent=pick==='draw'?'How many winners':'How many codes'+(daily?' per happy hour':'');
+    var h=+document.getElementById('fdH').value||0,m=+document.getElementById('fdM').value||0,t=h&&m?h+' h '+m+' min':(h?h+(h===1?' hour':' hours'):m+' min');
+    document.getElementById('pvTime').textContent=t||'1 hour';
+    document.getElementById('pvHead').textContent=document.getElementById('fdHead').value||'Free Wi-Fi';
+    var lim=cl.value;document.getElementById('pvWho').textContent=pick==='draw'?(lim?lim+' lucky winners':'Lucky draw'):(pick==='first'?(lim?'Only '+lim+' codes — be quick!':'First come, first served'):'For everyone'+(daily?' during happy hour':''));
+    document.getElementById('pvBtn').textContent=pick==='draw'?'Enter the draw':(val('audience')==='customers'?'Type your voucher → get it':'Get my free time');
+    document.getElementById('prev').style.setProperty('--fdc',document.getElementById('fdColor').value);
+    document.querySelector('.fd-phone').style.setProperty('--fdc',document.getElementById('fdColor').value);
+  }
+  f.addEventListener('input',sync);f.addEventListener('change',sync);sync();
+})();
+</script>
+{% endblock %}

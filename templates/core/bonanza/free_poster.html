@@ -1,0 +1,28 @@
+{% load static %}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QR poster — {{ d.name }}</title>
+<style>
+:root{--acc:{{ d.theme_color|default:'#18a66a' }}}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#eef2f6;color:#10221a}
+.bar{display:flex;gap:.5rem;justify-content:center;padding:12px}.bar button,.bar a{border:0;border-radius:10px;padding:9px 16px;font:700 14px system-ui;background:#10221a;color:#fff;text-decoration:none;cursor:pointer}
+.poster{width:148mm;min-height:210mm;margin:0 auto 24px;background:#fff;border-radius:6mm;overflow:hidden;box-shadow:0 18px 50px #0b17262e;display:flex;flex-direction:column}
+.top{background:radial-gradient(circle at 50% -20%,color-mix(in srgb,var(--acc) 75%,#fff),var(--acc));color:#fff;text-align:center;padding:11mm 9mm 9mm}
+.top .biz{font-weight:750;opacity:.9;font-size:15px}.top h1{font-size:30px;line-height:1.08;margin:8px 0 6px}
+.top .time{display:inline-block;background:#fff;color:color-mix(in srgb,var(--acc) 70%,#000);font:900 40px/1 system-ui;border-radius:16px;padding:8px 18px;margin-top:6px}
+.mid{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8mm}
+.qr{width:72mm;height:72mm;padding:4mm;border:3px solid var(--acc);border-radius:6mm}.qr svg{width:100%;height:100%}
+.how{display:flex;gap:6mm;margin-top:7mm;font-size:13px;text-align:center}.how div{flex:1}.how b{display:block;width:28px;height:28px;border-radius:50%;background:var(--acc);color:#fff;line-height:28px;margin:0 auto 4px}
+.foot{text-align:center;font-size:12px;color:#4f6a5c;padding:0 9mm 8mm}.url{font:700 12px ui-monospace,monospace;color:#10221a;word-break:break-all}
+@media print{body{background:#fff}.bar{display:none}.poster{box-shadow:none;margin:0;border-radius:0}@page{size:A5;margin:0}}
+</style></head><body>
+<div class="bar"><button onclick="print()">Print (A5)</button><a href="{% url 'free_drop_edit' d.pk %}">Back</a></div>
+<div class="poster">
+  <div class="top"><div class="biz">{{ business.business_name }}</div><h1>{{ d.headline|default:'Free Wi-Fi — on us!' }}</h1><div class="time">{{ minutes_text }}</div></div>
+  <div class="mid">
+    <div class="qr" id="qr"></div>
+    <div class="how"><div><b>1</b>Join our Wi-Fi</div><div><b>2</b>Scan this code</div><div><b>3</b>{% if d.pick == 'draw' %}Enter the draw{% else %}Get your free code{% endif %}</div></div>
+  </div>
+  <div class="foot">{{ sched }}{% if d.limit and d.pick != 'draw' %} · only {{ d.limit }}{% if d.daily_from %} each time{% endif %}{% elif d.limit %} · {{ d.limit }} winners{% endif %}{% if d.audience == 'customers' %} · for our customers{% endif %}<br><span class="url">{{ url }}</span></div>
+</div>
+<script src="{% static 'vendor/qrcode.js' %}"></script>
+<script>var q=qrcode(0,'M');q.addData('{{ url|escapejs }}');q.make();document.getElementById('qr').innerHTML=q.createSvgTag({cellSize:8,margin:0});</script>
+</body></html>

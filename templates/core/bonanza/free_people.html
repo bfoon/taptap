@@ -1,0 +1,25 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}Who got it — {{ d.name }}{% endblock %}{% block heading %}Bonanza · Free Wi-Fi{% endblock %}
+{% block extra_head %}<link href="{% static 'free_drop/free.css' %}?v=1" rel="stylesheet">{% endblock %}
+{% block content %}
+<p class="mb-3"><a href="{% url 'free_drop_edit' d.pk %}" class="text-decoration-none"><i class="bi bi-arrow-left"></i> {{ d.name }}</a></p>
+<div class="fd-tabs">
+  <a href="?view=all" class="{% if view == 'all' %}on{% endif %}">All</a>
+  {% if d.kind == 'claim' %}<a href="?view=won" class="{% if view == 'won' %}on{% endif %}">Got a code · {{ stats.won }}</a>
+  {% if d.pick == 'draw' %}<a href="?view=entered" class="{% if view == 'entered' %}on{% endif %}">In the draw</a><a href="?view=lost" class="{% if view == 'lost' %}on{% endif %}">Not drawn</a>{% endif %}
+  {% else %}<a href="?view=gifted" class="{% if view == 'gifted' %}on{% endif %}">Time added · {{ stats.gifted }}</a><a href="?view=failed" class="{% if view == 'failed' %}on{% endif %}">Could not be given · {{ stats.failed }}</a>{% endif %}
+</div>
+<div class="panel"><div class="table-responsive"><table class="table align-middle">
+  <thead><tr><th>When</th><th>Result</th><th>{% if d.kind == 'gift' %}Customer voucher{% else %}Free code{% endif %}</th>{% if d.kind == 'claim' %}<th>Bought voucher</th><th>Phone</th>{% endif %}<th>Note</th></tr></thead>
+  <tbody>{% for c in page_obj %}
+    <tr><td class="small">{{ c.created_at|date:'d M H:i' }}</td>
+      <td><span class="fd-pill{% if c.status == 'won' or c.status == 'gifted' %} open{% endif %}">{{ c.get_status_display }}</span></td>
+      <td>{% if d.kind == 'gift' %}{% if c.proof %}<a href="{% url 'voucher_detail' c.proof.pk %}">{{ c.proof.code }}</a> <small class="text-secondary">+{{ c.minutes }} min</small>{% endif %}
+          {% elif c.voucher %}<a href="{% url 'voucher_detail' c.voucher.pk %}" class="font-monospace">{{ c.voucher.code }}</a> {% if c.voucher.used_at %}<span class="badge text-bg-success">used</span>{% endif %}{% else %}—{% endif %}</td>
+      {% if d.kind == 'claim' %}<td>{% if c.proof %}<a href="{% url 'voucher_detail' c.proof.pk %}">{{ c.proof.code }}</a>{% else %}—{% endif %}</td><td>{{ c.phone|default:'—' }}</td>{% endif %}
+      <td class="small text-secondary">{{ c.note }}</td></tr>
+  {% empty %}<tr><td colspan="6" class="empty-table">Nobody yet.</td></tr>{% endfor %}</tbody>
+</table></div>
+{% if page_obj.has_other_pages %}<div class="d-flex gap-2 justify-content-end">{% if page_obj.has_previous %}<a class="btn btn-sm btn-outline-secondary" href="?view={{ view }}&page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}{% if page_obj.has_next %}<a class="btn btn-sm btn-outline-secondary" href="?view={{ view }}&page={{ page_obj.next_page_number }}">Next</a>{% endif %}</div>{% endif %}
+</div>
+{% endblock %}

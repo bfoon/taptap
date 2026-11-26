@@ -94,6 +94,7 @@ class CoreConfig(AppConfig):
         _install_optional("dhcp_guard")         # the lines' own DHCP renewals are never marked, NATed or blocked
         _install_optional("market")             # TapTap Market: batches for sale with due diligence, resold with mobile money
         _install_optional("market_vetting")     # TapTap vets sellers before they may list on the Market
+        _install_optional("free_drop")          # Bonanza › Free Wi-Fi: free hours, happy hours, lucky draws, gift time (no wheel)
         _install_optional("router_twin")        # Router twins (a standby that has everything, failover) and router-to-router migration
         _install_optional("team_performance")   # Team › Performance: what each person made, sold and holds in cash; Fit tool
         _install_optional("fit_members")        # Fit can look after members and member plans (Take action)

@@ -1,6 +1,7 @@
 {% extends 'core/base.html' %}
 {% block title %}Bonanza — TapTap{% endblock %}{% block heading %}Bonanza{% endblock %}
 {% block content %}
+<nav class="d-flex gap-2 flex-wrap mb-3"><a class="btn btn-sm btn-primary rounded-pill" href="{% url 'bonanza_list' %}"><i class="bi bi-stars"></i> Spin the wheel</a><a class="btn btn-sm btn-outline-success rounded-pill" href="{% url 'free_drops' %}"><i class="bi bi-wifi"></i> Free Wi-Fi &amp; happy hours <span class="badge text-bg-success ms-1">no wheel</span></a></nav>
 <div class="page-actions">
   <div><h2 class="section-title">Spin-the-wheel Bonanzas</h2>
     <p>Customers with a voucher from the plans or batches you choose enter their code and spin to win free vouchers, extra time, cash/airtime or gifts.</p></div>

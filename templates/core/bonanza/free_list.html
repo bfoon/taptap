@@ -1,0 +1,41 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}Free Wi-Fi — Bonanza — TapTap{% endblock %}{% block heading %}Bonanza{% endblock %}
+{% block extra_head %}<link href="{% static 'free_drop/free.css' %}?v=1" rel="stylesheet">{% endblock %}
+{% block content %}
+<nav class="fd-tabs"><a href="{% url 'bonanza_list' %}"><i class="bi bi-stars"></i> Spin the wheel</a><a href="{% url 'free_drops' %}" class="on"><i class="bi bi-wifi"></i> Free Wi-Fi &amp; happy hours</a></nav>
+
+<section class="fd-hero">
+  <div>
+    <h2>Give free Wi-Fi — no wheel, no spin</h2>
+    <p>A free hour (or any time) for the first 50 phones, a happy hour for everyone, a thank-you only for people who bought from you, a lucky draw — or a surprise hour added straight to your customers' own vouchers. Print the QR, or let them find it on your login page.</p>
+  </div>
+  <div class="fd-clock">1:00:00<small>free hour, on the house</small></div>
+</section>
+
+{% if 'vouchers.manage' in tt_perms %}
+<h3 class="h6 fw-bold mb-2">Start from an idea</h3>
+<div class="fd-recipes">
+  {% for r in recipes %}<a class="fd-recipe{% if r.set.kind == 'gift' %} gift{% endif %}" href="{% url 'free_drop_new' %}?recipe={{ r.key }}"><i class="bi {{ r.icon }}"></i><span><b>{{ r.title }}</b><small>{{ r.text }}</small></span></a>{% endfor %}
+  <a class="fd-recipe" href="{% url 'free_drop_new' %}"><i class="bi bi-plus-lg"></i><span><b>Start blank</b><small>Your own time, your own rules.</small></span></a>
+</div>
+{% endif %}
+
+<h3 class="h6 fw-bold mb-2">Your free Wi-Fi</h3>
+{% for d in items %}
+<div class="fd-card">
+  <div class="ic" style="background:{{ d.theme_color }}"><i class="bi {% if d.kind == 'gift' %}bi-gift{% elif d.pick == 'draw' %}bi-shuffle{% elif d.daily_from %}bi-cup-hot{% else %}bi-wifi{% endif %}"></i></div>
+  <div>
+    <div class="d-flex align-items-center gap-2 flex-wrap"><a href="{% url 'free_drop_edit' d.pk %}" class="text-decoration-none"><h4>{{ d.name }}</h4></a>
+      <span class="fd-pill {{ d.state_key }}">{% if d.state_key == 'open' %}<i></i>{% endif %}{{ d.state_text }}</span></div>
+    <div class="sub">{% if d.kind == 'gift' %}+{{ d.time_text }} to {{ d.get_target_display|lower }}{% if d.random_only %} · {{ d.limit }} at random{% endif %} · {{ d.st.gifted }} given{% else %}{{ d.time_text }} free · {{ d.get_pick_display }} · {{ d.get_audience_display }}{% if d.limit %} · {{ d.limit }}{% if d.daily_from %} per happy hour{% endif %}{% endif %}{% endif %} · {{ d.sched }}</div>
+    {% if d.kind == 'claim' and d.limit and d.pick != 'draw' and d.left_now is not None %}<div class="fd-meter" title="{{ d.left_now }} left"><i style="width:{% widthratio d.left_now d.limit 100 %}%"></i></div><div class="sub">{{ d.left_now }} of {{ d.limit }} left · {{ d.st.won }} codes given, {{ d.st.used }} used</div>
+    {% elif d.kind == 'claim' %}<div class="sub">{% if d.pick == 'draw' %}{{ d.st.entered }} in the draw · {% endif %}{{ d.st.won }} codes given, {{ d.st.used }} used</div>{% endif %}
+  </div>
+  <div class="text-end text-nowrap">
+    {% if d.kind == 'claim' %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'free_drop_poster' d.pk %}" target="_blank" rel="noopener" title="QR poster"><i class="bi bi-qr-code"></i></a>
+    <a class="btn btn-sm btn-outline-primary" href="/f/{{ d.slug }}/" target="_blank" rel="noopener" title="Open the page"><i class="bi bi-box-arrow-up-right"></i></a>{% endif %}
+    <a class="btn btn-sm btn-outline-secondary" href="{% url 'free_drop_people' d.pk %}" title="Who got it"><i class="bi bi-people"></i></a>
+  </div>
+</div>
+{% empty %}<div class="panel text-center text-secondary py-4">Nothing yet — pick an idea above.</div>{% endfor %}
+{% endblock %}
