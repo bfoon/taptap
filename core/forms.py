@@ -9,6 +9,11 @@ class RegisterForm(forms.Form):
  phone=forms.CharField(max_length=60,widget=forms.TextInput(attrs={'class':'form-control','placeholder':'700 0000','autocomplete':'tel','inputmode':'tel'}))
  email=forms.EmailField(widget=forms.EmailInput(attrs={'class':'form-control','placeholder':'you@yourbusiness.com','autocomplete':'email'}))
  password=forms.CharField(min_length=8,widget=forms.PasswordInput(attrs={'class':'form-control','placeholder':'At least 8 characters','autocomplete':'new-password'}))
+ # Who is signing up (core/partners.py): a Wi-Fi owner, an agent (buys from owners near them) or a reseller (buys on the Market).
+ account_kind=forms.ChoiceField(required=False,initial='wifi',choices=[('wifi','Wi-Fi owner'),('agent','Agent'),('reseller','Reseller')])
+ area=forms.CharField(max_length=120,required=False,widget=forms.TextInput(attrs={'class':'form-control','placeholder':'e.g. Brikama, Serrekunda market','autocomplete':'address-level2'}))
+ def clean_account_kind(self):
+  return self.cleaned_data.get('account_kind') or 'wifi'
  def __init__(self,*args,**kwargs):
   super().__init__(*args,**kwargs)
   from .countries import COUNTRIES
@@ -32,6 +37,8 @@ class RegisterForm(forms.Form):
   return v
  def clean(self):
   data=super().clean()
+  if data.get('account_kind') in ('agent','reseller') and not (data.get('area') or '').strip():
+   self.add_error('area','Say the town or area where you sell — Wi-Fi owners near you will find you.')
   pw=data.get('password')
   if pw:
    from django.contrib.auth.password_validation import validate_password

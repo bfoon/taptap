@@ -1,0 +1,60 @@
+{% extends 'core/partner/base.html' %}
+{% block title %}{{ owner.business_name }} — TapTap agent{% endblock %}{% block heading %}{{ owner.business_name }}{% endblock %}
+{% block content %}
+{% include "core/partner/_ribbon.html" %}
+<div class="row g-3">
+  <div class="col-lg-7">
+    {% if link.status == 'active' %}
+    <form class="pt-calc" method="post" action="{% url 'partner_topup_new' owner.pk %}" data-calc data-currency="{{ owner.currency }}">{% csrf_token %}
+      <div class="d-flex justify-content-between align-items-start gap-2"><div><h3 class="h5 mb-1"><i class="bi bi-plus-circle"></i> Top up</h3>
+        <p class="text-secondary small mb-2">Type how much you want to spend. {{ owner.business_name }} accepts it or lowers it; your batch is made the moment you pay.</p></div>
+        <span class="pt-status active">{{ link.discount_percent|floatformat:"-2g" }}% off</span></div>
+      <label class="small fw-bold mb-1">Plan</label>
+      <div class="pt-planpick">{% for p in plans %}<label><input type="radio" name="plan" value="{{ p.plan.pk }}" data-price="{{ p.plan.price }}" data-cost="{{ p.cost }}" {% if forloop.first %}checked{% endif %}>
+        <span><b>{{ p.plan.name }}</b> <small class="text-secondary">· sells at {{ owner.currency }}{{ p.plan.price|floatformat:"-2g" }}</small></span><em>you pay {{ owner.currency }}{{ p.cost|floatformat:"-2g" }}</em></label>{% empty %}<p class="text-secondary">This owner has no plans for agents right now.</p>{% endfor %}</div>
+      <label class="small fw-bold mt-3 mb-1" for="ptAmount">Amount to spend</label>
+      <div class="pt-amount"><span>{{ owner.currency }}</span><input id="ptAmount" name="amount" inputmode="decimal" autocomplete="off" value="{% if prog.min_topup > 2000 %}{{ prog.min_topup|floatformat:"-2g" }}{% else %}2000{% endif %}" required></div>
+      <div class="pt-chips"><button type="button" data-amt="500">500</button><button type="button" data-amt="1000">1,000</button><button type="button" data-amt="2000">2,000</button><button type="button" data-amt="5000">5,000</button><button type="button" data-amt="10000">10,000</button></div>
+      <div class="pt-result" aria-live="polite"><div><small>Vouchers</small><b data-q>—</b></div><div><small>You resell for</small><b data-w>—</b></div><div class="keep"><small>You keep</small><b data-k>—</b></div></div>
+      <p class="small text-secondary mb-2" data-left></p>
+      <input class="form-control mb-2" name="note" maxlength="255" placeholder="A note for the owner (optional)">
+      <button class="pt-btn w"><i class="bi bi-send"></i> Ask {{ owner.business_name }} for this top-up</button>
+      <p class="small text-secondary mt-2 mb-0">Between {{ owner.currency }}{{ prog.min_topup|floatformat:"-2g" }} and {{ owner.currency }}{{ prog.max_topup|floatformat:"-2g" }}. Pay with: {{ wallets|join:", "|default:"ask the owner" }}.</p>
+    </form>
+    {% elif link.status == 'pending' %}
+    <div class="panel pt-empty"><i class="bi bi-hourglass-split"></i><b>Your application is with {{ owner.business_name }}.</b><br>You get an email the moment they answer. Sent {{ link.created_at|timesince }} ago.</div>
+    {% elif link.status == 'paused' %}
+    <div class="panel pt-empty"><i class="bi bi-pause-circle"></i><b>{{ owner.business_name }} paused you.</b><br>{% if link.owner_note %}“{{ link.owner_note }}”<br>{% endif %}Vouchers you already bought keep working. Talk to them to be resumed.</div>
+    {% else %}
+    <form class="pt-calc" method="post" action="{% url 'partner_apply' owner.pk %}">{% csrf_token %}
+      <h3 class="h5"><i class="bi bi-hand-thumbs-up"></i> {% if link.status == 'declined' %}Apply again{% elif link.status == 'left' %}Come back{% else %}Apply to sell this Wi-Fi{% endif %}</h3>
+      {% if link.status == 'declined' and link.owner_note %}<p class="small">Last time {{ owner.business_name }} wrote: “{{ link.owner_note }}”</p>{% endif %}
+      <p class="text-secondary small">Tell {{ owner.business_name }} who you are and where you sell. They decide whether to accept you and how much below the shop price you buy (usually {{ prog.discount_percent|floatformat:"-2g" }}%).</p>
+      <textarea class="form-control mb-2" name="message" rows="3" maxlength="300" placeholder="e.g. I have a phone shop at Brikama car park, open every day 8–22."></textarea>
+      <button class="pt-btn w"><i class="bi bi-send"></i> Send my application</button>
+    </form>
+    {% endif %}
+
+    {% if topups %}<div class="panel mt-3"><div class="panel-head"><div><h3>My top-ups here</h3></div></div>
+      <div class="pt-rowlist">{% for t in topups %}<a href="{% if t.status == 'issued' %}{% url 'partner_batch' t.reference %}{% else %}{% url 'partner_topup' t.reference %}{% endif %}"><span class="grow"><b>{{ t.reference }} · {{ t.plan_name }}</b><small>{{ t.created_at|date:"j M Y H:i" }} · {% if t.quantity %}{{ t.quantity }} for {{ owner.currency }}{{ t.amount|floatformat:"-2g" }}{% else %}asked {{ owner.currency }}{{ t.requested_amount|floatformat:"-2g" }}{% endif %}</small></span><span class="pt-status {{ t.status }}">{{ t.get_status_display }}</span></a>{% endfor %}</div></div>{% endif %}
+  </div>
+  <div class="col-lg-5">
+    <div class="panel mb-3"><div class="d-flex gap-3 align-items-center mb-2"><span class="pt-av" style="width:56px;height:56px;font-size:1.4rem">{{ owner.business_name|slice:':1'|upper }}</span><div><h3 class="mb-0">{{ owner.business_name }}</h3><small class="text-secondary">{{ prog.areas|default:'' }}</small></div></div>
+      <div class="pt-tags mb-2">{% if online %}<span class="ok"><i class="bi bi-wifi"></i> {{ online }} of {{ routers }} router{{ routers|pluralize }} online</span>{% elif routers %}<span class="warn"><i class="bi bi-wifi-off"></i> offline right now</span>{% endif %}{% if owner.wifi_ssid %}<span><i class="bi bi-broadcast"></i> {{ owner.wifi_ssid }}</span>{% endif %}</div>
+      {% if prog.note %}<p class="small mb-2"><i class="bi bi-chat-quote"></i> “{{ prog.note }}”</p>{% endif %}
+      <ul class="clean-list small mb-0"><li>Phone: <a href="tel:{{ owner.phone }}">{{ owner.phone }}</a></li><li>Pays: {{ wallets|join:", "|default:"—" }}</li>
+        {% if link.status == 'active' %}<li>You buy {{ link.discount_percent|floatformat:"-2g" }}% below the price customers pay.</li>{% endif %}</ul></div>
+    {% if checker %}<div class="panel mb-3"><h3><i class="bi bi-qr-code"></i> Voucher checker</h3><p class="small">Your own page from {{ owner.business_name }}: check a customer's voucher, time left and devices.</p><a class="pt-btn ghost w" href="{{ checker }}" target="_blank" rel="noopener">Open my voucher checker</a></div>{% endif %}
+    {% if link.status == 'active' or link.status == 'pending' %}<form method="post" action="{% url 'partner_leave' owner.pk %}" onsubmit="return confirm('Stop selling for {{ owner.business_name|escapejs }}? Vouchers you bought keep working.')">{% csrf_token %}<button class="btn btn-link text-danger small p-0">{% if link.status == 'pending' %}Withdraw my application{% else %}Stop selling for {{ owner.business_name }}{% endif %}</button></form>{% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}<script>
+(function(){var f=document.querySelector('[data-calc]');if(!f)return;var cur=f.getAttribute('data-currency')||'D',amt=f.querySelector('[name=amount]');
+function n(v){return Math.round(v*100)/100;}function fmt(v){return cur+n(v).toLocaleString('en',{maximumFractionDigits:2});}
+function calc(){var r=f.querySelector('[name=plan]:checked');if(!r)return;var cost=parseFloat(r.getAttribute('data-cost')),price=parseFloat(r.getAttribute('data-price')),a=parseFloat(String(amt.value).replace(/,/g,''))||0;
+ var q=cost>0?Math.floor(a/cost+1e-9):0;f.querySelector('[data-q]').textContent=q;f.querySelector('[data-w]').textContent=fmt(q*price);f.querySelector('[data-k]').textContent=fmt(q*(price-cost));
+ var left=a-q*cost;f.querySelector('[data-left]').textContent=q?('You pay '+fmt(q*cost)+(left>0.009?' — '+fmt(left)+' is not enough for one more voucher.':'.')):'That is not enough for one voucher ('+fmt(cost)+').';}
+amt.addEventListener('input',calc);f.querySelectorAll('[name=plan]').forEach(function(r){r.addEventListener('change',calc);});
+f.querySelectorAll('[data-amt]').forEach(function(b){b.addEventListener('click',function(){amt.value=b.getAttribute('data-amt');calc();});});calc();})();
+</script>{% endblock %}

@@ -84,8 +84,8 @@ def _render_navigation(request, response):
         return response
     # The platform console has no business. Keep its own menu unchanged.
     business = getattr(request, 'tt_business', None)
-    if not business:
-        return response
+    if not business or getattr(business, 'account_kind', 'wifi') != 'wifi':
+        return response              # agents and resellers have their own portal menu (core/partners.py)
     try:
         body = response.content.decode(response.charset or 'utf-8')
         perms = getattr(request, 'tt_perms', frozenset())

@@ -1,0 +1,40 @@
+{% extends 'core/partner/base.html' %}
+{% block title %}{{ t.reference }} — TapTap agent{% endblock %}{% block heading %}Top-up {{ t.reference }}{% endblock %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="panel">
+      <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap"><div><h3>{{ t.plan_name }} from <a href="{% url 'partner_owner' t.owner_id %}">{{ t.owner.business_name }}</a></h3>
+        <p>Asked {{ t.created_at|date:"j M Y H:i" }} — {{ t.owner.currency }}{{ t.requested_amount|floatformat:"-2g" }}</p></div><span class="pt-status {{ t.status }}">{{ t.get_status_display }}</span></div>
+      <div class="pt-line">{% for label, when, on in timeline %}<div class="{% if on %}on{% endif %}">{{ label }}<small>{% if when and on %}{{ when|date:"j M H:i" }}{% else %}&nbsp;{% endif %}</small></div>{% endfor %}</div>
+      {% if t.quantity %}<div class="pt-result"><div><small>Vouchers</small><b>{{ t.quantity }}</b></div><div><small>To pay</small><b>{{ t.owner.currency }}{{ t.amount|floatformat:"-2g" }}</b></div><div class="keep"><small>You keep</small><b>{{ t.owner.currency }}{{ t.profit|floatformat:"-2g" }}</b></div></div>
+        {% if t.amount < t.requested_amount and t.requested_amount|floatformat:"0" != t.amount|floatformat:"0" %}<p class="small text-secondary">{% if t.note %}The owner wrote: “{{ t.note }}”. {% endif %}The owner approved {{ t.owner.currency }}{{ t.amount|floatformat:"-2g" }} of the {{ t.owner.currency }}{{ t.requested_amount|floatformat:"-2g" }} you asked.</p>{% endif %}{% endif %}
+
+      {% if t.status == 'requested' %}<div class="pt-empty"><i class="bi bi-hourglass-split"></i>Waiting for {{ t.owner.business_name }} to answer. You get an email as soon as they do.</div>
+        <form method="post" class="text-center">{% csrf_token %}<input type="hidden" name="action" value="cancel"><button class="btn btn-link text-danger small">Cancel this top-up</button></form>
+      {% elif t.status == 'approved' %}
+        <h3 class="h6 mt-3">Pay {{ t.owner.currency }}{{ t.amount|floatformat:"-2g" }}{% if pay_until %} before {{ pay_until|date:"j M H:i" }}{% endif %}</h3>
+        <div class="pt-pay">{% for o in options %}
+          {% if o.auto %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="wave"><button class="pt-btn w" style="background:linear-gradient(135deg,#1dc8ff,#0a84ff)"><i class="bi bi-lightning-charge"></i> Pay with Wave now — your batch comes at once</button></form>
+          {% else %}<details class="pt-payopt"{% if forloop.first %} open{% endif %}><summary><i class="bi {% if o.method == 'cash' %}bi-cash-coin{% else %}bi-phone{% endif %}"></i> {{ o.label }}</summary>
+            <form method="post" class="mt-2">{% csrf_token %}<input type="hidden" name="action" value="claim"><input type="hidden" name="method" value="{{ o.method }}">
+              {% if o.method == 'cash' %}<p class="small mb-2">Bring {{ t.owner.currency }}{{ t.amount|floatformat:"-2g" }} to {{ t.owner.business_name }}{% if t.owner.phone %} ({{ t.owner.phone }}){% endif %}. When they confirm they received it, your batch is made.</p>
+                <button class="pt-btn ghost w">I am paying cash</button>
+              {% else %}<p class="small mb-1">Send <b>{{ t.owner.currency }}{{ t.amount|floatformat:"-2g" }}</b> to <span class="pt-num">{{ o.wallet.number }}</span> <small class="text-secondary">({{ o.wallet.holder }})</small>, with <b>{{ t.reference }}</b> as the reason if you can.</p>
+                {% if o.wallet.pay_link %}<a class="pt-btn ghost w mb-2" href="{{ o.wallet.pay_link }}" target="_blank" rel="noopener">Open {{ o.label }} to pay</a>{% endif %}
+                <input class="form-control mb-2" name="payment_ref" required minlength="4" maxlength="80" placeholder="Transaction ID from your {{ o.label }} message">
+                <button class="pt-btn w">I have paid</button>{% endif %}
+            </form></details>{% endif %}
+        {% empty %}<p class="text-secondary">{{ t.owner.business_name }} has not set up a way to be paid yet. Call them: {{ t.owner.phone }}.</p>{% endfor %}</div>
+        <form method="post" class="text-center mt-2">{% csrf_token %}<input type="hidden" name="action" value="cancel"><button class="btn btn-link text-danger small">Cancel this top-up</button></form>
+      {% elif t.status == 'claimed' %}<div class="pt-empty"><i class="bi bi-shield-check"></i>{% if t.method == 'cash' %}Hand the cash to {{ t.owner.business_name }}.{% else %}You paid with {{ t.method|title }} ({{ t.payment_ref }}).{% endif %}<br>Your batch is made the moment they confirm.</div>
+      {% elif t.status == 'review' %}<div class="pt-empty"><i class="bi bi-exclamation-triangle"></i>{{ t.error|default:'The payment needs a look.' }}<br>{{ t.owner.business_name }} has been told; call them on {{ t.owner.phone }} if it takes long.</div>
+      {% elif t.status == 'issued' %}<div class="pt-empty"><i class="bi bi-gift"></i><b>Your {{ t.quantity }} vouchers are ready.</b><br><a class="pt-btn mt-2" href="{% url 'partner_batch' t.reference %}">Open my vouchers</a></div>
+      {% else %}<div class="pt-empty"><i class="bi bi-x-circle"></i>{{ t.get_status_display }}{% if t.note %} — “{{ t.note }}”{% endif %}.<br><a href="{% url 'partner_owner' t.owner_id %}">Ask for a new top-up</a></div>{% endif %}
+    </div>
+  </div>
+  <div class="col-lg-5"><div class="panel"><h3><i class="bi bi-info-circle"></i> How it works</h3><ol class="clean-list small mb-0">
+    <li>You ask for an amount; {{ t.owner.business_name }} accepts it or lowers it.</li><li>You pay — Wave is confirmed by itself, other ways by the owner.</li>
+    <li>A batch is made for you at once, already paid. Sell each voucher at {{ t.owner.currency }}{{ t.face_price|floatformat:"-2g" }}.</li><li>The vouchers run on {{ t.owner.business_name }}'s Wi-Fi until they are used.</li></ol></div></div>
+</div>
+{% endblock %}

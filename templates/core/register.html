@@ -2,7 +2,28 @@
 <div class="rg">
   <aside class="rg-side">
     <a class="brand rg-brand" href="/"><span class="brand-mark tt-logo"><img src="{% static 'brand/mark.svg' %}" alt="TapTap"></span><span>TapTap</span></a>
-    <div class="rg-pitch">
+    <div class="rg-pitch" data-for="agent" hidden>
+      <span class="rg-badge"><i class="bi bi-gift"></i> {{ partner_trial }} days free · then {{ agent_fee|floatformat:"-2" }} a month</span>
+      <h1>Sell Wi-Fi in your area and keep the difference</h1>
+      <p>Buy voucher batches from Wi-Fi owners near you below the shop price, resell them at the shop price.</p>
+      <div class="rg-math"><span><small>You pay</small><b>D2,000</b></span><i class="bi bi-arrow-right"></i><span><small>You resell</small><b>D2,500</b></span><i class="bi bi-plus-lg"></i><span class="g"><small>You keep</small><b>D500</b></span></div>
+      <ul class="rg-feat">
+        <li><i class="bi bi-geo-alt"></i><div><b>Find Wi-Fi near you</b><span>Apply to the networks in your area. The owner decides your discount.</span></div></li>
+        <li><i class="bi bi-wallet2"></i><div><b>Top up any amount</b><span>Pay cash, Wave or mobile money — your batch is made the moment it is paid.</span></div></li>
+        <li><i class="bi bi-share"></i><div><b>Sell from your phone</b><span>Send codes by WhatsApp or print them. See what is left and what you earned.</span></div></li>
+      </ul>
+    </div>
+    <div class="rg-pitch" data-for="reseller" hidden>
+      <span class="rg-badge"><i class="bi bi-gift"></i> {{ partner_trial }} days free · then {{ reseller_fee|floatformat:"-2" }} a month</span>
+      <h1>Buy Wi-Fi batches on the TapTap Market and resell them</h1>
+      <p>Pick batches with real due diligence — uptime, users, sales — and own them until the last voucher is used.</p>
+      <ul class="rg-feat">
+        <li><i class="bi bi-search"></i><div><b>Compare before you buy</b><span>Each batch shows its network's uptime, daily users and a grade.</span></div></li>
+        <li><i class="bi bi-phone"></i><div><b>Paid straight to your wallet</b><span>Customers who buy your vouchers pay your Wave or mobile money.</span></div></li>
+        <li><i class="bi bi-shop"></i><div><b>Your own shop link</b><span>Share it anywhere — customers buy and log in at once.</span></div></li>
+      </ul>
+    </div>
+    <div class="rg-pitch" data-for="wifi">
       <span class="rg-badge"><i class="bi bi-gift"></i> {{ trial_days|default:7 }} days free · no card needed</span>
       <h1>Run your Wi-Fi business from one place</h1>
       <p>Sell vouchers, watch your MikroTik routers and see what you earn — from your phone or computer.</p>
@@ -24,19 +45,33 @@
       {% if form.non_field_errors %}<div class="alert alert-danger py-2 small">{% for e in form.non_field_errors %}{{ e }} {% endfor %}</div>{% endif %}
       {% for message in messages %}<div class="alert alert-{% if message.tags == 'error' %}danger{% elif message.tags %}{{ message.tags }}{% else %}info{% endif %} py-2 small">{{ message }}</div>{% endfor %}
       <form method="post" novalidate>{% csrf_token %}
-        <fieldset class="rg-sec"><legend><span>1</span> Your business</legend>
+        {% if join_owner %}<div class="rg-join"><i class="bi bi-envelope-paper-heart"></i><span><b>{{ join_owner.business_name }}</b> invited you to sell their Wi-Fi as an agent. Create your agent account — your application goes to them at once.</span></div>{% endif %}
+        <fieldset class="rg-sec"><legend><span>1</span> I am…</legend>
+          <div class="rg-kinds" role="radiogroup" aria-label="Account type">
+            <label class="rg-kind"><input type="radio" name="account_kind" value="wifi" {% if kind != 'agent' and kind != 'reseller' %}checked{% endif %}>
+              <i class="bi bi-router"></i><b>Wi-Fi owner</b><small>I run hotspots and sell vouchers</small></label>
+            <label class="rg-kind"><input type="radio" name="account_kind" value="agent" {% if kind == 'agent' %}checked{% endif %}>
+              <i class="bi bi-person-badge"></i><b>Agent</b><small>I buy from Wi-Fi owners near me and resell</small></label>
+            <label class="rg-kind"><input type="radio" name="account_kind" value="reseller" {% if kind == 'reseller' %}checked{% endif %}>
+              <i class="bi bi-shop-window"></i><b>Reseller</b><small>I buy batches on the TapTap Market</small></label>
+          </div>
+          <small class="rg-help" id="rgKindHelp">This decides what you see when you sign in. Your Wi-Fi business portal.</small>
+        </fieldset>
+        <fieldset class="rg-sec"><legend><span>2</span> <em id="rgSecName">Your business</em></legend>
           <div class="row g-3">
-            <div class="col-md-6"><label for="{{ form.business_name.id_for_label }}">Business name</label>{{ form.business_name }}
-              {% for e in form.business_name.errors %}<div class="rg-err">{{ e }}</div>{% endfor %}<small class="rg-help">Shown on your portal and vouchers.</small></div>
+            <div class="col-md-6"><label for="{{ form.business_name.id_for_label }}" id="rgNameLabel">Business name</label>{{ form.business_name }}
+              {% for e in form.business_name.errors %}<div class="rg-err">{{ e }}</div>{% endfor %}<small class="rg-help" id="rgNameHelp">Shown on your portal and vouchers.</small></div>
             <div class="col-md-6"><label for="{{ form.phone.id_for_label }}">Business phone</label>
               <div class="input-group"><span class="input-group-text rg-dial" id="rgDial">+220</span>{{ form.phone }}</div>
               {% for e in form.phone.errors %}<div class="rg-err">{{ e }}</div>{% endfor %}<small class="rg-help">Type your number — we add the country code for you.</small></div>
+            <div class="col-12" id="rgAreaBox" hidden><label for="{{ form.area.id_for_label }}">Where do you sell?</label>{{ form.area }}
+              {% for e in form.area.errors %}<div class="rg-err">{{ e }}</div>{% endfor %}<small class="rg-help">Your town or area — Wi-Fi networks there are shown to you first.</small></div>
             <div class="col-12"><label for="{{ form.country.id_for_label }}">Country</label>{{ form.country }}
               {% for e in form.country.errors %}<div class="rg-err">{{ e }}</div>{% endfor %}
               <small class="rg-help" id="rgPrice">Where your Wi-Fi business runs. It sets your currency and your TapTap price.</small></div>
           </div>
         </fieldset>
-        <fieldset class="rg-sec"><legend><span>2</span> Account owner</legend>
+        <fieldset class="rg-sec"><legend><span>3</span> Account owner</legend>
           <div class="row g-3">
             <div class="col-md-6"><label for="{{ form.owner_name.id_for_label }}">Full name</label>{{ form.owner_name }}
               {% for e in form.owner_name.errors %}<div class="rg-err">{{ e }}</div>{% endfor %}</div>
@@ -78,6 +113,18 @@
 .rg-err~.rg-help{display:none}
 .rg-pw{position:relative}.rg-pw .form-control{padding-right:3rem}.rg-eye{position:absolute;right:.4rem;top:50%;transform:translateY(-50%);border:0;background:none;color:#6c7c90;width:36px;height:36px;border-radius:8px}
 .rg-meter{height:5px;border-radius:99px;background:#edf2f7;margin-top:.5rem;overflow:hidden}.rg-meter i{display:block;height:100%;width:0;border-radius:99px;transition:width .3s,background .3s}
+.rg-kinds{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem}
+.rg-card .rg-kind{position:relative;display:flex;flex-direction:column;gap:.15rem;border:1.5px solid #d8e1ec;border-radius:16px;padding:.85rem .8rem .8rem;cursor:pointer;margin:0;transition:border-color .2s,box-shadow .2s,transform .15s;background:#fff}
+.rg-kind:hover{transform:translateY(-2px)}.rg-kind input{position:absolute;opacity:0;pointer-events:none}
+.rg-kind i{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;font-size:1.15rem;background:#eef5ff;color:var(--primary);margin-bottom:.35rem}
+.rg-kind b{display:block;font-size:.95rem}.rg-kind small{display:block;font-size:.74rem;color:#6b7d90;line-height:1.35}
+.rg-kind:has(input:checked){border-color:var(--primary);box-shadow:0 0 0 3px #1769e022;background:#f7fbff}.rg-kind:has(input:checked) i{background:var(--primary);color:#fff}
+.rg-kind:has(input:focus-visible){outline:2px solid var(--primary);outline-offset:2px}
+.rg-sec legend em{font-style:normal}
+.rg-join{display:flex;gap:.6rem;align-items:flex-start;background:#e9f9f1;border:1px solid #9fe2c1;color:#0d5c3c;border-radius:14px;padding:.7rem .85rem;font-size:.86rem;margin-bottom:1rem}.rg-join i{font-size:1.2rem}
+.rg-math{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;margin:1.2rem 0 .4rem}.rg-math span{background:#ffffff14;border:1px solid #ffffff26;border-radius:14px;padding:.45rem .8rem}
+.rg-math small{display:block;font-size:.66rem;color:#a9c0d8;text-transform:uppercase;letter-spacing:.06em}.rg-math b{font-size:1.15rem;color:#fff}.rg-math .g{background:#18a66a33;border-color:#5ee0a566}.rg-math .g b{color:#a6f3c9}.rg-math>i{color:#8fd0ff}
+@media(max-width:560px){.rg-kinds{grid-template-columns:1fr}.rg-card .rg-kind{flex-direction:row;flex-wrap:wrap;align-items:center;column-gap:.6rem}.rg-kind i{margin:0}.rg-kind small{flex-basis:100%;padding-left:calc(38px + .6rem)}}
 .rg-submit{padding:.8rem;font-weight:700;border-radius:.8rem;margin-top:.3rem}.rg-next{font-size:.8rem;color:#51667b;background:#f3f7fb;border-radius:12px;padding:.6rem .8rem;margin:.9rem 0 0}
 @media(max-width:960px){.rg{grid-template-columns:1fr}.rg-side{display:none}.rg-brand-m{display:flex}.rg-card{padding:1.5rem 1.2rem}}
 </style>
@@ -89,6 +136,7 @@
       phone=document.getElementById('{{ form.phone.id_for_label }}'),dialEl=document.getElementById('rgDial'),priceEl=document.getElementById('rgPrice');
   function country(){var c=C[sel.value];
     dialEl.textContent=(c&&c.dial)||'+';dialEl.hidden=!(c&&c.dial);
+    var kk=document.querySelector('[name=account_kind]:checked');if(kk&&kk.value!=='wifi'){priceEl.textContent='Your country sets the currency you see.';return;}
     if(c){priceEl.innerHTML='After your free trial TapTap costs <b>'+c.price+'</b> a month here — longer plans cost less per month.';}
     else priceEl.textContent='Where your Wi-Fi business runs. It sets your currency and your TapTap price.';}
   sel.addEventListener('change',country);country();
@@ -97,6 +145,18 @@
   pw.addEventListener('input',function(){var v=pw.value,s=0;if(v.length>=8)s++;if(v.length>=12)s++;if(/[a-z]/.test(v)&&/[A-Z]/.test(v))s++;if(/\d/.test(v))s++;if(/[^A-Za-z0-9]/.test(v))s++;
     var c=['#d64545','#d64545','#f59e0b','#f5b544','#18a66a','#138453'][s],l=['Too short','Weak','Fair','Good','Strong','Very strong'][s];
     bar.style.width=(v?Math.max(12,s*20):0)+'%';bar.style.background=c;help.textContent=v?'Strength: '+l+(v.length<8?' — use at least 8 characters':''):'Use 8+ characters — a mix of words, numbers and symbols is strongest.';});
+  // Wi-Fi owner, agent or reseller: the page speaks to the one choosing.
+  var T={wifi:{sec:'Your business',name:'Business name',nh:'Shown on your portal and vouchers.',ph:'e.g. Kairaba Wi-Fi',kh:'This decides what you see when you sign in. Your Wi-Fi business portal.',btn:'Create account'},
+         agent:{sec:'You as an agent',name:'Your name or shop name',nh:'Wi-Fi owners see it when you apply to sell their vouchers.',ph:'e.g. Awa Phone Corner',kh:'You will sign in to the agent portal: find Wi-Fi near you, top up, resell.',btn:'Create my agent account'},
+         reseller:{sec:'You as a reseller',name:'Reseller name',nh:'Shown on your shop and to the sellers you buy from.',ph:'e.g. Lamin Resellers',kh:'You will sign in to the reseller portal: the TapTap Market, your stock and your shop.',btn:'Create my reseller account'}};
+  function kind(){var k=(document.querySelector('[name=account_kind]:checked')||{}).value||'wifi',t=T[k];
+    document.getElementById('rgSecName').textContent=t.sec;document.getElementById('rgNameLabel').textContent=t.name;document.getElementById('rgNameHelp').textContent=t.nh;
+    document.getElementById('{{ form.business_name.id_for_label }}').placeholder=t.ph;document.getElementById('rgKindHelp').textContent=t.kh;
+    document.getElementById('rgAreaBox').hidden=k==='wifi';
+    document.querySelectorAll('.rg-pitch').forEach(function(p){p.hidden=p.getAttribute('data-for')!==k;});
+    var b=document.getElementById('rgSubmit');b.innerHTML=t.btn+' <i class="bi bi-arrow-right"></i>';
+    if(k!=='wifi'){priceEl.textContent='Your country sets the currency you see.';}else country();}
+  document.querySelectorAll('[name=account_kind]').forEach(function(r){r.addEventListener('change',kind);});kind();
   // Clear a field's old error as soon as it is edited.
   document.querySelectorAll('.rg-card .form-control').forEach(function(f){f.addEventListener('input',function(){var box=f.closest('[class*="col-"]');if(box)box.querySelectorAll('.rg-err').forEach(function(e){e.remove();});});});
   document.querySelector('.rg-card form').addEventListener('submit',function(){var b=document.getElementById('rgSubmit');b.disabled=true;b.innerHTML='<span class="spinner-border spinner-border-sm"></span> Checking…';});

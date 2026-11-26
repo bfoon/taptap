@@ -57,6 +57,9 @@ def register(request):
         email = form.cleaned_data['email']   # already validated (format, typos, disposable, domain, not taken)
         if True:
             data = {k: form.cleaned_data[k] for k in ('business_name', 'owner_name', 'phone', 'country')}
+            data['account_kind'] = form.cleaned_data.get('account_kind') or 'wifi'          # core/partners.py
+            data['area'] = (form.cleaned_data.get('area') or '').strip()
+            data['join'] = request.session.get('tt_join_code', '')
             data['password'] = make_password(form.cleaned_data['password'])  # never keep the plain password
             if not _otp_on():
                 return _create_account(request, email, data)
@@ -66,7 +69,22 @@ def register(request):
                 messages.success(request, msg)
                 return redirect('verify_code')
             form.add_error(None, msg)
-    return render(request, 'core/register.html', {'form': form, 'trial_days': settings.TRIAL_DAYS, 'country_hints': _country_hints()})
+    from . import partners
+    return render(request, 'core/register.html', {'form': form, 'trial_days': settings.TRIAL_DAYS, 'country_hints': _country_hints(),
+                                                  'kind': (request.POST.get('account_kind') or request.GET.get('as') or 'wifi'),
+                                                  'partner_trial': partners.trial_days(), 'agent_fee': partners.monthly_fee('agent'),
+                                                  'reseller_fee': partners.monthly_fee('reseller'),
+                                                  'join_owner': _join_owner(request)})
+
+
+def _join_owner(request):
+    """The Wi-Fi owner whose "join my agent network" link brought this visitor, if any."""
+    code = request.session.get('tt_join_code')
+    if not code:
+        return None
+    from .models_partners import AgentProgram
+    p = AgentProgram.objects.filter(invite_code=code, open=True).select_related('business').first()
+    return p.business if p else None
 
 
 def _country_hints():
@@ -92,10 +110,25 @@ def _create_account(request, email, data, remember=True):
                                            country=country, currency=countries.symbol(countries.currency(country))[:8],
                                            trial_ends_at=timezone.now() + timedelta(days=settings.TRIAL_DAYS),
                                            email_verified_at=timezone.now() if _otp_on() else None)
-        for n, p, h, d in DEFAULT_PLANS:
-            VoucherPlan.objects.create(business=business, name=n, price=p, duration_minutes=h * 60, duration_unit=best_unit(h * 60), max_devices=d)
+        kind = data.get('account_kind') or 'wifi'
+        if kind in ('agent', 'reseller'):
+            # An agent or reseller sells other people's Wi-Fi: no plans or routers of their own (core/partners.py).
+            from . import partners
+            partners.setup_account(business, kind, area=data.get('area', ''), join_code=data.get('join', ''))
+        else:
+            for n, p, h, d in DEFAULT_PLANS:
+                VoucherPlan.objects.create(business=business, name=n, price=p, duration_minutes=h * 60, duration_unit=best_unit(h * 60), max_devices=d)
     login(request, user, backend='django.contrib.auth.backends.ModelBackend')
     request.session.pop(PENDING, None)
+    request.session.pop('tt_join_code', None)
+    if kind in ('agent', 'reseller'):
+        from . import partners
+        messages.success(request, f'Welcome to TapTap. Your {partners.trial_days()}-day free trial as {"an agent" if kind == "agent" else "a reseller"} '
+                                  f'has started.')
+        response = redirect('partner_home')
+        if remember and _otp_on():
+            trust_device(request, response, user)
+        return response
     messages.success(request, f'Welcome to TapTap. Your email is verified and your {settings.TRIAL_DAYS}-day trial is active.')
     if country != countries.DEFAULT_COUNTRY:
         messages.info(request, f'Your starter plans were created with sample prices — set them in {business.currency.strip()} under Plans before you print vouchers.')

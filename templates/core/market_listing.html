@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}{% load static taptap_extras %}{% block title %}{{ l.code }} — Market — TapTap{% endblock %}{% block heading %}Due diligence{% endblock %}
+{% extends tt_base|default:'core/base.html' %}{% load static taptap_extras %}{% block title %}{{ l.code }} — Market — TapTap{% endblock %}{% block heading %}Due diligence{% endblock %}
 {% block extra_head %}<link href="{% static 'css/market.css' %}?v=1" rel="stylesheet">{% endblock %}
 {% block content %}
 {% with c=l.business.currency s=dd.sales u=dd.users up=dd.uptime f=dd.forecast %}

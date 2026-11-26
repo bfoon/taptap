@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}{% load static taptap_extras %}{% block title %}Market — TapTap{% endblock %}{% block heading %}Market{% endblock %}
+{% extends tt_base|default:'core/base.html' %}{% load static taptap_extras %}{% block title %}Market — TapTap{% endblock %}{% block heading %}Market{% endblock %}
 {% block extra_head %}<link href="{% static 'css/market.css' %}?v=1" rel="stylesheet">{% endblock %}
 {% block content %}
 {% with c=current_business.currency %}
@@ -11,7 +11,7 @@
 <nav class="mk-tabs">
   <a href="?tab=browse" class="{% if tab == 'browse' %}on{% endif %}"><i class="bi bi-search"></i> Browse batches</a>
   <a href="?tab=stock" class="{% if tab == 'stock' %}on{% endif %}"><i class="bi bi-box-seam"></i> My stock{% if counts.orders_waiting %} <b>{{ counts.orders_waiting }}</b>{% endif %}</a>
-  <a href="?tab=selling" class="{% if tab == 'selling' %}on{% endif %}"><i class="bi bi-tag"></i> Selling{% if counts.deals_waiting %} <b>{{ counts.deals_waiting }}</b>{% endif %}</a>
+  {% if tt_partner != 'reseller' %}<a href="?tab=selling" class="{% if tab == 'selling' %}on{% endif %}"><i class="bi bi-tag"></i> Selling{% if counts.deals_waiting %} <b>{{ counts.deals_waiting }}</b>{% endif %}</a>{% endif %}
   <a href="?tab=setup" class="{% if tab == 'setup' %}on{% endif %}"><i class="bi bi-wallet2"></i> Wallets &amp; shop</a>
 </nav>
 

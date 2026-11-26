@@ -1,0 +1,9 @@
+{% load static %}<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{{ t.reference }} — vouchers</title>
+<style>body{font-family:Inter,system-ui,sans-serif;margin:12mm;color:#102033}h1{font-size:14pt;margin:0 0 6mm}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4mm}.c{border:1px dashed #94a3b8;border-radius:3mm;padding:3mm;text-align:center;break-inside:avoid}
+.c small{display:block;font-size:7.5pt;color:#475569}.c b{display:block;font-family:ui-monospace,Menlo,monospace;font-size:14pt;letter-spacing:.1em;margin:1.5mm 0}
+@media print{body{margin:6mm}.no{display:none}}</style></head><body>
+<p class="no"><button onclick="print()">Print</button></p>
+<h1>{{ owner.business_name }} · {{ t.plan_name }} · {{ codes|length }} voucher{{ codes|length|pluralize }}</h1>
+<div class="grid">{% for v in codes %}<div class="c"><small>{{ owner.wifi_ssid|default:owner.business_name }} · {{ t.plan_name }}</small><b>{{ v.code }}</b><small>{{ owner.currency }}{{ t.face_price|floatformat:"-2g" }}{% if login_url %} · {{ login_url }}{% endif %}</small></div>{% endfor %}</div>
+</body></html>

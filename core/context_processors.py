@@ -58,4 +58,27 @@ def business_context(request):
         'tt_view_as': getattr(request, 'tt_view_as', None),
         'tt_businesses': choices,
         'tt_can_switch_business': len(choices) > 1,
+        **_partner_context(request, business),
     }
+
+
+def _partner_context(request, business):
+    """Agents and resellers get their own portal frame (core/partners.py); Wi-Fi owners a badge for agent requests."""
+    kind = getattr(business, 'account_kind', 'wifi') if business is not None else 'wifi'
+    if kind in ('agent', 'reseller'):
+        return {'tt_partner': kind, 'tt_base': 'core/partner/base.html'}
+    out = {'tt_partner': '', 'tt_base': 'core/base.html', 'tt_agent_waiting': 0}
+    if business is not None and getattr(request, 'tt_role', None) in ('owner', 'admin', 'finance'):
+        from django.core.cache import cache
+        key = f'agentnet:waiting:{business.pk}'
+        n = cache.get(key)
+        if n is None:
+            try:
+                from .partners import owner_counts
+                c = owner_counts(business)
+                n = c['applications'] + c['topups']
+            except Exception:
+                n = 0
+            cache.set(key, n, 60)
+        out['tt_agent_waiting'] = n
+    return out

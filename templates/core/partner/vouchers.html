@@ -1,0 +1,17 @@
+{% extends 'core/partner/base.html' %}
+{% block title %}My vouchers — TapTap agent{% endblock %}{% block heading %}My vouchers{% endblock %}
+{% block content %}
+<div class="metric-grid mb-3" style="margin-top:0">
+  <div class="metric-card"><span><small>STILL TO SELL</small><strong>{{ me.currency }}{{ summary.left_value|floatformat:"-2g" }}</strong><em>at shop prices</em></span></div>
+  <div class="metric-card"><span><small>BATCHES</small><strong>{{ summary.batches }}</strong><em>bought so far</em></span></div>
+  <div class="metric-card"><span><small>SPENT</small><strong>{{ me.currency }}{{ summary.spent|floatformat:"-2g" }}</strong><em>on stock</em></span></div>
+  <div class="metric-card"><span><small>MARGIN</small><strong style="color:var(--pt)">{{ me.currency }}{{ summary.profit|floatformat:"-2g" }}</strong><em>when all are sold</em></span></div>
+</div>
+{% if items %}<div class="pt-wifi">{% for t in items %}
+  <a class="pt-card text-reset" href="{% url 'partner_batch' t.reference %}">
+    <div class="top"><span class="pt-av">{{ t.owner.business_name|slice:':1'|upper }}</span><div><h3>{{ t.quantity }}× {{ t.plan_name }}</h3><div class="where">{{ t.owner.business_name }} · {{ t.issued_at|date:"j M Y" }}</div></div></div>
+    <div class="pt-bar"><i style="width:{{ t.stock.pct }}%"></i></div>
+    <div class="d-flex justify-content-between small"><span><b>{{ t.stock.used }}</b> used</span><span><b>{{ t.stock.left }}</b> left · {{ t.owner.currency }}{{ t.face_price|floatformat:"-2g" }} each</span></div>
+  </a>{% endfor %}</div>
+{% else %}<div class="panel pt-empty"><i class="bi bi-ticket-perforated"></i>No vouchers yet.<br><a class="pt-btn mt-2" href="{% url 'partner_find' %}">Find Wi-Fi and top up</a></div>{% endif %}
+{% endblock %}

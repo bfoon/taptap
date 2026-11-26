@@ -56,6 +56,11 @@ class Business(models.Model):
     feature_tier=models.CharField(max_length=20,default='pro',help_text='Plan: free, basic, pro or enterprise (core/features.py TIERS)')
     feature_overrides=models.JSONField(default=dict,blank=True,help_text='Platform switches on top of the tier: {feature key: true/false}')
     features_off=models.JSONField(default=list,blank=True,help_text='Optional features the owner switched off for their own business')
+    # Who this account is (core/partners.py): a Wi-Fi owner (everything above), or a partner who sells others' vouchers —
+    # an agent (buys batches from owners near them, before reselling) or a reseller (buys batches on the TapTap Market).
+    account_kind=models.CharField(max_length=10,default='wifi',db_index=True,choices=[('wifi','Wi-Fi owner'),('agent','Agent'),('reseller','Reseller')])
+    @property
+    def is_partner(self): return self.account_kind in ('agent','reseller')
     def access_expires_at(self): return self.subscription_expires_at if self.subscription_status=='active' else self.trial_ends_at
     @property
     def paid_access(self):
@@ -1514,4 +1519,5 @@ from .models_plans import EnterpriseFeature  # noqa: E402,F401
 from .models_landing import LandingAd  # noqa: E402,F401
 from .models_tiklab import TikLabDownload  # noqa: E402,F401
 from .models_app_download import AppDownload  # noqa: E402,F401
+from .models_partners import AgentLink, AgentProgram, AgentRetail, AgentTopUp, PartnerProfile  # noqa: E402,F401
 from .models_market import MarketDeal, MarketListing, MarketOrder, MarketPayout, MarketSeller, MarketShop, MarketVettingEvent, MarketWallet, RouterOutage  # noqa: E402,F401

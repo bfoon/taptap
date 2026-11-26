@@ -40,6 +40,7 @@ MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'whitenoise.middl
               'core.admin_otp.AdminOTPMiddleware',
               'django.contrib.messages.middleware.MessageMiddleware', 'django.middleware.clickjacking.XFrameOptionsMiddleware',
               'core.team.TeamAccessMiddleware', 'core.features.FeatureGateMiddleware', 'core.middleware.SubscriptionAccessMiddleware',
+              'core.partners.PartnerGateMiddleware',   # agents and resellers see their own portal, not the Wi-Fi dashboard
               'core.mobile_sync.MobileETagMiddleware']   # last: the app's GETs get an ETag / 304 (website untouched)
 ROOT_URLCONF = 'config.urls'
 TEMPLATES = [{'BACKEND': 'django.template.backends.django.DjangoTemplates', 'DIRS': [BASE_DIR / 'templates'], 'APP_DIRS': True,
@@ -93,6 +94,12 @@ TIKLAB_BRANCH = os.getenv('TIKLAB_BRANCH', 'main')
 TIKLAB_DOWNLOAD_BASE = os.getenv('TIKLAB_DOWNLOAD_BASE', '')                 # your own CDN/bucket instead of GitHub
 TIKLAB_LOCAL_DIR = os.getenv('TIKLAB_LOCAL_DIR', '')                         # or a folder on this server
 TIKLAB_GITHUB_TOKEN = os.getenv('TIKLAB_GITHUB_TOKEN', '')                   # only if the repository becomes private
+# Agents and resellers (core/partners.py): their free trial, then a monthly fee the platform confirms
+PARTNER_TRIAL_DAYS = int(os.getenv('PARTNER_TRIAL_DAYS', str(TRIAL_DAYS)))
+AGENT_MONTHLY_FEE = os.getenv('AGENT_MONTHLY_FEE', '50')
+RESELLER_MONTHLY_FEE = os.getenv('RESELLER_MONTHLY_FEE', '50')
+PARTNER_FEE_CURRENCY = os.getenv('PARTNER_FEE_CURRENCY', 'GMD')
+PARTNER_PAY_TO = os.getenv('PARTNER_PAY_TO', '')          # how partners pay TapTap, e.g. "Wave 7xx xxxx (TapTap)"
 # The TapTap phone app offered on the landing page and /app/ (core/app_download.py)
 APP_REPO = os.getenv('APP_REPO', 'bfoon/taptap')                              # GitHub releases app-v<version>-<build>
 APP_ANDROID_URL = os.getenv('APP_ANDROID_URL', '')                           # or your own link to the APK

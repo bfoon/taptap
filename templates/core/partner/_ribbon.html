@@ -1,0 +1,6 @@
+{% comment %}Trial / monthly fee standing of an agent or reseller (core/partners.standing).{% endcomment %}
+{% if standing.unlimited %}{% elif not standing.ok %}
+<div class="pt-ribbon bad"><i class="bi bi-hourglass-bottom"></i><span><b>Your {% if standing.trial %}free trial{% else %}month{% endif %} has ended.</b> Your vouchers keep working; to buy new stock, pay {{ standing.fee|floatformat:"-2g" }} {{ standing.currency }} a month.{% if standing.pending %} Your payment request is waiting for TapTap.{% endif %}</span><a class="pt-btn" href="{% url 'partner_billing' %}">Pay now</a></div>
+{% elif standing.trial and standing.days <= 3 %}
+<div class="pt-ribbon"><i class="bi bi-gift"></i><span><b>{{ standing.days }} day{{ standing.days|pluralize }} of free trial left.</b> Then {{ standing.fee|floatformat:"-2g" }} {{ standing.currency }} a month.</span><a class="pt-btn ghost" href="{% url 'partner_billing' %}">See the fee</a></div>
+{% endif %}

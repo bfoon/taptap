@@ -1,0 +1,12 @@
+{% extends 'core/partner/base.html' %}
+{% block title %}Monthly fee — TapTap{% endblock %}{% block heading %}Monthly fee{% endblock %}
+{% block content %}
+<section class="pt-hero mb-3"><span class="pt-eyebrow"><i class="bi bi-credit-card"></i> {% if kind == 'reseller' %}Reseller{% else %}Agent{% endif %} account</span>
+  <h2>{% if standing.unlimited %}Free for you, always.{% elif standing.ok %}{% if standing.trial %}Free trial · {{ standing.days }} day{{ standing.days|pluralize }} left{% else %}Paid · {{ standing.days }} day{{ standing.days|pluralize }} left{% endif %}{% else %}Your {% if standing.trial %}trial{% else %}month{% endif %} has ended{% endif %}</h2>
+  <p>{% if standing.ok and standing.until %}Runs until {{ standing.until|date:"j F Y" }}. {% endif %}Then {{ standing.fee|floatformat:"-2g" }} {{ standing.currency }} a month. Without it your vouchers keep working, but you cannot buy new stock.</p></section>
+<div class="row g-3"><div class="col-lg-7"><div class="panel"><h3>Pay for more time</h3><p>Choose how long. TapTap switches it on as soon as your payment arrives.</p>
+  {% if pay_to %}<div class="pt-ribbon"><i class="bi bi-phone"></i><span>Pay to <b>{{ pay_to }}</b> with your account email as the reason.</span></div>{% endif %}
+  <form method="post" class="pt-planpick">{% csrf_token %}{% for m, label, amount in options %}<label><input type="radio" name="months" value="{{ m }}" {% if forloop.first %}checked{% endif %}><span><b>{{ label }}</b></span><em>{{ amount|floatformat:"-2g" }} {{ standing.currency }}</em></label>{% endfor %}
+    <button class="pt-btn w mt-2"><i class="bi bi-send"></i> Send payment request</button></form></div></div>
+  <div class="col-lg-5"><div class="panel"><h3>History</h3>{% if history %}<div class="pt-rowlist">{% for s in history %}<div><span class="grow"><b>{{ s.plan }}</b><small>{{ s.created_at|date:"j M Y" }}{% if s.expires_at %} · until {{ s.expires_at|date:"j M Y" }}{% endif %}</small></span><span class="pt-status {% if s.payment_status == 'Paid' %}issued{% else %}requested{% endif %}">{{ s.payment_status }}</span></div>{% endfor %}</div>{% else %}<p class="text-secondary small mb-0">Nothing yet.</p>{% endif %}</div></div></div>
+{% endblock %}

@@ -1,0 +1,23 @@
+{% extends 'core/partner/base.html' %}
+{% block title %}{{ t.reference }} vouchers — TapTap agent{% endblock %}{% block heading %}{{ t.quantity }}× {{ t.plan_name }}{% endblock %}
+{% block content %}
+<div class="panel mb-3"><div class="d-flex flex-wrap gap-3 align-items-center justify-content-between">
+  <div><b>{{ owner.business_name }}</b> · {{ t.reference }} · paid {{ owner.currency }}{{ t.amount|floatformat:"-2g" }} on {{ t.issued_at|date:"j M Y" }}<br>
+    <small class="text-secondary">Sell each at <b>{{ owner.currency }}{{ t.face_price|floatformat:"-2g" }}</b>{% if owner.wifi_ssid %} · Wi-Fi <b>{{ owner.wifi_ssid }}</b>{% endif %}{% if login_url %} · login page {{ login_url }}{% endif %}</small></div>
+  <div class="d-flex gap-2"><a class="pt-btn ghost" href="?print=1&show={{ show }}" target="_blank"><i class="bi bi-printer"></i> Print</a></div></div>
+  <div class="pt-bar mt-3"><i style="width:{{ stock.pct }}%"></i></div>
+  <div class="d-flex justify-content-between small mt-1"><span>{{ stock.used }} used by customers</span><span>{{ retail.n|default:0 }} marked sold · {{ owner.currency }}{{ retail.v|default:0|floatformat:"-2g" }}</span><span><b>{{ stock.left }}</b> left</span></div></div>
+<div class="pt-filter"><a href="?show=left" class="{% if show == 'left' %}on{% endif %}">To sell</a><a href="?show=sold" class="{% if show == 'sold' %}on{% endif %}">Sold / used</a><a href="?show=all" class="{% if show == 'all' %}on{% endif %}">All</a></div>
+{% if codes %}<div class="pt-codes">{% for v in codes %}{% with sold=v.agent_retail %}
+  <div class="pt-code{% if v.used_at or sold %} sold{% endif %}">
+    <div class="d-flex justify-content-between align-items-center"><b>{{ v.code }}</b><small>{{ v.serial }}</small></div>
+    <small>{% if v.used_at %}Used {{ v.used_at|date:"j M H:i" }}{% elif sold %}Sold {{ sold.sold_at|date:"j M" }} · {{ owner.currency }}{{ sold.price|floatformat:"-2g" }}{% if sold.customer %} · {{ sold.customer }}{% endif %}{% else %}Not used yet{% endif %}</small>
+    <div class="acts">
+      {% if not v.used_at %}<a class="wa" href="https://wa.me/?text={{ 'Your Wi-Fi voucher'|urlencode }}%20({{ t.plan_name|urlencode }}){% if owner.wifi_ssid %}%20on%20{{ owner.wifi_ssid|urlencode }}{% endif %}:%20*{{ v.code }}*{% if login_url %}%20%E2%80%94%20{{ login_url|urlencode }}{% endif %}" target="_blank" rel="noopener"><i class="bi bi-whatsapp"></i> Send</a>
+        <a href="sms:?body=Wi-Fi%20voucher%20{{ v.code }}"><i class="bi bi-chat-text"></i> SMS</a>{% endif %}
+      {% if not v.used_at %}{% if sold %}<form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="voucher" value="{{ v.pk }}"><input type="hidden" name="action" value="unsold"><button>Undo sold</button></form>
+      {% else %}<form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="voucher" value="{{ v.pk }}"><input type="hidden" name="price" value="{{ t.face_price }}"><button><i class="bi bi-check2"></i> Sold</button></form>{% endif %}{% endif %}
+    </div>
+  </div>{% endwith %}{% endfor %}</div>
+{% else %}<div class="panel pt-empty"><i class="bi bi-check2-all"></i>{% if show == 'left' %}Everything in this batch is sold or used. Time for a new top-up!{% else %}Nothing here.{% endif %}</div>{% endif %}
+{% endblock %}

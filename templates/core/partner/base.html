@@ -1,0 +1,61 @@
+{% load static %}<!doctype html><html lang="en"><head><script>(function(){try{var t=localStorage.getItem('tt-theme')||'light',d=t==='dark'||(t==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches);var h=document.documentElement;h.setAttribute('data-theme',d?'dark':'light');h.setAttribute('data-bs-theme',d?'dark':'light');}catch(e){}})();</script>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{% block title %}TapTap{% endblock %}</title>
+<link href="{% static 'vendor/bootstrap/css/bootstrap.min.css' %}" rel="stylesheet"><link href="{% static 'vendor/bootstrap-icons/bootstrap-icons.min.css' %}" rel="stylesheet">
+<link href="{% static 'css/app.css' %}?v=brand1" rel="stylesheet"><link href="{% static 'css/dark-auto.css' %}?v=2" rel="stylesheet"><link href="{% static 'css/dark.css' %}" rel="stylesheet">
+<link href="{% static 'partner/partner.css' %}?v=1" rel="stylesheet">
+{% block extra_head %}{% endblock %}<link href="{% static 'css/responsive.css' %}" rel="stylesheet">{% include "core/_brand_icons.html" %}</head>
+{% comment %}The portal of agents and resellers (core/partners.py) — their own frame instead of the Wi-Fi dashboard. Market pages
+render inside it for resellers (they extend tt_base). Phones get a tab bar at the bottom.{% endcomment %}
+<body class="app-shell pt-shell pt-{{ tt_partner|default:'agent' }}">
+<aside class="sidebar pt-side d-none d-lg-flex">
+  <a class="brand" href="{% url 'partner_home' %}"><span class="brand-mark tt-logo"><img src="{% static 'brand/mark.svg' %}" alt="TapTap"></span><span>TapTap<small>{% if tt_partner == 'reseller' %}RESELLER{% else %}AGENT{% endif %} PORTAL</small></span></a>
+  <nav class="pt-nav">
+    {% with u=request.resolver_match.url_name %}
+    <a href="{% url 'partner_home' %}" class="{% if u == 'partner_home' %}active{% endif %}"><i class="bi bi-house-heart"></i> Home</a>
+    {% if tt_partner == 'agent' %}
+    <a href="{% url 'partner_find' %}" class="{% if u == 'partner_find' or u == 'partner_owner' %}active{% endif %}"><i class="bi bi-geo-alt"></i> Find Wi-Fi near me</a>
+    <a href="{% url 'partner_vouchers' %}" class="{% if u == 'partner_vouchers' or u == 'partner_batch' or u == 'partner_topup' %}active{% endif %}"><i class="bi bi-ticket-perforated"></i> My vouchers</a>
+    {% else %}
+    <a href="{% url 'market' %}" class="{% if u == 'market' and request.GET.tab != 'stock' and request.GET.tab != 'setup' or u == 'market_listing' %}active{% endif %}"><i class="bi bi-shop-window"></i> Market</a>
+    <a href="{% url 'market' %}?tab=stock" class="{% if u == 'market' and request.GET.tab == 'stock' or u == 'market_deal' %}active{% endif %}"><i class="bi bi-box-seam"></i> My batches</a>
+    <a href="{% url 'market' %}?tab=setup" class="{% if u == 'market' and request.GET.tab == 'setup' %}active{% endif %}"><i class="bi bi-wallet2"></i> Wallets &amp; shop</a>
+    {% endif %}
+    <div class="nav-label">Account</div>
+    <a href="{% url 'partner_billing' %}" class="{% if u == 'partner_billing' %}active{% endif %}"><i class="bi bi-credit-card"></i> Monthly fee</a>
+    <a href="{% url 'partner_profile' %}" class="{% if u == 'partner_profile' %}active{% endif %}"><i class="bi bi-person-circle"></i> My profile</a>
+    <a href="{% url 'partner_help' %}" class="{% if u == 'partner_help' %}active{% endif %}"><i class="bi bi-life-preserver"></i> Help</a>
+    {% endwith %}
+  </nav>
+  <div class="sidebar-bottom"><a href="{% url 'account_password' %}"><i class="bi bi-key"></i> My password</a><a href="{% url 'logout' %}"><i class="bi bi-box-arrow-left"></i> Sign out</a></div>
+</aside>
+<div class="mobile-top pt-mtop d-lg-none"><a class="brand compact" href="{% url 'partner_home' %}"><span class="brand-mark tt-logo"><img src="{% static 'brand/mark.svg' %}" alt="TapTap"></span><span>TapTap <small class="pt-kind">{% if tt_partner == 'reseller' %}Reseller{% else %}Agent{% endif %}</small></span></a>
+  <a class="pt-mlink" href="{% url 'partner_profile' %}" aria-label="My profile"><i class="bi bi-person-circle"></i></a></div>
+<main class="main-content pt-main">
+  <header class="topbar"><div><span class="eyebrow">{{ current_business.business_name }}</span><div class="tt-title-row"><h1>{% block heading %}{% endblock %}</h1></div></div>
+    <div class="top-actions"><button type="button" class="theme-btn" id="themeBtn" title="Theme" aria-label="Switch light / dark theme"><i class="bi bi-moon-stars"></i></button>
+      <div class="avatar" title="{% firstof user.get_full_name user.email %}">{% if user.first_name %}{{ user.first_name|slice:':1'|upper }}{% else %}{{ user.email|slice:':1'|upper }}{% endif %}</div></div></header>
+  {% if messages %}<div class="mb-3">{% for message in messages %}<div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %} alert-dismissible fade show">{{ message }}<button class="btn-close" data-bs-dismiss="alert"></button></div>{% endfor %}</div>{% endif %}
+  {% block content %}{% endblock %}
+  <footer class="app-footer">TapTap • {% if tt_partner == 'reseller' %}Reseller{% else %}Agent{% endif %} portal <span>Sell Wi-Fi, keep the difference</span></footer>
+</main>
+<nav class="pt-tabs d-lg-none" aria-label="Portal">
+  {% with u=request.resolver_match.url_name %}
+  <a href="{% url 'partner_home' %}" class="{% if u == 'partner_home' %}on{% endif %}"><i class="bi bi-house-heart"></i><span>Home</span></a>
+  {% if tt_partner == 'agent' %}
+  <a href="{% url 'partner_find' %}" class="{% if u == 'partner_find' or u == 'partner_owner' %}on{% endif %}"><i class="bi bi-geo-alt"></i><span>Find</span></a>
+  <a href="{% url 'partner_vouchers' %}" class="{% if u == 'partner_vouchers' or u == 'partner_batch' or u == 'partner_topup' %}on{% endif %}"><i class="bi bi-ticket-perforated"></i><span>Vouchers</span></a>
+  {% else %}
+  <a href="{% url 'market' %}" class="{% if u == 'market' and request.GET.tab != 'stock' and request.GET.tab != 'setup' or u == 'market_listing' %}on{% endif %}"><i class="bi bi-shop-window"></i><span>Market</span></a>
+  <a href="{% url 'market' %}?tab=stock" class="{% if u == 'market' and request.GET.tab == 'stock' or u == 'market_deal' %}on{% endif %}"><i class="bi bi-box-seam"></i><span>Batches</span></a>
+  {% endif %}
+  <a href="{% url 'partner_billing' %}" class="{% if u == 'partner_billing' %}on{% endif %}"><i class="bi bi-credit-card"></i><span>Fee</span></a>
+  <a href="{% url 'partner_help' %}" class="{% if u == 'partner_help' %}on{% endif %}"><i class="bi bi-life-preserver"></i><span>Help</span></a>
+  {% endwith %}
+</nav>
+<script src="{% static 'vendor/bootstrap/js/bootstrap.bundle.min.js' %}"></script>
+{% block scripts %}{% endblock %}
+<script>(function(){var b=document.getElementById('themeBtn');if(!b)return;var order=['light','dark','auto'],icons={light:'bi-moon-stars',dark:'bi-sun',auto:'bi-circle-half'};
+function cur(){try{return localStorage.getItem('tt-theme')||'light';}catch(e){return 'light';}}
+function apply(t){var d=t==='dark'||(t==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches),h=document.documentElement;h.setAttribute('data-theme',d?'dark':'light');h.setAttribute('data-bs-theme',d?'dark':'light');b.innerHTML='<i class="bi '+icons[t]+'"></i>';}
+b.addEventListener('click',function(){var t=order[(order.indexOf(cur())+1)%3];try{localStorage.setItem('tt-theme',t);}catch(e){}apply(t);});apply(cur());})();</script>
+</body></html>

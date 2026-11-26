@@ -1,0 +1,36 @@
+{% extends 'core/partner/base.html' %}{% load static %}
+{% block title %}Reseller portal — TapTap{% endblock %}{% block heading %}Hello, {{ me.owner_name|default:me.business_name }}{% endblock %}
+{% block content %}
+{% include "core/partner/_ribbon.html" %}
+<section class="pt-hero">
+  <span class="pt-eyebrow"><i class="bi bi-shop-window"></i> Reseller{% if profile.area %} · {{ profile.area }}{% endif %}</span>
+  <h2>{% if active %}{{ active|length }} batch{{ active|length|pluralize:"es" }} selling for you.{% else %}Own a Wi-Fi batch until its last voucher — customers pay you.{% endif %}</h2>
+  <p>Buy on the TapTap Market with real due diligence. Every customer who buys your vouchers pays your wallet straight away.</p>
+  <div class="pt-money">
+    <div><small>Invested</small><b>{{ me.currency }}{{ spent|floatformat:"-2g" }}</b></div>
+    <div class="gain"><small>Customers paid you</small><b>{{ me.currency }}{{ earned.v|default:0|floatformat:"-2g" }}</b></div>
+    <div><small>Vouchers sold</small><b>{{ earned.n|default:0 }}</b></div>
+    <div><small>To confirm</small><b>{{ waiting }}</b></div>
+  </div>
+</section>
+
+{% if steps_done < 4 %}<div class="pt-steps">{% for label, done, url in steps %}<a href="{{ url }}" class="{% if done %}done{% endif %}"><i>{% if done %}✓{% else %}{{ forloop.counter }}{% endif %}</i>{{ label }}</a>{% endfor %}</div>{% endif %}
+
+<div class="row g-3 mt-1">
+  <div class="col-lg-7"><div class="panel"><div class="panel-head"><div><h3><i class="bi bi-box-seam"></i> My batches</h3><p>What is left in each, and the network it runs on.</p></div><a class="btn btn-sm btn-outline-secondary" href="{% url 'market' %}?tab=stock">Details</a></div>
+    {% if deals %}<div class="pt-rowlist">{% for d in deals %}<a href="{% url 'market_deal' d.reference %}"><span class="pt-av">{{ d.seller.business_name|slice:':1'|upper }}</span>
+      <span class="grow"><b>{{ d.quantity }}× {{ d.listing.plan_name }}</b><small>{{ d.listing.area|default:d.seller.business_name }} · {{ me.currency }}{{ d.price|floatformat:"-2g" }}</small></span>
+      {% if d.status == 'active' %}<span class="text-end"><b>{{ d.left }}</b><small>left</small></span>{% else %}<span class="pt-status {% if d.status == 'awaiting_payment' %}approved{% elif d.status == 'claimed' %}claimed{% else %}issued{% endif %}">{{ d.get_status_display }}</span>{% endif %}</a>{% endfor %}</div>
+    {% else %}<div class="pt-empty"><i class="bi bi-search"></i>No batches yet.<br><a class="pt-btn mt-2" href="{% url 'market' %}">Browse the Market</a></div>{% endif %}</div></div>
+  <div class="col-lg-5">
+    <div class="panel mb-3"><div class="panel-head"><div><h3><i class="bi bi-link-45deg"></i> My shop</h3><p>Customers buy your vouchers here and log in at once.</p></div></div>
+      {% if shop_url %}<div class="an-invite" style="background:linear-gradient(135deg,#6d28d9,#a78bfa)"><input value="{{ shop_url }}" readonly aria-label="Shop link"><button type="button" onclick="navigator.clipboard&&navigator.clipboard.writeText('{{ shop_url|escapejs }}');this.textContent='Copied'">Copy</button></div>
+        <a class="pt-btn ghost w mt-2" href="https://wa.me/?text={{ shop_url|urlencode }}" target="_blank" rel="noopener"><i class="bi bi-whatsapp"></i> Share on WhatsApp</a>
+      {% else %}<p class="text-secondary small mb-2">Your shop opens with your first batch.</p><a class="pt-btn ghost" href="{% url 'market' %}?tab=setup">Set up wallets &amp; shop</a>{% endif %}</div>
+    <div class="panel"><h3 class="mb-2"><i class="bi bi-lightbulb"></i> Tips</h3><ul class="clean-list small mb-0">
+      <li>Look at the grade and uptime before you buy: busy, reliable networks sell faster.</li>
+      <li>Batches you buy first are served first on that network.</li>
+      <li>Confirm customer payments quickly — they get their voucher the moment you do.</li></ul></div>
+  </div>
+</div>
+{% endblock %}

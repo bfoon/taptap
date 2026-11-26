@@ -1,4 +1,4 @@
-{% extends 'core/base.html' %}{% load static taptap_extras %}{% block title %}{{ deal.reference }} — Market — TapTap{% endblock %}{% block heading %}{% if seller_side %}Batch sale{% else %}Batch purchase{% endif %} · {{ deal.reference }}{% endblock %}
+{% extends tt_base|default:'core/base.html' %}{% load static taptap_extras %}{% block title %}{{ deal.reference }} — Market — TapTap{% endblock %}{% block heading %}{% if seller_side %}Batch sale{% else %}Batch purchase{% endif %} · {{ deal.reference }}{% endblock %}
 {% block extra_head %}<link href="{% static 'css/market.css' %}?v=1" rel="stylesheet">{% endblock %}
 {% block content %}
 {% with c=current_business.currency %}

@@ -1,0 +1,39 @@
+{% extends 'core/partner/base.html' %}{% load static %}
+{% block title %}Agent portal — TapTap{% endblock %}{% block heading %}Hello, {{ me.owner_name|default:me.business_name }}{% endblock %}
+{% block content %}
+{% include "core/partner/_ribbon.html" %}
+<section class="pt-hero">
+  <span class="pt-eyebrow"><i class="bi bi-person-badge"></i> Agent{% if profile.area %} · {{ profile.area }}{% endif %}</span>
+  <h2>{% if summary.batches %}Your Wi-Fi business is moving.{% else %}Buy Wi-Fi below the shop price, resell it, keep the difference.{% endif %}</h2>
+  <p>{% if summary.batches %}{{ summary.batches }} batch{{ summary.batches|pluralize:"es" }} bought so far.{% else %}Find a Wi-Fi network near you, get accepted, top up any amount.{% endif %}</p>
+  <div class="pt-money">
+    <div><small>Spent on stock</small><b>{{ me.currency }}{{ summary.spent|floatformat:"-2g" }}</b></div>
+    <div><small>Worth at shop prices</small><b>{{ me.currency }}{{ summary.worth|floatformat:"-2g" }}</b></div>
+    <div class="gain"><small>Your margin</small><b>{{ me.currency }}{{ summary.profit|floatformat:"-2g" }}</b></div>
+    <div><small>Still to sell</small><b>{{ me.currency }}{{ summary.left_value|floatformat:"-2g" }}</b></div>
+  </div>
+</section>
+
+{% if steps_done < 4 %}<div class="pt-steps">{% for label, done, url in steps %}<a href="{{ url }}" class="{% if done %}done{% endif %}"><i>{% if done %}✓{% else %}{{ forloop.counter }}{% endif %}</i>{{ label }}</a>{% endfor %}</div>{% endif %}
+
+<div class="row g-3 mt-1">
+  <div class="col-lg-7">
+    {% if waiting %}<div class="panel mb-3"><div class="panel-head"><div><h3><i class="bi bi-hourglass-split"></i> Top-ups in progress</h3><p>Open one to pay or follow it.</p></div></div>
+      <div class="pt-rowlist">{% for t in waiting %}<a href="{% url 'partner_topup' t.reference %}"><span class="pt-av">{{ t.owner.business_name|slice:':1'|upper }}</span><span class="grow"><b>{{ t.owner.business_name }}</b><small>{{ t.plan_name }} · {% if t.quantity %}{{ t.quantity }} vouchers for {{ me.currency }}{{ t.amount|floatformat:"-2g" }}{% else %}asked {{ me.currency }}{{ t.requested_amount|floatformat:"-2g" }}{% endif %}</small></span><span class="pt-status {{ t.status }}">{% if t.status == 'approved' %}Pay now{% else %}{{ t.get_status_display }}{% endif %}</span></a>{% endfor %}</div></div>{% endif %}
+
+    <div class="panel"><div class="panel-head"><div><h3><i class="bi bi-ticket-perforated"></i> Latest batches</h3><p>What is left to sell in each.</p></div><a class="btn btn-sm btn-outline-secondary" href="{% url 'partner_vouchers' %}">All</a></div>
+      {% if ready %}<div class="pt-rowlist">{% for t in ready %}<a href="{% url 'partner_batch' t.reference %}"><span class="grow"><b>{{ t.quantity }}× {{ t.plan_name }}</b><small>{{ t.owner.business_name }} · {{ t.issued_at|date:"j M" }}</small>
+        <div class="pt-bar mt-1"><i style="width:{{ t.stock.pct }}%"></i></div></span><span class="text-end"><b>{{ t.stock.left }}</b><small>left</small></span></a>{% endfor %}</div>
+      {% else %}<div class="pt-empty"><i class="bi bi-box"></i>No vouchers yet. Your first batch appears here as soon as it is paid.</div>{% endif %}</div>
+  </div>
+  <div class="col-lg-5">
+    <div class="panel mb-3"><div class="panel-head"><div><h3><i class="bi bi-router"></i> My Wi-Fi networks</h3><p>Owners you sell for.</p></div><a class="btn btn-sm btn-outline-secondary" href="{% url 'partner_find' %}">Find more</a></div>
+      {% if links %}<div class="pt-rowlist">{% for l in links %}<a href="{% url 'partner_owner' l.owner_id %}"><span class="pt-av">{{ l.owner.business_name|slice:':1'|upper }}</span><span class="grow"><b>{{ l.owner.business_name }}</b><small>{% if l.status == 'active' %}{{ l.discount_percent|floatformat:"-2g" }}% below shop price{% else %}{{ l.get_status_display }}{% endif %}</small></span>
+        {% if l.status == 'active' %}<span class="pt-btn ghost" style="padding:.4rem .7rem">Top up</span>{% else %}<span class="pt-status {{ l.status }}">{{ l.get_status_display }}</span>{% endif %}</a>{% endfor %}</div>
+      {% else %}<div class="pt-empty"><i class="bi bi-geo-alt"></i>You do not sell for any Wi-Fi yet.<br><a class="pt-btn mt-2" href="{% url 'partner_find' %}">Find Wi-Fi near me</a></div>{% endif %}</div>
+    {% if nearby %}<div class="panel"><div class="panel-head"><div><h3><i class="bi bi-stars"></i> Near {{ profile.area|default:'you' }}</h3><p>Networks taking agents now.</p></div></div>
+      <div class="pt-rowlist">{% for r in nearby %}<a href="{% url 'partner_owner' r.owner.pk %}"><span class="pt-av">{{ r.owner.business_name|slice:':1'|upper }}</span><span class="grow"><b>{{ r.owner.business_name }}</b><small>{{ r.program.areas|default:'—' }}</small></span>
+        <span class="text-end"><b style="color:var(--pt)">{{ r.program.discount_percent|floatformat:"-2g" }}%</b><small>margin</small></span></a>{% endfor %}</div></div>{% endif %}
+  </div>
+</div>
+{% endblock %}

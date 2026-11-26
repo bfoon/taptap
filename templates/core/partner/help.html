@@ -1,0 +1,26 @@
+{% extends 'core/partner/base.html' %}
+{% block title %}Help — TapTap{% endblock %}{% block heading %}Help{% endblock %}
+{% block content %}
+<div class="row g-3">
+{% if kind == 'agent' %}
+  <div class="col-lg-7"><div class="panel"><h3>How selling as an agent works</h3><ol class="clean-list">
+    <li><b>Find Wi-Fi near you</b> and apply. The owner accepts you and decides your discount — e.g. 20 % means you pay D2,000 for vouchers customers pay D2,500 for.</li>
+    <li><b>Top up</b> any amount. The owner can accept it or lower it.</li>
+    <li><b>Pay</b> cash, Wave, QMoney or Afrimoney. With the owner's Wave set up for automatic payments, your batch comes the second you pay; otherwise when the owner confirms.</li>
+    <li><b>Sell</b> each voucher at the shop price: send it by WhatsApp or SMS, or print the batch. Mark what you sold to see your margin.</li>
+    <li>The vouchers run on the owner's Wi-Fi. If a customer has a problem, open your <b>voucher checker</b> from that owner's page.</li></ol></div></div>
+{% else %}
+  <div class="col-lg-7"><div class="panel"><h3>How reselling works</h3><ol class="clean-list">
+    <li><b>Add your wallets</b> (Wave, QMoney, Afrimoney) under Wallets &amp; shop — customers pay you there.</li>
+    <li><b>Browse the Market</b>: each batch shows its network's grade, uptime, daily users and how many batches are ahead of you.</li>
+    <li><b>Reserve and pay</b> the seller. The batch is yours until its last voucher is used.</li>
+    <li><b>Share your shop link</b>. Customers on that Wi-Fi who buy online are also served from your batch, in turn.</li>
+    <li>Confirm customer payments that are not automatic — the customer gets the voucher at once.</li></ol></div></div>
+{% endif %}
+  <div class="col-lg-5"><div class="panel"><h3>Questions</h3>
+    <details class="mb-2"><summary><b>What does TapTap cost me?</b></summary><p class="small mb-0">A free trial, then {{ standing.fee|floatformat:"-2g" }} {{ standing.currency }} a month. Your vouchers keep working even if you stop paying.</p></details>
+    <details class="mb-2"><summary><b>Who do I pay for vouchers?</b></summary><p class="small mb-0">The Wi-Fi owner, directly — TapTap never holds your money.</p></details>
+    <details class="mb-2"><summary><b>Can I sell for several Wi-Fi networks?</b></summary><p class="small mb-0">{% if kind == 'agent' %}Yes — apply to as many as you like.{% else %}Yes — buy batches from any vetted seller on the Market.{% endif %}</p></details>
+    <details><summary><b>Need a person?</b></summary><p class="small mb-0">Write to TapTap support from the email you signed up with.</p></details></div></div>
+</div>
+{% endblock %}

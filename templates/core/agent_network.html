@@ -1,0 +1,83 @@
+{% extends 'core/base.html' %}{% load static %}
+{% block title %}Agent network — TapTap{% endblock %}{% block heading %}Agent network{% endblock %}
+{% block extra_head %}<link href="{% static 'partner/partner.css' %}?v=1" rel="stylesheet">{% endblock %}
+{% block content %}{% with c=current_business.currency %}
+<div class="page-actions"><div><h2 class="section-title">Agents who buy your vouchers upfront</h2>
+  <p>People sign up to TapTap as agents, find your Wi-Fi and apply. Once you accept them they top up — any amount — and a batch is made for them the moment they pay. Your existing <a href="{% url 'finance' %}?tab=agents">agents on credit</a> are not affected.</p></div></div>
+
+<div class="metric-grid mb-3" style="margin-top:0">
+  <div class="metric-card"><div class="metric-icon green"><i class="bi bi-people"></i></div><span><small>ACTIVE AGENTS</small><strong>{{ active|length }}</strong><em>{{ pending|length }} waiting for you</em></span></div>
+  <div class="metric-card"><div class="metric-icon blue"><i class="bi bi-cash-coin"></i></div><span><small>PAID TO YOU THIS MONTH</small><strong>{{ c }}{{ stats.v|default:0|floatformat:"-2g" }}</strong><em>{{ stats.n|default:0 }} top-up{{ stats.n|default:0|pluralize }}</em></span></div>
+  <div class="metric-card"><div class="metric-icon orange"><i class="bi bi-ticket-perforated"></i></div><span><small>VOUCHERS SOLD TO AGENTS</small><strong>{{ stats.q|default:0 }}</strong><em>this month, paid upfront</em></span></div>
+  <div class="metric-card"><div class="metric-icon purple"><i class="bi bi-bell"></i></div><span><small>NEEDS YOU</small><strong>{{ needs }}</strong><em>requests and payments</em></span></div>
+</div>
+
+<div class="an-grid">
+<div>
+  {% if to_confirm %}<div class="panel mb-3" id="topups"><div class="panel-head"><div><h3><i class="bi bi-shield-check"></i> Payments to confirm</h3><p>When the money is with you, confirm — the batch is made for the agent at once.</p></div></div>
+    <div class="d-grid gap-2">{% for t in to_confirm %}<div class="an-req"><div class="who"><span class="pt-av">{{ t.link.agent_account.business_name|slice:':1'|upper }}</span><div><b>{{ t.link.agent_account.business_name }}</b><small>{{ t.reference }} · {{ t.quantity }}× {{ t.plan_name }}</small></div><span class="pt-status {{ t.status }} ms-auto">{% if t.status == 'review' %}Needs a look{% else %}{% if t.method == 'cash' %}Paying cash{% else %}Paid {{ t.method|title }}{% endif %}{% endif %}</span></div>
+      <div class="an-math"><span>To receive <b>{{ c }}{{ t.amount|floatformat:"-2g" }}</b></span>{% if t.payment_ref %}<span>Transaction <b>{{ t.payment_ref }}</b></span>{% endif %}{% if t.error %}<span class="text-danger">{{ t.error }}</span>{% endif %}</div>
+      <form method="post" class="an-form">{% csrf_token %}<input type="hidden" name="topup" value="{{ t.pk }}"><input type="hidden" name="back" value="#topups">
+        <button class="btn btn-success btn-sm" name="action" value="confirm"><i class="bi bi-check2-circle"></i> {% if t.method == 'cash' %}Cash received{% else %}I see it in my wallet{% endif %} — make the batch</button>
+        {% if is_owner and t.status != 'review' %}<input name="note" placeholder="Reason (if not received)"><button class="btn btn-outline-danger btn-sm" name="action" value="decline_topup">Not received</button>{% endif %}</form></div>{% endfor %}</div></div>{% endif %}
+
+  <div class="panel mb-3" id="requests"><div class="panel-head"><div><h3><i class="bi bi-inbox"></i> Top-up requests</h3><p>Accept the amount, lower it, or decline. You can also take cash on the spot.</p></div></div>
+    {% if requests %}<div class="d-grid gap-2">{% for t in requests %}<div class="an-req"><div class="who"><span class="pt-av">{{ t.link.agent_account.business_name|slice:':1'|upper }}</span><div><b>{{ t.link.agent_account.business_name }}</b><small>{{ t.created_at|timesince }} ago · {{ t.reference }}{% if t.note %} · “{{ t.note }}”{% endif %}</small></div></div>
+      <div class="an-math"><span>Asks <b>{{ c }}{{ t.requested_amount|floatformat:"-2g" }}</b> of {{ t.plan_name }}</span>{% if t.q %}<span><b>{{ t.q.qty }}</b> vouchers worth {{ c }}{{ t.q.worth|floatformat:"-2g" }}</span><span>they pay {{ c }}{{ t.q.pay|floatformat:"-2g" }}</span><span>their margin {{ c }}{{ t.q.profit|floatformat:"-2g" }}</span>{% endif %}</div>
+      {% if is_owner %}<form method="post" class="an-form">{% csrf_token %}<input type="hidden" name="topup" value="{{ t.pk }}"><input type="hidden" name="back" value="#requests">
+        <label class="small">Amount <input name="amount" value="{{ t.requested_amount|floatformat:'-2' }}" size="8" inputmode="decimal"></label>
+        <select name="router" aria-label="Router">{% for r in routers %}<option value="{{ r.pk }}" {% if prog.router_id == r.pk %}selected{% endif %}>{{ r.name }}</option>{% empty %}<option value="">No router</option>{% endfor %}</select>
+        <button class="btn btn-primary btn-sm" name="action" value="approve">Approve</button>
+        <button class="btn btn-outline-success btn-sm" name="action" value="approve" onclick="this.form.cash_now.value='1'">Approve + cash received now</button><input type="hidden" name="cash_now" value="">
+        <button class="btn btn-outline-danger btn-sm" name="action" value="decline_topup" formnovalidate>Decline</button><input name="note" placeholder="Note to the agent"></form>{% endif %}</div>{% endfor %}</div>
+    {% else %}<p class="text-secondary small mb-0">No requests right now.</p>{% endif %}
+    {% if awaiting %}<h4 class="h6 mt-3">Approved, waiting for the agent to pay</h4><div class="pt-rowlist">{% for t in awaiting %}<div><span class="grow"><b>{{ t.link.agent_account.business_name }}</b><small>{{ t.reference }} · {{ t.quantity }}× {{ t.plan_name }} · {{ c }}{{ t.amount|floatformat:"-2g" }}</small></span>
+      <form method="post" class="an-form">{% csrf_token %}<input type="hidden" name="topup" value="{{ t.pk }}"><input type="hidden" name="method" value="cash"><button class="btn btn-sm btn-outline-success" name="action" value="confirm">Cash received</button></form></div>{% endfor %}</div>{% endif %}
+  </div>
+
+  <div class="panel mb-3" id="applications"><div class="panel-head"><div><h3><i class="bi bi-person-plus"></i> Applications</h3><p>Agents who want to sell your Wi-Fi.</p></div></div>
+    {% if pending %}<div class="d-grid gap-2">{% for l in pending %}<div class="an-req"><div class="who"><span class="pt-av">{{ l.agent_account.business_name|slice:':1'|upper }}</span><div><b>{{ l.agent_account.business_name }}</b><small>{{ l.agent_account.partner_profile.area|default:'' }} · {{ l.agent_account.phone }} · applied {{ l.created_at|timesince }} ago</small></div></div>
+      {% if l.message %}<p class="small mb-0">“{{ l.message }}”</p>{% endif %}
+      {% if is_owner %}<form method="post" class="an-form">{% csrf_token %}<input type="hidden" name="link" value="{{ l.pk }}"><input type="hidden" name="back" value="#applications">
+        <label class="small">Discount <input name="discount_percent" value="{{ prog.discount_percent|floatformat:'-2' }}" size="4" inputmode="decimal"> %</label>
+        <button class="btn btn-success btn-sm" name="action" value="accept">Accept</button><input name="note" placeholder="Note (optional)"><button class="btn btn-outline-danger btn-sm" name="action" value="decline_app">Decline</button></form>{% endif %}</div>{% endfor %}</div>
+    {% else %}<p class="text-secondary small mb-0">No new applications.</p>{% endif %}</div>
+
+  <div class="panel mb-3"><div class="panel-head"><div><h3><i class="bi bi-people"></i> My agents</h3><p>Their batches also appear under Agents, with prepaid sales in your finance.</p></div></div>
+    {% if active %}<div class="table-responsive"><table class="table align-middle"><thead><tr><th>Agent</th><th>Discount</th><th>Bought</th><th></th></tr></thead><tbody>
+      {% for l in active %}<tr><td><b>{{ l.agent_account.business_name }}</b><small class="d-block text-secondary">{{ l.agent_account.partner_profile.area|default:'' }} · {{ l.agent_account.phone }}</small></td>
+        <td>{{ l.discount_percent|floatformat:"-2g" }}%</td><td>{{ c }}{{ l.bought|default:0|floatformat:"-2g" }}<small class="d-block text-secondary">{{ l.batches }} batch{{ l.batches|pluralize:"es" }}</small></td>
+        <td class="text-end">{% if l.agent_id %}<a class="btn btn-sm btn-outline-secondary" href="{% url 'agent_detail' l.agent_id %}">Details</a>{% endif %}
+          {% if is_owner %}<form method="post" class="d-inline">{% csrf_token %}<input type="hidden" name="link" value="{{ l.pk }}">{% if l.status == 'paused' %}<button class="btn btn-sm btn-outline-success" name="action" value="resume">Resume</button>{% else %}<button class="btn btn-sm btn-outline-warning" name="action" value="pause">Pause</button>{% endif %}</form>{% endif %}</td></tr>{% endfor %}</tbody></table></div>
+    {% else %}<p class="text-secondary small mb-0">No agents yet.</p>{% endif %}</div>
+</div>
+
+<div>
+  <form method="post" class="panel form-panel mb-3">{% csrf_token %}<input type="hidden" name="action" value="save">
+    <h3><i class="bi bi-sliders"></i> Your agent programme</h3>
+    <label class="an-switch {% if prog.open %}on{% endif %} mt-2"><input type="checkbox" name="open" value="1" {% if prog.open %}checked{% endif %} style="width:auto;display:inline"> <span><b>Take agents</b><br><small class="text-secondary">Agents in your area can find your Wi-Fi and apply.</small></span></label>
+    <label>Areas your Wi-Fi covers</label><input name="areas" value="{{ prog.areas }}" maxlength="240" placeholder="e.g. Brikama, Nyambai, Farato">
+    <label>Discount for agents (%)</label><input name="discount_percent" value="{{ prog.discount_percent|floatformat:'-2' }}" inputmode="decimal">
+    {% if example %}<small class="d-block text-secondary mt-1">Example: an agent pays <b>{{ c }}{{ example.pay|floatformat:"-2g" }}</b> for {{ example.qty }} {{ example.plan.name }} worth <b>{{ c }}{{ example.worth|floatformat:"-2g" }}</b>.</small>{% endif %}
+    <div class="row g-2"><div class="col"><label>Smallest top-up</label><input name="min_topup" value="{{ prog.min_topup|floatformat:'-2' }}" inputmode="decimal"></div><div class="col"><label>Largest top-up</label><input name="max_topup" value="{{ prog.max_topup|floatformat:'-2' }}" inputmode="decimal"></div></div>
+    <label>Plans agents may buy <small class="text-secondary fw-normal">(none ticked = all)</small></label>
+    <div class="d-flex flex-wrap gap-2">{% for p in all_plans %}<label class="form-check-label small border rounded-pill px-2 py-1 m-0"><input type="checkbox" name="plans" value="{{ p.pk }}" {% if p.pk in chosen %}checked{% endif %} style="width:auto;display:inline"> {{ p.name }} · {{ c }}{{ p.price|floatformat:"-2g" }}</label>{% endfor %}</div>
+    <label>Send agent batches to</label><select name="router"><option value="">The first router</option>{% for r in routers %}<option value="{{ r.pk }}" {% if prog.router_id == r.pk %}selected{% endif %}>{{ r.name }}</option>{% endfor %}</select>
+    <label class="d-flex gap-2 align-items-center mt-3"><input type="checkbox" name="take_cash" value="1" {% if prog.take_cash %}checked{% endif %} style="width:auto"> Agents may pay cash</label>
+    <label class="d-flex gap-2 align-items-center"><input type="checkbox" name="auto_approve" value="1" {% if prog.auto_approve %}checked{% endif %} style="width:auto"> Approve top-ups by myself up to</label><input name="auto_approve_limit" value="{{ prog.auto_approve_limit|floatformat:'-2' }}" inputmode="decimal">
+    <label>Note for agents</label><input name="note" value="{{ prog.note }}" maxlength="300" placeholder="Where to find you, rules…">
+    {% if is_owner %}<button class="btn btn-primary mt-3 w-100">Save programme</button>{% endif %}
+  </form>
+  {% if prog.open %}<div class="an-invite mb-3"><i class="bi bi-envelope-paper-heart fs-4"></i><input value="{{ join_url }}" readonly aria-label="Invitation link"><button type="button" onclick="navigator.clipboard&&navigator.clipboard.writeText('{{ join_url|escapejs }}');this.textContent='Copied'">Copy</button></div>
+    <p class="small text-secondary">Send this link to people you want as agents: they sign up and their application comes straight to you.</p>{% endif %}
+  <div class="panel"><h3><i class="bi bi-wallet2"></i> Where agents pay you</h3>
+    {% if wallets %}<ul class="clean-list small">{% for w in wallets %}<li>{{ w.get_provider_display }} {{ w.number }}{% if w.automatic %} — <b>automatic</b>, batches are made the second they pay{% endif %}</li>{% endfor %}{% if prog.take_cash %}<li>Cash, confirmed by you</li>{% endif %}</ul>
+    {% else %}<p class="small">No wallet yet{% if prog.take_cash %} — only cash{% endif %}.</p>{% endif %}
+    <a class="btn btn-sm btn-outline-primary" href="{% url 'market' %}?tab=setup">Set up wallets</a> <small class="text-secondary">(the same wallets as the Market)</small></div>
+</div>
+</div>
+
+{% if history %}<div class="panel mt-3"><div class="panel-head"><div><h3>History</h3></div></div><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Top-up</th><th>Agent</th><th>Vouchers</th><th>Paid</th><th>Status</th></tr></thead><tbody>
+  {% for t in history %}<tr><td>{{ t.reference }}<small class="d-block text-secondary">{{ t.created_at|date:"j M Y H:i" }}</small></td><td>{{ t.link.agent_account.business_name }}</td><td>{% if t.quantity %}{{ t.quantity }}× {{ t.plan_name }}{% else %}{{ t.plan_name }}{% endif %}{% if t.batch_id %} · <a href="{% url 'batch_detail' t.batch_id %}">batch</a>{% endif %}</td>
+    <td>{% if t.status == 'issued' %}{{ c }}{{ t.amount|floatformat:"-2g" }} · {{ t.method|title }}{% else %}—{% endif %}</td><td><span class="pt-status {{ t.status }}">{{ t.get_status_display }}</span></td></tr>{% endfor %}</tbody></table></div></div>{% endif %}
+{% endwith %}{% endblock %}

@@ -1,0 +1,18 @@
+{% extends 'core/partner/base.html' %}
+{% block title %}Find Wi-Fi near me — TapTap{% endblock %}{% block heading %}Find Wi-Fi near you{% endblock %}
+{% block content %}
+{% include "core/partner/_ribbon.html" %}
+<form class="pt-search" method="get"><input name="q" value="{{ q }}" placeholder="Town or area — e.g. {{ profile.area|default:'Brikama' }}" aria-label="Town or area"><button class="pt-btn"><i class="bi bi-search"></i> Search</button></form>
+<p class="text-secondary small">{% if q %}Networks covering “{{ q }}”.{% else %}Networks taking agents in your country{% if profile.area %}, the ones in {{ profile.area }} first{% endif %}.{% endif %} Apply to the ones you like — each owner decides your discount.</p>
+{% if rows %}<div class="pt-wifi">{% for r in rows %}
+  <article class="pt-card">
+    <div class="top"><span class="pt-av">{{ r.owner.business_name|slice:':1'|upper }}</span><div><h3>{{ r.owner.business_name }}</h3><div class="where"><i class="bi bi-geo-alt"></i> {{ r.program.areas|default:'Area not given' }}</div></div></div>
+    <div class="pt-tags">{% if r.online %}<span class="ok"><i class="bi bi-wifi"></i> {{ r.online }} router{{ r.online|pluralize }} online</span>{% elif r.routers %}<span class="warn"><i class="bi bi-wifi-off"></i> offline now</span>{% endif %}
+      <span><i class="bi bi-people"></i> {{ r.agents }} agent{{ r.agents|pluralize }}</span>{% if r.owner.wifi_ssid %}<span><i class="bi bi-broadcast"></i> {{ r.owner.wifi_ssid }}</span>{% endif %}
+      {% if r.link %}<span class="ok">{{ r.link.get_status_display }}</span>{% endif %}</div>
+    {% if r.example %}<div class="pt-deal"><span>Pay <b>{{ r.owner.currency }}{{ r.example.pay|floatformat:"-2g" }}</b></span><i class="bi bi-arrow-right arrow"></i><span>resell <b>{{ r.owner.currency }}{{ r.example.worth|floatformat:"-2g" }}</b></span><span class="keep">+{{ r.owner.currency }}{{ r.example.profit|floatformat:"-2g" }}</span></div>{% endif %}
+    <table class="pt-plans">{% for p in r.plans|slice:':3' %}<tr><td>{{ p.plan.name }}</td><td>you pay {{ r.owner.currency }}{{ p.cost|floatformat:"-2g" }} · sell {{ r.owner.currency }}{{ p.plan.price|floatformat:"-2g" }}</td><td>+{{ r.owner.currency }}{{ p.profit|floatformat:"-2g" }}</td></tr>{% endfor %}</table>
+    <a class="pt-btn w mt-auto" href="{% url 'partner_owner' r.owner.pk %}">{% if r.link.status == 'active' %}Top up{% elif r.link.status == 'pending' %}See my application{% else %}See and apply{% endif %} <i class="bi bi-arrow-right"></i></a>
+  </article>{% endfor %}</div>
+{% else %}<div class="panel pt-empty"><i class="bi bi-wifi"></i><b>No Wi-Fi network takes agents {% if q %}in “{{ q }}”{% else %}near you{% endif %} yet.</b><br>Tell the Wi-Fi owners you know: in TapTap they open <em>Agent network</em> and switch it on. Or ask them for their invitation link.</div>{% endif %}
+{% endblock %}

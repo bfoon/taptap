@@ -1,0 +1,14 @@
+{% extends 'core/partner/base.html' %}
+{% block title %}My profile — TapTap{% endblock %}{% block heading %}My profile{% endblock %}
+{% block content %}
+<form method="post" class="panel form-panel" style="max-width:640px">{% csrf_token %}
+  <p>What Wi-Fi owners{% if kind == 'reseller' %} and customers{% endif %} see about you.</p>
+  <label>Name or shop name</label><input name="business_name" value="{{ me.business_name }}" maxlength="180" required>
+  <label>Phone</label><input name="phone" value="{{ me.phone }}" maxlength="60">
+  <label>WhatsApp (if different)</label><input name="whatsapp" value="{{ prof.whatsapp }}" maxlength="60">
+  <label>Where you sell</label><input name="area" value="{{ prof.area }}" maxlength="120" placeholder="e.g. Brikama car park">
+  <label>About you</label><input name="about" value="{{ prof.about }}" maxlength="240" placeholder="e.g. Phone shop open every day 8–22">
+  <button class="pt-btn mt-3">Save</button>
+  <p class="small text-secondary mt-3 mb-0">Signed in as {{ user.email }} · <a href="{% url 'account_password' %}">change password</a></p>
+</form>
+{% endblock %}

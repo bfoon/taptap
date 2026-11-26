@@ -104,14 +104,14 @@ def public_stats():
     from .models import Business, Router, VoucherSale
     stats = None
     try:
-        businesses = Business.objects.count()
+        businesses = Business.objects.filter(account_kind='wifi').count()     # agents and resellers are not Wi-Fi businesses
         if businesses >= int(getattr(settings, 'LANDING_STATS_MIN', 10)):
             since = timezone.now() - timedelta(days=30)
             stats = [
                 {'value': _nice(businesses), 'label': 'Wi-Fi businesses', 'icon': 'bi-shop'},
                 {'value': _nice(Router.objects.filter(status='Online').count()), 'label': 'routers online now', 'icon': 'bi-router'},
                 {'value': _nice(VoucherSale.objects.filter(sold_at__gte=since).count()), 'label': 'vouchers sold in 30 days', 'icon': 'bi-ticket-perforated'},
-                {'value': _nice(Business.objects.values('country').distinct().count()), 'label': 'countries', 'icon': 'bi-globe-europe-africa'},
+                {'value': _nice(Business.objects.filter(account_kind='wifi').values('country').distinct().count()), 'label': 'countries', 'icon': 'bi-globe-europe-africa'},
             ]
     except Exception:
         logger.exception('landing stats')
