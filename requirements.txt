@@ -8,3 +8,4 @@ celery==5.5.3
 redis==6.4.0
 cryptography>=42,<47
 dnspython==2.8.0
+Pillow>=11.0,<13          # pictures: landing adverts, portal images (core/landing.py)

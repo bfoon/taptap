@@ -160,3 +160,48 @@ class Console(Base):
         self.assertNotEqual(self.client.get(reverse('platform_landing')).status_code, 200)
         self.client.post(reverse('platform_landing_save'), {'title': 'Hack'})
         self.assertFalse(LandingAd.objects.exists())
+
+
+class WithoutPillow(Base):
+    """The server image had no Pillow: uploading a picture gave "Server Error (500)". Now it is kept as uploaded."""
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.admin)
+
+    def post(self, data, name):
+        import io
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from unittest import mock
+        with mock.patch.dict('sys.modules', {'PIL': None}):          # "from PIL import …" raises ImportError
+            return self.client.post(reverse('platform_landing_save'), {
+                'title': 'Trade on the TapTap Network', 'placement': 'spotlight', 'style': 'night', 'active': 'on', 'weight': '1',
+                'image': SimpleUploadedFile(name, data)})
+
+    def test_small_webp_png_jpeg_are_kept_as_they_are(self):
+        webp = b'RIFF\x24\x00\x00\x00WEBPVP8 ' + b'\x00' * 40
+        png = b'\x89PNG\r\n\x1a\n' + b'\x00' * 40
+        jpg = b'\xff\xd8\xff\xe0' + b'\x00' * 40
+        for data, name, kind in ((webp, 'a.webp', 'webp'), (png, 'a.png', 'png'), (jpg, 'a.jpg', 'jpeg')):
+            r = self.post(data, name)
+            self.assertEqual(r.status_code, 302)
+            ad = LandingAd.objects.latest('pk')
+            self.assertTrue(ad.image.startswith(f'data:image/{kind};base64,'))
+            self.assertEqual(self.client.get(reverse('landing_ad_image', args=[ad.pk]))['Content-Type'], f'image/{kind}')
+
+    def test_not_a_picture_or_too_big_is_a_message_not_a_500(self):
+        n = LandingAd.objects.count()
+        r = self.post(b'hello world, not an image', 'a.png')
+        self.assertEqual(r.status_code, 302)
+        r = self.post(b'\x89PNG\r\n\x1a\n' + b'\x00' * (3 * 1024 * 1024), 'big.png')
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(LandingAd.objects.count(), n)
+        msgs = [str(m) for m in self.client.get(reverse('platform_landing')).context['messages']]
+        self.assertTrue(any('not a picture' in m for m in msgs), msgs)
+        self.assertTrue(any('under 2 MB' in m for m in msgs), msgs)
+
+    def test_any_other_failure_shows_the_reason(self):
+        from unittest import mock
+        with mock.patch('core.landing.save_ad', side_effect=RuntimeError('disk full')):
+            r = self.client.post(reverse('platform_landing_save'), {'title': 'x'}, follow=True)
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, 'RuntimeError: disk full')

@@ -227,11 +227,41 @@ def ad_image(request, pk):
 
 # ─────────────────────────────── the platform console ───────────────────────────────
 
+RAW_MAX = 2 * 1024 * 1024        # without Pillow a picture is kept as it is, so it must already be small
+
+
+def _sniff(head):
+    """'png', 'jpeg' or 'webp' from a file's first bytes, else None."""
+    if head.startswith(b'\x89PNG\r\n\x1a\n'):
+        return 'png'
+    if head.startswith(b'\xff\xd8\xff'):
+        return 'jpeg'
+    if head[:4] == b'RIFF' and head[8:12] == b'WEBP':
+        return 'webp'
+    return None
+
+
+def _as_is(upload):
+    """Keep a JPG, PNG or WebP exactly as uploaded (the server has no image library to shrink it)."""
+    data = upload.read()
+    kind = _sniff(data[:16])
+    if not kind:
+        raise ValueError('That file is not a picture TapTap can read (use JPG, PNG or WebP).')
+    if len(data) > RAW_MAX:
+        raise ValueError('This server cannot shrink pictures yet (Pillow is not installed), so the picture must be under 2 MB. '
+                         'Upload a WebP or a smaller JPG — or rebuild the server image to install Pillow.')
+    return f'data:image/{kind};base64,' + base64.b64encode(data).decode()
+
+
 def picture(upload):
     """An uploaded picture as a small WebP data: URL. Raises ValueError with a readable reason."""
     if upload.size > MAX_UPLOAD:
         raise ValueError('The picture is larger than 6 MB.')
-    from PIL import Image, ImageOps
+    try:
+        from PIL import Image, ImageOps
+    except ImportError:          # Pillow missing from the server image: keep the picture as it is
+        logger.warning('Pillow is not installed: landing picture kept as uploaded')
+        return _as_is(upload)
     try:
         img = Image.open(upload)
         img = ImageOps.exif_transpose(img)
@@ -315,6 +345,10 @@ def platform_save(request):
         save_ad(ad, request.POST, request.FILES, request.user)
     except ValueError as exc:
         messages.error(request, str(exc))
+        return redirect(f'/platform/landing/?edit={ad.pk}' if ad.pk else '/platform/landing/')
+    except Exception as exc:             # platform staff see the real reason instead of "Server Error (500)"
+        logger.exception('landing advert save failed')
+        messages.error(request, f'The advert was not saved: {type(exc).__name__}: {exc}'[:300])
         return redirect(f'/platform/landing/?edit={ad.pk}' if ad.pk else '/platform/landing/')
     messages.success(request, f'“{ad.title}” saved — it is {ad.state()} on the landing page.')
     return redirect('platform_landing')
