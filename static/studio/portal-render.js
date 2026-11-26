@@ -1073,7 +1073,7 @@
     [t.font, t.heading_font].forEach(function (f) { if (FONT_QUERY[f] && q.indexOf(FONT_QUERY[f]) < 0) q.push(FONT_QUERY[f]); });
     var fl = document.getElementById('tp-fonts');
     if (q.length) { if (!fl) { fl = h('link', { id: 'tp-fonts', rel: 'stylesheet' }); document.head.appendChild(fl); } fl.href = 'https://fonts.googleapis.com/css2?family=' + q.join('&family=') + '&display=swap'; }
-    var st = document.getElementById('tp-style'); if (!st) { st = h('style', { id: 'tp-style' }); document.head.appendChild(st); } st.textContent = css(t) + EXTRA_CSS + CLOCK_CSS;
+    var st = document.getElementById('tp-style'); if (!st) { st = h('style', { id: 'tp-style' }); document.head.appendChild(st); } st.textContent = css(t) + EXTRA_CSS + CLOCK_CSS + MAC_CSS;
 
     var blocks = (cfg.blocks || []).filter(function (b) { return !b.hidden && B[b.type]; });
     // Your uploaded logo shows on every page: pages without a Logo block get a small one on top.
@@ -1098,7 +1098,7 @@
     if (ctx.kind === 'login' && ctx.settings.collect_device !== false && ctx.settings.device_notice !== '' && root.querySelector('.tp-vform')) {
       root.querySelector('.tp-vform').insertAdjacentHTML('beforeend', '<p class="tp-privacy">' + esc(ctx.settings.device_notice || 'We note basic details of your device to keep your voucher safe from misuse.') + '</p>');
     }
-    wireBoxes(root); wireVoucher(root, cfg, ctx); wireCountdown(root, cfg, ctx); wireAds(root, ctx); wireTrial(root, ctx); wireReport(root, ctx); wireClock(root, ctx); wireCall(root, ctx);
+    wireBoxes(root); wireVoucher(root, cfg, ctx); wireCountdown(root, cfg, ctx); wireAds(root, ctx); wireTrial(root, ctx); wireReport(root, ctx); wireClock(root, ctx); wireMacHelp(root, ctx); wireCall(root, ctx);
     if (ctx.mt && ctx.mt.error && ctx.mode === 'mikrotik') reportOffer(root, ctx.mt.username || '', ctx.mt.error, true);
     if (ctx.autoLogin && ctx.autoLogin.code && ctx.mode === 'hosted') autoLogin(root, ctx.autoLogin);
     if (ctx.kind === 'login') sendDevice(ctx, '');
@@ -1247,6 +1247,220 @@
     run();
     // Back from Settings: check again by itself.
     document.addEventListener('visibilitychange', function () { if (!document.hidden && wasBad) setTimeout(run, 600); });
+  }
+
+  /* ---------- random Wi-Fi address ("private MAC") help ----------
+   * Phones hide their real Wi-Fi address behind a random one. The router then sees "a new phone" — the customer is
+   * signed out, asked for the code again, and their voucher may say "already used on another device".
+   * The router hands the page the phone's address (the mac variable): a random one has the "locally administered"
+   * bit set (2nd hex digit 2, 6, A or E). When it is set, a friendly warning asks the customer to take the "mask" off;
+   * a Help button always opens a step-by-step guide for THEIR phone (iPhone, Samsung, Tecno/Infinix/itel, Xiaomi,
+   * Oppo/realme, Huawei/Honor, vivo, other Android): one big step at a time, a drawing of the screen with the thing
+   * to tap highlighted, few words, and a "Read it to me" button for customers who don't read easily.
+   * Settings (Portal Studio → Page): settings.mac_help = 'auto' (default: warn when detected, Help link always),
+   * 'always' (also show the warning when it cannot be detected) or 'off'.
+   */
+  var MAC_CSS = '.tp-mh{margin:0 0 14px;border-radius:18px;padding:14px;font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#3b1d63;background:linear-gradient(135deg,#f5efff,#fff);border:2px solid #c4b5fd;text-align:left;animation:tpClk .35s ease}' +
+    '.tp-mh.good{background:#ecfdf5;border-color:#6ee7b7;color:#065f46}.tp-mh-h{display:flex;gap:12px;align-items:center}' +
+    '.tp-mh-mask{font-size:38px;line-height:1;animation:tpMask 2.6s ease-in-out infinite}@keyframes tpMask{0%,70%,100%{transform:rotate(0)}78%{transform:rotate(-10deg) translateY(-2px)}86%{transform:rotate(8deg)}}' +
+    '.tp-mh-h b{display:block;font-size:17px}.tp-mh-h small{display:block;opacity:.85;font-size:13.5px}' +
+    '.tp-mh-acts{display:flex;gap:8px;margin-top:12px}.tp-mh-acts button{flex:1;border:0;border-radius:12px;padding:13px 10px;font:800 16px system-ui,sans-serif;cursor:pointer;background:#6d28d9;color:#fff}' +
+    '.tp-mh-acts .ghost{flex:0 0 auto;background:rgba(0,0,0,.06);color:inherit;font-weight:700}' +
+    '.tp-mh-link{display:block;text-align:center;width:100%;margin:10px 0 0;border:1px dashed #c4b5fd;background:#faf7ff;color:#5b21b6;border-radius:12px;padding:9px;font:700 13.5px system-ui,sans-serif;cursor:pointer}' +
+    '.tp-mhx{position:fixed;inset:0;z-index:99999;background:rgba(15,10,30,.55);display:flex;align-items:flex-end;justify-content:center;font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e1b2e}' +
+    '.tp-mhx-s{background:#fff;width:100%;max-width:480px;max-height:94vh;overflow:auto;border-radius:24px 24px 0 0;padding:16px 16px 22px;animation:tpUp .3s ease}@keyframes tpUp{from{transform:translateY(40px);opacity:0}}' +
+    '@media(min-width:560px){.tp-mhx{align-items:center}.tp-mhx-s{border-radius:24px}}' +
+    '.tp-mhx-top{display:flex;align-items:center;gap:8px;margin-bottom:8px}.tp-mhx-top b{flex:1;font-size:17px}.tp-mhx-x{border:0;background:#f1f0f5;border-radius:50%;width:38px;height:38px;font-size:20px;cursor:pointer}' +
+    '.tp-mhx-ph{display:flex;align-items:center;gap:8px;background:#f5f3ff;border-radius:14px;padding:8px 10px;font-size:14px}.tp-mhx-ph span{font-size:24px}.tp-mhx-ph em{font-style:normal;flex:1}.tp-mhx-ph button{border:0;background:#fff;border-radius:10px;padding:7px 10px;font-weight:700;color:#5b21b6;cursor:pointer}' +
+    '.tp-mhx-brands{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.tp-mhx-brands button{border:2px solid #e9e5f5;background:#fff;border-radius:14px;padding:12px 8px;font:700 14px system-ui,sans-serif;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px}' +
+    '.tp-mhx-brands button i{font-style:normal;font-size:26px}.tp-mhx-brands button.on{border-color:#6d28d9;background:#f5f3ff}' +
+    '.tp-mhx-dots{display:flex;gap:6px;justify-content:center;margin:12px 0 8px}.tp-mhx-dots i{width:9px;height:9px;border-radius:50%;background:#ddd6fe}.tp-mhx-dots i.on{background:#6d28d9;width:24px;border-radius:9px}' +
+    '.tp-mhx-step{display:flex;gap:12px;align-items:flex-start}.tp-mhx-n{flex:0 0 46px;height:46px;border-radius:50%;background:#6d28d9;color:#fff;display:grid;place-items:center;font:900 22px system-ui,sans-serif}' +
+    '.tp-mhx-step p{margin:4px 0 0;font-size:17px}.tp-mhx-step p b{background:#fef08a;padding:0 3px;border-radius:4px}.tp-mhx-step .ic{font-size:22px;margin-right:4px}' +
+    '.tp-mhx-scr{margin:14px auto 4px;max-width:280px;border:3px solid #1e1b2e;border-radius:26px;padding:12px 10px 16px;background:#f7f7fa;box-shadow:0 10px 24px rgba(0,0,0,.12)}' +
+    '.tp-mhx-scr h6{margin:0 0 8px;font:800 15px system-ui,sans-serif;text-align:center}.tp-mhx-row{display:flex;align-items:center;gap:8px;background:#fff;border-radius:10px;padding:10px;margin:5px 0;font-size:14px;border:2px solid transparent}' +
+    '.tp-mhx-row span{flex:1}.tp-mhx-row.hl{border-color:#f59e0b;background:#fffbeb;box-shadow:0 0 0 4px rgba(245,158,11,.25);animation:tpHl 1.4s ease-in-out infinite}@keyframes tpHl{50%{box-shadow:0 0 0 8px rgba(245,158,11,.12)}}' +
+    '.tp-mhx-row .tg{width:38px;height:22px;border-radius:11px;background:#d1d5db;position:relative}.tp-mhx-row .tg:after{content:"";position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff}' +
+    '.tp-mhx-row .tg.on{background:#22c55e}.tp-mhx-row .tg.on:after{left:19px}.tp-mhx-row .rd{width:18px;height:18px;border-radius:50%;border:2px solid #9ca3af}.tp-mhx-row .rd.on{border:6px solid #2563eb}' +
+    '.tp-mhx-row .fing{font-size:20px;animation:tpTap 1.2s ease-in-out infinite}@keyframes tpTap{50%{transform:translate(-3px,-3px) scale(.9)}}' +
+    '.tp-mhx-go{display:block;text-align:center;margin:12px 0 0;padding:13px;border-radius:14px;background:#0f172a;color:#fff!important;font-weight:800;text-decoration:none}' +
+    '.tp-mhx-nav{display:flex;gap:8px;margin-top:14px}.tp-mhx-nav button{flex:1;border:0;border-radius:14px;padding:14px;font:800 17px system-ui,sans-serif;cursor:pointer;background:#6d28d9;color:#fff}' +
+    '.tp-mhx-nav .ghost{background:#f1f0f5;color:#1e1b2e}.tp-mhx-say{border:0;background:#fef3c7;color:#92400e;border-radius:12px;padding:9px 12px;font:800 14px system-ui,sans-serif;cursor:pointer;margin-top:10px;width:100%}' +
+    '.tp-mhx-say.on{background:#f59e0b;color:#fff}.tp-mhx-why{font-size:14px;background:#faf7ff;border-radius:14px;padding:10px 12px;margin:10px 0 0;color:#4c1d95}' +
+    '.tp-mhx-help{margin-top:12px;text-align:center;font-size:14px}.tp-mhx-help a{color:#5b21b6;font-weight:800}';
+
+  function macRandom(mac) {
+    if (!mac || mac.charAt(0) === '$') return null;
+    var m = /^([0-9a-f]{2})[:\-]?/i.exec(String(mac).replace(/^\s+/, ''));
+    return m ? (parseInt(m[1], 16) & 2) === 2 : null;
+  }
+
+  function phoneGuess() {
+    var u = navigator.userAgent || '', v;
+    if (/iphone|ipad|ipod/i.test(u) || (/macintosh/i.test(u) && 'ontouchend' in document)) {
+      v = /OS (\d+)[_.]/.exec(u); return { key: 'ios', ver: v ? +v[1] : 0, label: 'iPhone' + (v ? ' (iOS ' + v[1] + ')' : '') };
+    }
+    if (!/android/i.test(u)) return { key: '', ver: 0, label: '' };
+    v = /Android (\d+)/i.exec(u); var ver = v ? +v[1] : 0, tail = ver ? ' (Android ' + ver + ')' : '';
+    var rules = [['samsung', /SM-|SAMSUNG|Galaxy/i, 'Samsung'], ['transsion', /TECNO|Infinix|\bitel\b/i, 'Tecno / Infinix / itel'],
+      ['xiaomi', /Redmi|POCO|Xiaomi|MIUI|HyperOS/i, 'Xiaomi / Redmi'], ['oppo', /OPPO|CPH\d{4}|realme|RMX\d{4}/i, 'Oppo / realme'],
+      ['huawei', /HUAWEI|HONOR/i, 'Huawei / Honor'], ['vivo', /\bvivo\b/i, 'vivo']];
+    for (var i = 0; i < rules.length; i++) if (rules[i][1].test(u)) return { key: rules[i][0], ver: ver, label: rules[i][2] + tail };
+    return { key: 'android', ver: ver, label: 'Android phone' + tail, unsure: true };
+  }
+
+  var MH_BRANDS = [['ios', '🍏', 'iPhone'], ['samsung', '📱', 'Samsung'], ['transsion', '📱', 'Tecno · Infinix · itel'], ['xiaomi', '📱', 'Xiaomi · Redmi'],
+    ['oppo', '📱', 'Oppo · realme'], ['huawei', '📱', 'Huawei · Honor'], ['vivo', '📱', 'vivo'], ['android', '🤖', 'Other Android']];
+
+  // One screen drawing: title + rows [label, right-hand thing, highlighted?]. Right: '>' chevron, 'i' info,
+  // 'gear', 'off' / 'on' switch, 'radio' / 'radio-on', 'tap' (a finger), or plain text.
+  function mhScreen(title, rows) {
+    var right = function (r) {
+      return r === '>' ? '<b style="color:#9ca3af">›</b>' : r === 'i' ? '<b style="color:#2563eb;font-size:18px">ⓘ</b>' : r === 'gear' ? '<span style="font-size:18px">⚙️</span>'
+        : r === 'off' ? '<i class="tg"></i>' : r === 'on' ? '<i class="tg on"></i>' : r === 'radio' ? '<i class="rd"></i>' : r === 'radio-on' ? '<i class="rd on"></i>'
+        : r ? '<small style="color:#6b7280">' + esc(r) + '</small>' : '';
+    };
+    return '<div class="tp-mhx-scr" aria-hidden="true"><h6>' + esc(title) + '</h6>' + rows.map(function (r) {
+      return '<div class="tp-mhx-row' + (r[2] ? ' hl' : '') + '"><span>' + esc(r[0]) + '</span>' + right(r[1]) + (r[2] ? '<span class="fing">👆</span>' : '') + '</div>';
+    }).join('') + '</div>';
+  }
+
+  function mhGuide(key, ver, ssid) {
+    var W = ssid || 'our Wi-Fi';
+    var droid = function (a) {   // the usual Android shape: Settings → Wi-Fi → the network → Privacy → device MAC
+      return [
+        { icon: '⚙️', say: 'Open Settings, then Wi-Fi.', text: 'Open <b>Settings</b> ⚙️, then <b>' + esc(a.wifi || 'Wi-Fi') + '</b>.', scr: mhScreen('Settings', a.s1 || [['📶 ' + (a.wifi || 'Wi-Fi'), '>', 1], ['🔵 Bluetooth', '>'], ['🔋 Battery', '>']]), wifiBtn: 1 },
+        { icon: '📶', say: 'Find ' + W + '. Tap ' + a.tapSay + ' next to it.', text: 'Find <b>' + esc(W) + '</b>. Tap ' + a.tap + ' next to it.', scr: mhScreen(a.wifi || 'Wi-Fi', [['✓ ' + W, a.tapIcon, 1], ['Other network', '']]) },
+        { icon: '🔒', say: a.privSay, text: a.priv, scr: mhScreen(W, a.s3) },
+        { icon: '✅', say: 'Choose ' + a.choiceSay + '.', text: 'Choose <b>' + esc(a.choice) + '</b>.', scr: mhScreen(a.s4t || 'Privacy', a.s4) },
+        { icon: '🔁', say: 'Your phone reconnects by itself. Come back to this page and press: I did it, check.', text: 'Your phone reconnects by itself. Come back here and press <b>I did it — check</b>.', scr: '' }
+      ];
+    };
+    var std = { wifi: 'Wi-Fi', tap: 'the ⚙️', tapSay: 'the gear', tapIcon: 'gear', priv: 'Tap <b>Privacy</b>.', privSay: 'Tap Privacy.',
+      s3: [['Signal', 'Strong'], ['🔒 Privacy', 'Random MAC', 1], ['Advanced', '>']], choice: 'Use device MAC', choiceSay: 'Use device MAC',
+      s4: [['Use randomised MAC', 'radio'], ['Use device MAC', 'radio-on', 1]] };
+    var g = {
+      ios: [
+        { icon: '⚙️', say: 'Open Settings. Tap Wi-Fi.', text: 'Open <b>Settings</b> ⚙️ and tap <b>Wi-Fi</b>.', scr: mhScreen('Settings', [['✈️ Airplane Mode', 'off'], ['📶 Wi-Fi', '>', 1], ['🔵 Bluetooth', '>']]) },
+        { icon: 'ⓘ', say: 'Tap the blue i next to ' + W + '.', text: 'Tap the blue <b>ⓘ</b> next to <b>' + esc(W) + '</b>.', scr: mhScreen('Wi-Fi', [['✓ ' + W, 'i', 1], ['Other network', 'i']]) },
+        ver >= 18
+          ? { icon: '🔒', say: 'Tap Private Wi-Fi Address and choose Off.', text: 'Tap <b>Private Wi-Fi Address</b> and choose <b>Off</b>.', scr: mhScreen('Private Wi-Fi Address', [['Off', 'radio-on', 1], ['Fixed', 'radio'], ['Rotating', 'radio']]) }
+          : { icon: '🔒', say: 'Turn off Private Wi-Fi Address. The switch becomes grey.', text: 'Turn <b>off</b> <b>Private Wi-Fi Address</b> (the switch turns grey).', scr: mhScreen(W, [['Auto-Join', 'on'], ['Private Wi-Fi Address', 'off', 1], ['Limit IP Address Tracking', 'on']]) },
+        { icon: '🔁', say: 'If asked, tap Rejoin. Then come back to this page and press: I did it, check.', text: 'If asked, tap <b>Rejoin</b>. Then come back here and press <b>I did it — check</b>.', scr: mhScreen(W, [['Rejoin', '', 1], ['Cancel', '']]) }
+      ],
+      samsung: droid({ wifi: 'Connections', s1: [['📶 Connections', '>', 1], ['🔊 Sounds and vibration', '>'], ['🔔 Notifications', '>']],
+        tap: '<b>Wi-Fi</b>, then the ⚙️', tapSay: 'Wi-Fi, then the gear', tapIcon: 'gear', priv: 'Tap <b>View more</b>, then <b>MAC address type</b>.',
+        privSay: 'Tap View more. Then tap MAC address type.', s3: [['View more', '>'], ['MAC address type', 'Randomised MAC', 1]],
+        choice: 'Phone MAC', choiceSay: 'Phone MAC', s4t: 'MAC address type', s4: [['Randomised MAC', 'radio'], ['Phone MAC', 'radio-on', 1]] }),
+      transsion: droid({ wifi: 'Wi-Fi', tap: 'the network (or its ⚙️ / ›)', tapSay: 'the network', tapIcon: '>',
+        priv: 'Tap <b>Privacy</b> (some phones: <b>MAC address type</b>).', privSay: 'Tap Privacy.', s3: std.s3, choice: 'Use device MAC', choiceSay: 'Use device MAC', s4: std.s4 }),
+      xiaomi: droid({ wifi: 'Wi-Fi', tap: 'the network or its <b>›</b>', tapSay: 'the network', tapIcon: '>', priv: 'Scroll down. Tap <b>Privacy</b>.', privSay: 'Scroll down and tap Privacy.',
+        s3: [['IP settings', 'DHCP'], ['🔒 Privacy', 'Random MAC', 1]], choice: 'Use device MAC', choiceSay: 'Use device MAC', s4: std.s4 }),
+      oppo: droid({ wifi: 'Wi-Fi', tap: 'the <b>ⓘ</b>', tapSay: 'the i', tapIcon: 'i',
+        priv: 'Tap <b>Privacy</b> — or turn off <b>Random MAC address</b>.', privSay: 'Tap Privacy, or turn off Random MAC address.',
+        s3: [['Random MAC address', 'on', 1], ['Auto-connect', 'on']], choice: 'Use device MAC', choiceSay: 'Use device MAC, or make the switch grey', s4: std.s4 }),
+      huawei: droid({ wifi: 'Wi-Fi', tap: '<b>and hold</b> the network, then <b>Modify network</b>', tapSay: 'and hold the network, then Modify network', tapIcon: '',
+        priv: 'Tap <b>Show advanced options</b>, then <b>Privacy</b> (or <b>MAC address type</b>).', privSay: 'Tap Show advanced options, then Privacy.',
+        s3: [['Show advanced options', 'on'], ['Privacy', 'Random MAC', 1]], choice: 'Device MAC', choiceSay: 'Device MAC', s4: [['Random MAC', 'radio'], ['Device MAC', 'radio-on', 1]] }),
+      vivo: droid({ wifi: 'Wi-Fi', tap: 'the <b>ⓘ</b> or <b>!</b>', tapSay: 'the i', tapIcon: 'i', priv: 'Tap <b>Privacy</b> (or <b>Random MAC address</b>).', privSay: 'Tap Privacy.',
+        s3: std.s3, choice: 'Use device MAC', choiceSay: 'Use device MAC', s4: std.s4 }),
+      android: droid({ wifi: 'Network & internet', s1: [['📶 Network & internet', '>', 1], ['📱 Connected devices', '>'], ['🔋 Battery', '>']],
+        tap: '<b>Internet</b> or <b>Wi-Fi</b>, then the ⚙️ next to it', tapSay: 'Internet or Wi-Fi, then the gear', tapIcon: 'gear',
+        priv: std.priv, privSay: std.privSay, s3: std.s3, choice: 'Use device MAC', choiceSay: 'Use device MAC', s4: std.s4 })
+    };
+    return g[key] || g.android;
+  }
+
+  function wireMacHelp(root, ctx) {
+    var mode = (ctx.settings && ctx.settings.mac_help) || 'auto';
+    if (mode === 'off' || ctx.mode === 'thumb') return;
+    var rand = macRandom(ctx.mt && ctx.mt.mac), store = null, ssid = (ctx.business && ctx.business.ssid) || '';
+    try { store = window.localStorage; } catch (e) { store = null; }
+    var get = function (k) { try { return store && store.getItem(k); } catch (e) { return null; } };
+    var put = function (k, v) { try { if (store) { if (v) store.setItem(k, v); else store.removeItem(k); } } catch (e) {} };
+    var host = root.querySelector('.tp-card') || root, login = ctx.kind === 'login';
+    if (rand === false && get('tp-mac-rand')) {          // they had a mask before and took it off
+      put('tp-mac-rand', ''); put('tp-mac-chk', '');
+      var ok = h('section', { 'class': 'tp-mh good', role: 'status' }, '<div class="tp-mh-h"><span class="tp-mh-mask">😃</span><div><b>Mask off — well done!</b><small>Your phone now shows its real Wi-Fi address, so you stay connected.' + (login ? ' Type your code below.' : '') + '</small></div></div>');
+      host.insertBefore(ok, host.firstChild); setTimeout(function () { ok.hidden = true; }, 9000);
+    }
+    var showWarn = rand === true || (mode === 'always' && rand === null && login) || (ctx.mode === 'preview' && mode === 'always');
+    if (rand === true) {
+      put('tp-mac-rand', '1');
+      var rp = root.querySelector('[data-report]'); if (rp && !rp.getAttribute('data-error')) rp.setAttribute('data-error', 'Phone uses a random (private) Wi-Fi address');
+    }
+    if (showWarn && (login || rand === true)) {
+      var again = rand === true && get('tp-mac-chk');
+      var box = h('section', { 'class': 'tp-mh', role: 'alert' },
+        '<div class="tp-mh-h"><span class="tp-mh-mask">🎭</span><div><b>' + (again ? 'Your phone is still wearing a mask' : 'Your phone is wearing a mask') + '</b>' +
+        '<small>' + (again ? 'Check you changed it for <b>' + esc(ssid || 'our Wi-Fi') + '</b>, not another network.' :
+          'It hides its real Wi-Fi name, so our Wi-Fi forgets you: you get signed out and your code may say “already used”. Take the mask off — 1 minute.') + '</small></div></div>' +
+        '<div class="tp-mh-acts"><button type="button" data-mh-open>🙋 Show me how</button>' + (login ? '<button type="button" class="ghost" data-mh-later>Later</button>' : '') + '</div>');
+      // the clock warning, if any, stays first
+      var clk = host.querySelector('.tp-clk');
+      host.insertBefore(box, clk ? clk.nextSibling : host.firstChild);
+      box.querySelector('[data-mh-open]').addEventListener('click', function () { openMacHelp(ctx, rand); });
+      var later = box.querySelector('[data-mh-later]'); if (later) later.addEventListener('click', function () { box.hidden = true; });
+    }
+    if (login) {
+      var form = root.querySelector('.tp-vform'), link = h('button', { type: 'button', 'class': 'tp-mh-link' },
+        '🎭 Keeps signing you out? <u>Turn off “random Wi-Fi address”</u>');
+      link.addEventListener('click', function () { openMacHelp(ctx, rand); });
+      if (form) form.parentNode.insertBefore(link, form.nextSibling); else host.appendChild(link);
+    }
+  }
+
+  function openMacHelp(ctx, rand) {
+    var old = document.querySelector('.tp-mhx'); if (old) old.parentNode.removeChild(old);
+    var ph = phoneGuess(), key = ph.key || '', step = 0, ssid = (ctx.business && ctx.business.ssid) || '', speaking = false;
+    var canSpeak = !!(window.speechSynthesis && window.SpeechSynthesisUtterance);
+    var wrap = h('div', { 'class': 'tp-mhx', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Turn off random Wi-Fi address' }), sheet = h('div', { 'class': 'tp-mhx-s' });
+    wrap.appendChild(sheet); document.body.appendChild(wrap);
+    var stopTalk = function () { if (canSpeak) try { window.speechSynthesis.cancel(); } catch (e) {} };
+    var close = function () { stopTalk(); if (wrap.parentNode) wrap.parentNode.removeChild(wrap); };
+    wrap.addEventListener('click', function (e) { if (e.target === wrap) close(); });
+    var talk = function (text) {
+      if (!canSpeak) return; stopTalk();
+      try { var u = new SpeechSynthesisUtterance(text); u.rate = 0.9; u.lang = 'en'; window.speechSynthesis.speak(u); } catch (e) {}
+    };
+    function brands() {
+      return '<p style="margin:6px 0 0;font-weight:700">Which phone do you have?</p><div class="tp-mhx-brands">' + MH_BRANDS.map(function (b) {
+        return '<button type="button" data-brand="' + b[0] + '" class="' + (b[0] === key ? 'on' : '') + '"><i>' + b[1] + '</i>' + esc(b[2]) + '</button>';
+      }).join('') + '</div>';
+    }
+    function draw() {
+      var top = '<div class="tp-mhx-top"><b>🎭 Take the mask off</b><button type="button" class="tp-mhx-x" aria-label="Close">×</button></div>';
+      if (!key) {
+        sheet.innerHTML = top + '<div class="tp-mhx-why">Your phone uses a <b>random Wi-Fi address</b> (a “mask”). Our Wi-Fi then thinks you are a new phone each time. Let’s switch it off.</div>' + brands();
+      } else {
+        var steps = mhGuide(key, ph.ver, ssid), s = steps[step], last = step === steps.length - 1;
+        var nameOf = (MH_BRANDS.filter(function (b) { return b[0] === key; })[0] || ['', '', 'Android'])[2];
+        sheet.innerHTML = top +
+          '<div class="tp-mhx-ph"><span>' + (key === 'ios' ? '🍏' : '📱') + '</span><em>' + (ph.key === key ? 'Your phone: <b>' + esc(ph.label) + '</b>' : 'Steps for <b>' + esc(nameOf) + '</b>') + '</em><button type="button" data-change>Not my phone?</button></div>' +
+          (step === 0 ? '<div class="tp-mhx-why">Why? Your phone hides its real Wi-Fi name. Our Wi-Fi then forgets you and asks for your code again. This is safe to change, and only for <b>' + esc(ssid || 'our Wi-Fi') + '</b>.</div>' : '') +
+          '<div class="tp-mhx-dots">' + steps.map(function (x, i) { return '<i class="' + (i === step ? 'on' : '') + '"></i>'; }).join('') + '</div>' +
+          '<div class="tp-mhx-step"><div class="tp-mhx-n">' + (step + 1) + '</div><div><p><span class="ic">' + s.icon + '</span>' + s.text + '</p></div></div>' + s.scr +
+          (s.wifiBtn && key !== 'ios' ? '<a class="tp-mhx-go" href="intent:#Intent;action=android.settings.WIFI_SETTINGS;end">📶 Open Wi-Fi settings for me</a>' : '') +
+          (canSpeak ? '<button type="button" class="tp-mhx-say' + (speaking ? ' on' : '') + '" data-say>' + (speaking ? '🔊 Reading aloud — tap to stop' : '🔊 Read it to me') + '</button>' : '') +
+          '<div class="tp-mhx-nav">' + (step ? '<button type="button" class="ghost" data-prev>◀ Back</button>' : '') +
+          (last ? '<button type="button" data-check>✅ I did it — check</button>' : '<button type="button" data-next>Next ▶</button>') + '</div>' +
+          ((ctx.business && ctx.business.phone) ? '<div class="tp-mhx-help">Stuck? Ask us: <a href="tel:' + esc(ctx.business.phone) + '">📞 ' + esc(ctx.business.phone) + '</a></div>' : '');
+        if (speaking) talk('Step ' + (step + 1) + '. ' + s.say);
+      }
+      sheet.querySelector('.tp-mhx-x').onclick = close;
+      [].forEach.call(sheet.querySelectorAll('[data-brand]'), function (b) { b.onclick = function () { key = b.getAttribute('data-brand'); step = 0; draw(); }; });
+      var q = function (sel, fn) { var e = sheet.querySelector(sel); if (e) e.onclick = fn; };
+      q('[data-change]', function () { key = ''; stopTalk(); draw(); });
+      q('[data-next]', function () { step++; draw(); });
+      q('[data-prev]', function () { step--; draw(); });
+      q('[data-say]', function () { speaking = !speaking; if (!speaking) stopTalk(); draw(); });
+      q('[data-check]', function () {
+        stopTalk();
+        if (ctx.mode === 'mikrotik') { try { localStorage.setItem('tp-mac-chk', '1'); } catch (e) {} location.reload(); return; }
+        close();
+      });
+    }
+    draw();
   }
 
   function reportOffer(root, code, error, quiet) {

@@ -51,12 +51,18 @@ class Base(TestCase):
         data.update(kw)
         return mk.create_listing(self.seller, self.s_user, data)
 
+    def day(self, d):
+        """A moment on the local day ``d`` days ago — never across midnight, whatever time the tests run."""
+        if d == 0:
+            return self.now
+        return timezone.make_aware(timezone.datetime.combine(timezone.localdate(self.now) - timedelta(days=d), timezone.datetime.min.time())) + timedelta(hours=12)
+
     def sales(self, days=40, per_day=3):
         for d in range(days):
             for k in range(per_day):
                 VoucherSale.objects.create(business=self.seller, plan_name='Day', amount=50, payment_method='wave' if k else 'cash',
                                            customer_name='Secret Customer', customer_phone='+2209999999', voucher_code=f'SECRET{d}{k}',
-                                           sold_at=self.now - timedelta(days=d, hours=1))
+                                           sold_at=self.day(d))
 
     def active_deal(self, **kw):
         l = self.listing(**kw)
@@ -98,7 +104,7 @@ class Diligence(Base):
             n = 2 if d == 3 else 8
             for i in range(n):
                 UsageRecord.objects.create(business=self.seller, router=self.router, username=f'u{i}', mac_address=f'AA:BB:CC:00:00:{i:02d}',
-                                           hour=self.now - timedelta(days=d, hours=2))
+                                           hour=self.day(d))
         RouterOutage.objects.create(router=self.router, started_at=self.now - timedelta(days=5, hours=3),
                                     ended_at=self.now - timedelta(days=5, hours=2), seconds=3600, why='Internet line')
         l = self.listing(precision='exact')

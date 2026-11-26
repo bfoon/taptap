@@ -301,6 +301,11 @@
       h += '<div class="side-h">Device identification</div><label class="chk"><input type="checkbox" data-sk="collect_device"' + (s.collect_device !== false ? ' checked' : '') + '> Recognise returning devices</label>';
       h += '<small class="text-secondary d-block mb-2">Records a device signature (model, screen, browser traits) with the MAC and voucher so you can spot shared vouchers and phones that change MAC. See <a href="/devices/">Devices</a>.</small>';
       h += field('Notice shown under the voucher box', '<input type="text" data-sk="device_notice" value="' + esc(s.device_notice == null ? 'We note basic details of your device to keep your voucher safe from misuse.' : s.device_notice) + '" placeholder="Leave empty to hide">');
+      var mh = s.mac_help || 'auto';
+      h += '<div class="side-h">Random Wi-Fi address help</div>' + field('Tell customers to turn off “private / random MAC”', '<select data-sk="mac_help">' +
+        [['auto', 'When their phone uses one (recommended)'], ['always', 'Always show the reminder'], ['off', 'Never']].map(function (o) {
+          return '<option value="' + o[0] + '"' + (mh === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select>');
+      h += '<small class="text-secondary d-block mb-2">A random address makes the router see a new phone each time: customers get signed out and vouchers look shared. The page spots it and shows picture-by-picture steps for their phone (iPhone, Samsung, Tecno, Infinix, itel, Xiaomi, Oppo, Huawei…), with a “Read it to me” button. A Help link is always under the voucher box.</small>';
     } else {
       h += '<div class="side-h">Redirect</div>' + field('Destination', '<input type="url" data-sk="redirect_url" value="' + esc(s.redirect_url || '') + '" placeholder="Blank = the site they were trying to open">');
       h += field('Wait before continuing', '<div class="rng"><input type="range" data-sk="redirect_delay" data-num="1" min="0" max="30" step="1" value="' + (s.redirect_delay == null ? 5 : s.redirect_delay) + '"><output>' + (s.redirect_delay == null ? 5 : s.redirect_delay) + 's</output></div>');
