@@ -52,11 +52,16 @@ def business_ctx(business):
             'login_url': business.hotspot_url or '', 'brand': business.brand_color or '#1769e0'}
 
 
+def _open_plans(qs):
+    from .voucher_plan_lock import open_plans      # a plan the owner locked is not offered on the portal
+    return open_plans(qs)
+
+
 def plans_ctx(business):
     # 'minutes' is exact; 'hours' is kept for portal designs saved before minute plans existed.
     return [{'name': p.name, 'price': float(p.price), 'minutes': p.duration_minutes, 'hours': p.duration_hours,
              'duration': p.duration_text, 'devices': p.max_devices, 'speed': p.speed_limit, 'free': p.is_free}
-            for p in business.plans.filter(active=True).order_by('price', 'duration_minutes')]
+            for p in _open_plans(business.plans.filter(active=True)).order_by('price', 'duration_minutes')]
 
 
 def _safe_json(obj):

@@ -210,14 +210,19 @@ def voucher_batch_max():
 
 @login_required
 def generate_vouchers(request):
-    business=b(request); plans=business.plans.filter(active=True).exclude(name__startswith='*'); routers=business.routers.all()
+    from .voucher_plan_lock import PlanClosedError, closed_plans, is_closed, message as closed_message, open_plans
+    business=b(request); every=business.plans.filter(active=True).exclude(name__startswith='*'); plans=open_plans(every); routers=business.routers.all()
     portal_len=portal_code_length(business)
     confirm_above, batch_max = voucher_confirm_above(), voucher_batch_max()
     ctx={'plans':plans,'routers':routers,'designs':business.voucher_designs.all(),
          'agents':business.agents.filter(active=True),'owner':request.GET.get('agent',''),'methods':[m for m in PAYMENT_METHODS if m[0]!='auto'],
-         'cf':code_format_ctx(business),'sn':serials.settings_ctx(business),'confirm_above':confirm_above,'batch_max':batch_max}
+         'cf':code_format_ctx(business),'sn':serials.settings_ctx(business),'confirm_above':confirm_above,'batch_max':batch_max,
+         'locked_plans':closed_plans(every).order_by('name')}
     if request.method=='POST':
-        plan=get_object_or_404(plans,pk=request.POST.get('plan'))
+        plan=get_object_or_404(every,pk=request.POST.get('plan'))
+        if is_closed(plan):
+            messages.error(request,closed_message(plan)); ctx['cf']=code_format_ctx(business,request.POST); ctx['sn']=serials.settings_ctx(business,request.POST)
+            return render(request,'core/generate_vouchers.html',ctx,status=400)
         try: qty=max(1,int(request.POST.get('quantity','1')))
         except ValueError: qty=1
         if qty>batch_max:
@@ -246,7 +251,7 @@ def generate_vouchers(request):
                                    serial={'format':P.get('serial_format',business.serial_format),'digits':P.get('serial_digits',business.serial_digits),
                                            'reset':P.get('serial_reset',business.serial_reset),'start':sstart},
                                    save_serial=bool(P.get('serial_save')))
-        except (CodeFormatError,serials.SerialError) as e:
+        except (CodeFormatError,serials.SerialError,PlanClosedError) as e:
             messages.error(request,str(e)); ctx['cf']=code_format_ctx(business,request.POST); ctx['sn']=serials.settings_ctx(business,request.POST)
             return render(request,'core/generate_vouchers.html',ctx,status=400)
         for level,text in notes:
@@ -452,7 +457,10 @@ def plans(request):
         from .portal_deploy import schedule_redeploy; schedule_redeploy(business)
         return redirect('plans')
     # Voucher plans only. Member plans (and their taptap-member-plan-<id> router profiles) live on the Members page.
-    plan_list=list(business.plans.select_related('imported_from_router').all().order_by('price','name'))
+    from . import voucher_plan_lock as vpl
+    from .plan_lock import is_owner
+    vpl.reopen_due(business)          # locks whose reopening date has come are tidied up
+    plan_list=list(business.plans.select_related('imported_from_router','sale_locked_by','sale_replacement').all().order_by('price','name'))
     zero=business.vouchers.filter(price=0,sold_at__isnull=True).values('plan_name').annotate(n=Count('id'))
     zero_map={r['plan_name']:r['n'] for r in zero}
     usage={r['plan_name']:r for r in business.vouchers.values('plan_name').annotate(total=Count('id'),used=Count('id',filter=Q(used_at__isnull=False)),
@@ -460,13 +468,17 @@ def plans(request):
         live=Count('id',filter=Q(status__in=['active','disabled'])),live_used=Count('id',filter=Q(status__in=['active','disabled'],used_at__isnull=False)))}
     perms=getattr(request,'tt_perms',frozenset())
     for p in plan_list:
+        p.closed=vpl.is_closed(p); p.lock_text=vpl.describe(p) if p.closed else ''
+        p.sun=vpl.sunset(p) if p.closed else None
         p.zero_vouchers=zero_map.get(p.name,0); u=usage.get(p.name,{})
         p.v_total,p.v_used,p.v_unused,p.v_sold_unused=u.get('total',0),u.get('used',0),u.get('unused',0),u.get('sold_unused',0)
         p.v_live,p.v_live_used=u.get('live',0),u.get('live_used',0)
-        p.can_delete=not p.v_live and (not p.v_used or 'plans.delete_used' in perms)   # only an empty plan
+        p.can_delete=not p.v_live and (not p.v_used or 'plans.delete_used' in perms) and p.sale_lock!='sealed'   # only an empty plan
     from .orphan_profiles import groups_with_traces as orphan_groups_t
     return render(request,'core/plans.html',{'plans':plan_list,'form':form,'missing':[p for p in plan_list if not p.price and not p.is_free],
-        'orphans':orphan_groups_t(business),'member_plan_count':business.member_plans.count()})
+        'orphans':orphan_groups_t(business),'member_plan_count':business.member_plans.count(),
+        'is_owner':is_owner(request,business),'locked':[p for p in plan_list if p.closed],
+        'open_plans':[p for p in plan_list if not p.closed and p.active and not p.name.startswith('*')]})
 
 
 @login_required
@@ -475,6 +487,9 @@ def plan_update(request,pk):
     from decimal import Decimal, InvalidOperation
     business=b(request);plan=get_object_or_404(business.plans,pk=pk)
     if request.method!='POST': return redirect('plans')
+    from .voucher_plan_lock import PlanClosedError, check_edit
+    try: check_edit(plan)
+    except PlanClosedError as e: messages.error(request,str(e));return redirect('plans')
     old_price,old_free,old_minutes=plan.price,plan.is_free,plan.duration_minutes
     free=request.POST.get('is_free')=='1'
     try: price=Decimal('0') if free else max(Decimal('0'),Decimal(request.POST.get('price','0').replace(',','') or '0'))

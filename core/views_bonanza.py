@@ -16,6 +16,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from . import bonanza as engine
+from . import voucher_plan_lock as plan_lock
 from .models import Bonanza, BonanzaPrize, BonanzaSpin
 
 
@@ -118,7 +119,9 @@ def _save_prizes(request, bz):
         p = p or BonanzaPrize(bonanza=bz)
         p.label = label
         p.kind = get('p_kind') if get('p_kind') in dict(BonanzaPrize.KINDS) else 'none'
-        p.plan = business.plans.filter(pk=_int(get('p_plan'), 0)).first() if p.kind == 'voucher' else None
+        chosen = business.plans.filter(pk=_int(get('p_plan'), 0)).first() if p.kind == 'voucher' else None
+        newly_locked = chosen is not None and p.plan_id != chosen.pk and plan_lock.is_closed(chosen)
+        p.plan = chosen
         p.minutes = _int(get('p_minutes'), 0, 0, 527040) if p.kind == 'time' else 0
         p.amount = _dec(get('p_amount')) if p.kind == 'cash' else Decimal('0')
         p.details = get('p_details').strip()[:160]
@@ -128,6 +131,10 @@ def _save_prizes(request, bz):
         p.when_out = get('p_when_out') if get('p_when_out') in dict(BonanzaPrize.WHEN_OUT) else 'remove'
         p.color = get('p_color')[:20]
         p.active = get('p_active', '1') == '1'
+        if newly_locked and p.active:
+            # a plan the owner locked makes no new vouchers, so it cannot become a new prize
+            messages.warning(request, f'Prize “{label}” was saved switched off. ' + plan_lock.message(chosen))
+            p.active = False
         p.position = i
         p.save()
         keep.append(p.pk)

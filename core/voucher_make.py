@@ -31,10 +31,12 @@ def make_batch(business, plan, qty, fmt, *, router=None, name='', note='', agent
     ``fmt`` is a validated code format (utils.code_format / code_format_from_post). ``serial`` may hold
     ``format``, ``digits``, ``reset`` and ``start`` (missing = the business's saved serial settings).
     ``notes`` is a list of ``(level, text)`` with level ``'info'`` or ``'warning'``.
-    Raises utils.CodeFormatError or serials.SerialError before anything is created."""
+    Raises utils.CodeFormatError, serials.SerialError or voucher_plan_lock.PlanClosedError before anything is created."""
     from . import serials
     from .models import Voucher, VoucherBatch
     from .utils import describe_format, generate_codes, log
+    from .voucher_plan_lock import check_new
+    check_new(plan)              # a plan the owner locked makes no new vouchers (core/voucher_plan_lock.py)
 
     serial = serial or {}
     sfmt, sdig, sreset = serials.clean(serial.get('format', business.serial_format),

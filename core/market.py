@@ -199,6 +199,9 @@ def create_listing(business, user, data):
     plan = business.plans.filter(pk=str(data.get('plan') or '0'), active=True).first() if str(data.get('plan') or '').isdigit() else None
     if not plan or not plan.price or plan.price <= 0:
         raise MarketError('Choose an active plan with a price.')
+    from .voucher_plan_lock import is_closed, message as closed_message
+    if is_closed(plan):
+        raise MarketError(closed_message(plan))
     try:
         qty = int(data.get('quantity') or 0)
     except ValueError:
@@ -658,6 +661,11 @@ def owner_only(view):
     return wrapped
 
 
+def _open(qs):
+    from .voucher_plan_lock import open_plans
+    return open_plans(qs)
+
+
 def _seller_ok(request):
     from . import features
     return features.uses(_business(request), 'market')
@@ -709,7 +717,7 @@ def market(request):
         'shop_url': _site(request) + reverse('market_shop', args=[shop.slug]) if shop else '',
         'wallet_rows': [(code, label, wl.get(code)) for code, label in WALLET_PROVIDERS],
         'hook_base': _site(request) + '/api/market/wave/', 'earned': earned, 'counts': counts,
-        'routers': business.routers.order_by('name'), 'plans': business.plans.filter(active=True, price__gt=0).order_by('price'),
+        'routers': business.routers.order_by('name'), 'plans': _open(business.plans.filter(active=True, price__gt=0)).order_by('price'),
         'can_sell': _seller_ok(request), 'is_owner': _is_owner(request), 'providers': PROVIDERS,
         'platform': platform_ready(), 'payouts': payouts, 'vet': seller_context(business) if tab == 'selling' else None,
         'owned_on_my_network': sum(1 for d in selling_deals if d.status in MarketDeal.OWNED),

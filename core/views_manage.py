@@ -142,6 +142,9 @@ def catalog_member_edit(request, pk):
                     plan = business.plans.filter(pk=data.get('plan'), active=True).first() if str(data.get('plan')).isdigit() else None
                     if not plan:
                         raise ValueError('Choose an active plan or Free unlimited.')
+                    from .voucher_plan_lock import is_closed, message as closed_message
+                    if is_closed(plan) and not (current_plan and current_plan.pk == plan.pk):
+                        raise ValueError(closed_message(plan))
                 price = plan.price if plan else Decimal('0')
                 minutes = plan.duration_minutes if plan else 0
                 name = plan.name if plan else mem.FREE_PLAN_NAME

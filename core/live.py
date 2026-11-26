@@ -676,6 +676,12 @@ def housekeeping():
             _farewell()
         except Exception:
             logger.exception('remote admin farewell')
+        # Locked voucher plans whose reopening date has come: clear the lock, log it, refresh the portal price lists.
+        try:
+            from .voucher_plan_lock import reopen_due as _plans_reopen
+            _plans_reopen()
+        except Exception:
+            logger.exception('plan reopen')
         # Blacklisted devices: drop them wherever they show up (a router that never had the block, a new MAC).
         try:
             from .blacklist import enforce as _blk_enforce

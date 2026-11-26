@@ -299,9 +299,11 @@ def agent_detail(request, pk):
 # ───────────────────────────── one voucher for one person ─────────────────────────────
 @login_required
 def single_voucher(request):
+    from .voucher_plan_lock import closed_plans, is_closed, message as closed_message, open_plans
     business = _b(request)
-    plans = business.plans.filter(active=True).order_by('price')
-    ctx = {'plans': plans, 'routers': business.routers.all(), 'agents': business.agents.filter(active=True), 'methods': MANUAL_METHODS}
+    plans = open_plans(business.plans.filter(active=True)).order_by('price')
+    ctx = {'plans': plans, 'routers': business.routers.all(), 'agents': business.agents.filter(active=True), 'methods': MANUAL_METHODS,
+           'locked_plans': closed_plans(business.plans.filter(active=True)).order_by('name')}
     ctx['recent'] = business.vouchers.filter(batch__isnull=True, source='taptap').filter(Q(customer_name__gt='') | Q(customer_phone__gt='')).order_by('-created_at')[:8]
     if request.method != 'POST':
         ctx['form'] = {'plan': request.GET.get('plan', ''), 'mode': 'plan', 'paid': '1'}
@@ -312,7 +314,9 @@ def single_voucher(request):
     plan = None
     if mode == 'plan':
         plan = plans.filter(pk=f.get('plan') or 0).first()
-        if not plan: errors.append('Choose a plan, or switch to a custom voucher.')
+        locked = None if plan else business.plans.filter(pk=f.get('plan') or 0).first()
+        if locked is not None and is_closed(locked): errors.append(closed_message(locked))
+        elif not plan: errors.append('Choose a plan, or switch to a custom voucher.')
         price = _dec(f.get('price'), str(plan.price if plan else 0)) if f.get('price') not in (None, '') else (plan.price if plan else Decimal('0'))
         minutes = plan.duration_minutes if plan else 1440; devices = plan.max_devices if plan else 1; plan_name = plan.name if plan else ''; rate = ''
     else:

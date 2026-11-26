@@ -345,7 +345,8 @@ def _store_plans(store):
     ids = [int(x) for x in (store.plan_ids or []) if str(x).isdigit()]
     if ids:
         qs = qs.filter(pk__in=ids)
-    return qs
+    from .voucher_plan_lock import open_plans      # a plan the owner locked is not sold online
+    return open_plans(qs)
 
 
 def _new_voucher_code(business):

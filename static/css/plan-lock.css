@@ -1,0 +1,25 @@
+/* Locked voucher plans (core/voucher_plan_lock.py) — badge, lock dialog and the "winding down" meter */
+.pl-lock-badge{display:inline-flex;align-items:center;gap:.25rem;margin-top:.25rem;padding:.12rem .5rem;border-radius:999px;font-size:.72rem;font-weight:700;background:#1f2a37;color:#fff;white-space:nowrap}
+.pl-lock-badge.sealed{background:#9b1c1c}
+.pl-sunset .panel-head h3 i{color:#1f2a37}
+.pl-sunset-list{display:grid;gap:1rem;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+.pl-sun{border:1px solid rgba(0,0,0,.08);border-radius:14px;padding:.85rem 1rem;display:flex;flex-direction:column;gap:.45rem}
+.pl-sun-head .pl-lock-badge{margin-top:0}
+.pl-meter{display:flex;height:12px;border-radius:999px;overflow:hidden;background:#eef2f6;gap:2px}
+.pl-meter span{min-width:4px}
+.m-stock{background:#94a3b8}.m-agents{background:#f59e0b}.m-sold{background:#3b82f6}.m-running{background:#10b981}
+.pl-legend{display:flex;flex-wrap:wrap;gap:.25rem .8rem;color:#4e6479}
+.pl-legend i{display:inline-block;width:.6rem;height:.6rem;border-radius:3px;margin-right:.3rem;vertical-align:middle}
+.pl-keeps{background:#ecfdf5;border:1px solid #a7f3d0;border-radius:12px;padding:.6rem .8rem;color:#065f46}
+.pl-kinds{display:grid;gap:.5rem}
+.pl-kind{display:flex;gap:.6rem;align-items:flex-start;border:1px solid rgba(0,0,0,.12);border-radius:12px;padding:.6rem .75rem;cursor:pointer}
+.pl-kind:has(input:checked){border-color:#1f2a37;box-shadow:0 0 0 2px rgba(31,42,55,.15)}
+.pl-kind input{margin-top:.3rem}
+.pl-kind small{display:block;color:#64748b}
+.pl-note{display:flex;gap:.6rem;align-items:flex-start}
+[data-theme=dark] .pl-sun{border-color:rgba(255,255,255,.12)}
+[data-theme=dark] .pl-meter{background:#253041}
+[data-theme=dark] .pl-keeps{background:#06281f;border-color:#065f46;color:#a7f3d0}
+[data-theme=dark] .pl-kind{border-color:rgba(255,255,255,.15)}
+[data-theme=dark] .pl-kind:has(input:checked){border-color:#cbd5e1}
+[data-theme=dark] .pl-legend{color:#94a3b8}

@@ -139,9 +139,17 @@ def eligibility(bonanza, code, now=None):
 
 # ─────────────────────────────── picking a prize ───────────────────────────────
 
+def _plan_locked(prize):
+    """A Wi-Fi voucher prize whose plan the owner locked is not drawn: a locked plan makes no new vouchers."""
+    if getattr(prize, 'kind', '') != 'voucher' or not getattr(prize, 'plan_id', None):
+        return False
+    from .voucher_plan_lock import is_closed
+    return is_closed(prize.plan)
+
+
 def pick(prizes):
     """Weighted, unpredictable choice among prizes still in stock."""
-    live = [p for p in prizes if p.active and p.weight > 0 and not p.out]
+    live = [p for p in prizes if p.active and p.weight > 0 and not p.out and not _plan_locked(p)]
     if not live:
         return None
     total = sum(p.weight for p in live)

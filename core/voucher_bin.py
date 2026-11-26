@@ -189,6 +189,8 @@ def can_delete_plan(plan, perms):
         return False, 'This plan is already in the bin.'
     if 'plans.manage' not in perms:
         return False, 'Your role cannot delete plans.'
+    if plan.sale_lock == 'sealed':
+        return False, f'{plan.name} is sealed by the owner: it cannot be deleted, so its vouchers stay exactly as they were sold.'
     live = Voucher.objects.filter(business=plan.business, plan_name=plan.name, status__in=('active', 'disabled')).count()
     if live:
         # only an empty plan can be deleted: move its vouchers to another plan first (nobody is disrupted)

@@ -30,6 +30,10 @@ def move_vouchers(src, dst, user=None):
     from .voucher_push import push_vouchers, set_router_profile
     if src.pk == dst.pk or src.business_id != dst.business_id:
         raise ValueError('Choose another plan of this business.')
+    from .voucher_plan_lock import check_edit, is_closed, message
+    check_edit(src)                  # a sealed plan's vouchers stay exactly as they were sold
+    if is_closed(dst):               # a locked plan takes no new vouchers, not even moved ones
+        raise ValueError(message(dst))
     vouchers = list(live_vouchers(src).select_related('router'))
     in_use = unused = 0
     with transaction.atomic():

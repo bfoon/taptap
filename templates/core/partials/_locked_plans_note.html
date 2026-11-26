@@ -1,0 +1,5 @@
+{% comment %}Locked voucher plans (core/voucher_plan_lock.py): they are missing from the list above — say why, so nobody hunts for them.{% endcomment %}
+{% if locked_plans %}<div class="small text-secondary mt-2 d-flex gap-2 align-items-start" data-locked-plans><i class="bi bi-lock-fill"></i><div>
+{% for p in locked_plans %}<b>{{ p.name }}</b>{% if not forloop.last %}, {% endif %}{% endfor %} {{ locked_plans|length|pluralize:"is,are" }} locked by the owner — no new vouchers. Vouchers already made keep working.
+{% for p in locked_plans %}{% if p.sale_replacement and not p.sale_replacement.sale_lock %}<span class="d-block">Instead of {{ p.name }}, use <b>{{ p.sale_replacement.name }}</b>.</span>{% endif %}{% endfor %}
+</div></div>{% endif %}

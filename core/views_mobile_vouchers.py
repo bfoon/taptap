@@ -316,7 +316,8 @@ def batches(request):
 # ─────────────────────────────── making vouchers ───────────────────────────────
 
 def _plans(b):
-    return b.plans.filter(active=True).exclude(name__startswith='*').order_by('price', 'name')
+    from .voucher_plan_lock import open_plans      # a plan the owner locked makes no new vouchers
+    return open_plans(b.plans.filter(active=True).exclude(name__startswith='*')).order_by('price', 'name')
 
 
 def _options(b):
@@ -353,7 +354,9 @@ def new(request):
     d = _body(request)
     plan = _plans(b).filter(pk=d.get('plan') or 0).first()
     if plan is None:
-        return _err('Choose a plan.')
+        from .voucher_plan_lock import is_closed, message
+        locked = b.plans.filter(pk=d.get('plan') or 0).first()
+        return _err(message(locked) if is_closed(locked) else 'Choose a plan.')
     router = b.routers.filter(pk=d.get('router') or 0).first() if d.get('router') else None
     agent = b.agents.filter(active=True, pk=d.get('agent') or 0).first() if d.get('agent') else None
     if d.get('kind') == 'single':
@@ -366,6 +369,7 @@ def _batch(request, b, plan, router, agent, d):
     from .utils import CodeFormatError, code_format_from_post
     from .views import voucher_batch_max, voucher_confirm_above
     from .voucher_make import make_batch
+    from .voucher_plan_lock import PlanClosedError
     try:
         qty = int(d.get('quantity') or 0)
     except (TypeError, ValueError):
@@ -385,7 +389,7 @@ def _batch(request, b, plan, router, agent, d):
         batch, notes = make_batch(b, plan, qty, fmt, router=router, name=str(d.get('name') or ''), note=str(d.get('note') or ''),
                                   agent=agent, settlement=d.get('settlement'), pay_method=d.get('pay_method') or 'cash',
                                   reference=str(d.get('reference') or ''), user=request.user)
-    except (CodeFormatError, SerialError) as e:
+    except (CodeFormatError, SerialError, PlanClosedError) as e:
         return _err(str(e))
     codes = list(batch.vouchers.order_by('id').values('id', 'code', 'serial')[:CODES_SHOWN])
     return JsonResponse(clean({'ok': True, 'kind': 'batch', 'message': f'{qty} voucher(s) created.',

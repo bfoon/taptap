@@ -180,6 +180,14 @@ class VoucherPlan(models.Model):
     created_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
     created_by_label=models.CharField(max_length=150,blank=True,help_text='Who created it (name and role at the time)')
     created_at=models.DateTimeField(null=True,blank=True)
+    # Owner's lock (core/voucher_plan_lock.py): no NEW vouchers on this plan — the ones already made keep working.
+    # 'locked' = the owner can reopen it (and it can reopen by itself on sale_lock_until); 'sealed' = closed for good.
+    sale_lock=models.CharField(max_length=10,blank=True,default='',choices=[('','Open'),('locked','Locked'),('sealed','Sealed')])
+    sale_lock_reason=models.CharField(max_length=200,blank=True)
+    sale_locked_at=models.DateTimeField(null=True,blank=True)
+    sale_locked_by=models.ForeignKey(User,on_delete=models.SET_NULL,null=True,blank=True,related_name='+')
+    sale_lock_until=models.DateTimeField(null=True,blank=True,help_text='Locked plans reopen by themselves at this moment (blank = until the owner reopens)')
+    sale_replacement=models.ForeignKey('self',on_delete=models.SET_NULL,null=True,blank=True,related_name='+',help_text='Plan suggested instead')
     objects=AliveManager()
     all_objects=BinQuerySet.as_manager()
     def save(self,*a,**k):
@@ -761,8 +769,12 @@ class Agent(models.Model):
         return {'pct':self.commission_percent or 0,'fixed':0}
     def orderable_plans(self):
         """Active plans this agent may order: the ones ticked for them, or every active plan when none are ticked."""
-        qs=self.business.plans.filter(active=True).exclude(name__startswith='*')
-        chosen=self.order_plans.filter(active=True,deleted_at__isnull=True) if self.pk else None
+        from .voucher_plan_lock import open_plans     # a plan the owner locked cannot be ordered
+        qs=open_plans(self.business.plans.filter(active=True).exclude(name__startswith='*'))
+        ticked=self.order_plans.filter(active=True,deleted_at__isnull=True) if self.pk else None
+        chosen=open_plans(ticked) if ticked is not None else None
+        if chosen is not None and not chosen.exists() and ticked.exists():
+            return chosen      # every plan ticked for this agent is locked: nothing to order (not every other plan)
         return (chosen if chosen is not None and chosen.exists() else qs).order_by('price','name')
     def help_number(self):
         """Number customers are told to call: this agent's own, else the customer help line, else the business phone."""

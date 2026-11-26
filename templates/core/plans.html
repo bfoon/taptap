@@ -1,6 +1,7 @@
 {% extends 'core/base.html' %}{% load static %}{% load taptap_extras %}
 {% block title %}Plans — TapTap{% endblock %}
 {% block heading %}Wi‑Fi Plans{% endblock %}
+{% block extra_head %}<link href="{% static 'css/plan-lock.css' %}?v=1" rel="stylesheet">{% endblock %}
 {% block content %}
 {% with c=current_business.currency %}
 <div class="page-actions"><div><h2 class="section-title">Plans from TapTap + MikroTik</h2><p>A Full Sync imports RouterOS HotSpot user profiles here without duplicating existing plan names.</p></div><form method="post" action="{% url 'routers_sync_all' %}">{% csrf_token %}<button class="btn btn-outline-primary"><i class="bi bi-arrow-repeat"></i> Sync MikroTik plans</button></form></div>
@@ -13,12 +14,24 @@
 </ul>
 <div class="tab-content">
 <div class="tab-pane fade show active" id="panePlans" role="tabpanel" aria-labelledby="tabPlans">
+{% if locked %}<div class="panel pl-sunset mb-4"><div class="panel-head"><div><h3><i class="bi bi-lock-fill"></i> Locked plans — winding down</h3><p>No new vouchers are made with these plans anywhere. What is already out there keeps working until it runs out.</p></div></div>
+<div class="pl-sunset-list">{% for p in locked %}{% with s=p.sun %}<div class="pl-sun">
+  <div class="pl-sun-head"><b>{{ p.name }}</b> <span class="pl-lock-badge {{ p.sale_lock }}">{% if p.sale_lock == 'sealed' %}Sealed{% else %}Locked{% endif %}</span>
+    <small class="text-secondary d-block">{{ p.lock_text }}</small>
+    {% if p.sale_replacement and not p.sale_replacement.sale_lock %}<small class="d-block">Staff are pointed to <b>{{ p.sale_replacement.name }}</b>.</small>{% endif %}</div>
+  {% if s.total %}<div class="pl-meter" role="img" aria-label="{{ s.total }} vouchers still out there">
+    {% if s.stock %}<span class="m-stock" style="flex:{{ s.stock }}" title="{{ s.stock }} on the shelf"></span>{% endif %}{% if s.agents %}<span class="m-agents" style="flex:{{ s.agents }}" title="{{ s.agents }} with agents"></span>{% endif %}{% if s.sold %}<span class="m-sold" style="flex:{{ s.sold }}" title="{{ s.sold }} sold, not used yet"></span>{% endif %}{% if s.running %}<span class="m-running" style="flex:{{ s.running }}" title="{{ s.running }} running now"></span>{% endif %}</div>
+  <div class="pl-legend small"><span><i class="m-stock"></i>{{ s.stock }} on the shelf</span><span><i class="m-agents"></i>{{ s.agents }} with agents</span><span><i class="m-sold"></i>{{ s.sold }} sold, not used</span><span><i class="m-running"></i>{{ s.running }} running</span></div>{% endif %}
+  <small class="text-secondary">{{ s.when }}</small>
+</div>{% endwith %}{% endfor %}</div></div>{% endif %}
 <div class="row g-4"><div class="col-xl-8"><div class="panel"><div class="panel-head"><div><h3>Your plans</h3><p>Customer access products and limits.</p></div></div><div class="table-responsive"><table class="table align-middle"><thead><tr><th>Name</th><th>Origin</th><th>Price</th><th>Duration</th><th>Devices</th><th>Speed</th><th>Router</th><th></th></tr></thead><tbody>
-{% for p in plans %}<tr class="{% if not p.active %}opacity-50{% endif %}"><td><a class="fw-bold text-decoration-none" href="{% url 'plan_detail' p.id %}">{{ p.name }}</a>{% if p.mikrotik_profile_name %}<small class="d-block text-secondary">Profile: {{ p.mikrotik_profile_name }}</small>{% endif %}</td><td><span class="badge {% if p.source == 'mikrotik' %}text-bg-dark{% else %}text-bg-primary{% endif %}">{{ p.get_source_display }}</span></td>
+{% for p in plans %}<tr class="{% if not p.active %}opacity-50{% endif %}"><td><a class="fw-bold text-decoration-none" href="{% url 'plan_detail' p.id %}">{{ p.name }}</a>{% if p.mikrotik_profile_name %}<small class="d-block text-secondary">Profile: {{ p.mikrotik_profile_name }}</small>{% endif %}{% if p.closed %}<span class="pl-lock-badge {{ p.sale_lock }}" title="{{ p.lock_text }}"><i class="bi {% if p.sale_lock == 'sealed' %}bi-shield-lock-fill{% else %}bi-lock-fill{% endif %}"></i> {% if p.sale_lock == 'sealed' %}Sealed{% else %}Locked{% endif %} · no new vouchers</span>{% endif %}</td><td><span class="badge {% if p.source == 'mikrotik' %}text-bg-dark{% else %}text-bg-primary{% endif %}">{{ p.get_source_display }}</span></td>
 <td>{% if p.is_free %}<span class="badge text-bg-success">Free</span><small class="d-block text-secondary">{% if p.price_source == 'member' %}free member plan{% else %}no charge{% endif %}</small>{% elif p.price %}<b>{{ p.price|money:c }}</b><small class="d-block text-secondary">{% if p.price_source == 'router' %}from router{% elif p.price_source == 'manual' %}set in TapTap{% elif p.price_source == 'member' %}from the member plan{% endif %}</small>{% else %}<span class="badge text-bg-warning">No price</span>{% endif %}{% if p.zero_vouchers and p.price %}<small class="d-block text-danger">{{ p.zero_vouchers }} voucher{{ p.zero_vouchers|pluralize }} at {{ c }}0 — save to fix</small>{% endif %}</td>
 <td>{% if p.is_unlimited %}<span class="badge text-bg-info">Unlimited</span>{% else %}{{ p.duration_minutes|minutes_text }}{% endif %}</td><td>{{ p.max_devices }}</td><td>{{ p.speed_limit|default:'—' }}</td><td>{{ p.imported_from_router.name|default:'—' }}</td>
-<td class="text-end"><button class="btn btn-sm {% if p.price or p.is_free %}btn-outline-secondary{% else %}btn-warning{% endif %}" data-bs-toggle="modal" data-bs-target="#planEdit" data-id="{{ p.id }}" data-name="{{ p.name }}" data-free="{{ p.is_free|yesno:'1,0' }}" data-price="{{ p.price|floatformat:'-2' }}" data-value="{{ p.duration_value }}" data-unit="{{ p.duration_unit }}" data-devices="{{ p.max_devices }}" data-active="{{ p.active|yesno:'1,0' }}" data-zero="{{ p.zero_vouchers }}">{% if p.price or p.is_free %}Edit{% else %}Set price{% endif %}</button>
-{% if p.v_live %}<button type="button" class="btn btn-sm btn-outline-primary ms-1" title="Move its vouchers to another plan" aria-label="Move the vouchers of {{ p.name }}" data-bs-toggle="modal" data-bs-target="#planMove" data-id="{{ p.id }}" data-name="{{ p.name }}" data-live="{{ p.v_live }}" data-used="{{ p.v_live_used }}"><i class="bi bi-arrow-left-right"></i></button>{% endif %}
+<td class="text-end">{% if p.sale_lock == 'sealed' %}<span class="d-inline-block" tabindex="0" title="Sealed — it cannot be edited, so its vouchers stay exactly as sold."><button type="button" class="btn btn-sm btn-outline-secondary" disabled>Edit</button></span>{% else %}<button class="btn btn-sm {% if p.price or p.is_free %}btn-outline-secondary{% else %}btn-warning{% endif %}" data-bs-toggle="modal" data-bs-target="#planEdit" data-id="{{ p.id }}" data-name="{{ p.name }}" data-free="{{ p.is_free|yesno:'1,0' }}" data-price="{{ p.price|floatformat:'-2' }}" data-value="{{ p.duration_value }}" data-unit="{{ p.duration_unit }}" data-devices="{{ p.max_devices }}" data-active="{{ p.active|yesno:'1,0' }}" data-zero="{{ p.zero_vouchers }}">{% if p.price or p.is_free %}Edit{% else %}Set price{% endif %}</button>{% endif %}
+{% if is_owner %}{% if p.sale_lock == 'sealed' %}{% elif p.closed %}<form class="d-inline" method="post" action="{% url 'plan_sale_lock' p.id %}">{% csrf_token %}<input type="hidden" name="action" value="unlock"><button class="btn btn-sm btn-outline-success ms-1" title="Reopen {{ p.name }}: new vouchers can be made again" aria-label="Reopen {{ p.name }}"><i class="bi bi-unlock"></i></button></form>
+{% else %}<button type="button" class="btn btn-sm btn-outline-dark ms-1" title="Lock {{ p.name }}: stop new vouchers" aria-label="Lock {{ p.name }}" data-bs-toggle="modal" data-bs-target="#planLock" data-id="{{ p.id }}" data-name="{{ p.name }}" data-live="{{ p.v_live }}" data-unused="{{ p.v_unused }}" data-sold="{{ p.v_sold_unused }}" data-used="{{ p.v_live_used }}"><i class="bi bi-lock"></i></button>{% endif %}{% endif %}
+{% if p.v_live and p.sale_lock != 'sealed' %}<button type="button" class="btn btn-sm btn-outline-primary ms-1" title="Move its vouchers to another plan" aria-label="Move the vouchers of {{ p.name }}" data-bs-toggle="modal" data-bs-target="#planMove" data-id="{{ p.id }}" data-name="{{ p.name }}" data-live="{{ p.v_live }}" data-used="{{ p.v_live_used }}"><i class="bi bi-arrow-left-right"></i></button>{% endif %}
 {% if p.can_delete %}<button type="button" class="btn btn-sm btn-outline-danger ms-1" title="Delete plan" aria-label="Delete {{ p.name }}" data-bs-toggle="modal" data-bs-target="#planDelete" data-id="{{ p.id }}" data-name="{{ p.name }}" data-total="{{ p.v_total }}" data-used="{{ p.v_used }}" data-unused="{{ p.v_unused }}" data-sold="{{ p.v_sold_unused }}"><i class="bi bi-trash"></i></button>
 {% elif p.v_live %}<span class="d-inline-block ms-1" tabindex="0" title="{{ p.v_live }} voucher{{ p.v_live|pluralize }} still on this plan — move {{ p.v_live|pluralize:'it,them' }} to another plan first, then delete it."><button type="button" class="btn btn-sm btn-outline-secondary" disabled aria-label="Move the vouchers of {{ p.name }} before deleting it"><i class="bi bi-trash"></i></button></span>
 {% else %}<span class="d-inline-block ms-1" tabindex="0" title="{{ p.v_used }} voucher{{ p.v_used|pluralize }} of this plan {{ p.v_used|pluralize:'has,have' }} been used — only an Owner or Admin can delete it."><button type="button" class="btn btn-sm btn-outline-secondary" disabled aria-label="Only an Owner or Admin can delete {{ p.name }}"><i class="bi bi-lock"></i></button></span>{% endif %}</td></tr>
@@ -70,6 +83,35 @@
   </div>
 </div>
 </div>
+ {% if is_owner %}<div class="modal fade" id="planLock" tabindex="-1" aria-labelledby="plTitle"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post">{% csrf_token %}<input type="hidden" name="action" value="lock">
+  <div class="modal-header border-0"><h5 class="modal-title fw-bold" id="plTitle"><i class="bi bi-lock"></i> Lock <span data-name></span></h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body pt-0">
+    <div class="pl-keeps small"><b>Nobody is cut off.</b> The <b data-live></b> voucher(s) already made keep working until they run out — <span data-unused></span> not used yet, <span data-used></span> in use. Only <b>new</b> vouchers stop: Generate, the app, agents' orders, the online shop, the portal price list and the Market.</div>
+    <div class="pl-kinds mt-3" role="radiogroup" aria-label="How to close it">
+      <label class="pl-kind"><input type="radio" name="kind" value="locked" checked><span><b><i class="bi bi-lock-fill"></i> Lock</b><small>Stop new vouchers. Only you can reopen it — or pick a date and it reopens by itself.</small></span></label>
+      <label class="pl-kind"><input type="radio" name="kind" value="sealed"><span><b><i class="bi bi-shield-lock-fill"></i> Seal for good</b><small>Never again. The plan can no longer be edited, moved or deleted, so every voucher stays exactly as sold.</small></span></label>
+    </div>
+    <label class="form-label small fw-bold mt-3">Why? <span class="text-secondary fw-normal">(shown to your team)</span></label>
+    <input class="form-control" name="reason" maxlength="200" placeholder="e.g. Price changing next month, holiday promotion ended">
+    <div data-for="locked"><label class="form-label small fw-bold mt-3">Reopen by itself on <span class="text-secondary fw-normal">(optional)</span></label>
+      <input class="form-control" type="datetime-local" name="until"></div>
+    <label class="form-label small fw-bold mt-3">Point staff to this plan instead <span class="text-secondary fw-normal">(optional)</span></label>
+    <select class="form-select" name="replacement"><option value="">— none —</option>{% for q in open_plans %}<option value="{{ q.id }}" data-plan="{{ q.id }}">{{ q.name }}{% if q.price %} · {{ q.price|money:c }}{% endif %}</option>{% endfor %}</select>
+    <div data-for="sealed" hidden><label class="form-label small fw-bold mt-3 text-danger">Type <b data-name></b> to seal it for good</label>
+      <input class="form-control" name="confirm" autocomplete="off"></div>
+  </div>
+  <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-dark" data-go><i class="bi bi-lock-fill"></i> Lock plan</button></div>
+</form></div></div>
+<script>(function(){const m=document.getElementById('planLock');if(!m)return;const f=m.querySelector('form');
+function kind(){const k=f.querySelector('[name=kind]:checked').value;m.querySelectorAll('[data-for]').forEach(x=>x.hidden=x.dataset.for!==k);
+f.confirm.required=k==='sealed';const b=m.querySelector('[data-go]');b.className='btn '+(k==='sealed'?'btn-danger':'btn-dark');
+b.innerHTML=k==='sealed'?'<i class="bi bi-shield-lock-fill"></i> Seal for good':'<i class="bi bi-lock-fill"></i> Lock plan';}
+f.querySelectorAll('[name=kind]').forEach(r=>r.addEventListener('change',kind));
+m.addEventListener('show.bs.modal',e=>{const d=e.relatedTarget.dataset;f.action='/plans/'+d.id+'/lock/';f.reset();
+m.querySelectorAll('[data-name]').forEach(x=>x.textContent=d.name);m.querySelector('[data-live]').textContent=d.live;
+m.querySelector('[data-unused]').textContent=d.unused;m.querySelector('[data-used]').textContent=d.used;
+f.querySelectorAll('option[data-plan]').forEach(o=>{o.hidden=o.dataset.plan===d.id;});
+const t=new Date();t.setMinutes(t.getMinutes()-t.getTimezoneOffset()+5);f.until.min=t.toISOString().slice(0,16);kind();});})();</script>{% endif %}
 <div class="modal fade" id="planMove" tabindex="-1" aria-labelledby="pmTitle"><div class="modal-dialog modal-dialog-centered"><form class="modal-content" method="post">{% csrf_token %}
   <div class="modal-header border-0"><h5 class="modal-title fw-bold" id="pmTitle">Move vouchers of <span data-name></span></h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
   <div class="modal-body pt-0">
@@ -78,7 +120,7 @@
       <li>Unused ones take the new plan's length and devices (and its price, if not sold yet).</li>
       <li>On the router only the profile changes; people online carry on.</li></ul>
     <label class="form-label small fw-bold">Move them to</label>
-    <select class="form-select" name="to" required><option value="">Choose a plan…</option>{% for q in plans %}<option value="{{ q.id }}" data-plan="{{ q.id }}">{{ q.name }} — {% if q.is_free %}free{% else %}{{ q.price|floatformat:'-2' }}{% endif %} · {% if q.is_unlimited %}unlimited{% else %}{{ q.duration_minutes|minutes_text }}{% endif %} · {{ q.max_devices }} device{{ q.max_devices|pluralize }}</option>{% endfor %}</select>
+    <select class="form-select" name="to" required><option value="">Choose a plan…</option>{% for q in plans %}<option value="{{ q.id }}" data-plan="{{ q.id }}"{% if q.closed %} disabled{% endif %}>{% if q.closed %}🔒 {% endif %}{{ q.name }} — {% if q.is_free %}free{% else %}{{ q.price|floatformat:'-2' }}{% endif %} · {% if q.is_unlimited %}unlimited{% else %}{{ q.duration_minutes|minutes_text }}{% endif %} · {{ q.max_devices }} device{{ q.max_devices|pluralize }}</option>{% endfor %}</select>
     <label class="form-check mt-3"><input class="form-check-input" type="checkbox" name="delete_after"> <span class="form-check-label">Then delete <span data-name></span> (it will be empty)</span></label>
   </div>
   <div class="modal-footer border-0"><button type="button" class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary"><i class="bi bi-arrow-left-right"></i> Move vouchers</button></div>
